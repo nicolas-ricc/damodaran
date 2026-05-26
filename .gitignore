@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Project artifacts
+.env
+bot.duckdb
+bot.duckdb.wal
+reports/
+logs/
+
+# VCR — record locally, ignore re-records
+tests/fixtures/cassettes/**/*.yaml.tmp
