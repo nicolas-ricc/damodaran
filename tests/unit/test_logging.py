@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from bot.utils.logging import configure_logging, get_logger
 
 
@@ -22,3 +24,8 @@ def test_configure_logging_respects_level(capsys):
     captured = capsys.readouterr()
     assert "should_not_appear" not in captured.out
     assert "should_appear" in captured.out
+
+
+def test_configure_logging_raises_for_invalid_level():
+    with pytest.raises(ValueError, match="Unknown log level"):
+        configure_logging(level="VERBOSE")

@@ -1,6 +1,7 @@
 """Application settings, loaded from environment / .env."""
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -22,7 +23,7 @@ class Settings(BaseSettings):
         description="User-Agent header for SEC EDGAR requests. Required by SEC fair-use policy.",
     )
     reports_dir: Path = Field(default=Path("./reports"))
-    log_level: str = Field(default="INFO")
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")
 
 
 def load_settings() -> Settings:
