@@ -36,6 +36,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/bot"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"src/bot/storage/schema.sql" = "bot/storage/schema.sql"
+
 [tool.ruff]
 line-length = 100
 target-version = "py312"
