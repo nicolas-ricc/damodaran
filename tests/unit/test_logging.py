@@ -1,5 +1,4 @@
 import json
-import logging
 
 from bot.utils.logging import configure_logging, get_logger
 
