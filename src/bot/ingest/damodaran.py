@@ -9,6 +9,7 @@ required.
 from __future__ import annotations
 
 import uuid
+import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -110,9 +111,10 @@ def _load_rows(path: Path, sheet_name: str | None) -> tuple[list[list[Any]], str
 
     Tries openpyxl first (xlsx), then falls back to xlrd (legacy xls).
     """
-    try:
-        import openpyxl
+    import openpyxl
+    import openpyxl.utils.exceptions
 
+    try:
         wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
         names: list[str] = list(wb.sheetnames)
         if sheet_name is not None:
@@ -125,7 +127,9 @@ def _load_rows(path: Path, sheet_name: str | None) -> tuple[list[list[Any]], str
         rows: list[list[Any]] = [list(r) for r in ws.iter_rows(values_only=True)]
         wb.close()
         return rows, picked
-    except Exception as exc:
+    except ValueError:
+        raise  # explicit sheet-not-found error — do not fall through to xlrd
+    except (openpyxl.utils.exceptions.InvalidFileException, zipfile.BadZipFile, OSError) as exc:
         log.info(
             "damodaran.openpyxl_failed_falling_back_to_xlrd",
             path=str(path),
@@ -228,7 +232,12 @@ def _to_normalized_rows(
         for db_col, xls_col in column_map.items():
             if xls_col not in record:
                 continue
-            normalized[db_col] = _coerce_value(record[xls_col])
+            # Leave the PK column as-is (always a string identifier).
+            if db_col == pk_field:
+                raw = record[xls_col]
+                normalized[db_col] = str(raw).strip() if raw is not None else None
+            else:
+                normalized[db_col] = _coerce_value(record[xls_col])
 
         pk_val = normalized.get(pk_field)
         if pk_val is None or (isinstance(pk_val, str) and pk_val == ""):
@@ -317,7 +326,10 @@ def download_dataset(url: str, dest: Path, timeout: float = 60.0) -> Path:
 
 
 def upsert_industry_rows(conn: duckdb.DuckDBPyConnection, rows: list[dict[str, Any]]) -> int:
-    """Upsert into damodaran_industry. Replaces all rows for the (region, year) tuples present."""
+    """Upsert into damodaran_industry for the (region, year) tuples present.
+
+    Must be called inside an open transaction; does not manage its own BEGIN/COMMIT.
+    """
     if not rows:
         return 0
     all_columns: set[str] = set()
@@ -325,30 +337,27 @@ def upsert_industry_rows(conn: duckdb.DuckDBPyConnection, rows: list[dict[str, A
         all_columns.update(r.keys())
     cols = sorted(all_columns)
 
-    conn.execute("BEGIN TRANSACTION")
-    try:
-        pairs = {(r["region"], r["year"]) for r in rows}
-        for region, year in pairs:
-            conn.execute(
-                "DELETE FROM damodaran_industry WHERE region = ? AND year = ?",
-                [region, year],
-            )
-        placeholders = ", ".join(["?"] * len(cols))
-        col_list = ", ".join(cols)
-        for r in rows:
-            conn.execute(
-                f"INSERT INTO damodaran_industry ({col_list}) VALUES ({placeholders})",
-                [r.get(c) for c in cols],
-            )
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
+    pairs = {(r["region"], r["year"]) for r in rows}
+    for region, year in pairs:
+        conn.execute(
+            "DELETE FROM damodaran_industry WHERE region = ? AND year = ?",
+            [region, year],
+        )
+    placeholders = ", ".join(["?"] * len(cols))
+    col_list = ", ".join(cols)
+    for r in rows:
+        conn.execute(
+            f"INSERT INTO damodaran_industry ({col_list}) VALUES ({placeholders})",
+            [r.get(c) for c in cols],
+        )
     return len(rows)
 
 
 def upsert_country_rows(conn: duckdb.DuckDBPyConnection, rows: list[dict[str, Any]]) -> int:
-    """Upsert into damodaran_country. Replaces all rows for the years present."""
+    """Upsert into damodaran_country for the years present.
+
+    Must be called inside an open transaction; does not manage its own BEGIN/COMMIT.
+    """
     if not rows:
         return 0
     all_columns: set[str] = set()
@@ -356,22 +365,16 @@ def upsert_country_rows(conn: duckdb.DuckDBPyConnection, rows: list[dict[str, An
         all_columns.update(r.keys())
     cols = sorted(all_columns)
 
-    conn.execute("BEGIN TRANSACTION")
-    try:
-        years = {r["year"] for r in rows}
-        for year in years:
-            conn.execute("DELETE FROM damodaran_country WHERE year = ?", [year])
-        placeholders = ", ".join(["?"] * len(cols))
-        col_list = ", ".join(cols)
-        for r in rows:
-            conn.execute(
-                f"INSERT INTO damodaran_country ({col_list}) VALUES ({placeholders})",
-                [r.get(c) for c in cols],
-            )
-        conn.execute("COMMIT")
-    except Exception:
-        conn.execute("ROLLBACK")
-        raise
+    years = {r["year"] for r in rows}
+    for year in years:
+        conn.execute("DELETE FROM damodaran_country WHERE year = ?", [year])
+    placeholders = ", ".join(["?"] * len(cols))
+    col_list = ", ".join(cols)
+    for r in rows:
+        conn.execute(
+            f"INSERT INTO damodaran_country ({col_list}) VALUES ({placeholders})",
+            [r.get(c) for c in cols],
+        )
     return len(rows)
 
 
@@ -420,13 +423,45 @@ def import_damodaran_from_files(
             year=year,
             column_map=DEFAULT_COUNTRY_COLUMN_MAP,
         )
-        total = upsert_industry_rows(conn, industry_rows) + upsert_country_rows(conn, country_rows)
+
+        # Detect empty-row situation before touching the DB.
+        empty_sides: list[str] = []
+        if not industry_rows:
+            empty_sides.append("industry")
+        if not country_rows:
+            empty_sides.append("country")
+        if empty_sides:
+            log.warning(
+                "damodaran.import.empty_rows",
+                industry=len(industry_rows),
+                country=len(country_rows),
+                region=region,
+                year=year,
+            )
+
+        conn.execute("BEGIN TRANSACTION")
+        try:
+            ind = upsert_industry_rows(conn, industry_rows)
+            ctry = upsert_country_rows(conn, country_rows)
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+
+        total = ind + ctry
+        if empty_sides:
+            status: str = "partial"
+            error_message: str | None = f"empty rows for: {', '.join(empty_sides)}"
+        else:
+            status = "success"
+            error_message = None
         result = IngestResult(
             source="damodaran",
             started_at=started,
             finished_at=datetime.now(),
-            status="success",
+            status=status,  # type: ignore[arg-type]
             rows_affected=total,
+            error_message=error_message,
             details={
                 "industry_rows": len(industry_rows),
                 "country_rows": len(country_rows),
@@ -458,8 +493,22 @@ def import_damodaran(
 ) -> IngestResult:
     """Download and import current-year Damodaran datasets."""
     year = year or datetime.now().year
-    industry_path = download_dataset(industry_url, download_dir / "wacc.xls")
-    country_path = download_dataset(country_url, download_dir / "ctryprem.xls")
+    started = datetime.now()
+    run_id = str(uuid.uuid4())
+    try:
+        industry_path = download_dataset(industry_url, download_dir / "wacc.xls")
+        country_path = download_dataset(country_url, download_dir / "ctryprem.xls")
+    except Exception as e:
+        log.exception("damodaran.download.failed", error=str(e))
+        result = IngestResult(
+            source="damodaran",
+            started_at=started,
+            finished_at=datetime.now(),
+            status="error",
+            error_message=f"download failed: {e}",
+        )
+        _log_refresh(conn, result, run_id)
+        return result
     return import_damodaran_from_files(
         conn,
         industry_path=industry_path,
