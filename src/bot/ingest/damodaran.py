@@ -8,9 +8,15 @@ required.
 
 from __future__ import annotations
 
+import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import duckdb
+import httpx
+
+from bot.ingest.base import IngestResult
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -183,7 +189,7 @@ def _load_to_records(path: Path, sheet_name: str | None) -> list[dict[str, Any]]
 
 
 def _coerce_value(value: Any) -> Any:
-    """Coerce a single cell value: strip strings, parse percentage strings."""
+    """Coerce a single cell value: strip strings, parse percentage strings, coerce numeric strings."""
     if isinstance(value, str):
         value = value.strip()
         if value == "":
@@ -193,6 +199,11 @@ def _coerce_value(value: Any) -> Any:
                 return float(value[:-1]) / 100.0
             except ValueError:
                 pass
+        # Try to coerce plain numeric strings (e.g. "1.23") to float.
+        try:
+            return float(value)
+        except ValueError:
+            pass
     return value
 
 
@@ -204,9 +215,12 @@ def _to_normalized_rows(
     """Apply *column_map*, attach *constants*, drop blank-PK rows.
 
     The first key in *column_map* is treated as the primary-key field; any
-    row whose PK value is blank/None is dropped.
+    row whose PK value is blank/None is dropped.  Rows where the PK value
+    equals the xls header string for the PK column are also dropped — these
+    are repeated sub-headers that Damodaran embeds mid-sheet.
     """
     pk_field = next(iter(column_map))
+    pk_xls_col = column_map[pk_field]  # e.g. "Country" or "Industry Name"
     out: list[dict[str, Any]] = []
 
     for record in records:
@@ -218,6 +232,10 @@ def _to_normalized_rows(
 
         pk_val = normalized.get(pk_field)
         if pk_val is None or (isinstance(pk_val, str) and pk_val == ""):
+            continue
+        # Drop repeated sub-headers embedded mid-sheet (e.g. a row where
+        # the country cell literally contains "Country").
+        if isinstance(pk_val, str) and pk_val == pk_xls_col:
             continue
         out.append(normalized)
 
@@ -279,3 +297,173 @@ def parse_country_xls(
         log.warning("damodaran.country.empty_file", path=str(path))
         return []
     return _to_normalized_rows(records, column_map, {"year": year})
+
+
+# ---------- Downloader ----------
+
+
+def download_dataset(url: str, dest: Path, timeout: float = 60.0) -> Path:
+    """Download a Damodaran xls/xlsx file to dest. Overwrites if present."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+        response = client.get(url)
+        response.raise_for_status()
+        dest.write_bytes(response.content)
+    log.info("damodaran.download.ok", url=url, dest=str(dest), bytes=len(response.content))
+    return dest
+
+
+# ---------- Upserts ----------
+
+
+def upsert_industry_rows(conn: duckdb.DuckDBPyConnection, rows: list[dict[str, Any]]) -> int:
+    """Upsert into damodaran_industry. Replaces all rows for the (region, year) tuples present."""
+    if not rows:
+        return 0
+    all_columns: set[str] = set()
+    for r in rows:
+        all_columns.update(r.keys())
+    cols = sorted(all_columns)
+
+    conn.execute("BEGIN TRANSACTION")
+    try:
+        pairs = {(r["region"], r["year"]) for r in rows}
+        for region, year in pairs:
+            conn.execute(
+                "DELETE FROM damodaran_industry WHERE region = ? AND year = ?",
+                [region, year],
+            )
+        placeholders = ", ".join(["?"] * len(cols))
+        col_list = ", ".join(cols)
+        for r in rows:
+            conn.execute(
+                f"INSERT INTO damodaran_industry ({col_list}) VALUES ({placeholders})",
+                [r.get(c) for c in cols],
+            )
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    return len(rows)
+
+
+def upsert_country_rows(conn: duckdb.DuckDBPyConnection, rows: list[dict[str, Any]]) -> int:
+    """Upsert into damodaran_country. Replaces all rows for the years present."""
+    if not rows:
+        return 0
+    all_columns: set[str] = set()
+    for r in rows:
+        all_columns.update(r.keys())
+    cols = sorted(all_columns)
+
+    conn.execute("BEGIN TRANSACTION")
+    try:
+        years = {r["year"] for r in rows}
+        for year in years:
+            conn.execute("DELETE FROM damodaran_country WHERE year = ?", [year])
+        placeholders = ", ".join(["?"] * len(cols))
+        col_list = ", ".join(cols)
+        for r in rows:
+            conn.execute(
+                f"INSERT INTO damodaran_country ({col_list}) VALUES ({placeholders})",
+                [r.get(c) for c in cols],
+            )
+        conn.execute("COMMIT")
+    except Exception:
+        conn.execute("ROLLBACK")
+        raise
+    return len(rows)
+
+
+# ---------- High-level importers ----------
+
+
+def _log_refresh(conn: duckdb.DuckDBPyConnection, result: IngestResult, run_id: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO refresh_log
+            (source, run_id, started_at, finished_at, status, rows_affected, error_message)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            result.source,
+            run_id,
+            result.started_at,
+            result.finished_at,
+            result.status,
+            result.rows_affected,
+            result.error_message,
+        ],
+    )
+
+
+def import_damodaran_from_files(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    industry_path: Path,
+    country_path: Path,
+    region: str,
+    year: int,
+) -> IngestResult:
+    """Import already-downloaded Damodaran files into the DB."""
+    started = datetime.now()
+    run_id = str(uuid.uuid4())
+    try:
+        industry_rows = parse_industry_xls(
+            industry_path,
+            region=region,
+            year=year,
+            column_map=DEFAULT_INDUSTRY_COLUMN_MAP,
+        )
+        country_rows = parse_country_xls(
+            country_path,
+            year=year,
+            column_map=DEFAULT_COUNTRY_COLUMN_MAP,
+        )
+        total = upsert_industry_rows(conn, industry_rows) + upsert_country_rows(conn, country_rows)
+        result = IngestResult(
+            source="damodaran",
+            started_at=started,
+            finished_at=datetime.now(),
+            status="success",
+            rows_affected=total,
+            details={
+                "industry_rows": len(industry_rows),
+                "country_rows": len(country_rows),
+                "region": region,
+                "year": year,
+            },
+        )
+    except Exception as e:
+        log.exception("damodaran.import.failed", error=str(e))
+        result = IngestResult(
+            source="damodaran",
+            started_at=started,
+            finished_at=datetime.now(),
+            status="error",
+            error_message=str(e),
+        )
+    _log_refresh(conn, result, run_id)
+    return result
+
+
+def import_damodaran(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    download_dir: Path,
+    region: str = "US",
+    year: int | None = None,
+    industry_url: str = INDUSTRY_WACC_URL,
+    country_url: str = COUNTRY_RISK_URL,
+) -> IngestResult:
+    """Download and import current-year Damodaran datasets."""
+    year = year or datetime.now().year
+    industry_path = download_dataset(industry_url, download_dir / "wacc.xls")
+    country_path = download_dataset(country_url, download_dir / "ctryprem.xls")
+    return import_damodaran_from_files(
+        conn,
+        industry_path=industry_path,
+        country_path=country_path,
+        region=region,
+        year=year,
+    )
