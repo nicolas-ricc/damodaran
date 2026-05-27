@@ -1,0 +1,167 @@
+# Hand-crafted fixture for import_company_from_fmp("NESN.SW").
+# Nestlé S.A. — Swiss ticker, currency CHF, country CH.
+# Verifies that non-US companies have non-USD currency and non-US country.
+# No real API key was used.
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/profile/NESN.SW
+  response:
+    body:
+      string: '[{"symbol":"NESN.SW","price":94.80,"beta":0.71,"volAvg":4120000,"mktCap":252000000000,"lastDiv":2.70,"range":"82.50-110.20","changes":-0.50,"companyName":"Nestlé
+        S.A.","currency":"CHF","cik":"","isin":"CH0012221716","cusip":null,"exchange":"SIX
+        Swiss Exchange","exchangeShortName":"SIX","industry":"Packaged Foods","website":"https://www.nestle.com","description":"Nestlé
+        S.A. is a Swiss multinational food and drink processing conglomerate.","ceo":"Mr.
+        Mark Schneider","sector":"Consumer Defensive","country":"CH","fullTimeEmployees":"275000","phone":"+41-21-924-21-11","address":"Avenue
+        Nestlé 55","city":"Vevey","state":null,"zip":"1800","dcfDiff":null,"dcf":null,"image":"https://images.financialmodelingprep.com/symbol/NESN.SW.png","ipoDate":"1990-01-01","defaultImage":false,"isEtf":false,"isActivelyTrading":true,"isAdr":false,"isFund":false}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/NESN.SW?period=annual&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-12-31","symbol":"NESN.SW","reportedCurrency":"CHF","cik":"","fillingDate":"2024-02-22","acceptedDate":"2024-02-22
+        08:00:00","calendarYear":"2023","period":"FY","revenue":93041000000.0,"costOfRevenue":44521000000.0,"grossProfit":48520000000.0,"operatingExpenses":38498000000.0,"operatingIncome":10022000000.0,"ebitda":15356000000.0,"interestExpense":878000000.0,"incomeTaxExpense":2088000000.0,"netIncome":9023000000.0,"depreciationAndAmortization":5334000000.0,"weightedAverageShsOutDil":2948000000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/NESN.SW?period=quarter&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-06-30","symbol":"NESN.SW","reportedCurrency":"CHF","cik":"","fillingDate":"2023-07-27","acceptedDate":"2023-07-27
+        08:00:00","calendarYear":"2023","period":"Q2","revenue":46286000000.0,"costOfRevenue":22210000000.0,"grossProfit":24076000000.0,"operatingExpenses":19388000000.0,"operatingIncome":4688000000.0,"incomeTaxExpense":892000000.0,"netIncome":3947000000.0,"depreciationAndAmortization":2610000000.0,"weightedAverageShsOutDil":2965000000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/NESN.SW?period=annual&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-12-31","symbol":"NESN.SW","reportedCurrency":"CHF","cik":"","fillingDate":"2024-02-22","calendarYear":"2023","period":"FY","cashAndCashEquivalents":4540000000.0,"totalAssets":110615000000.0,"totalDebt":35284000000.0,"totalStockholdersEquity":29143000000.0,"totalEquity":29143000000.0,"goodwill":31046000000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/NESN.SW?period=quarter&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-06-30","symbol":"NESN.SW","reportedCurrency":"CHF","cik":"","fillingDate":"2023-07-27","calendarYear":"2023","period":"Q2","cashAndCashEquivalents":5810000000.0,"totalAssets":111234000000.0,"totalDebt":38254000000.0,"totalStockholdersEquity":28512000000.0,"goodwill":32001000000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/NESN.SW?period=annual&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-12-31","symbol":"NESN.SW","reportedCurrency":"CHF","cik":"","fillingDate":"2024-02-22","calendarYear":"2023","period":"FY","depreciationAndAmortization":5334000000.0,"operatingCashFlow":14521000000.0,"capitalExpenditure":-3978000000.0,"freeCashFlow":10543000000.0,"dividendsPaid":-7758000000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/NESN.SW?period=quarter&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-06-30","symbol":"NESN.SW","reportedCurrency":"CHF","cik":"","fillingDate":"2023-07-27","calendarYear":"2023","period":"Q2","depreciationAndAmortization":2610000000.0,"operatingCashFlow":6889000000.0,"capitalExpenditure":-1932000000.0,"freeCashFlow":4957000000.0,"dividendsPaid":-3740000000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+version: 1

@@ -1,13 +1,21 @@
-"""Financial Modeling Prep (FMP) adapter — company lookup and fundamentals parser."""
+"""Financial Modeling Prep (FMP) adapter — company lookup, fundamentals parser, and importer."""
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
+import duckdb
 import httpx
 
-from bot.ingest.base import ParsedCompanyData
+from bot.ingest.base import IngestResult, ParsedCompanyData
+from bot.ingest.sec_edgar import (
+    upsert_company,
+    upsert_financials_annual,
+    upsert_financials_quarterly,
+)
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -96,6 +104,30 @@ class FmpClient:
             cik=cik,
             is_actively_trading=bool(profile.get("isActivelyTrading", True)),
         )
+
+    def fetch_income_statement(
+        self, ticker: str, period: str = "annual", limit: int = 20
+    ) -> list[dict[str, Any]]:
+        """Fetch income statement rows. period='annual' or 'quarter'."""
+        ticker = ticker.upper()
+        data: Any = self._get(f"/income-statement/{ticker}", period=period, limit=limit)
+        return list(data) if data else []
+
+    def fetch_balance_sheet(
+        self, ticker: str, period: str = "annual", limit: int = 20
+    ) -> list[dict[str, Any]]:
+        """Fetch balance sheet rows. period='annual' or 'quarter'."""
+        ticker = ticker.upper()
+        data: Any = self._get(f"/balance-sheet-statement/{ticker}", period=period, limit=limit)
+        return list(data) if data else []
+
+    def fetch_cashflow(
+        self, ticker: str, period: str = "annual", limit: int = 20
+    ) -> list[dict[str, Any]]:
+        """Fetch cash flow statement rows. period='annual' or 'quarter'."""
+        ticker = ticker.upper()
+        data: Any = self._get(f"/cash-flow-statement/{ticker}", period=period, limit=limit)
+        return list(data) if data else []
 
 
 # ---------- Fundamentals Parser ----------
@@ -263,3 +295,107 @@ def parse_fmp_fundamentals(
     }
 
     return ParsedCompanyData(company=company, annual=annual, quarterly=quarterly)
+
+
+# ---------- Importer ----------
+
+# Columns present in financials_quarterly (subset of financials_annual).
+_QUARTERLY_COLS = frozenset({
+    "ticker", "fiscal_year", "fiscal_quarter", "period_end_date", "currency",
+    "revenue", "ebit", "ebitda", "net_income",
+    "operating_cashflow", "free_cashflow", "total_debt", "cash",
+    "is_restated", "source",
+})
+
+
+def import_company_from_fmp(
+    conn: duckdb.DuckDBPyConnection,
+    ticker: str,
+    *,
+    api_key: str,
+) -> IngestResult:
+    """Fetch + parse + upsert one ticker from FMP.
+
+    Mirrors ``import_company_from_sec``: returns an ``IngestResult`` and always
+    writes a row to ``refresh_log`` regardless of success or failure.
+    """
+    started = datetime.utcnow()
+    run_id = str(uuid.uuid4())
+    result: IngestResult
+
+    try:
+        with FmpClient(api_key=api_key) as client:
+            info = client.lookup_company(ticker)
+            if info is None:
+                raise ValueError(f"Ticker {ticker!r} not found in FMP")
+
+            income = client.fetch_income_statement(ticker, period="annual") + \
+                client.fetch_income_statement(ticker, period="quarter")
+            balance = client.fetch_balance_sheet(ticker, period="annual") + \
+                client.fetch_balance_sheet(ticker, period="quarter")
+            cashflow = client.fetch_cashflow(ticker, period="annual") + \
+                client.fetch_cashflow(ticker, period="quarter")
+
+        parsed = parse_fmp_fundamentals(ticker, income, balance, cashflow)
+
+        company: dict[str, Any] = {
+            "ticker": info.ticker,
+            "cik": info.cik,
+            "name": info.name,
+            "country": info.country,
+            "exchange": info.exchange,
+            "industry": info.industry,
+            "isin": info.isin,
+            "currency": info.currency,
+            "status": info.status,
+            "source": "fmp",
+        }
+
+        quarterly_rows = [{k: v for k, v in r.items() if k in _QUARTERLY_COLS} for r in parsed.quarterly]
+
+        upsert_company(conn, company)
+        annual_count = upsert_financials_annual(conn, parsed.annual)
+        quarterly_count = upsert_financials_quarterly(conn, quarterly_rows)
+        total = 1 + annual_count + quarterly_count
+
+        result = IngestResult(
+            source="fmp",
+            started_at=started,
+            finished_at=datetime.utcnow(),
+            status="success",
+            rows_affected=total,
+            details={
+                "ticker": ticker,
+                "annual": annual_count,
+                "quarterly": quarterly_count,
+            },
+        )
+
+    except Exception as e:
+        log.exception("fmp.import.failed", ticker=ticker, error=str(e))
+        result = IngestResult(
+            source="fmp",
+            started_at=started,
+            finished_at=datetime.utcnow(),
+            status="error",
+            error_message=str(e),
+            details={"ticker": ticker},
+        )
+
+    conn.execute(
+        """
+        INSERT INTO refresh_log
+            (source, run_id, started_at, finished_at, status, rows_affected, error_message)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            result.source,
+            run_id,
+            result.started_at,
+            result.finished_at,
+            result.status,
+            result.rows_affected,
+            result.error_message,
+        ],
+    )
+    return result
