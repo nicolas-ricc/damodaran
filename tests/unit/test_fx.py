@@ -4,10 +4,18 @@ from __future__ import annotations
 
 from datetime import date
 from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from bot.ingest.fx import _parse_ecb_response, upsert_fx_rows
+from bot.ingest.fx import (
+    UnsupportedCurrencyError,
+    _has_ecb_business_day,
+    _parse_ecb_response,
+    fetch_ecb_rates,
+    import_fx_rates,
+    upsert_fx_rows,
+)
 from bot.storage.db import apply_schema, connect
 from bot.utils.fx import get_fx_rate, to_usd
 
@@ -158,6 +166,94 @@ def test_parse_ecb_response_returns_date_map() -> None:
     assert result == {"2024-01-02": pytest.approx(1.0960)}
 
 
-def test_parse_ecb_response_bad_body_returns_empty() -> None:
-    result = _parse_ecb_response({})
-    assert result == {}
+def test_parse_ecb_response_bad_body_raises() -> None:
+    with pytest.raises(KeyError):
+        _parse_ecb_response({})
+
+
+def test_parse_ecb_response_empty_obs_vals_skipped() -> None:
+    """An observation with an empty list is skipped rather than raising IndexError."""
+    fake_response: dict[str, Any] = {
+        "dataSets": [
+            {
+                "series": {
+                    "0:0:0:0:0": {
+                        "observations": {
+                            "0": [],
+                            "1": [1.0960, 0, 0],
+                        }
+                    }
+                }
+            }
+        ],
+        "structure": {
+            "dimensions": {
+                "observation": [
+                    {
+                        "id": "TIME_PERIOD",
+                        "values": [{"id": "2024-01-01"}, {"id": "2024-01-02"}],
+                    }
+                ]
+            }
+        },
+    }
+    result = _parse_ecb_response(fake_response)
+    assert result == {"2024-01-02": pytest.approx(1.0960)}
+
+
+# ---------- fetch_ecb_rates ----------
+
+
+def test_fetch_ecb_rates_404_raises_unsupported_currency() -> None:
+    mock_resp = MagicMock()
+    mock_resp.status_code = 404
+    mock_client = MagicMock()
+    mock_client.get.return_value = mock_resp
+
+    with pytest.raises(UnsupportedCurrencyError):
+        fetch_ecb_rates("XYZ", date(2024, 1, 2), date(2024, 1, 2), client=mock_client)
+
+
+# ---------- _has_ecb_business_day ----------
+
+
+def test_has_ecb_business_day_weekday_range() -> None:
+    assert _has_ecb_business_day(date(2024, 1, 2), date(2024, 1, 2)) is True  # Tuesday
+
+
+def test_has_ecb_business_day_weekend_only() -> None:
+    assert _has_ecb_business_day(date(2024, 1, 6), date(2024, 1, 7)) is False  # Sat-Sun
+
+
+def test_has_ecb_business_day_week_spanning() -> None:
+    assert _has_ecb_business_day(date(2024, 1, 6), date(2024, 1, 12)) is True  # spans full week
+
+
+# ---------- import_fx_rates — empty usd_per_eur guard ----------
+
+
+def test_import_fx_rates_empty_usd_eur_on_business_day_is_error(db: Any) -> None:
+    with patch("bot.ingest.fx.fetch_ecb_rates", return_value={}):
+        result = import_fx_rates(
+            db,
+            currencies=["EUR"],
+            start=date(2024, 1, 2),
+            end=date(2024, 1, 2),
+            timeout=1.0,
+        )
+    assert result.status == "error"
+    assert result.error_message is not None
+    assert "USD/EUR" in result.error_message
+
+
+def test_import_fx_rates_weekend_only_range_returns_success_zero_rows(db: Any) -> None:
+    with patch("bot.ingest.fx.fetch_ecb_rates", return_value={}):
+        result = import_fx_rates(
+            db,
+            currencies=["EUR"],
+            start=date(2024, 1, 6),
+            end=date(2024, 1, 7),
+            timeout=1.0,
+        )
+    assert result.status == "success"
+    assert result.rows_affected == 0

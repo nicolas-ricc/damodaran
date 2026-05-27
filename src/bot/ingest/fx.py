@@ -13,6 +13,7 @@ See docs/adr/0004-fx-source-ecb.md for the rationale for ECB over FMP.
 
 from __future__ import annotations
 
+import math
 import uuid
 from datetime import date, datetime
 from typing import Any
@@ -28,6 +29,19 @@ log = get_logger(__name__)
 ECB_API_BASE = "https://data-api.ecb.europa.eu/service/data/EXR"
 
 
+class UnsupportedCurrencyError(Exception):
+    """Raised when ECB returns 404 for a currency series (series does not exist)."""
+
+
+def _has_ecb_business_day(start: date, end: date) -> bool:
+    """Return True if [start, end] contains at least one Mon-Fri day."""
+    days = (end - start).days + 1
+    if days >= 7:
+        return True
+    start_dow = start.weekday()
+    return any((start_dow + i) % 7 < 5 for i in range(days))
+
+
 def _ecb_url(currency: str, start: date, end: date) -> str:
     key = f"D.{currency.upper()}.EUR.SP00.A"
     return (
@@ -38,24 +52,22 @@ def _ecb_url(currency: str, start: date, end: date) -> str:
 
 def _parse_ecb_response(body: dict[str, Any]) -> dict[str, float]:
     """Return {date_str: rate} from an ECB SDMX-JSON response."""
-    try:
-        obs_dims = body["structure"]["dimensions"]["observation"]
-        time_dim = next(d for d in obs_dims if d["id"] == "TIME_PERIOD")
-        date_values: list[str] = [v["id"] for v in time_dim["values"]]
+    obs_dims = body["structure"]["dimensions"]["observation"]
+    time_dim = next(d for d in obs_dims if d["id"] == "TIME_PERIOD")
+    date_values: list[str] = [v["id"] for v in time_dim["values"]]
 
-        series_data: dict[str, Any] = body["dataSets"][0]["series"]
-        observations: dict[str, list[Any]] = next(iter(series_data.values()))["observations"]
+    series_data: dict[str, Any] = body["dataSets"][0]["series"]
+    observations: dict[str, list[Any]] = next(iter(series_data.values()))["observations"]
 
-        result: dict[str, float] = {}
-        for idx_str, obs_vals in observations.items():
-            idx = int(idx_str)
-            val = obs_vals[0]
-            if val is not None and idx < len(date_values):
-                result[date_values[idx]] = float(val)
-        return result
-    except (KeyError, StopIteration, IndexError, TypeError) as exc:
-        log.warning("ecb.parse_failed", error=str(exc))
-        return {}
+    result: dict[str, float] = {}
+    for idx_str, obs_vals in observations.items():
+        idx = int(idx_str)
+        if not obs_vals:
+            continue
+        val = obs_vals[0]
+        if val is not None and idx < len(date_values):
+            result[date_values[idx]] = float(val)
+    return result
 
 
 def fetch_ecb_rates(
@@ -70,8 +82,7 @@ def fetch_ecb_rates(
     log.info("ecb.fetch", currency=currency, start=str(start), end=str(end))
     resp = client.get(url)
     if resp.status_code == 404:
-        log.warning("ecb.not_found", currency=currency, url=url)
-        return {}
+        raise UnsupportedCurrencyError(currency)
     resp.raise_for_status()
     return _parse_ecb_response(resp.json())
 
@@ -147,6 +158,8 @@ def import_fx_rates(
             follow_redirects=True,
         ) as client:
             usd_per_eur = fetch_ecb_rates("USD", start, end, client=client)
+            if not usd_per_eur and _has_ecb_business_day(start, end):
+                errors.append("USD/EUR: no observations returned for a range containing ECB business days")
 
             for currency in currencies:
                 ccy = currency.upper()
@@ -166,7 +179,11 @@ def import_fx_rates(
                     else:
                         ccy_rates = fetch_ecb_rates(ccy, start, end, client=client)
                         for d, ccy_per_eur in ccy_rates.items():
-                            if d not in usd_per_eur or ccy_per_eur == 0.0:
+                            if (
+                                d not in usd_per_eur
+                                or math.isclose(ccy_per_eur, 0.0, abs_tol=1e-12)
+                                or not math.isfinite(ccy_per_eur)
+                            ):
                                 continue
                             rows_to_insert.append(
                                 {
