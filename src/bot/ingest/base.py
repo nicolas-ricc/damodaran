@@ -24,3 +24,13 @@ class IngestResult:
 
     def is_success(self) -> bool:
         return self.status == "success"
+
+
+@dataclass
+class ParsedCompanyData:
+    """Normalized output from any fundamentals parser (SEC EDGAR, FMP, …)."""
+
+    company: dict[str, Any]
+    annual: list[dict[str, Any]] = field(default_factory=list)
+    quarterly: list[dict[str, Any]] = field(default_factory=list)
+    filings: list[dict[str, Any]] = field(default_factory=list)
