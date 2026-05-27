@@ -120,13 +120,14 @@ CREATE TABLE IF NOT EXISTS filings_log (
 
 -- Daily price history populated by FMP (M2.4)
 CREATE TABLE IF NOT EXISTS prices_daily (
-    ticker      VARCHAR NOT NULL,
-    date        DATE NOT NULL,
-    close       DOUBLE NOT NULL,
-    volume      BIGINT,
-    market_cap  DOUBLE,
-    currency    VARCHAR,
-    fetched_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ticker          VARCHAR NOT NULL,
+    date            DATE NOT NULL,
+    close           DOUBLE NOT NULL,
+    adjusted_close  DOUBLE,
+    volume          BIGINT,
+    market_cap      DOUBLE,
+    currency        VARCHAR,
+    fetched_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (ticker, date)
 );
 

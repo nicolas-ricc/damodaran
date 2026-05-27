@@ -1,6 +1,7 @@
 # Hand-crafted fixture for second-run incremental check.
-# DB is pre-seeded with data up to 2024-01-05; importer fetches from=2024-01-05.
-# FMP returns that same date; after filtering (strictly >), 0 new rows are inserted.
+# DB is pre-seeded with data up to 2024-01-05; importer re-fetches the last
+# _REFRESH_WINDOW_DAYS (7) calendar days, so from=2023-12-29.
+# All 3 rows in the window are upserted (rows_affected=3, count stays at 3).
 # No real API key was used.
 interactions:
 - request:
@@ -42,11 +43,13 @@ interactions:
       User-Agent:
       - python-httpx/0.27.0
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/historical-price-full/AAPL?from=2024-01-05
+    uri: https://financialmodelingprep.com/api/v3/historical-price-full/AAPL?from=2023-12-29
   response:
     body:
       string: '{"symbol":"AAPL","historical":[{"date":"2024-01-05","open":181.99,"high":182.09,"low":178.74,"close":181.18,"adjClose":181.18,"volume":62303300,"unadjustedVolume":62303300,"change":-0.81,"changePercent":-0.44541,"vwap":180.67,"label":"January
-        05, 24","changeOverTime":-0.0044541}]}'
+        05, 24","changeOverTime":-0.0044541},{"date":"2024-01-04","open":182.15,"high":183.09,"low":180.84,"close":181.91,"adjClose":181.91,"volume":71983900,"unadjustedVolume":71983900,"change":-0.24,"changePercent":-0.13181,"vwap":181.94,"label":"January
+        04, 24","changeOverTime":-0.0013181},{"date":"2024-01-03","open":184.22,"high":185.88,"low":183.43,"close":184.25,"adjClose":184.25,"volume":58414500,"unadjustedVolume":58414500,"change":0.03,"changePercent":0.01629,"vwap":184.52,"label":"January
+        03, 24","changeOverTime":0.0001629}]}'
     headers:
       Content-Type:
       - application/json; charset=utf-8

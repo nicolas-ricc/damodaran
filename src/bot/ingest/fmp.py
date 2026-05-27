@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import duckdb
@@ -17,15 +17,25 @@ log = get_logger(__name__)
 
 FMP_BASE_URL = "https://financialmodelingprep.com/api/v3"
 
+# Always re-fetch this many calendar days of history on every run, so that
+# same-day re-runs refresh today's bar and recent data-vendor corrections are
+# picked up.  ~5 trading days.  Deep historical revisions (>7 days back)
+# still require an explicit since_date backfill.
+_REFRESH_WINDOW_DAYS = 7
+
+# Skip the FMP profile call when the companies row is fresher than this.
+_COMPANY_CACHE_DAYS = 30
+
 
 @dataclass
 class PricePoint:
     """One day of price data returned by FmpClient.fetch_historical_prices."""
 
-    date: str  # ISO "YYYY-MM-DD"
+    date: date
     close: float
     volume: int | None
     market_cap: float | None = None
+    adj_close: float | None = None
 
 
 @dataclass
@@ -115,8 +125,8 @@ class FmpClient:
     ) -> list[PricePoint]:
         """Return daily close + volume for *ticker* from *since_date* onwards.
 
-        FMP's ``from`` parameter is inclusive; callers that want strictly-newer
-        rows must filter the result themselves.
+        FMP's ``from`` parameter is inclusive.  Rows with unparseable dates are
+        logged and skipped.
         """
         ticker = ticker.upper()
         params: dict[str, Any] = {}
@@ -126,14 +136,28 @@ class FmpClient:
         historical: list[dict[str, Any]] = (
             data.get("historical", []) if isinstance(data, dict) else []
         )
-        return [
-            PricePoint(
-                date=str(entry["date"]),
-                close=float(entry["close"]),
-                volume=int(entry["volume"]) if entry.get("volume") is not None else None,
+        points: list[PricePoint] = []
+        for entry in historical:
+            try:
+                pt_date = date.fromisoformat(str(entry["date"]))
+            except (ValueError, KeyError):
+                log.warning("fmp.bad_date_skipped", entry=entry)
+                continue
+            points.append(
+                PricePoint(
+                    date=pt_date,
+                    close=float(entry["close"]),
+                    volume=(
+                        int(entry["volume"]) if entry.get("volume") is not None else None
+                    ),
+                    adj_close=(
+                        float(entry["adjClose"])
+                        if entry.get("adjClose") is not None
+                        else None
+                    ),
+                )
             )
-            for entry in historical
-        ]
+        return points
 
 
 def import_prices_from_fmp(
@@ -145,13 +169,21 @@ def import_prices_from_fmp(
 ) -> IngestResult:
     """Fetch daily prices from FMP and upsert into ``prices_daily``.
 
-    Incremental by default: queries ``MAX(date)`` for *ticker* and only fetches
-    rows newer than that.  Pass *since_date* to override the automatic cutoff.
+    Incremental by default: re-fetches the last ``_REFRESH_WINDOW_DAYS``
+    calendar days on every run, so same-day re-runs refresh today's bar and
+    recent data-vendor corrections are picked up.  Pass *since_date* to
+    override the fetch window start entirely.
 
-    The second call with the same *ticker* and no new data upstream inserts
-    zero rows (idempotent).
+    Deep historical revisions (more than ``_REFRESH_WINDOW_DAYS`` days back)
+    still require an explicit *since_date* backfill.
+
+    All writes are executed inside a single transaction; a mid-batch error
+    rolls back the entire batch and records zero rows affected.
+
+    The FMP company profile is skipped when a companies row newer than
+    ``_COMPANY_CACHE_DAYS`` days already exists for the ticker.
     """
-    started = datetime.utcnow()
+    started = datetime.now(UTC)
     run_id = str(uuid.uuid4())
     ticker = ticker.upper()
 
@@ -161,37 +193,67 @@ def import_prices_from_fmp(
         ).fetchone()
         db_max: date | None = row[0] if row and row[0] is not None else None
 
-        # fetch_from: date passed to FMP's inclusive `from=` parameter
-        fetch_from: date | None = since_date if since_date is not None else db_max
+        # Determine fetch window start.  Always re-fetch the last
+        # _REFRESH_WINDOW_DAYS so today's bar and recent revisions are captured.
+        fetch_from: date | None
+        if since_date is not None:
+            fetch_from = since_date
+        elif db_max is not None:
+            fetch_from = db_max - timedelta(days=_REFRESH_WINDOW_DAYS)
+        else:
+            fetch_from = None
+
+        # Use cached currency when the companies row is recent enough.
+        company_row = conn.execute(
+            "SELECT currency, last_updated_at FROM companies WHERE ticker = ?", [ticker]
+        ).fetchone()
+        now_naive = datetime.now(UTC).replace(tzinfo=None)
+        need_lookup: bool = company_row is None or (
+            now_naive - company_row[1]
+        ).days > _COMPANY_CACHE_DAYS
+
+        currency: str | None = (
+            company_row[0] if not need_lookup and company_row is not None else None
+        )
 
         with FmpClient(api_key=api_key) as client:
-            company = client.lookup_company(ticker)
-            currency = company.currency if company else None
+            if need_lookup:
+                company = client.lookup_company(ticker)
+                currency = company.currency if company else None
             points = client.fetch_historical_prices(ticker, since_date=fetch_from)
 
-        # When using the automatic cutoff, filter out the cutoff date itself
-        # because FMP's `from=` is inclusive and we already stored that date.
-        if db_max is not None and since_date is None:
-            cutoff = db_max.isoformat()
-            points = [p for p in points if p.date > cutoff]
-
         inserted = 0
-        for point in points:
-            conn.execute(
-                "DELETE FROM prices_daily WHERE ticker = ? AND date = ?",
-                [ticker, point.date],
-            )
-            conn.execute(
-                "INSERT INTO prices_daily (ticker, date, close, volume, market_cap, currency)"
-                " VALUES (?, ?, ?, ?, ?, ?)",
-                [ticker, point.date, point.close, point.volume, point.market_cap, currency],
-            )
-            inserted += 1
+        conn.begin()
+        try:
+            for point in points:
+                conn.execute(
+                    "DELETE FROM prices_daily WHERE ticker = ? AND date = ?",
+                    [ticker, point.date],
+                )
+                conn.execute(
+                    "INSERT INTO prices_daily"
+                    " (ticker, date, close, volume, market_cap, currency, adjusted_close)"
+                    " VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    [
+                        ticker,
+                        point.date,
+                        point.close,
+                        point.volume,
+                        point.market_cap,
+                        currency,
+                        point.adj_close,
+                    ],
+                )
+                inserted += 1
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
         result: IngestResult = IngestResult(
             source="fmp_prices",
             started_at=started,
-            finished_at=datetime.utcnow(),
+            finished_at=datetime.now(UTC),
             status="success",
             rows_affected=inserted,
             details={"ticker": ticker, "currency": currency},
@@ -201,7 +263,7 @@ def import_prices_from_fmp(
         result = IngestResult(
             source="fmp_prices",
             started_at=started,
-            finished_at=datetime.utcnow(),
+            finished_at=datetime.now(UTC),
             status="error",
             error_message=str(e),
             details={"ticker": ticker},

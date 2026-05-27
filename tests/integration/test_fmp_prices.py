@@ -42,17 +42,23 @@ def test_import_prices_aapl_inserts_rows() -> None:
     assert rows[0] == ("AAPL", date(2024, 1, 3), 184.25, 58414500)
     assert rows[2] == ("AAPL", date(2024, 1, 5), 181.18, 62303300)
 
-    currency_rows = conn.execute(
+    currency_row = conn.execute(
         "SELECT currency FROM prices_daily WHERE ticker = 'AAPL' LIMIT 1"
     ).fetchone()
-    assert currency_rows is not None
-    assert currency_rows[0] == "USD"
+    assert currency_row is not None
+    assert currency_row[0] == "USD"
+
+    adj_close_row = conn.execute(
+        "SELECT adjusted_close FROM prices_daily WHERE ticker = 'AAPL' AND date = '2024-01-05'"
+    ).fetchone()
+    assert adj_close_row is not None
+    assert adj_close_row[0] == 181.18
 
 
 @pytest.mark.vcr  # type: ignore[misc]
 @pytest.mark.integration
-def test_import_prices_second_run_inserts_zero() -> None:
-    """Second run inserts zero new rows when the DB is already current."""
+def test_import_prices_second_run_refreshes_recent_window() -> None:
+    """Second run re-upserts the last 7-day window; row count and values stay the same."""
     conn = duckdb.connect(":memory:")
     apply_schema(conn)
 
@@ -68,12 +74,12 @@ def test_import_prices_second_run_inserts_zero() -> None:
             [d, close, vol],
         )
 
-    # Importer should detect max(date)=2024-01-05, fetch from=2024-01-05,
-    # receive only that date back, filter it out (already stored), insert 0.
+    # Importer detects max(date)=2024-01-05, fetches from=2023-12-29
+    # (7-day refresh window), upserts all 3 rows that fall in that window.
     result = import_prices_from_fmp(conn, "AAPL", api_key="test_key")
 
     assert result.status == "success"
-    assert result.rows_affected == 0
+    assert result.rows_affected == 3
 
     count = conn.execute(
         "SELECT COUNT(*) FROM prices_daily WHERE ticker = 'AAPL'"
