@@ -1,0 +1,180 @@
+# Hand-crafted cassette for refresh of AMZN (Amazon.com Inc.) — fresh import.
+# Interactions: skip-check (no known date → proceed) + full import.
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/AMZN?period=annual&limit=1
+  response:
+    body:
+      string: '[{"date":"2023-12-31","symbol":"AMZN","reportedCurrency":"USD","cik":"0001018724","fillingDate":"2024-02-02","calendarYear":"2023","period":"FY","revenue":574785000000.0,"costOfRevenue":304739000000.0,"grossProfit":270046000000.0,"operatingExpenses":239829000000.0,"operatingIncome":36852000000.0,"ebitda":85600000000.0,"interestExpense":3182000000.0,"incomeTaxExpense":7120000000.0,"netIncome":30425000000.0,"depreciationAndAmortization":48449000000.0,"weightedAverageShsOutDil":10557000000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/profile/AMZN
+  response:
+    body:
+      string: '[{"symbol":"AMZN","price":185.70,"beta":1.30,"volAvg":46000000,"mktCap":1958000000000,"lastDiv":0.0,"range":"101.26-201.20","changes":2.10,"companyName":"Amazon.com Inc.","currency":"USD","cik":"0001018724","isin":"US0231351067","cusip":"023135106","exchange":"NASDAQ Global Select","exchangeShortName":"NASDAQ","industry":"Internet Retail","website":"https://www.amazon.com","description":"Amazon.com Inc. engages in the retail sale of consumer products and subscriptions in North America and internationally.","ceo":"Mr. Andrew R. Jassy","sector":"Consumer Cyclical","country":"US","fullTimeEmployees":"1525000","phone":"206-266-1000","address":"410 Terry Avenue North","city":"Seattle","state":"WA","zip":"98109","dcfDiff":15.00,"dcf":170.70,"image":"https://images.financialmodelingprep.com/symbol/AMZN.png","ipoDate":"1997-05-15","defaultImage":false,"isEtf":false,"isActivelyTrading":true,"isAdr":false,"isFund":false}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/AMZN?period=annual&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-12-31","symbol":"AMZN","reportedCurrency":"USD","cik":"0001018724","fillingDate":"2024-02-02","calendarYear":"2023","period":"FY","revenue":574785000000.0,"costOfRevenue":304739000000.0,"grossProfit":270046000000.0,"operatingExpenses":239829000000.0,"operatingIncome":36852000000.0,"ebitda":85600000000.0,"interestExpense":3182000000.0,"incomeTaxExpense":7120000000.0,"netIncome":30425000000.0,"depreciationAndAmortization":48449000000.0,"weightedAverageShsOutDil":10557000000.0},{"date":"2022-12-31","symbol":"AMZN","reportedCurrency":"USD","cik":"0001018724","fillingDate":"2023-02-03","calendarYear":"2022","period":"FY","revenue":513983000000.0,"costOfRevenue":288831000000.0,"grossProfit":225152000000.0,"operatingExpenses":236157000000.0,"operatingIncome":-2847000000.0,"ebitda":51952000000.0,"interestExpense":2669000000.0,"incomeTaxExpense":3217000000.0,"netIncome":-2722000000.0,"depreciationAndAmortization":54691000000.0,"weightedAverageShsOutDil":10383000000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/AMZN?period=quarter&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-12-31","symbol":"AMZN","reportedCurrency":"USD","cik":"0001018724","fillingDate":"2024-02-02","calendarYear":"2023","period":"Q4","revenue":169961000000.0,"costOfRevenue":89784000000.0,"grossProfit":80177000000.0,"operatingExpenses":67462000000.0,"operatingIncome":13209000000.0,"interestExpense":706000000.0,"incomeTaxExpense":3200000000.0,"netIncome":10624000000.0,"depreciationAndAmortization":13500000000.0,"weightedAverageShsOutDil":10598000000.0},{"date":"2023-09-30","symbol":"AMZN","reportedCurrency":"USD","cik":"0001018724","fillingDate":"2023-10-27","calendarYear":"2023","period":"Q3","revenue":143083000000.0,"costOfRevenue":75168000000.0,"grossProfit":67915000000.0,"operatingExpenses":60497000000.0,"operatingIncome":11188000000.0,"interestExpense":806000000.0,"incomeTaxExpense":2306000000.0,"netIncome":9879000000.0,"depreciationAndAmortization":12000000000.0,"weightedAverageShsOutDil":10535000000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/AMZN?period=annual&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-12-31","symbol":"AMZN","reportedCurrency":"USD","cik":"0001018724","fillingDate":"2024-02-02","calendarYear":"2023","period":"FY","cashAndCashEquivalents":73387000000.0,"totalAssets":527854000000.0,"totalDebt":58314000000.0,"totalStockholdersEquity":201875000000.0,"totalEquity":201875000000.0,"goodwill":22789000000.0},{"date":"2022-12-31","symbol":"AMZN","reportedCurrency":"USD","cik":"0001018724","fillingDate":"2023-02-03","calendarYear":"2022","period":"FY","cashAndCashEquivalents":53888000000.0,"totalAssets":462675000000.0,"totalDebt":67150000000.0,"totalStockholdersEquity":146043000000.0,"totalEquity":146043000000.0,"goodwill":20288000000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/AMZN?period=quarter&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-12-31","symbol":"AMZN","reportedCurrency":"USD","cik":"0001018724","fillingDate":"2024-02-02","calendarYear":"2023","period":"Q4","cashAndCashEquivalents":73387000000.0,"totalAssets":527854000000.0,"totalDebt":58314000000.0,"totalStockholdersEquity":201875000000.0,"goodwill":22789000000.0},{"date":"2023-09-30","symbol":"AMZN","reportedCurrency":"USD","cik":"0001018724","fillingDate":"2023-10-27","calendarYear":"2023","period":"Q3","cashAndCashEquivalents":64159000000.0,"totalAssets":496519000000.0,"totalDebt":60413000000.0,"totalStockholdersEquity":185164000000.0,"goodwill":22789000000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/AMZN?period=annual&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-12-31","symbol":"AMZN","reportedCurrency":"USD","cik":"0001018724","fillingDate":"2024-02-02","calendarYear":"2023","period":"FY","depreciationAndAmortization":48449000000.0,"operatingCashFlow":84946000000.0,"capitalExpenditure":-52729000000.0,"freeCashFlow":32217000000.0,"dividendsPaid":0.0},{"date":"2022-12-31","symbol":"AMZN","reportedCurrency":"USD","cik":"0001018724","fillingDate":"2023-02-03","calendarYear":"2022","period":"FY","depreciationAndAmortization":54691000000.0,"operatingCashFlow":46752000000.0,"capitalExpenditure":-58321000000.0,"freeCashFlow":-11569000000.0,"dividendsPaid":0.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/AMZN?period=quarter&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-12-31","symbol":"AMZN","reportedCurrency":"USD","cik":"0001018724","fillingDate":"2024-02-02","calendarYear":"2023","period":"Q4","depreciationAndAmortization":13500000000.0,"operatingCashFlow":23535000000.0,"capitalExpenditure":-14781000000.0,"freeCashFlow":8754000000.0,"dividendsPaid":0.0},{"date":"2023-09-30","symbol":"AMZN","reportedCurrency":"USD","cik":"0001018724","fillingDate":"2023-10-27","calendarYear":"2023","period":"Q3","depreciationAndAmortization":12000000000.0,"operatingCashFlow":21241000000.0,"capitalExpenditure":-12479000000.0,"freeCashFlow":8762000000.0,"dividendsPaid":0.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+version: 1

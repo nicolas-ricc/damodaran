@@ -1,0 +1,180 @@
+# Hand-crafted cassette for refresh of GOOGL (Alphabet Inc.) — fresh import.
+# Interactions: skip-check (no known date → proceed) + full import.
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/GOOGL?period=annual&limit=1
+  response:
+    body:
+      string: '[{"date":"2023-12-31","symbol":"GOOGL","reportedCurrency":"USD","cik":"0001652044","fillingDate":"2024-01-30","calendarYear":"2023","period":"FY","revenue":307394000000.0,"costOfRevenue":133332000000.0,"grossProfit":174062000000.0,"operatingExpenses":89769000000.0,"operatingIncome":84293000000.0,"ebitda":97130000000.0,"interestExpense":0.0,"incomeTaxExpense":11922000000.0,"netIncome":73795000000.0,"depreciationAndAmortization":12658000000.0,"weightedAverageShsOutDil":12880000000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/profile/GOOGL
+  response:
+    body:
+      string: '[{"symbol":"GOOGL","price":175.50,"beta":1.05,"volAvg":22100000,"mktCap":2189000000000,"lastDiv":0.0,"range":"115.83-196.00","changes":1.20,"companyName":"Alphabet Inc.","currency":"USD","cik":"0001652044","isin":"US02079K3059","cusip":"02079K305","exchange":"NASDAQ Global Select","exchangeShortName":"NASDAQ","industry":"Internet Content & Information","website":"https://abc.xyz","description":"Alphabet Inc. provides online advertising services, cloud computing, and other products.","ceo":"Mr. Sundar Pichai","sector":"Communication Services","country":"US","fullTimeEmployees":"182000","phone":"650-253-0000","address":"1600 Amphitheatre Parkway","city":"Mountain View","state":"CA","zip":"94043","dcfDiff":20.00,"dcf":155.50,"image":"https://images.financialmodelingprep.com/symbol/GOOGL.png","ipoDate":"2004-08-19","defaultImage":false,"isEtf":false,"isActivelyTrading":true,"isAdr":false,"isFund":false}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/GOOGL?period=annual&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-12-31","symbol":"GOOGL","reportedCurrency":"USD","cik":"0001652044","fillingDate":"2024-01-30","calendarYear":"2023","period":"FY","revenue":307394000000.0,"costOfRevenue":133332000000.0,"grossProfit":174062000000.0,"operatingExpenses":89769000000.0,"operatingIncome":84293000000.0,"ebitda":97130000000.0,"interestExpense":0.0,"incomeTaxExpense":11922000000.0,"netIncome":73795000000.0,"depreciationAndAmortization":12658000000.0,"weightedAverageShsOutDil":12880000000.0},{"date":"2022-12-31","symbol":"GOOGL","reportedCurrency":"USD","cik":"0001652044","fillingDate":"2023-02-03","calendarYear":"2022","period":"FY","revenue":282836000000.0,"costOfRevenue":126203000000.0,"grossProfit":156633000000.0,"operatingExpenses":81791000000.0,"operatingIncome":74842000000.0,"ebitda":88230000000.0,"interestExpense":0.0,"incomeTaxExpense":9217000000.0,"netIncome":59972000000.0,"depreciationAndAmortization":12771000000.0,"weightedAverageShsOutDil":13198000000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/GOOGL?period=quarter&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-12-31","symbol":"GOOGL","reportedCurrency":"USD","cik":"0001652044","fillingDate":"2024-01-30","calendarYear":"2023","period":"Q4","revenue":86310000000.0,"costOfRevenue":36049000000.0,"grossProfit":50261000000.0,"operatingExpenses":23726000000.0,"operatingIncome":23696000000.0,"interestExpense":0.0,"incomeTaxExpense":3460000000.0,"netIncome":20402000000.0,"depreciationAndAmortization":3478000000.0,"weightedAverageShsOutDil":12788000000.0},{"date":"2023-09-30","symbol":"GOOGL","reportedCurrency":"USD","cik":"0001652044","fillingDate":"2023-10-26","calendarYear":"2023","period":"Q3","revenue":76693000000.0,"costOfRevenue":33234000000.0,"grossProfit":43459000000.0,"operatingExpenses":22225000000.0,"operatingIncome":21343000000.0,"interestExpense":0.0,"incomeTaxExpense":2951000000.0,"netIncome":19689000000.0,"depreciationAndAmortization":3170000000.0,"weightedAverageShsOutDil":12849000000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/GOOGL?period=annual&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-12-31","symbol":"GOOGL","reportedCurrency":"USD","cik":"0001652044","fillingDate":"2024-01-30","calendarYear":"2023","period":"FY","cashAndCashEquivalents":24048000000.0,"totalAssets":402392000000.0,"totalDebt":14764000000.0,"totalStockholdersEquity":283379000000.0,"totalEquity":283379000000.0,"goodwill":29198000000.0},{"date":"2022-12-31","symbol":"GOOGL","reportedCurrency":"USD","cik":"0001652044","fillingDate":"2023-02-03","calendarYear":"2022","period":"FY","cashAndCashEquivalents":21879000000.0,"totalAssets":359268000000.0,"totalDebt":14701000000.0,"totalStockholdersEquity":256144000000.0,"totalEquity":256144000000.0,"goodwill":28963000000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/GOOGL?period=quarter&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-12-31","symbol":"GOOGL","reportedCurrency":"USD","cik":"0001652044","fillingDate":"2024-01-30","calendarYear":"2023","period":"Q4","cashAndCashEquivalents":24048000000.0,"totalAssets":402392000000.0,"totalDebt":14764000000.0,"totalStockholdersEquity":283379000000.0,"goodwill":29198000000.0},{"date":"2023-09-30","symbol":"GOOGL","reportedCurrency":"USD","cik":"0001652044","fillingDate":"2023-10-26","calendarYear":"2023","period":"Q3","cashAndCashEquivalents":22543000000.0,"totalAssets":394985000000.0,"totalDebt":14747000000.0,"totalStockholdersEquity":271430000000.0,"goodwill":29198000000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/GOOGL?period=annual&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-12-31","symbol":"GOOGL","reportedCurrency":"USD","cik":"0001652044","fillingDate":"2024-01-30","calendarYear":"2023","period":"FY","depreciationAndAmortization":12658000000.0,"operatingCashFlow":101746000000.0,"capitalExpenditure":-32251000000.0,"freeCashFlow":69495000000.0,"dividendsPaid":0.0},{"date":"2022-12-31","symbol":"GOOGL","reportedCurrency":"USD","cik":"0001652044","fillingDate":"2023-02-03","calendarYear":"2022","period":"FY","depreciationAndAmortization":12771000000.0,"operatingCashFlow":91495000000.0,"capitalExpenditure":-31485000000.0,"freeCashFlow":60010000000.0,"dividendsPaid":0.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/GOOGL?period=quarter&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-12-31","symbol":"GOOGL","reportedCurrency":"USD","cik":"0001652044","fillingDate":"2024-01-30","calendarYear":"2023","period":"Q4","depreciationAndAmortization":3478000000.0,"operatingCashFlow":27727000000.0,"capitalExpenditure":-11018000000.0,"freeCashFlow":16709000000.0,"dividendsPaid":0.0},{"date":"2023-09-30","symbol":"GOOGL","reportedCurrency":"USD","cik":"0001652044","fillingDate":"2023-10-26","calendarYear":"2023","period":"Q3","depreciationAndAmortization":3170000000.0,"operatingCashFlow":22612000000.0,"capitalExpenditure":-8045000000.0,"freeCashFlow":14567000000.0,"dividendsPaid":0.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+version: 1

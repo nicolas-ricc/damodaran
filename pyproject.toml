@@ -39,6 +39,7 @@ packages = ["src/bot"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "src/bot/storage/schema.sql" = "bot/storage/schema.sql"
+"src/bot/data/universe.csv" = "bot/data/universe.csv"
 
 [tool.ruff]
 line-length = 100

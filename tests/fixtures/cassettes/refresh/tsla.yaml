@@ -1,0 +1,49 @@
+# Hand-crafted cassette for TSLA refresh — simulated "not found" error.
+# skip-check: income-statement?limit=1 returns [] (no data) → cannot skip → proceed to import.
+# import: profile returns [] (ticker not found in FMP) → ValueError → error recorded.
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/TSLA?period=annual&limit=1
+  response:
+    body:
+      string: '[]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/profile/TSLA
+  response:
+    body:
+      string: '[]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+version: 1

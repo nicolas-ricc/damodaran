@@ -1,0 +1,182 @@
+# Hand-crafted cassette for refresh of AAPL (fresh — no filings_log entry).
+# Interactions:
+#   1. skip-check: income-statement?limit=1 → fillingDate=2023-11-03 (no known date → do not skip)
+#   2-8. Full import: profile + annual/quarterly income, balance, cashflow
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/AAPL?period=annual&limit=1
+  response:
+    body:
+      string: '[{"date":"2023-09-30","symbol":"AAPL","reportedCurrency":"USD","cik":"0000320193","fillingDate":"2023-11-03","calendarYear":"2023","period":"FY","revenue":383285000000.0,"costOfRevenue":214137000000.0,"grossProfit":169148000000.0,"operatingExpenses":54428000000.0,"operatingIncome":114301000000.0,"ebitda":125820000000.0,"interestExpense":3933000000.0,"incomeTaxExpense":29749000000.0,"netIncome":96995000000.0,"depreciationAndAmortization":11519000000.0,"weightedAverageShsOutDil":15812547000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/profile/AAPL
+  response:
+    body:
+      string: '[{"symbol":"AAPL","price":189.30,"beta":1.24,"volAvg":56729526,"mktCap":2937281970000,"lastDiv":0.96,"range":"164.08-199.62","changes":1.34,"companyName":"Apple Inc.","currency":"USD","cik":"0000320193","isin":"US0378331005","cusip":"037833100","exchange":"NASDAQ Global Select","exchangeShortName":"NASDAQ","industry":"Consumer Electronics","website":"https://www.apple.com","description":"Apple Inc. designs smartphones, personal computers, and wearables.","ceo":"Mr. Timothy D. Cook","sector":"Technology","country":"US","fullTimeEmployees":"161000","phone":"408-996-1010","address":"One Apple Park Way","city":"Cupertino","state":"CA","zip":"95014","dcfDiff":53.34,"dcf":135.96,"image":"https://images.financialmodelingprep.com/symbol/AAPL.png","ipoDate":"1980-12-12","defaultImage":false,"isEtf":false,"isActivelyTrading":true,"isAdr":false,"isFund":false}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/AAPL?period=annual&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-09-30","symbol":"AAPL","reportedCurrency":"USD","cik":"0000320193","fillingDate":"2023-11-03","calendarYear":"2023","period":"FY","revenue":383285000000.0,"costOfRevenue":214137000000.0,"grossProfit":169148000000.0,"operatingExpenses":54428000000.0,"operatingIncome":114301000000.0,"ebitda":125820000000.0,"interestExpense":3933000000.0,"incomeTaxExpense":29749000000.0,"netIncome":96995000000.0,"depreciationAndAmortization":11519000000.0,"weightedAverageShsOutDil":15812547000.0},{"date":"2022-09-24","symbol":"AAPL","reportedCurrency":"USD","cik":"0000320193","fillingDate":"2022-10-28","calendarYear":"2022","period":"FY","revenue":394328000000.0,"costOfRevenue":223546000000.0,"grossProfit":170782000000.0,"operatingExpenses":51345000000.0,"operatingIncome":119437000000.0,"ebitda":130174000000.0,"interestExpense":2931000000.0,"incomeTaxExpense":19300000000.0,"netIncome":99803000000.0,"depreciationAndAmortization":10721000000.0,"weightedAverageShsOutDil":16215963000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/AAPL?period=quarter&limit=20
+  response:
+    body:
+      string: '[{"date":"2024-03-30","symbol":"AAPL","reportedCurrency":"USD","cik":"0000320193","fillingDate":"2024-05-02","calendarYear":"2024","period":"Q2","revenue":90753000000.0,"costOfRevenue":50038000000.0,"grossProfit":40715000000.0,"operatingExpenses":14018000000.0,"operatingIncome":26697000000.0,"interestExpense":857000000.0,"incomeTaxExpense":5183000000.0,"netIncome":23636000000.0,"depreciationAndAmortization":2964000000.0,"weightedAverageShsOutDil":15204137000.0},{"date":"2023-12-30","symbol":"AAPL","reportedCurrency":"USD","cik":"0000320193","fillingDate":"2024-02-02","calendarYear":"2024","period":"Q1","revenue":119575000000.0,"costOfRevenue":67461000000.0,"grossProfit":52114000000.0,"operatingExpenses":14939000000.0,"operatingIncome":37175000000.0,"interestExpense":1012000000.0,"incomeTaxExpense":6447000000.0,"netIncome":33916000000.0,"depreciationAndAmortization":2905000000.0,"weightedAverageShsOutDil":15367000000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/AAPL?period=annual&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-09-30","symbol":"AAPL","reportedCurrency":"USD","cik":"0000320193","fillingDate":"2023-11-03","calendarYear":"2023","period":"FY","cashAndCashEquivalents":29965000000.0,"totalAssets":352583000000.0,"totalDebt":109280000000.0,"totalStockholdersEquity":62146000000.0,"totalEquity":62146000000.0,"goodwill":0.0},{"date":"2022-09-24","symbol":"AAPL","reportedCurrency":"USD","cik":"0000320193","fillingDate":"2022-10-28","calendarYear":"2022","period":"FY","cashAndCashEquivalents":23646000000.0,"totalAssets":352755000000.0,"totalDebt":110108000000.0,"totalStockholdersEquity":50672000000.0,"totalEquity":50672000000.0,"goodwill":0.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/AAPL?period=quarter&limit=20
+  response:
+    body:
+      string: '[{"date":"2024-03-30","symbol":"AAPL","reportedCurrency":"USD","cik":"0000320193","fillingDate":"2024-05-02","calendarYear":"2024","period":"Q2","cashAndCashEquivalents":32695000000.0,"totalAssets":337411000000.0,"totalDebt":104590000000.0,"totalStockholdersEquity":74194000000.0,"goodwill":0.0},{"date":"2023-12-30","symbol":"AAPL","reportedCurrency":"USD","cik":"0000320193","fillingDate":"2024-02-02","calendarYear":"2024","period":"Q1","cashAndCashEquivalents":40760000000.0,"totalAssets":353514000000.0,"totalDebt":108040000000.0,"totalStockholdersEquity":74194000000.0,"goodwill":0.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/AAPL?period=annual&limit=20
+  response:
+    body:
+      string: '[{"date":"2023-09-30","symbol":"AAPL","reportedCurrency":"USD","cik":"0000320193","fillingDate":"2023-11-03","calendarYear":"2023","period":"FY","depreciationAndAmortization":11519000000.0,"operatingCashFlow":110543000000.0,"capitalExpenditure":-11045000000.0,"freeCashFlow":99498000000.0,"dividendsPaid":-15025000000.0},{"date":"2022-09-24","symbol":"AAPL","reportedCurrency":"USD","cik":"0000320193","fillingDate":"2022-10-28","calendarYear":"2022","period":"FY","depreciationAndAmortization":10721000000.0,"operatingCashFlow":122151000000.0,"capitalExpenditure":-10708000000.0,"freeCashFlow":111443000000.0,"dividendsPaid":-14841000000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/AAPL?period=quarter&limit=20
+  response:
+    body:
+      string: '[{"date":"2024-03-30","symbol":"AAPL","reportedCurrency":"USD","cik":"0000320193","fillingDate":"2024-05-02","calendarYear":"2024","period":"Q2","depreciationAndAmortization":2964000000.0,"operatingCashFlow":22675000000.0,"capitalExpenditure":-2263000000.0,"freeCashFlow":20412000000.0,"dividendsPaid":-3801000000.0},{"date":"2023-12-30","symbol":"AAPL","reportedCurrency":"USD","cik":"0000320193","fillingDate":"2024-02-02","calendarYear":"2024","period":"Q1","depreciationAndAmortization":2905000000.0,"operatingCashFlow":39895000000.0,"capitalExpenditure":-2484000000.0,"freeCashFlow":37411000000.0,"dividendsPaid":-3810000000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+version: 1
