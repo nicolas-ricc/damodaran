@@ -32,7 +32,7 @@ def db() -> duckdb.DuckDBPyConnection:
 @pytest.mark.vcr  # type: ignore[misc]
 @pytest.mark.integration
 def test_import_company_from_fmp_aapl(db: duckdb.DuckDBPyConnection) -> None:
-    result = import_company_from_fmp(db, "AAPL", api_key="test_key")
+    result = import_company_from_fmp(db, ticker="AAPL", api_key="test_key")
 
     assert result.status == "success"
     assert result.source == "fmp"
@@ -77,7 +77,7 @@ def test_import_company_from_fmp_aapl(db: duckdb.DuckDBPyConnection) -> None:
 @pytest.mark.vcr  # type: ignore[misc]
 @pytest.mark.integration
 def test_import_company_from_fmp_nesn_sw(db: duckdb.DuckDBPyConnection) -> None:
-    result = import_company_from_fmp(db, "NESN.SW", api_key="test_key")
+    result = import_company_from_fmp(db, ticker="NESN.SW", api_key="test_key")
 
     assert result.status == "success"
     assert result.source == "fmp"

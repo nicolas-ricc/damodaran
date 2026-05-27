@@ -65,7 +65,7 @@ interactions:
       User-Agent:
       - python-httpx/0.27.0
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/income-statement/NESN.SW?period=quarter&limit=20
+    uri: https://financialmodelingprep.com/api/v3/income-statement/NESN.SW?period=quarter&limit=40
   response:
     body:
       string: '[{"date":"2023-06-30","symbol":"NESN.SW","reportedCurrency":"CHF","cik":"","fillingDate":"2023-07-27","acceptedDate":"2023-07-27
@@ -110,7 +110,7 @@ interactions:
       User-Agent:
       - python-httpx/0.27.0
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/NESN.SW?period=quarter&limit=20
+    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/NESN.SW?period=quarter&limit=40
   response:
     body:
       string: '[{"date":"2023-06-30","symbol":"NESN.SW","reportedCurrency":"CHF","cik":"","fillingDate":"2023-07-27","calendarYear":"2023","period":"Q2","cashAndCashEquivalents":5810000000.0,"totalAssets":111234000000.0,"totalDebt":38254000000.0,"totalStockholdersEquity":28512000000.0,"goodwill":32001000000.0}]'
@@ -154,7 +154,7 @@ interactions:
       User-Agent:
       - python-httpx/0.27.0
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/NESN.SW?period=quarter&limit=20
+    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/NESN.SW?period=quarter&limit=40
   response:
     body:
       string: '[{"date":"2023-06-30","symbol":"NESN.SW","reportedCurrency":"CHF","cik":"","fillingDate":"2023-07-27","calendarYear":"2023","period":"Q2","depreciationAndAmortization":2610000000.0,"operatingCashFlow":6889000000.0,"capitalExpenditure":-1932000000.0,"freeCashFlow":4957000000.0,"dividendsPaid":-3740000000.0}]'

@@ -11,11 +11,7 @@ import duckdb
 import httpx
 
 from bot.ingest.base import IngestResult, ParsedCompanyData
-from bot.ingest.sec_edgar import (
-    upsert_company,
-    upsert_financials_annual,
-    upsert_financials_quarterly,
-)
+from bot.ingest.sec_edgar import upsert_company
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -299,6 +295,34 @@ def parse_fmp_fundamentals(
 
 # ---------- Importer ----------
 
+def _upsert_financials_in_txn(
+    conn: duckdb.DuckDBPyConnection,
+    table: str,
+    rows: list[dict[str, Any]],
+) -> int:
+    """DELETE + INSERT *rows* into *table* within the caller's active transaction.
+
+    Does NOT call BEGIN/COMMIT — the caller owns the transaction boundary.
+    *table* must be one of the known financials tables; never user-supplied.
+    """
+    if not rows:
+        return 0
+    all_cols: set[str] = set()
+    for r in rows:
+        all_cols.update(r.keys())
+    cols = sorted(all_cols)
+    for t in {r["ticker"] for r in rows}:
+        conn.execute(f"DELETE FROM {table} WHERE ticker = ?", [t])
+    ph = ", ".join(["?"] * len(cols))
+    col_list = ", ".join(cols)
+    for r in rows:
+        conn.execute(
+            f"INSERT INTO {table} ({col_list}) VALUES ({ph})",
+            [r.get(c) for c in cols],
+        )
+    return len(rows)
+
+
 # Columns present in financials_quarterly (subset of financials_annual).
 _QUARTERLY_COLS = frozenset({
     "ticker", "fiscal_year", "fiscal_quarter", "period_end_date", "currency",
@@ -310,14 +334,28 @@ _QUARTERLY_COLS = frozenset({
 
 def import_company_from_fmp(
     conn: duckdb.DuckDBPyConnection,
-    ticker: str,
     *,
+    ticker: str,
     api_key: str,
+    annual_limit: int = 20,
+    quarters_limit: int = 40,
 ) -> IngestResult:
     """Fetch + parse + upsert one ticker from FMP.
 
     Mirrors ``import_company_from_sec``: returns an ``IngestResult`` and always
     writes a row to ``refresh_log`` regardless of success or failure.
+
+    All three upserts (company, annual, quarterly) run inside a single transaction;
+    any failure rolls back all three, so ``rows_affected`` is 0 on error.
+
+    *Currency and CIK precedence*: statement-level ``reportedCurrency`` and ``cik``
+    from the income statement (via ``parsed.company``) take precedence over the
+    ``/profile`` endpoint; the profile supplies name, country, exchange, industry,
+    and isin which are absent from statement data.
+
+    Args:
+        annual_limit: Annual periods to fetch (default 20 ≈ 20 years).
+        quarters_limit: Quarterly periods to fetch (default 40 ≈ 10 years).
     """
     started = datetime.utcnow()
     run_id = str(uuid.uuid4())
@@ -329,33 +367,47 @@ def import_company_from_fmp(
             if info is None:
                 raise ValueError(f"Ticker {ticker!r} not found in FMP")
 
-            income = client.fetch_income_statement(ticker, period="annual") + \
-                client.fetch_income_statement(ticker, period="quarter")
-            balance = client.fetch_balance_sheet(ticker, period="annual") + \
-                client.fetch_balance_sheet(ticker, period="quarter")
-            cashflow = client.fetch_cashflow(ticker, period="annual") + \
-                client.fetch_cashflow(ticker, period="quarter")
+            income = (
+                client.fetch_income_statement(ticker, period="annual", limit=annual_limit)
+                + client.fetch_income_statement(ticker, period="quarter", limit=quarters_limit)
+            )
+            balance = (
+                client.fetch_balance_sheet(ticker, period="annual", limit=annual_limit)
+                + client.fetch_balance_sheet(ticker, period="quarter", limit=quarters_limit)
+            )
+            cashflow = (
+                client.fetch_cashflow(ticker, period="annual", limit=annual_limit)
+                + client.fetch_cashflow(ticker, period="quarter", limit=quarters_limit)
+            )
 
         parsed = parse_fmp_fundamentals(ticker, income, balance, cashflow)
 
+        # Statement-level currency/cik supersede /profile; profile fills the rest.
         company: dict[str, Any] = {
             "ticker": info.ticker,
-            "cik": info.cik,
+            "cik": parsed.company.get("cik") or info.cik,
             "name": info.name,
             "country": info.country,
             "exchange": info.exchange,
             "industry": info.industry,
             "isin": info.isin,
-            "currency": info.currency,
+            "currency": parsed.company.get("currency") or info.currency,
             "status": info.status,
             "source": "fmp",
         }
 
         quarterly_rows = [{k: v for k, v in r.items() if k in _QUARTERLY_COLS} for r in parsed.quarterly]
 
-        upsert_company(conn, company)
-        annual_count = upsert_financials_annual(conn, parsed.annual)
-        quarterly_count = upsert_financials_quarterly(conn, quarterly_rows)
+        conn.begin()
+        try:
+            upsert_company(conn, company)
+            annual_count = _upsert_financials_in_txn(conn, "financials_annual", parsed.annual)
+            quarterly_count = _upsert_financials_in_txn(conn, "financials_quarterly", quarterly_rows)
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
         total = 1 + annual_count + quarterly_count
 
         result = IngestResult(

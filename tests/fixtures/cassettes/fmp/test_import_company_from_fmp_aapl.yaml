@@ -64,7 +64,7 @@ interactions:
       User-Agent:
       - python-httpx/0.27.0
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/income-statement/AAPL?period=quarter&limit=20
+    uri: https://financialmodelingprep.com/api/v3/income-statement/AAPL?period=quarter&limit=40
   response:
     body:
       string: '[{"date":"2024-03-30","symbol":"AAPL","reportedCurrency":"USD","cik":"0000320193","fillingDate":"2024-05-02","acceptedDate":"2024-05-02
@@ -110,7 +110,7 @@ interactions:
       User-Agent:
       - python-httpx/0.27.0
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/AAPL?period=quarter&limit=20
+    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/AAPL?period=quarter&limit=40
   response:
     body:
       string: '[{"date":"2024-03-30","symbol":"AAPL","reportedCurrency":"USD","cik":"0000320193","fillingDate":"2024-05-02","calendarYear":"2024","period":"Q2","cashAndCashEquivalents":32695000000.0,"totalAssets":337411000000.0,"totalDebt":104590000000.0,"totalStockholdersEquity":74194000000.0,"goodwill":0.0},{"date":"2023-12-30","symbol":"AAPL","reportedCurrency":"USD","cik":"0000320193","fillingDate":"2024-02-02","calendarYear":"2024","period":"Q1","cashAndCashEquivalents":40760000000.0,"totalAssets":353514000000.0,"totalDebt":108040000000.0,"totalStockholdersEquity":74194000000.0,"goodwill":0.0}]'
@@ -154,7 +154,7 @@ interactions:
       User-Agent:
       - python-httpx/0.27.0
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/AAPL?period=quarter&limit=20
+    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/AAPL?period=quarter&limit=40
   response:
     body:
       string: '[{"date":"2024-03-30","symbol":"AAPL","reportedCurrency":"USD","cik":"0000320193","fillingDate":"2024-05-02","calendarYear":"2024","period":"Q2","depreciationAndAmortization":2964000000.0,"operatingCashFlow":22675000000.0,"capitalExpenditure":-2263000000.0,"freeCashFlow":20412000000.0,"dividendsPaid":-3801000000.0},{"date":"2023-12-30","symbol":"AAPL","reportedCurrency":"USD","cik":"0000320193","fillingDate":"2024-02-02","calendarYear":"2024","period":"Q1","depreciationAndAmortization":2905000000.0,"operatingCashFlow":39895000000.0,"capitalExpenditure":-2484000000.0,"freeCashFlow":37411000000.0,"dividendsPaid":-3810000000.0}]'
