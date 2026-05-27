@@ -27,14 +27,28 @@ def test_status_with_history(tmp_path, monkeypatch):
         INSERT INTO refresh_log (source, run_id, started_at, finished_at, status, rows_affected)
         VALUES (?, ?, ?, ?, ?, ?)
         """,
-        ["damodaran", "run-1", datetime(2026, 5, 25, 9, 0), datetime(2026, 5, 25, 9, 0, 30), "success", 237],
+        [
+            "damodaran",
+            "run-1",
+            datetime(2026, 5, 25, 9, 0),
+            datetime(2026, 5, 25, 9, 0, 30),
+            "success",
+            237,
+        ],
     )
     conn.execute(
         """
         INSERT INTO refresh_log (source, run_id, started_at, finished_at, status, rows_affected)
         VALUES (?, ?, ?, ?, ?, ?)
         """,
-        ["sec_edgar", "run-2", datetime(2026, 5, 25, 9, 5), datetime(2026, 5, 25, 9, 5, 10), "success", 50],
+        [
+            "sec_edgar",
+            "run-2",
+            datetime(2026, 5, 25, 9, 5),
+            datetime(2026, 5, 25, 9, 5, 10),
+            "success",
+            50,
+        ],
     )
     conn.close()
 
