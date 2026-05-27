@@ -2,7 +2,7 @@
 
 import pytest
 
-from bot.ingest.fmp import FmpClient
+from bot.ingest.fmp import FmpClient, FmpError
 
 
 @pytest.fixture  # type: ignore[misc]
@@ -70,3 +70,11 @@ def test_lookup_company_unknown_returns_none() -> None:
     client = FmpClient(api_key="test_key")
     result = client.lookup_company("ZZZNOTREAL")
     assert result is None
+
+
+@pytest.mark.vcr  # type: ignore[misc]
+@pytest.mark.integration
+def test_lookup_company_invalid_api_key_raises() -> None:
+    client = FmpClient(api_key="bad_key")
+    with pytest.raises(FmpError, match="Invalid API KEY"):
+        client.lookup_company("AAPL")

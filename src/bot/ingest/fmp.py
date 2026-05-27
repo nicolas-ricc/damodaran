@@ -14,6 +14,10 @@ log = get_logger(__name__)
 FMP_BASE_URL = "https://financialmodelingprep.com/api/v3"
 
 
+class FmpError(Exception):
+    """Raised when FMP returns an error payload (HTTP 200 with error body)."""
+
+
 @dataclass
 class CompanyInfo:
     """Normalized company data returned by FmpClient.lookup_company."""
@@ -75,6 +79,10 @@ class FmpClient:
         """
         ticker = ticker.upper()
         data: Any = self._get(f"/profile/{ticker}")
+        if isinstance(data, dict):
+            msg = str(data.get("Error Message") or data)
+            log.warning("fmp.lookup_company.error", ticker=ticker, error=msg)
+            raise FmpError(msg)
         if not data:
             log.info("fmp.lookup_company.not_found", ticker=ticker)
             return None
