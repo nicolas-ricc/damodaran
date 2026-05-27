@@ -118,6 +118,18 @@ CREATE TABLE IF NOT EXISTS filings_log (
     PRIMARY KEY (ticker, filing_type, filing_date, source)
 );
 
+-- Daily price history populated by FMP (M2.4)
+CREATE TABLE IF NOT EXISTS prices_daily (
+    ticker      VARCHAR NOT NULL,
+    date        DATE NOT NULL,
+    close       DOUBLE NOT NULL,
+    volume      BIGINT,
+    market_cap  DOUBLE,
+    currency    VARCHAR,
+    fetched_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (ticker, date)
+);
+
 -- Track refresh runs by source (for `bot status`)
 CREATE TABLE IF NOT EXISTS refresh_log (
     source          VARCHAR NOT NULL,        -- 'damodaran', 'sec_edgar', 'fmp', 'ibkr'
