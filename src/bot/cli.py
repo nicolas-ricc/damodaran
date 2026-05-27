@@ -127,3 +127,51 @@ def show(
     annual_rows = [dict(zip(columns, r, strict=False)) for r in annual_cursor.fetchall()]
 
     typer.echo(format_company_summary(company, annual_rows))
+
+
+@app.command()
+def doctor() -> None:
+    """Run health checks and report what's broken (if anything)."""
+    issues: list[str] = []
+
+    try:
+        settings = load_settings()
+    except Exception as e:
+        typer.echo(f"FAIL: Settings invalid — {e}", err=True)
+        raise typer.Exit(code=1) from e
+
+    typer.echo(f"DB path:          {settings.db_path}")
+    typer.echo(f"Reports dir:      {settings.reports_dir}")
+    typer.echo(f"SEC user agent:   {settings.sec_user_agent}")
+    typer.echo(f"Log level:        {settings.log_level}")
+
+    try:
+        conn = connect(settings.db_path)
+        apply_schema(conn)
+        row = conn.execute(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'main'"
+        ).fetchone()
+        tables = row[0] if row is not None else 0
+        if tables < 7:
+            issues.append(f"DB has only {tables} tables — schema may be incomplete.")
+        else:
+            typer.echo(f"DB tables:        {tables} (OK)")
+        conn.close()
+    except Exception as e:
+        issues.append(f"DB error — {e}")
+
+    try:
+        settings.reports_dir.mkdir(parents=True, exist_ok=True)
+        probe = settings.reports_dir / ".doctor_probe"
+        probe.write_text("x")
+        probe.unlink()
+        typer.echo("Reports dir:      writable (OK)")
+    except Exception as e:
+        issues.append(f"Reports dir not writable — {e}")
+
+    if issues:
+        typer.echo("", err=True)
+        for issue in issues:
+            typer.echo(f"FAIL: {issue}", err=True)
+        raise typer.Exit(code=1)
+    typer.echo("\nAll checks OK.")
