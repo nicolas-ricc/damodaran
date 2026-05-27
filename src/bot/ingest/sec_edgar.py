@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
@@ -24,8 +25,7 @@ class SecEdgarClient:
     def __init__(self, user_agent: str, timeout: float = 30.0) -> None:
         if not user_agent or "@" not in user_agent:
             raise ValueError(
-                "SEC requires a User-Agent identifying you. "
-                "Format: 'Your Name email@example.com'"
+                "SEC requires a User-Agent identifying you. Format: 'Your Name email@example.com'"
             )
         self._client = httpx.Client(
             timeout=timeout,
@@ -51,8 +51,7 @@ class SecEdgarClient:
         data = r.json()
         # File is { "0": {"cik_str": 320193, "ticker": "AAPL", ...}, ... }
         self._ticker_table = {
-            entry["ticker"].upper(): str(entry["cik_str"]).zfill(10)
-            for entry in data.values()
+            entry["ticker"].upper(): str(entry["cik_str"]).zfill(10) for entry in data.values()
         }
         log.info("sec.ticker_table.loaded", count=len(self._ticker_table))
         return self._ticker_table
@@ -71,3 +70,181 @@ class SecEdgarClient:
         r.raise_for_status()
         result: dict[str, Any] = r.json()
         return result
+
+
+# ---------- Parser ----------
+
+
+@dataclass
+class ParsedCompanyData:
+    """Result of parsing SEC company facts JSON."""
+
+    company: dict[str, Any]
+    annual: list[dict[str, Any]] = field(default_factory=list)
+    quarterly: list[dict[str, Any]] = field(default_factory=list)
+    filings: list[dict[str, Any]] = field(default_factory=list)
+
+
+# XBRL concept (us-gaap) -> our DB column. Multiple alternative concepts per column;
+# parser uses the first one with data.
+ANNUAL_CONCEPT_MAP: dict[str, list[str]] = {
+    "revenue": [
+        "Revenues",
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "SalesRevenueNet",
+    ],
+    "cogs": ["CostOfRevenue", "CostOfGoodsAndServicesSold"],
+    "gross_profit": ["GrossProfit"],
+    "operating_expenses": ["OperatingExpenses"],
+    "ebit": ["OperatingIncomeLoss"],
+    "interest_expense": ["InterestExpense"],
+    "tax_expense": ["IncomeTaxExpenseBenefit"],
+    "net_income": ["NetIncomeLoss", "ProfitLoss"],
+    "total_assets": ["Assets"],
+    "total_debt": ["LongTermDebt", "LongTermDebtNoncurrent"],
+    "cash": ["CashAndCashEquivalentsAtCarryingValue", "Cash"],
+    "total_equity": ["StockholdersEquity"],
+    "goodwill": ["Goodwill"],
+    "capex": ["PaymentsToAcquirePropertyPlantAndEquipment"],
+    "depreciation": ["DepreciationDepletionAndAmortization", "Depreciation"],
+    "operating_cashflow": ["NetCashProvidedByUsedInOperatingActivities"],
+    "dividends_paid": ["PaymentsOfDividends"],
+    "shares_diluted": ["WeightedAverageNumberOfDilutedSharesOutstanding"],
+}
+
+
+def parse_company_facts(ticker: str, facts: dict[str, Any]) -> ParsedCompanyData:
+    """Normalize SEC company facts JSON into our DB rows."""
+    ticker = ticker.upper()
+    cik_raw = facts.get("cik")
+    cik = str(cik_raw).zfill(10) if cik_raw is not None else None
+    name = facts.get("entityName", ticker)
+
+    company: dict[str, Any] = {
+        "ticker": ticker,
+        "cik": cik,
+        "name": name,
+        "country": "US",
+        "currency": "USD",
+        "source": "sec_edgar",
+        "status": "active",
+    }
+
+    us_gaap = facts.get("facts", {}).get("us-gaap", {})
+    annual_rows = _collect_period_rows(ticker, us_gaap, fiscal_period="FY", form_prefix="10-K")
+    quarterly_rows = _collect_period_rows(
+        ticker, us_gaap, fiscal_period_set={"Q1", "Q2", "Q3", "Q4"}, form_prefix="10-Q"
+    )
+    filings = _collect_filings(ticker, us_gaap)
+
+    return ParsedCompanyData(
+        company=company,
+        annual=annual_rows,
+        quarterly=quarterly_rows,
+        filings=filings,
+    )
+
+
+def _collect_period_rows(
+    ticker: str,
+    us_gaap: dict[str, Any],
+    *,
+    fiscal_period: str | None = None,
+    fiscal_period_set: set[str] | None = None,
+    form_prefix: str,
+) -> list[dict[str, Any]]:
+    """Build per-period rows from the XBRL facts. Latest filing wins per (period, column)."""
+    # accum: (fy, quarter_or_None) -> { db_col -> {"val", "filed", "form", "end"} }
+    accum: dict[tuple[int, int | None], dict[str, dict[str, Any]]] = {}
+
+    for db_col, concepts in ANNUAL_CONCEPT_MAP.items():
+        for concept in concepts:
+            unit_map = us_gaap.get(concept, {}).get("units", {})
+            entries = unit_map.get("USD") or unit_map.get("shares") or []
+            if not entries:
+                continue
+            found_any = False
+            for e in entries:
+                fp = e.get("fp")
+                form = e.get("form", "")
+                if not form.startswith(form_prefix):
+                    continue
+                if fiscal_period and fp != fiscal_period:
+                    continue
+                if fiscal_period_set and fp not in fiscal_period_set:
+                    continue
+                fy = e.get("fy")
+                if fy is None:
+                    continue
+                q = None
+                if fp and fp.startswith("Q"):
+                    try:
+                        q = int(fp[1:])
+                    except ValueError:
+                        q = None
+                key = (fy, q)
+                slot = accum.setdefault(key, {})
+                existing = slot.get(db_col)
+                if existing is None or e.get("filed", "") > existing.get("filed", ""):
+                    slot[db_col] = {
+                        "val": e.get("val"),
+                        "filed": e.get("filed"),
+                        "form": form,
+                        "end": e.get("end"),
+                    }
+                    found_any = True
+            if found_any:
+                break  # found a concept with data — don't fall through
+
+    out: list[dict[str, Any]] = []
+    for (fy, q), cols in accum.items():
+        is_restated = any(c["form"].endswith("/A") for c in cols.values())
+        row: dict[str, Any] = {
+            "ticker": ticker,
+            "fiscal_year": fy,
+            "currency": "USD",
+            "source": "sec_edgar",
+            "is_restated": is_restated,
+        }
+        if q is not None:
+            row["fiscal_quarter"] = q
+        end_dates: list[str] = [c["end"] for c in cols.values() if c.get("end")]
+        if end_dates:
+            row["period_end_date"] = max(end_dates)
+        for db_col, info in cols.items():
+            row[db_col] = info["val"]
+        # Derived: EBITDA = EBIT + Depreciation (when both present)
+        if row.get("ebit") is not None and row.get("depreciation") is not None:
+            row["ebitda"] = row["ebit"] + row["depreciation"]
+        # Derived: FCF = OCF - Capex
+        if row.get("operating_cashflow") is not None and row.get("capex") is not None:
+            row["free_cashflow"] = row["operating_cashflow"] - row["capex"]
+        out.append(row)
+    return out
+
+
+def _collect_filings(ticker: str, us_gaap: dict[str, Any]) -> list[dict[str, Any]]:
+    """Extract unique (form, filed_date) pairs as filings_log entries."""
+    seen: set[tuple[str, str]] = set()
+    out: list[dict[str, Any]] = []
+    for concept in us_gaap.values():
+        for unit_entries in concept.get("units", {}).values():
+            for e in unit_entries:
+                form = e.get("form")
+                filed = e.get("filed")
+                if not form or not filed:
+                    continue
+                key = (form, filed)
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append(
+                    {
+                        "ticker": ticker,
+                        "filing_type": form,
+                        "filing_date": filed,
+                        "accession_number": e.get("accn"),
+                        "source": "sec_edgar",
+                    }
+                )
+    return out
