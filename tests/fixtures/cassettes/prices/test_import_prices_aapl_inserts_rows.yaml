@@ -1,0 +1,56 @@
+# Hand-crafted fixture for FMP /profile/{symbol} + /historical-price-full/{symbol}.
+# Based on FMP v3 API documentation. No real API key was used.
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/profile/AAPL
+  response:
+    body:
+      string: '[{"symbol":"AAPL","price":189.30,"beta":1.24,"volAvg":56729526,"mktCap":2937281970000,"lastDiv":0.96,"range":"164.08-199.62","changes":1.34,"companyName":"Apple
+        Inc.","currency":"USD","cik":"0000320193","isin":"US0378331005","cusip":"037833100","exchange":"NASDAQ
+        Global Select","exchangeShortName":"NASDAQ","industry":"Consumer Electronics","website":"https://www.apple.com","description":"Apple
+        Inc. designs, manufactures, and markets smartphones, personal computers, tablets,
+        wearables, and accessories worldwide.","ceo":"Mr. Timothy D. Cook","sector":"Technology","country":"US","fullTimeEmployees":"161000","phone":"408-996-1010","address":"One
+        Apple Park Way","city":"Cupertino","state":"CA","zip":"95014","dcfDiff":53.34,"dcf":135.96,"image":"https://images.financialmodelingprep.com/symbol/AAPL.png","ipoDate":"1980-12-12","defaultImage":false,"isEtf":false,"isActivelyTrading":true,"isAdr":false,"isFund":false}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/historical-price-full/AAPL
+  response:
+    body:
+      string: '{"symbol":"AAPL","historical":[{"date":"2024-01-05","open":181.99,"high":182.09,"low":178.74,"close":181.18,"adjClose":181.18,"volume":62303300,"unadjustedVolume":62303300,"change":-0.81,"changePercent":-0.44541,"vwap":180.67,"label":"January
+        05, 24","changeOverTime":-0.0044541},{"date":"2024-01-04","open":182.15,"high":183.09,"low":180.84,"close":181.91,"adjClose":181.91,"volume":71983900,"unadjustedVolume":71983900,"change":-0.24,"changePercent":-0.13181,"vwap":181.94,"label":"January
+        04, 24","changeOverTime":-0.0013181},{"date":"2024-01-03","open":184.22,"high":185.88,"low":183.43,"close":184.25,"adjClose":184.25,"volume":58414500,"unadjustedVolume":58414500,"change":0.03,"changePercent":0.01629,"vwap":184.52,"label":"January
+        03, 24","changeOverTime":0.0001629}]}'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+version: 1
