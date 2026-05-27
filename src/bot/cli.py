@@ -10,6 +10,8 @@ import typer
 from bot import __version__
 from bot.config import Settings, load_settings
 from bot.ingest.damodaran import import_damodaran
+from bot.ingest.sec_edgar import import_company_from_sec
+from bot.reporting.show import format_company_summary
 from bot.storage.db import apply_schema, connect
 from bot.utils.logging import configure_logging, get_logger
 
@@ -72,3 +74,56 @@ def refresh(
         raise typer.Exit(code=0)
     typer.echo(f"FAILED — {result.error_message}", err=True)
     raise typer.Exit(code=1)
+
+
+@app.command()
+def show(
+    ticker: str = typer.Argument(..., help="Company ticker (e.g. AAPL)."),
+    fetch_if_missing: bool = typer.Option(
+        True,
+        "--fetch/--no-fetch",
+        help="If the ticker isn't in the DB, fetch it from SEC EDGAR first.",
+    ),
+) -> None:
+    """Show a company's basic info and last 5 years of financials."""
+    conn, settings = _open_db()
+    ticker = ticker.upper()
+
+    row = conn.execute(
+        "SELECT ticker, name, cik, country, currency FROM companies WHERE ticker = ?",
+        [ticker],
+    ).fetchone()
+
+    if row is None:
+        if not fetch_if_missing:
+            typer.echo(f"{ticker} not in DB (use --fetch to import from SEC).", err=True)
+            raise typer.Exit(code=2)
+        typer.echo(f"{ticker} not in DB — fetching from SEC EDGAR...")
+        result = import_company_from_sec(conn, ticker=ticker, user_agent=settings.sec_user_agent)
+        if not result.is_success():
+            typer.echo(f"Failed to import {ticker}: {result.error_message}", err=True)
+            raise typer.Exit(code=1)
+        row = conn.execute(
+            "SELECT ticker, name, cik, country, currency FROM companies WHERE ticker = ?",
+            [ticker],
+        ).fetchone()
+
+    if row is None:
+        typer.echo(f"{ticker} still not in DB after import — aborting.", err=True)
+        raise typer.Exit(code=1)
+
+    company = dict(zip(["ticker", "name", "cik", "country", "currency"], row, strict=False))
+    annual_cursor = conn.execute(
+        """
+        SELECT *
+        FROM financials_annual
+        WHERE ticker = ?
+        ORDER BY fiscal_year DESC
+        LIMIT 5
+        """,
+        [ticker],
+    )
+    columns = [d[0] for d in annual_cursor.description]
+    annual_rows = [dict(zip(columns, r, strict=False)) for r in annual_cursor.fetchall()]
+
+    typer.echo(format_company_summary(company, annual_rows))
