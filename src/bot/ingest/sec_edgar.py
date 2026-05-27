@@ -135,9 +135,14 @@ def parse_company_facts(ticker: str, facts: dict[str, Any]) -> ParsedCompanyData
     }
 
     us_gaap = facts.get("facts", {}).get("us-gaap", {})
-    annual_rows = _collect_period_rows(ticker, us_gaap, fiscal_period="FY", form_prefix="10-K")
+    annual_rows = _collect_period_rows(
+        ticker, us_gaap, fiscal_period="FY", allowed_forms={"10-K", "10-K/A"}
+    )
     quarterly_rows = _collect_period_rows(
-        ticker, us_gaap, fiscal_period_set={"Q1", "Q2", "Q3", "Q4"}, form_prefix="10-Q"
+        ticker,
+        us_gaap,
+        fiscal_period_set={"Q1", "Q2", "Q3", "Q4"},
+        allowed_forms={"10-Q", "10-Q/A"},
     )
     filings = _collect_filings(ticker, us_gaap)
 
@@ -155,11 +160,13 @@ def _collect_period_rows(
     *,
     fiscal_period: str | None = None,
     fiscal_period_set: set[str] | None = None,
-    form_prefix: str,
+    allowed_forms: set[str],
 ) -> list[dict[str, Any]]:
     """Build per-period rows from the XBRL facts. Latest filing wins per (period, column)."""
     # accum: (fy, quarter_or_None) -> { db_col -> {"val", "filed", "form", "end"} }
     accum: dict[tuple[int, int | None], dict[str, dict[str, Any]]] = {}
+    # forms_seen: track ALL forms observed for each (fy, q) slot to compute is_restated correctly
+    forms_seen: dict[tuple[int, int | None], set[str]] = {}
 
     for db_col, concepts in ANNUAL_CONCEPT_MAP.items():
         for concept in concepts:
@@ -171,7 +178,7 @@ def _collect_period_rows(
             for e in entries:
                 fp = e.get("fp")
                 form = e.get("form", "")
-                if not form.startswith(form_prefix):
+                if form not in allowed_forms:
                     continue
                 if fiscal_period and fp != fiscal_period:
                     continue
@@ -187,6 +194,8 @@ def _collect_period_rows(
                     except ValueError:
                         q = None
                 key = (fy, q)
+                # Track every form seen for this period slot
+                forms_seen.setdefault(key, set()).add(form)
                 slot = accum.setdefault(key, {})
                 existing = slot.get(db_col)
                 if existing is None or e.get("filed", "") > existing.get("filed", ""):
@@ -202,7 +211,8 @@ def _collect_period_rows(
 
     out: list[dict[str, Any]] = []
     for (fy, q), cols in accum.items():
-        is_restated = any(c["form"].endswith("/A") for c in cols.values())
+        # is_restated is True if ANY historical form for this period was an amendment (/A)
+        is_restated = any(f.endswith("/A") for f in forms_seen.get((fy, q), set()))
         row: dict[str, Any] = {
             "ticker": ticker,
             "fiscal_year": fy,
@@ -432,5 +442,8 @@ def import_company_from_sec(
             error_message=str(e),
             details={"ticker": ticker},
         )
-    _log_refresh_sec(conn, result, run_id)
+    try:
+        _log_refresh_sec(conn, result, run_id)
+    except Exception as log_err:
+        log.exception("sec_edgar.refresh_log_insert_failed", error=str(log_err))
     return result

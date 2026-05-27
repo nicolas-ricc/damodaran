@@ -112,3 +112,86 @@ def test_parse_returns_filings_log_entries():
     assert len(result.filings) >= 1
     forms = {f["filing_type"] for f in result.filings}
     assert "10-K" in forms
+
+
+# --- Fix 2: is_restated tracks all historical forms, not just the winning form ---
+
+FAKE_FACTS_RESTATEMENT = {
+    "cik": 320193,
+    "entityName": "Apple Inc.",
+    "facts": {
+        "us-gaap": {
+            "Revenues": {
+                "label": "Revenues",
+                "units": {
+                    "USD": [
+                        # 10-K/A filed first for 2022
+                        {
+                            "end": "2022-09-30",
+                            "val": 394000000000,
+                            "fy": 2022,
+                            "fp": "FY",
+                            "form": "10-K/A",
+                            "filed": "2022-12-01",
+                        },
+                        # Later 10-K supersedes the /A for 2022 — winning form is 10-K
+                        {
+                            "end": "2022-09-30",
+                            "val": 394328000000,
+                            "fy": 2022,
+                            "fp": "FY",
+                            "form": "10-K",
+                            "filed": "2023-01-15",
+                        },
+                    ]
+                },
+            }
+        }
+    },
+}
+
+
+def test_is_restated_true_when_amendment_in_history_even_if_later_10k_wins():
+    """If a /A was ever filed for a period, is_restated must be True even when a
+    later plain 10-K wins the slot."""
+    result = parse_company_facts("AAPL", FAKE_FACTS_RESTATEMENT)
+    annual = {row["fiscal_year"]: row for row in result.annual}
+    assert 2022 in annual
+    # The winning value comes from the later 10-K
+    assert annual[2022]["revenue"] == 394328000000
+    # But is_restated must still be True because a 10-K/A was observed for this period
+    assert annual[2022]["is_restated"] is True
+
+
+# --- Fix 3: tightened form matching — 10-KSB must be excluded ---
+
+FAKE_FACTS_10KSB = {
+    "cik": 99999,
+    "entityName": "Small Co.",
+    "facts": {
+        "us-gaap": {
+            "Revenues": {
+                "label": "Revenues",
+                "units": {
+                    "USD": [
+                        # 10-KSB should NOT be included in annual rows
+                        {
+                            "end": "2005-12-31",
+                            "val": 1000000,
+                            "fy": 2005,
+                            "fp": "FY",
+                            "form": "10-KSB",
+                            "filed": "2006-03-15",
+                        },
+                    ]
+                },
+            }
+        }
+    },
+}
+
+
+def test_10ksb_excluded_from_annual_rows():
+    """10-KSB is not a valid annual form and must not appear in annual_rows."""
+    result = parse_company_facts("SMCO", FAKE_FACTS_10KSB)
+    assert result.annual == [], "10-KSB entries must be excluded from annual rows"
