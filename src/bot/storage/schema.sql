@@ -113,6 +113,16 @@ CREATE TABLE IF NOT EXISTS filings_log (
     PRIMARY KEY (ticker, filing_type, filing_date, source)
 );
 
+-- Daily FX rates against USD (see docs/adr/0004-fx-source-ecb.md)
+CREATE TABLE IF NOT EXISTS currencies (
+    currency        VARCHAR NOT NULL,       -- ISO 4217 code, e.g. 'EUR', 'GBP'
+    date            DATE NOT NULL,
+    rate_to_usd     DOUBLE NOT NULL,        -- 1 unit of currency = rate_to_usd USD
+    source          VARCHAR NOT NULL,       -- 'ecb'
+    fetched_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (currency, date)
+);
+
 CREATE TABLE IF NOT EXISTS refresh_log (
     source          VARCHAR NOT NULL,
     run_id          VARCHAR NOT NULL,
