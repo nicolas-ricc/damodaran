@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
+import duckdb
 import httpx
 
+from bot.ingest.base import IngestResult
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -248,3 +252,185 @@ def _collect_filings(ticker: str, us_gaap: dict[str, Any]) -> list[dict[str, Any
                     }
                 )
     return out
+
+
+# ---------- Importer + Upserts ----------
+
+
+def upsert_company(conn: duckdb.DuckDBPyConnection, company: dict[str, Any]) -> None:
+    """Replace the company row by ticker. Assumes called within a transaction."""
+    cols = sorted(company.keys())
+    placeholders = ", ".join(["?"] * len(cols))
+    col_list = ", ".join(cols)
+    conn.execute("DELETE FROM companies WHERE ticker = ?", [company["ticker"]])
+    conn.execute(
+        f"INSERT INTO companies ({col_list}) VALUES ({placeholders})",
+        [company[c] for c in cols],
+    )
+
+
+def upsert_financials_annual(conn: duckdb.DuckDBPyConnection, rows: list[dict[str, Any]]) -> int:
+    """Replace all financials_annual rows for the tickers present. Returns row count."""
+    if not rows:
+        return 0
+    all_cols: set[str] = set()
+    for r in rows:
+        all_cols.update(r.keys())
+    cols = sorted(all_cols)
+
+    tickers = {r["ticker"] for r in rows}
+    for ticker in tickers:
+        conn.execute("DELETE FROM financials_annual WHERE ticker = ?", [ticker])
+    placeholders = ", ".join(["?"] * len(cols))
+    col_list = ", ".join(cols)
+    for r in rows:
+        conn.execute(
+            f"INSERT INTO financials_annual ({col_list}) VALUES ({placeholders})",
+            [r.get(c) for c in cols],
+        )
+    return len(rows)
+
+
+FINANCIALS_QUARTERLY_COLS = {
+    "ticker",
+    "fiscal_year",
+    "fiscal_quarter",
+    "period_end_date",
+    "currency",
+    "revenue",
+    "ebit",
+    "ebitda",
+    "net_income",
+    "operating_cashflow",
+    "free_cashflow",
+    "total_debt",
+    "cash",
+    "is_restated",
+    "source",
+}
+
+
+def upsert_financials_quarterly(conn: duckdb.DuckDBPyConnection, rows: list[dict[str, Any]]) -> int:
+    """Replace all financials_quarterly rows for the tickers present. Returns row count."""
+    if not rows:
+        return 0
+    # Filter rows to only columns that exist in financials_quarterly and have fiscal_quarter
+    filtered: list[dict[str, Any]] = []
+    for r in rows:
+        if r.get("fiscal_quarter") is None:
+            continue
+        filtered.append({k: v for k, v in r.items() if k in FINANCIALS_QUARTERLY_COLS})
+    if not filtered:
+        return 0
+
+    all_cols: set[str] = set()
+    for r in filtered:
+        all_cols.update(r.keys())
+    cols = sorted(all_cols)
+
+    tickers = {r["ticker"] for r in filtered}
+    for ticker in tickers:
+        conn.execute("DELETE FROM financials_quarterly WHERE ticker = ?", [ticker])
+    placeholders = ", ".join(["?"] * len(cols))
+    col_list = ", ".join(cols)
+    for r in filtered:
+        conn.execute(
+            f"INSERT INTO financials_quarterly ({col_list}) VALUES ({placeholders})",
+            [r.get(c) for c in cols],
+        )
+    return len(filtered)
+
+
+def upsert_filings(conn: duckdb.DuckDBPyConnection, filings: list[dict[str, Any]]) -> int:
+    """Replace filings_log entries on PK match. Returns row count."""
+    if not filings:
+        return 0
+    cols = ["ticker", "filing_type", "filing_date", "accession_number", "source"]
+    placeholders = ", ".join(["?"] * len(cols))
+    inserted = 0
+    for f in filings:
+        conn.execute(
+            "DELETE FROM filings_log WHERE ticker = ? AND filing_type = ? AND filing_date = ? AND source = ?",
+            [f["ticker"], f["filing_type"], f["filing_date"], f["source"]],
+        )
+        conn.execute(
+            f"INSERT INTO filings_log ({', '.join(cols)}) VALUES ({placeholders})",
+            [f.get(c) for c in cols],
+        )
+        inserted += 1
+    return inserted
+
+
+def _log_refresh_sec(conn: duckdb.DuckDBPyConnection, result: IngestResult, run_id: str) -> None:
+    conn.execute(
+        """
+        INSERT INTO refresh_log
+            (source, run_id, started_at, finished_at, status, rows_affected, error_message)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            result.source,
+            run_id,
+            result.started_at,
+            result.finished_at,
+            result.status,
+            result.rows_affected,
+            result.error_message,
+        ],
+    )
+
+
+def import_company_from_sec(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    ticker: str,
+    user_agent: str,
+) -> IngestResult:
+    """Fetch + parse + upsert one US ticker from SEC EDGAR. Atomic on the DB side."""
+    started = datetime.now()
+    run_id = str(uuid.uuid4())
+    try:
+        with SecEdgarClient(user_agent=user_agent) as client:
+            cik = client.lookup_cik(ticker)
+            if cik is None:
+                raise ValueError(f"Ticker {ticker} not found in SEC EDGAR ticker table")
+            facts = client.fetch_company_facts(cik)
+        parsed = parse_company_facts(ticker, facts)
+
+        conn.execute("BEGIN TRANSACTION")
+        try:
+            upsert_company(conn, parsed.company)
+            annual = upsert_financials_annual(conn, parsed.annual)
+            quarterly = upsert_financials_quarterly(conn, parsed.quarterly)
+            filings = upsert_filings(conn, parsed.filings)
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+
+        total = 1 + annual + quarterly + filings
+        result = IngestResult(
+            source="sec_edgar",
+            started_at=started,
+            finished_at=datetime.now(),
+            status="success",
+            rows_affected=total,
+            details={
+                "ticker": ticker,
+                "annual": annual,
+                "quarterly": quarterly,
+                "filings": filings,
+            },
+        )
+    except Exception as e:
+        log.exception("sec_edgar.import.failed", ticker=ticker, error=str(e))
+        result = IngestResult(
+            source="sec_edgar",
+            started_at=started,
+            finished_at=datetime.now(),
+            status="error",
+            error_message=str(e),
+            details={"ticker": ticker},
+        )
+    _log_refresh_sec(conn, result, run_id)
+    return result
