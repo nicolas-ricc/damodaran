@@ -175,3 +175,27 @@ def doctor() -> None:
             typer.echo(f"FAIL: {issue}", err=True)
         raise typer.Exit(code=1)
     typer.echo("\nAll checks OK.")
+
+
+@app.command()
+def status() -> None:
+    """Show the most recent refresh result per data source."""
+    conn, _ = _open_db()
+    rows = conn.execute(
+        """
+        SELECT source, MAX(finished_at) AS last_finished, status, rows_affected
+        FROM refresh_log
+        GROUP BY source, status, rows_affected
+        QUALIFY ROW_NUMBER() OVER (PARTITION BY source ORDER BY last_finished DESC) = 1
+        ORDER BY source
+        """
+    ).fetchall()
+    if not rows:
+        typer.echo("No refresh history yet — run `bot refresh --damodaran` first.")
+        return
+    typer.echo(f"{'Source':<14}{'Last run':<22}{'Status':<10}{'Rows':>8}")
+    typer.echo("-" * 54)
+    for source, last_finished, status_str, rows_affected in rows:
+        typer.echo(
+            f"{source:<14}{last_finished.strftime('%Y-%m-%d %H:%M:%S'):<22}{status_str:<10}{rows_affected:>8}"
+        )
