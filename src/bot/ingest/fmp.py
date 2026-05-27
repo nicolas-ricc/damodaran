@@ -102,6 +102,27 @@ class FmpClient:
 
 _QUARTERLY_PERIODS = {"Q1", "Q2", "Q3", "Q4"}
 
+# Columns present in the financials_quarterly schema (schema.sql).
+# _build_financials_row returns additional annual-only columns that are stripped
+# before quarterly rows are appended.
+_QUARTERLY_COLUMNS: frozenset[str] = frozenset({
+    "ticker",
+    "fiscal_year",
+    "fiscal_quarter",
+    "period_end_date",
+    "currency",
+    "revenue",
+    "ebit",
+    "ebitda",
+    "net_income",
+    "operating_cashflow",
+    "free_cashflow",
+    "total_debt",
+    "cash",
+    "is_restated",
+    "source",
+})
+
 
 def _num(d: dict[str, Any], key: str) -> float | None:
     v = d.get(key)
@@ -117,6 +138,12 @@ def _period_key(entry: dict[str, Any]) -> tuple[str, str]:
     return (str(entry.get("calendarYear", "")), str(entry.get("period", "")))
 
 
+def _filling_sort_key(e: dict[str, Any]) -> tuple[int, str]:
+    """Push None/missing fillingDate to the bottom (oldest) in sort order."""
+    v = e.get("fillingDate")
+    return (1, str(v)) if v is not None else (0, "")
+
+
 def _index_statements(
     entries: list[dict[str, Any]],
 ) -> dict[tuple[str, str], dict[str, Any]]:
@@ -125,8 +152,21 @@ def _index_statements(
     for e in entries:
         key = _period_key(e)
         existing = idx.get(key)
-        if existing is None or str(e.get("fillingDate", "")) > str(existing.get("fillingDate", "")):
+        if existing is None or _filling_sort_key(e) > _filling_sort_key(existing):
             idx[key] = e
+    return idx
+
+
+def _build_filing_index(
+    entries: list[dict[str, Any]],
+) -> dict[tuple[str, str, str], dict[str, Any]]:
+    """Index by (calendarYear, period, fillingDate) for snapshot-aware restatement joins."""
+    idx: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for e in entries:
+        raw = e.get("fillingDate")
+        filing_date = str(raw) if raw is not None else ""
+        key = (str(e.get("calendarYear", "")), str(e.get("period", "")), filing_date)
+        idx[key] = e
     return idx
 
 
@@ -139,7 +179,7 @@ def _group_statements(
         key = _period_key(e)
         groups.setdefault(key, []).append(e)
     for key in groups:
-        groups[key].sort(key=lambda e: str(e.get("fillingDate", "")))
+        groups[key].sort(key=_filling_sort_key)
     return groups
 
 
@@ -162,11 +202,13 @@ def _build_financials_row(
     fiscal_year = int(cal_year) if cal_year.isdigit() else 0
 
     ebit = _num(inc, "operatingIncome")
-    # FMP provides D&A in both income and cashflow; prefer cashflow for consistency.
+    # For EBITDA derivation use income-statement D&A (operating-only).
+    # Cashflow D&A may include capex-related amortization and would overstate EBITDA.
+    ebitda_da = _num(inc, "depreciationAndAmortization")
     depreciation = _num(cf, "depreciationAndAmortization") or _num(inc, "depreciationAndAmortization")
     ebitda = _num(inc, "ebitda")
-    if ebitda is None and ebit is not None and depreciation is not None:
-        ebitda = ebit + depreciation
+    if ebitda is None and ebit is not None and ebitda_da is not None:
+        ebitda = ebit + ebitda_da
 
     operating_cashflow = _num(cf, "operatingCashFlow") or _num(
         cf, "netCashProvidedByOperatingActivities"
@@ -224,38 +266,82 @@ def parse_fmp_fundamentals(
     Joins income / balance / cashflow per (calendarYear, period), derives EBITDA
     and FCF when FMP omits them, and detects restatements when duplicate periods
     appear with different fillingDates.
+
+    Restatement handling: each restated income entry is matched to its contemporaneous
+    balance/cashflow snapshot by fillingDate. If FMP does not preserve historical
+    balance/cf snapshots for a given restated income entry (no entry with a matching
+    fillingDate is found), that restated row is dropped rather than emitted with
+    mismatched current balance/cf figures. The latest (current) income entry is
+    always emitted using the latest available balance/cf for that period.
     """
     ticker = ticker.upper()
 
     bal_idx = _index_statements(balance_json)
     cf_idx = _index_statements(cashflow_json)
+    bal_by_filing = _build_filing_index(balance_json)
+    cf_by_filing = _build_filing_index(cashflow_json)
     income_groups = _group_statements(income_json)
 
     annual: list[dict[str, Any]] = []
     quarterly: list[dict[str, Any]] = []
 
     for (cal_year, period), entries in income_groups.items():
-        key = (cal_year, period)
-        bal = bal_idx.get(key, {})
-        cf = cf_idx.get(key, {})
+        if not cal_year.isdigit():
+            log.warning(
+                "fmp.invalid_calendar_year.skipped",
+                ticker=ticker,
+                year=cal_year,
+                period=period,
+            )
+            continue
+
+        period_key = (cal_year, period)
         n = len(entries)
+
         for i, inc in enumerate(entries):
-            # All but the last (most recent) filing are superseded — mark as restated.
             is_restated = i < n - 1
+            raw_date = inc.get("fillingDate")
+            filling_date = str(raw_date) if raw_date is not None else ""
+            filing_key = (cal_year, period, filling_date)
+
+            # For restated income entries, require a contemporaneous balance/cf snapshot
+            # by fillingDate. When FMP stores only the latest version (no historical
+            # snapshots), skip rather than pair stale income with current balance/cf.
+            if is_restated and bal_by_filing.get(filing_key) is None and cf_by_filing.get(filing_key) is None:
+                log.debug(
+                    "fmp.restatement.no_snapshot_skipped",
+                    ticker=ticker,
+                    year=cal_year,
+                    period=period,
+                    filling_date=filling_date,
+                )
+                continue
+
+            bal_snapshot = bal_by_filing.get(filing_key)
+            cf_snapshot = cf_by_filing.get(filing_key)
+            bal = bal_snapshot if bal_snapshot is not None else bal_idx.get(period_key, {})
+            cf = cf_snapshot if cf_snapshot is not None else cf_idx.get(period_key, {})
             row = _build_financials_row(ticker, inc, bal, cf, is_restated=is_restated)
+
             if period == "FY":
                 annual.append(row)
             elif period in _QUARTERLY_PERIODS:
-                row["fiscal_quarter"] = int(period[1])
-                quarterly.append(row)
+                quarterly_row: dict[str, Any] = {
+                    k: val for k, val in row.items() if k in _QUARTERLY_COLUMNS
+                }
+                quarterly_row["fiscal_quarter"] = int(period[1])
+                quarterly.append(quarterly_row)
             # Unknown period strings are silently ignored.
 
-    # Derive a minimal company stub from the first income entry (profile comes from M2.3).
+    # Derive a minimal company stub from the first income entry.
+    # The `name` field defaults to ticker as a placeholder; the M2.3 importer
+    # overwrites it with the full company name from the FMP /profile endpoint.
     first = income_json[0] if income_json else {}
     cik_raw = first.get("cik")
     cik: str | None = str(cik_raw).strip().zfill(10) if cik_raw and str(cik_raw).strip() else None
     company: dict[str, Any] = {
         "ticker": ticker,
+        "name": ticker,
         "cik": cik,
         "currency": first.get("reportedCurrency") or None,
         "source": "fmp",

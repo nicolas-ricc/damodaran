@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+import duckdb
 import pytest
 
 from bot.ingest.fmp import parse_fmp_fundamentals
+from bot.storage.db import apply_schema
 
 # ---------------------------------------------------------------------------
 # Helpers — hand-crafted FMP response shapes
@@ -247,6 +249,71 @@ class TestQuarterlyParsing:
 
 
 # ---------------------------------------------------------------------------
+# Quarterly schema contract
+# ---------------------------------------------------------------------------
+
+_EXPECTED_QUARTERLY_KEYS = frozenset({
+    "ticker",
+    "fiscal_year",
+    "fiscal_quarter",
+    "period_end_date",
+    "currency",
+    "revenue",
+    "ebit",
+    "ebitda",
+    "net_income",
+    "operating_cashflow",
+    "free_cashflow",
+    "total_debt",
+    "cash",
+    "is_restated",
+    "source",
+})
+
+
+class TestQuarterlySchema:
+    def test_quarterly_columns_restricted_to_schema(self) -> None:
+        result = parse_fmp_fundamentals(
+            "AAPL",
+            income_json=[_income("2023", "Q1")],
+            balance_json=[_balance("2023", "Q1")],
+            cashflow_json=[_cashflow("2023", "Q1")],
+        )
+        assert result.quarterly
+        assert set(result.quarterly[0].keys()) == _EXPECTED_QUARTERLY_KEYS
+
+    def test_quarterly_row_fits_db_schema(self) -> None:
+        """Quarterly row dict must insert cleanly into financials_quarterly without schema errors."""
+        result = parse_fmp_fundamentals(
+            "AAPL",
+            income_json=[_income("2023", "Q1")],
+            balance_json=[_balance("2023", "Q1")],
+            cashflow_json=[_cashflow("2023", "Q1")],
+        )
+        row = result.quarterly[0]
+
+        conn = duckdb.connect(":memory:")
+        apply_schema(conn)
+        conn.execute(
+            """INSERT INTO financials_quarterly
+               (ticker, fiscal_year, fiscal_quarter, period_end_date, currency,
+                revenue, ebit, ebitda, net_income, operating_cashflow, free_cashflow,
+                total_debt, cash, is_restated, source)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                row["ticker"], row["fiscal_year"], row["fiscal_quarter"],
+                row["period_end_date"], row["currency"],
+                row["revenue"], row["ebit"], row["ebitda"], row["net_income"],
+                row["operating_cashflow"], row["free_cashflow"],
+                row["total_debt"], row["cash"], row["is_restated"], row["source"],
+            ],
+        )
+        count = conn.execute("SELECT COUNT(*) FROM financials_quarterly").fetchone()
+        assert count is not None and count[0] == 1
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
 # Derived metrics
 # ---------------------------------------------------------------------------
 
@@ -261,7 +328,7 @@ class TestDerivedMetrics:
             cashflow_json=[_cashflow("2023", "FY")],
         )
         row = result.annual[0]
-        # ebit=114_301_000_000 + depreciation from cashflow=11_519_000_000
+        # ebit=114_301_000_000 + income-stmt D&A=11_519_000_000
         assert row["ebitda"] == pytest.approx(125_820_000_000.0)
 
     def test_ebitda_from_fmp_preferred_over_derived(self) -> None:
@@ -273,6 +340,20 @@ class TestDerivedMetrics:
         )
         # FMP ebitda (123.2B) differs from ebit+D&A (125.82B); FMP value wins.
         assert result.annual[0]["ebitda"] == pytest.approx(123_200_000_000.0)
+
+    def test_ebitda_derived_uses_income_da_not_cashflow(self) -> None:
+        """When deriving EBITDA, income-stmt D&A is used, not cashflow D&A."""
+        inc = _income("2023", "FY", ebitda=None, depreciationAndAmortization=5_000_000_000.0)
+        del inc["ebitda"]
+        cf = _cashflow("2023", "FY", depreciationAndAmortization=9_000_000_000.0)
+        result = parse_fmp_fundamentals(
+            "AAPL",
+            income_json=[inc],
+            balance_json=[_balance("2023", "FY")],
+            cashflow_json=[cf],
+        )
+        # ebit=114_301_000_000 + income D&A=5_000_000_000 (not cashflow 9B)
+        assert result.annual[0]["ebitda"] == pytest.approx(119_301_000_000.0)
 
     def test_fcf_derived_when_missing(self) -> None:
         cf = _cashflow("2023", "FY")
@@ -356,25 +437,26 @@ class TestRestatements:
         assert result.annual[0]["is_restated"] is False
 
     def test_earlier_duplicate_period_marked_restated(self) -> None:
-        # Two entries for the same (calendarYear, period): earlier fillingDate is the restated one.
+        # Two income entries: the original has a matching balance snapshot (same fillingDate),
+        # so both are emitted — the earlier one as restated, the later as current.
         inc_original = _income("2023", "FY", filling_date="2023-11-02")
         inc_amended = _income("2023", "FY", filling_date="2024-01-15", revenue=390_000_000_000.0)
         result = parse_fmp_fundamentals(
             "AAPL",
             income_json=[inc_original, inc_amended],
-            balance_json=[_balance("2023", "FY")],
-            cashflow_json=[_cashflow("2023", "FY")],
+            balance_json=[_balance("2023", "FY")],   # fillingDate "2023-11-02" matches original
+            cashflow_json=[_cashflow("2023", "FY")],  # fillingDate "2023-11-02" matches original
         )
-        # Two rows: the original (restated) and the amendment (current).
         assert len(result.annual) == 2
         restated_rows = [r for r in result.annual if r["is_restated"]]
         current_rows = [r for r in result.annual if not r["is_restated"]]
         assert len(restated_rows) == 1
         assert len(current_rows) == 1
-        # The latest fillingDate (amended) is the current one.
         assert current_rows[0]["revenue"] == pytest.approx(390_000_000_000.0)
 
-    def test_restatement_in_quarterly(self) -> None:
+    def test_restatement_without_snapshots_emits_latest_only(self) -> None:
+        # No balance/cf provided → no contemporaneous snapshot for the restated entry.
+        # Only the current (latest) income row should be emitted.
         q1_v1 = _income("2023", "Q1", filling_date="2023-05-01")
         q1_v2 = _income("2023", "Q1", filling_date="2023-07-15")
         result = parse_fmp_fundamentals(
@@ -383,9 +465,27 @@ class TestRestatements:
             balance_json=[],
             cashflow_json=[],
         )
-        assert len(result.quarterly) == 2
-        assert any(r["is_restated"] for r in result.quarterly)
-        assert any(not r["is_restated"] for r in result.quarterly)
+        assert len(result.quarterly) == 1
+        assert result.quarterly[0]["is_restated"] is False
+
+    def test_restatement_with_matching_balance_snapshots(self) -> None:
+        # Balance has entries for both fillingDates → both income rows are emitted.
+        inc_v1 = _income("2023", "FY", filling_date="2023-11-02")
+        inc_v2 = _income("2023", "FY", filling_date="2024-01-15", revenue=390_000_000_000.0)
+        bal_v1 = _balance("2023", "FY", filling_date="2023-11-02")
+        bal_v2 = _balance("2023", "FY", filling_date="2024-01-15")
+        result = parse_fmp_fundamentals(
+            "AAPL",
+            income_json=[inc_v1, inc_v2],
+            balance_json=[bal_v1, bal_v2],
+            cashflow_json=[_cashflow("2023", "FY")],
+        )
+        assert len(result.annual) == 2
+        restated = [r for r in result.annual if r["is_restated"]]
+        current = [r for r in result.annual if not r["is_restated"]]
+        assert len(restated) == 1
+        assert len(current) == 1
+        assert current[0]["revenue"] == pytest.approx(390_000_000_000.0)
 
 
 # ---------------------------------------------------------------------------
@@ -460,3 +560,24 @@ class TestEdgeCases:
             "7203.T", income_json=[inc], balance_json=[], cashflow_json=[]
         )
         assert result.company["cik"] is None
+
+    def test_missing_calendar_year_skipped(self) -> None:
+        inc = _income("2023", "FY")
+        inc["calendarYear"] = None
+        result = parse_fmp_fundamentals(
+            "AAPL",
+            income_json=[inc],
+            balance_json=[_balance("2023", "FY")],
+            cashflow_json=[_cashflow("2023", "FY")],
+        )
+        assert result.annual == []
+        assert result.quarterly == []
+
+    def test_company_stub_has_name_placeholder(self) -> None:
+        result = parse_fmp_fundamentals(
+            "AAPL",
+            income_json=[_income("2023", "FY")],
+            balance_json=[],
+            cashflow_json=[],
+        )
+        assert result.company["name"] == "AAPL"
