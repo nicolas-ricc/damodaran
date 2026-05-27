@@ -1,0 +1,32 @@
+# Hand-crafted fixture matching FMP /profile/{symbol} response shape.
+# Based on FMP v3 API documentation. No real API key was used.
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/profile/7203.T
+  response:
+    body:
+      string: '[{"symbol":"7203.T","price":2745.0,"beta":0.61,"volAvg":8932145,"mktCap":44518234567890,"lastDiv":75.00,"range":"2300.0-3200.0","changes":15.0,"companyName":"Toyota
+        Motor Corporation","currency":"JPY","cik":null,"isin":"JP3633400001","cusip":null,"exchange":"Tokyo
+        Stock Exchange","exchangeShortName":"TSE","industry":"Auto Manufacturers","website":"https://global.toyota/en/","description":"Toyota
+        Motor Corporation designs, manufactures, assembles, and sells passenger vehicles,
+        minivans, trucks, and related parts worldwide.","ceo":"Mr. Koji Sato","sector":"Consumer
+        Cyclical","country":"JP","fullTimeEmployees":"375235","phone":"81-565-28-2121","address":"1
+        Toyota-Cho","city":"Toyota","state":"Aichi","zip":"471-8571","dcfDiff":null,"dcf":null,"image":"https://images.financialmodelingprep.com/symbol/7203.T.png","ipoDate":"1949-12-25","defaultImage":false,"isEtf":false,"isActivelyTrading":true,"isAdr":false,"isFund":false}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+version: 1

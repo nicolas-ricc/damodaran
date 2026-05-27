@@ -1,0 +1,26 @@
+# Hand-crafted fixture: FMP returns empty array for unknown tickers.
+# Based on FMP v3 API documentation. No real API key was used.
+interactions:
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/profile/ZZZNOTREAL
+  response:
+    body:
+      string: '[]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+version: 1
