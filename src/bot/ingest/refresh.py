@@ -9,7 +9,7 @@ from typing import Literal
 
 import duckdb
 
-from bot.ingest.fmp import FmpClient, import_company_from_fmp
+from bot.ingest.fmp import FmpClient, import_company_from_fmp, import_prices_from_fmp
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -75,21 +75,31 @@ def _should_skip(
 def _record_filing_dates(
     conn: duckdb.DuckDBPyConnection, ticker: str
 ) -> None:
-    """Record each imported period_end_date into filings_log for future skip checks."""
+    """Record FMP submission dates into filings_log for future skip checks.
+
+    Uses fmp_filing_date (the actual SEC submission date from FMP) as filing_date so
+    _should_skip's MAX(filing_date) comparison against FMP's fillingDate is semantically
+    correct.  Falls back to period_end_date for rows imported before this column existed,
+    which causes a forced re-fetch on the next run (correct backwards-compat behaviour).
+    """
     rows = conn.execute(
-        "SELECT period_end_date FROM financials_annual WHERE ticker = ? AND period_end_date IS NOT NULL",
+        "SELECT period_end_date, fmp_filing_date FROM financials_annual"
+        " WHERE ticker = ? AND period_end_date IS NOT NULL",
         [ticker],
     ).fetchall()
-    for (d,) in rows:
-        if d:
-            conn.execute(
-                "DELETE FROM filings_log WHERE ticker = ? AND filing_type = 'annual-fmp' AND filing_date = ? AND source = 'fmp'",
-                [ticker, str(d)],
-            )
-            conn.execute(
-                "INSERT INTO filings_log (ticker, filing_type, filing_date, source) VALUES (?, 'annual-fmp', ?, 'fmp')",
-                [ticker, str(d)],
-            )
+    for (period_end, fmp_date) in rows:
+        if period_end is None:
+            continue
+        filing_date = str(fmp_date) if fmp_date else str(period_end)
+        conn.execute(
+            "DELETE FROM filings_log WHERE ticker = ? AND filing_type = 'annual-fmp' AND filing_date = ? AND source = 'fmp'",
+            [ticker, filing_date],
+        )
+        conn.execute(
+            "INSERT INTO filings_log (ticker, filing_type, filing_date, period_end_date, source)"
+            " VALUES (?, 'annual-fmp', ?, ?, 'fmp')",
+            [ticker, filing_date, str(period_end)],
+        )
 
 
 def refresh_universe(
@@ -125,19 +135,31 @@ def refresh_universe(
                 stats.skipped += 1
                 continue
 
-            result = import_company_from_fmp(conn, ticker, api_key=api_key)
-            if result.status == "success":
-                _record_filing_dates(conn, ticker)
+            fund_result = import_company_from_fmp(conn, ticker, api_key=api_key)
+            if fund_result.status != "success":
+                stats.errors += 1
+                stats.failed_tickers.append(ticker)
+                log.warning(
+                    "refresh.ticker.failed",
+                    ticker=ticker,
+                    status=fund_result.status,
+                    error=fund_result.error_message,
+                )
+                continue
+
+            _record_filing_dates(conn, ticker)
+
+            price_result = import_prices_from_fmp(conn, ticker, api_key=api_key)
+            if price_result.status == "success":
                 stats.imported += 1
                 log.debug("refresh.ticker.imported", ticker=ticker)
             else:
                 stats.errors += 1
                 stats.failed_tickers.append(ticker)
                 log.warning(
-                    "refresh.ticker.failed",
+                    "refresh.prices.failed",
                     ticker=ticker,
-                    status=result.status,
-                    error=result.error_message,
+                    error=price_result.error_message,
                 )
 
         except Exception as e:

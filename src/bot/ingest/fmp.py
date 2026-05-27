@@ -160,6 +160,7 @@ class FmpClient:
                 date=str(entry["date"]),
                 close=float(entry["close"]),
                 volume=int(entry["volume"]) if entry.get("volume") is not None else None,
+                market_cap=float(entry["marketCap"]) if entry.get("marketCap") is not None else None,
             )
             for entry in historical
         ]
@@ -250,10 +251,15 @@ def _build_financials_row(
 
     total_equity = _num(bal, "totalStockholdersEquity") or _num(bal, "totalEquity")
 
+    fmp_filing_date = (
+        inc.get("fillingDate") or bal.get("fillingDate") or cf.get("fillingDate") or None
+    )
+
     return {
         "ticker": ticker,
         "fiscal_year": fiscal_year,
         "period_end_date": period_end,
+        "fmp_filing_date": fmp_filing_date,
         "currency": currency,
         "revenue": _num(inc, "revenue"),
         "cogs": _num(inc, "costOfRevenue"),

@@ -42,8 +42,8 @@ def _run_ticker(
 def test_refresh_universe_5_tickers(db: duckdb.DuckDBPyConnection) -> None:
     """5-ticker mini-universe: AAPL/GOOGL/AMZN imported, MSFT skipped, TSLA errors.
 
-    MSFT is pre-seeded in filings_log so the skip-check returns the same
-    fillingDate → skipped without a full import.
+    MSFT is pre-seeded in filings_log with filing_date=2023-07-27 (the FMP fillingDate)
+    so the skip-check sees fillingDate matches → ticker skipped without a full import.
     TSLA's FMP profile returns empty → caught error, run continues.
     Aggregate: 3 imported, 1 skipped, 1 error (20% fail rate → partial status).
     """
@@ -53,7 +53,7 @@ def test_refresh_universe_5_tickers(db: duckdb.DuckDBPyConnection) -> None:
         record_mode="none",
     )
 
-    # Pre-seed MSFT so the skip check (fillingDate="2023-07-27") triggers a skip.
+    # Pre-seed MSFT with the FMP submission date so _should_skip returns True.
     db.execute(
         "INSERT INTO filings_log (ticker, filing_type, filing_date, source) VALUES (?, ?, ?, ?)",
         ["MSFT", "annual-fmp", "2023-07-27", "fmp"],
@@ -113,11 +113,14 @@ def test_refresh_universe_5_tickers(db: duckdb.DuckDBPyConnection) -> None:
     assert "MSFT" not in companies  # skipped
     assert "TSLA" not in companies  # errored
 
-    # filings_log updated for successfully imported tickers
-    aapl_filing = db.execute(
-        "SELECT COUNT(*) FROM filings_log WHERE ticker = 'AAPL' AND source = 'fmp'"
+    # filings_log updated for successfully imported tickers with FMP submission date
+    aapl_filings = db.execute(
+        "SELECT filing_date, period_end_date FROM filings_log WHERE ticker = 'AAPL' AND source = 'fmp'"
+        " ORDER BY filing_date DESC LIMIT 1"
     ).fetchone()
-    assert aapl_filing is not None and aapl_filing[0] >= 1
+    assert aapl_filings is not None
+    assert str(aapl_filings[0]) == "2023-11-03"   # FMP fillingDate stored as filing_date
+    assert str(aapl_filings[1]) == "2023-09-30"   # period_end_date stored separately
 
     # MSFT's pre-seeded filings_log entry still present
     msft_filing = db.execute(
@@ -125,6 +128,31 @@ def test_refresh_universe_5_tickers(db: duckdb.DuckDBPyConnection) -> None:
     ).fetchone()
     assert msft_filing is not None
     assert str(msft_filing[0]) == "2023-07-27"
+
+    # prices_daily populated for all successfully imported tickers
+    for ticker in ("AAPL", "GOOGL", "AMZN"):
+        price_count = db.execute(
+            "SELECT COUNT(*) FROM prices_daily WHERE ticker = ?", [ticker]
+        ).fetchone()
+        assert price_count is not None and price_count[0] >= 1, (
+            f"Expected prices for {ticker} in prices_daily"
+        )
+        # market_cap populated from FMP response
+        mc_row = db.execute(
+            "SELECT market_cap FROM prices_daily WHERE ticker = ? LIMIT 1", [ticker]
+        ).fetchone()
+        assert mc_row is not None and mc_row[0] is not None, (
+            f"Expected market_cap for {ticker}"
+        )
+
+    # MSFT (skipped) and TSLA (errored) must have no price rows
+    for ticker in ("MSFT", "TSLA"):
+        price_count = db.execute(
+            "SELECT COUNT(*) FROM prices_daily WHERE ticker = ?", [ticker]
+        ).fetchone()
+        assert price_count is not None and price_count[0] == 0, (
+            f"Expected no prices for {ticker}"
+        )
 
 
 @pytest.mark.integration  # type: ignore[misc]

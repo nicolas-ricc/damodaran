@@ -20,7 +20,7 @@ _DEFAULT_UNIVERSE: Path = Path(__file__).parent / "data" / "universe.csv"
 
 def _load_tickers(universe_path: Path) -> list[str]:
     tickers: list[str] = []
-    with universe_path.open(newline="") as f:
+    with universe_path.open(newline="", encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
         for row in reader:
             ticker = (row.get("ticker") or "").strip().upper()
@@ -66,5 +66,5 @@ def refresh(
 
     stats = refresh_universe(conn, tickers, api_key=settings.fmp_api_key)
 
-    if stats.fail_rate > 0.05:
+    if stats.fail_rate >= 0.05:
         raise typer.Exit(code=2)

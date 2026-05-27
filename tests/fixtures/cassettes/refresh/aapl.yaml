@@ -2,6 +2,7 @@
 # Interactions:
 #   1. skip-check: income-statement?limit=1 → fillingDate=2023-11-03 (no known date → do not skip)
 #   2-8. Full import: profile + annual/quarterly income, balance, cashflow
+#   9-10. Prices import: profile (currency lookup) + historical-price-full
 interactions:
 - request:
     body: null
@@ -173,6 +174,50 @@ interactions:
   response:
     body:
       string: '[{"date":"2024-03-30","symbol":"AAPL","reportedCurrency":"USD","cik":"0000320193","fillingDate":"2024-05-02","calendarYear":"2024","period":"Q2","depreciationAndAmortization":2964000000.0,"operatingCashFlow":22675000000.0,"capitalExpenditure":-2263000000.0,"freeCashFlow":20412000000.0,"dividendsPaid":-3801000000.0},{"date":"2023-12-30","symbol":"AAPL","reportedCurrency":"USD","cik":"0000320193","fillingDate":"2024-02-02","calendarYear":"2024","period":"Q1","depreciationAndAmortization":2905000000.0,"operatingCashFlow":39895000000.0,"capitalExpenditure":-2484000000.0,"freeCashFlow":37411000000.0,"dividendsPaid":-3810000000.0}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/profile/AAPL
+  response:
+    body:
+      string: '[{"symbol":"AAPL","price":189.30,"beta":1.24,"volAvg":56729526,"mktCap":2937281970000,"lastDiv":0.96,"range":"164.08-199.62","changes":1.34,"companyName":"Apple Inc.","currency":"USD","cik":"0000320193","isin":"US0378331005","cusip":"037833100","exchange":"NASDAQ Global Select","exchangeShortName":"NASDAQ","industry":"Consumer Electronics","website":"https://www.apple.com","description":"Apple Inc. designs smartphones, personal computers, and wearables.","ceo":"Mr. Timothy D. Cook","sector":"Technology","country":"US","fullTimeEmployees":"161000","phone":"408-996-1010","address":"One Apple Park Way","city":"Cupertino","state":"CA","zip":"95014","dcfDiff":53.34,"dcf":135.96,"image":"https://images.financialmodelingprep.com/symbol/AAPL.png","ipoDate":"1980-12-12","defaultImage":false,"isEtf":false,"isActivelyTrading":true,"isAdr":false,"isFund":false}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/historical-price-full/AAPL
+  response:
+    body:
+      string: '{"symbol":"AAPL","historical":[{"date":"2024-01-05","open":181.99,"high":182.09,"low":178.74,"close":181.18,"adjClose":181.18,"volume":62303300,"unadjustedVolume":62303300,"change":-0.81,"changePercent":-0.44541,"vwap":180.67,"marketCap":2880000000000,"label":"January 05, 24","changeOverTime":-0.0044541},{"date":"2024-01-04","open":182.15,"high":183.09,"low":180.84,"close":181.91,"adjClose":181.91,"volume":71983900,"unadjustedVolume":71983900,"change":-0.24,"changePercent":-0.13181,"vwap":181.94,"marketCap":2890000000000,"label":"January 04, 24","changeOverTime":-0.0013181}]}'
     headers:
       Content-Type:
       - application/json; charset=utf-8

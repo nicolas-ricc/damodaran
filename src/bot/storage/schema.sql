@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS financials_annual (
     ticker          VARCHAR NOT NULL,
     fiscal_year     INTEGER NOT NULL,
     period_end_date DATE,
+    fmp_filing_date DATE,                    -- FMP fillingDate (submission date); NULL for non-FMP rows
     currency        VARCHAR,
     revenue         DOUBLE,
     cogs            DOUBLE,
@@ -111,7 +112,8 @@ CREATE TABLE IF NOT EXISTS financials_quarterly (
 CREATE TABLE IF NOT EXISTS filings_log (
     ticker          VARCHAR NOT NULL,
     filing_type     VARCHAR NOT NULL,        -- '10-K', '10-Q', '8-K', 'annual-fmp', ...
-    filing_date     DATE NOT NULL,
+    filing_date     DATE NOT NULL,           -- FMP: submission/filling date; SEC: filing date
+    period_end_date DATE,                    -- fiscal period end (FMP only; NULL for SEC rows)
     accession_number VARCHAR,                -- SEC accession or provider id
     source          VARCHAR NOT NULL,
     fetched_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -141,3 +143,7 @@ CREATE TABLE IF NOT EXISTS refresh_log (
     error_message   VARCHAR,
     PRIMARY KEY (source, run_id)
 );
+
+-- Migrations for existing databases (no-op when column already present)
+ALTER TABLE financials_annual ADD COLUMN IF NOT EXISTS fmp_filing_date DATE;
+ALTER TABLE filings_log ADD COLUMN IF NOT EXISTS period_end_date DATE;

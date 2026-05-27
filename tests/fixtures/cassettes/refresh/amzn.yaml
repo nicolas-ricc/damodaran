@@ -177,4 +177,48 @@ interactions:
     status:
       code: 200
       message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/profile/AMZN
+  response:
+    body:
+      string: '[{"symbol":"AMZN","price":185.70,"beta":1.30,"volAvg":46000000,"mktCap":1958000000000,"lastDiv":0.0,"range":"101.26-201.20","changes":2.10,"companyName":"Amazon.com Inc.","currency":"USD","cik":"0001018724","isin":"US0231351067","cusip":"023135106","exchange":"NASDAQ Global Select","exchangeShortName":"NASDAQ","industry":"Internet Retail","website":"https://www.amazon.com","description":"Amazon.com Inc. engages in the retail sale of consumer products and subscriptions in North America and internationally.","ceo":"Mr. Andrew R. Jassy","sector":"Consumer Cyclical","country":"US","fullTimeEmployees":"1525000","phone":"206-266-1000","address":"410 Terry Avenue North","city":"Seattle","state":"WA","zip":"98109","dcfDiff":15.00,"dcf":170.70,"image":"https://images.financialmodelingprep.com/symbol/AMZN.png","ipoDate":"1997-05-15","defaultImage":false,"isEtf":false,"isActivelyTrading":true,"isAdr":false,"isFund":false}]'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers:
+      Accept:
+      - application/json
+      Accept-Encoding:
+      - gzip, deflate
+      Connection:
+      - keep-alive
+      User-Agent:
+      - python-httpx/0.27.0
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/historical-price-full/AMZN
+  response:
+    body:
+      string: '{"symbol":"AMZN","historical":[{"date":"2024-01-05","open":153.00,"high":155.00,"low":152.00,"close":154.00,"adjClose":154.00,"volume":50000000,"unadjustedVolume":50000000,"change":1.00,"changePercent":0.65,"vwap":153.67,"marketCap":1600000000000,"label":"January 05, 24","changeOverTime":0.0065},{"date":"2024-01-04","open":151.00,"high":153.00,"low":150.00,"close":153.00,"adjClose":153.00,"volume":48000000,"unadjustedVolume":48000000,"change":2.00,"changePercent":1.32,"vwap":152.00,"marketCap":1590000000000,"label":"January 04, 24","changeOverTime":0.0132}]}'
+    headers:
+      Content-Type:
+      - application/json; charset=utf-8
+    status:
+      code: 200
+      message: OK
 version: 1
