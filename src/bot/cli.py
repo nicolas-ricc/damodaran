@@ -101,9 +101,7 @@ def show(
             [ticker],
         ).fetchone()
 
-    company = dict(
-        zip(["ticker", "name", "cik", "country", "currency"], row or (), strict=False)
-    )
+    company = dict(zip(["ticker", "name", "cik", "country", "currency"], row or (), strict=False))
     annual = conn.execute(
         """
         SELECT *
