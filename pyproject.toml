@@ -1,0 +1,61 @@
+[project]
+name = "bot"
+version = "0.1.0"
+description = "Personal investment bot — value screener + portfolio monitor"
+requires-python = ">=3.12"
+dependencies = [
+    "typer>=0.12",
+    "duckdb>=1.1",
+    "polars>=1.0",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.3",
+    "httpx>=0.27",
+    "structlog>=24.1",
+    "python-dotenv>=1.0",
+    "openpyxl>=3.1",
+    "xlrd>=2.0",
+    "rich>=13.7",
+]
+
+[project.scripts]
+bot = "bot.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.2",
+    "pytest-vcr>=1.0.2",
+    "ruff>=0.5",
+    "mypy>=1.10",
+    "types-openpyxl",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bot"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/bot/storage/schema.sql" = "bot/storage/schema.sql"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "B", "UP", "RUF", "SIM", "TID"]
+ignore = ["E501"]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+mypy_path = "src"
+packages = ["bot"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --strict-markers"
+markers = [
+    "integration: tests that hit external services (use VCR cassettes)",
+]
