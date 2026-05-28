@@ -1,0 +1,69 @@
+# Preset: damodaran_value
+# Implements spec §6.2–6.5 defaults.
+
+quality_gates:
+  rules:
+    - name: min_market_cap
+      args:
+        min_usd: 100000000        # USD 100M
+    - name: min_years_history
+      args:
+        min_years: 5
+    - name: exclude_sectors
+      args:
+        excluded:
+          - Banks
+          - Insurance
+    - name: max_net_debt_to_ebitda
+      args:
+        max_ratio: 4.0
+    - name: min_interest_coverage
+      args:
+        min_ratio: 2.0
+    - name: positive_operating_cashflow
+      args:
+        min_positive_years: 4
+        lookback_years: 5
+    - name: max_goodwill_to_assets
+      args:
+        max_ratio: 0.5
+
+value_indicators:
+  min_pass: 1
+  rules:
+    - name: pe_below_industry_multiple
+      args:
+        multiple: 0.7
+    - name: ev_ebitda_below_industry_multiple
+      args:
+        multiple: 0.7
+    - name: pbv_below_industry_multiple_with_roe_above_median
+      args:
+        pbv_multiple: 0.7
+    - name: fcf_yield_above
+      args:
+        min_yield: 0.08
+
+trap_detection:
+  rules:
+    - name: revenue_not_declining
+      args:
+        min_avg_growth: -0.05
+    - name: operating_margin_not_contracting
+      args:
+        max_contraction_bps: 200.0
+    - name: roic_above_sector_wacc
+    - name: sloan_accruals_below
+      args:
+        max_ratio: 0.10
+    - name: share_count_not_diluting
+      args:
+        max_annual_growth: 0.05
+    - name: auditor_changes_and_late_filings
+
+ranking:
+  weights:
+    value: 0.40
+    quality: 0.30
+    growth: 0.20
+    margin_of_safety: 0.10
