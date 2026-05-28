@@ -93,16 +93,14 @@ class ROICAboveSectorWACC(Rule):
                 passed=True,
                 score=min(spread / 0.10, 1.0),
                 reason=(
-                    f"ROIC {company.roic:.1%} > WACC {benchmarks.wacc:.1%} "
-                    f"(spread {spread:+.1%})"
+                    f"ROIC {company.roic:.1%} > WACC {benchmarks.wacc:.1%} (spread {spread:+.1%})"
                 ),
             )
         return RuleResult(
             passed=False,
             score=0.0,
             reason=(
-                f"ROIC {company.roic:.1%} <= WACC {benchmarks.wacc:.1%} "
-                f"(spread {spread:+.1%})"
+                f"ROIC {company.roic:.1%} <= WACC {benchmarks.wacc:.1%} (spread {spread:+.1%})"
             ),
         )
 
@@ -151,16 +149,12 @@ class ShareCountNotDiluting(Rule):
     def evaluate(self, company: CompanyData, benchmarks: IndustryBenchmarks) -> RuleResult:
         shares = company.shares_diluted_3y
         if shares is None or len(shares) < 2:
-            return RuleResult(
-                passed=False, score=0.0, reason="insufficient share count history"
-            )
+            return RuleResult(passed=False, score=0.0, reason="insufficient share count history")
         growth_rates: list[float] = []
         for i in range(1, len(shares)):
             base = shares[i - 1]
             if base <= 0:
-                return RuleResult(
-                    passed=False, score=0.0, reason="non-positive base share count"
-                )
+                return RuleResult(passed=False, score=0.0, reason="non-positive base share count")
             growth_rates.append((shares[i] - base) / base)
         avg_growth = sum(growth_rates) / len(growth_rates)
         if avg_growth < self.max_annual_growth:

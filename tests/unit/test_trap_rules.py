@@ -4,8 +4,8 @@ from bot.screener.rules import CompanyData, IndustryBenchmarks, get_rule
 from bot.screener.trap_rules import (
     AuditorChangesAndLateFilings,
     OperatingMarginNotContracting,
-    ROICAboveSectorWACC,
     RevenueNotDeclining,
+    ROICAboveSectorWACC,
     ShareCountNotDiluting,
     SloanAccrualsBelow,
 )

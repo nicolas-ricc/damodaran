@@ -358,7 +358,7 @@ class PEBelowIndustryMultiple(Rule):
                 score=score,
                 reason=(
                     f"pe_ratio {company.pe_ratio:.2f} <= {threshold:.2f}"
-                    f" ({self.multiple}× industry median {benchmarks.pe:.2f})"
+                    f" ({self.multiple}x industry median {benchmarks.pe:.2f})"
                 ),
             )
         return RuleResult(
@@ -366,7 +366,7 @@ class PEBelowIndustryMultiple(Rule):
             score=0.0,
             reason=(
                 f"pe_ratio {company.pe_ratio:.2f} > {threshold:.2f}"
-                f" ({self.multiple}× industry median {benchmarks.pe:.2f})"
+                f" ({self.multiple}x industry median {benchmarks.pe:.2f})"
             ),
         )
 
@@ -393,7 +393,7 @@ class EVEBITDABelowIndustryMultiple(Rule):
                 score=score,
                 reason=(
                     f"ev_ebitda {company.ev_ebitda:.2f} <= {threshold:.2f}"
-                    f" ({self.multiple}× industry median {benchmarks.ev_ebitda:.2f})"
+                    f" ({self.multiple}x industry median {benchmarks.ev_ebitda:.2f})"
                 ),
             )
         return RuleResult(
@@ -401,7 +401,7 @@ class EVEBITDABelowIndustryMultiple(Rule):
             score=0.0,
             reason=(
                 f"ev_ebitda {company.ev_ebitda:.2f} > {threshold:.2f}"
-                f" ({self.multiple}× industry median {benchmarks.ev_ebitda:.2f})"
+                f" ({self.multiple}x industry median {benchmarks.ev_ebitda:.2f})"
             ),
         )
 
@@ -432,7 +432,7 @@ class PBVBelowIndustryMultipleWithROEAboveMedian(Rule):
                 score=score,
                 reason=(
                     f"pbv {company.pbv:.2f} <= {pbv_threshold:.2f}"
-                    f" ({self.pbv_multiple}× median {benchmarks.pbv:.2f})"
+                    f" ({self.pbv_multiple}x median {benchmarks.pbv:.2f})"
                     f" and roe {company.roe:.2%} >= median {benchmarks.roe:.2%}"
                 ),
             )
@@ -442,7 +442,7 @@ class PBVBelowIndustryMultipleWithROEAboveMedian(Rule):
                 score=0.0,
                 reason=(
                     f"pbv {company.pbv:.2f} > {pbv_threshold:.2f}"
-                    f" ({self.pbv_multiple}× industry median {benchmarks.pbv:.2f})"
+                    f" ({self.pbv_multiple}x industry median {benchmarks.pbv:.2f})"
                 ),
             )
         return RuleResult(
