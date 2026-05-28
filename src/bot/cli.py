@@ -10,6 +10,9 @@ from bot.config import Settings, load_settings
 from bot.ingest.damodaran import import_damodaran
 from bot.ingest.sec_edgar import import_company_from_sec
 from bot.reporting.show import format_company_summary
+from bot.screener.config import load_screener_config
+from bot.screener.engine import run_screen
+from bot.screener.reports import write_reports
 from bot.storage.db import apply_schema, connect
 from bot.utils.logging import configure_logging, get_logger
 
@@ -164,6 +167,57 @@ def doctor() -> None:
             typer.echo(f"FAIL: {issue}", err=True)
         raise typer.Exit(code=1)
     typer.echo("\nAll checks OK.")
+
+
+@app.command()
+def screen(
+    preset: str | None = typer.Option(
+        None, "--preset", help="Named preset from BOT_PRESETS_DIR (e.g. damodaran_value)."
+    ),
+    config_path: Path | None = typer.Option(  # noqa: B008
+        None, "--config", help="Path to a custom screener YAML config."
+    ),
+    top: int = typer.Option(20, "--top", min=1, help="Number of candidates to keep."),
+) -> None:
+    """Run the value screener and write Markdown + CSV reports."""
+    conn, settings = _open_db()
+
+    if preset is None and config_path is None:
+        typer.echo(
+            "Specify --preset NAME or --config PATH.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    if preset is not None and config_path is not None:
+        typer.echo("Use --preset or --config, not both.", err=True)
+        raise typer.Exit(code=2)
+
+    resolved_path: Path
+    if config_path is not None:
+        resolved_path = config_path
+    else:
+        assert preset is not None
+        resolved_path = settings.presets_dir / f"{preset}.yaml"
+        if not resolved_path.exists():
+            typer.echo(f"Preset not found: {resolved_path}", err=True)
+            raise typer.Exit(code=2)
+
+    preset_name = preset if preset is not None else resolved_path.stem
+
+    typer.echo(f"Loading config: {resolved_path}")
+    screener_config = load_screener_config(resolved_path)
+
+    typer.echo(f"Screening universe (top {top})...")
+    run = run_screen(conn, screener_config, preset_name=preset_name, top_n=top)
+
+    md_path, csv_path = write_reports(run, settings.reports_dir)
+
+    typer.echo(
+        f"Done — {len(run.candidates)} candidates"
+        f" | run_id={run.run_id}"
+        f"\n  MD : {md_path}"
+        f"\n  CSV: {csv_path}"
+    )
 
 
 @app.command()

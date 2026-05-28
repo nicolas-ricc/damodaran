@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS companies (
     exchange        VARCHAR,
     industry        VARCHAR,
     industry_damodaran VARCHAR,
+    market_cap      DOUBLE,
     isin            VARCHAR,
     currency        VARCHAR,
     status          VARCHAR DEFAULT 'active',

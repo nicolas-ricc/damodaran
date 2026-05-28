@@ -22,6 +22,7 @@ class Settings(BaseSettings):
         description="User-Agent header for SEC EDGAR requests. Required by SEC fair-use policy.",
     )
     reports_dir: Path = Field(default=Path("./reports"))
+    presets_dir: Path = Field(default=Path("./config/presets"))
     log_level: str = Field(default="INFO")
 
 
