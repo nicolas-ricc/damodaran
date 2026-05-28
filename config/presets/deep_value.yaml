@@ -1,0 +1,73 @@
+# Preset: deep_value
+# Graham-style deep discount screener. Relaxes growth requirements (OCF
+# consistency threshold 3/5 years vs damodaran_value's 4/5); tightens cheapness
+# (value multiples at 0.5× sector median, FCF yield ≥ 12%, ≥ 2 indicators must
+# pass simultaneously). Ranking weights tilt heavily toward value. Trap detection
+# layer is identical to damodaran_value.
+
+quality_gates:
+  rules:
+    - name: min_market_cap
+      args:
+        min_usd: 100000000
+    - name: min_years_history
+      args:
+        min_years: 5
+    - name: exclude_sectors
+      args:
+        excluded:
+          - Banks
+          - Insurance
+    - name: max_net_debt_to_ebitda
+      args:
+        max_ratio: 4.0
+    - name: min_interest_coverage
+      args:
+        min_ratio: 2.0
+    - name: positive_operating_cashflow
+      args:
+        min_positive_years: 3        # relaxed: Graham tolerates erratic near-term cashflows
+        lookback_years: 5
+    - name: max_goodwill_to_assets
+      args:
+        max_ratio: 0.5
+
+value_indicators:
+  min_pass: 2                        # tighter: must satisfy ≥ 2 cheapness criteria simultaneously
+  rules:
+    - name: pe_below_industry_multiple
+      args:
+        multiple: 0.5                # tighter: 50% of sector median (net-net spirit)
+    - name: ev_ebitda_below_industry_multiple
+      args:
+        multiple: 0.5
+    - name: pbv_below_industry_multiple_with_roe_above_median
+      args:
+        pbv_multiple: 0.5
+    - name: fcf_yield_above
+      args:
+        min_yield: 0.12              # tighter: 12% yield floor
+
+trap_detection:
+  rules:
+    - name: revenue_not_declining
+      args:
+        min_avg_growth: -0.05
+    - name: operating_margin_not_contracting
+      args:
+        max_contraction_bps: 200.0
+    - name: roic_above_sector_wacc
+    - name: sloan_accruals_below
+      args:
+        max_ratio: 0.10
+    - name: share_count_not_diluting
+      args:
+        max_annual_growth: 0.05
+    - name: auditor_changes_and_late_filings
+
+ranking:
+  weights:
+    value: 0.50                      # cheapness is the primary criterion
+    quality: 0.25
+    growth: 0.15
+    margin_of_safety: 0.10
