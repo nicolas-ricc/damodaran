@@ -22,6 +22,16 @@ class CompanyData:
 
     ticker: str
     market_cap: float | None = None
+    # M3.5 trap detection
+    revenue_3y: list[float] | None = None
+    op_margin_3y: list[float] | None = None
+    roic: float | None = None
+    net_income: float | None = None
+    operating_cashflow: float | None = None
+    total_assets: float | None = None
+    shares_diluted_3y: list[float] | None = None
+    auditor_changed: bool | None = None
+    has_late_filings: bool | None = None
 
 
 @dataclass
@@ -29,6 +39,7 @@ class IndustryBenchmarks:
     """Damodaran industry-level benchmarks for the company's sector."""
 
     industry: str | None = None
+    wacc: float | None = None  # M3.5: sector WACC from Damodaran
 
 
 class Rule(ABC):
