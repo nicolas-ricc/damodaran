@@ -45,6 +45,27 @@ class CompanyData:
     roe: float | None = None
     roic: float | None = None
     fcf_yield: float | None = None
+    # --- Trap-detection inputs (spec §6.4) ------------------------------- #
+    revenue_history: tuple[float, ...] = field(default_factory=tuple)
+    """Revenue per fiscal year, most recent last (spec §6.4)."""
+    operating_margin_history: tuple[float, ...] = field(default_factory=tuple)
+    """Operating margin (fraction, e.g. 0.18 = 18%) per fiscal year, most recent
+    last (spec §6.4)."""
+    share_count_history: tuple[float, ...] = field(default_factory=tuple)
+    """Diluted share count per fiscal year, most recent last (spec §6.4)."""
+    net_income: float | None = None
+    """Most recent fiscal-year net income (spec §6.4, Sloan accruals numerator)."""
+    operating_cashflow: float | None = None
+    """Most recent fiscal-year operating cashflow (spec §6.4, Sloan accruals)."""
+    had_recent_ma: bool = False
+    """Whether a material acquisition justifies recent share issuance (spec §6.4):
+    dilution funded by M&A is not, on its own, a trap signal."""
+    auditor_changed: bool | None = None
+    """Recent auditor change, when SEC data carries it; ``None`` when unknown
+    (best-effort flag, spec §6.4)."""
+    late_filings: bool | None = None
+    """Recent late SEC filings, when the datum is available; ``None`` when unknown
+    (best-effort flag, spec §6.4)."""
 
 
 @dataclass(frozen=True)

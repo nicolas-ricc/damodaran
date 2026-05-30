@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from itertools import pairwise
 
 from bot.screener.types import CompanyData, IndustryBenchmarks
 
@@ -515,3 +516,262 @@ class FCFYieldAbove(Rule):
             f"{'>' if passed else '<='} minimum {self.minimum:.3f}"
         )
         return RuleResult(passed=passed, score=score, reason=reason)
+
+
+# --------------------------------------------------------------------------- #
+# Trap detection (spec §6.4). The most Damodaran-specific filters: a company can
+# look cheap on §6.3 value indicators yet be cheap *for a reason*. Each detector
+# is eliminatory — tripping one disqualifies the candidate. A missing datum fails
+# the gate (the screener will not vouch for a company it cannot measure), except
+# where noted: ROICAboveSectorWACC *skips* when the sector WACC median is absent
+# (a data gap in the benchmark, not the company, must not eliminate on its own),
+# and the best-effort SEC flags pass when the datum is simply unknown.
+# --------------------------------------------------------------------------- #
+
+
+def _avg_growth_rate(series: tuple[float, ...]) -> float | None:
+    """Mean year-over-year growth rate of ``series`` (most recent last).
+
+    Returns ``None`` when fewer than two points, or any point is non-positive
+    (a zero/negative base makes the rate undefined/meaningless).
+    """
+    if len(series) < 2:
+        return None
+    rates: list[float] = []
+    for prev, curr in pairwise(series):
+        if prev <= 0:
+            return None
+        rates.append((curr - prev) / prev)
+    return sum(rates) / len(rates)
+
+
+@register
+class RevenueNotDeclining(Rule):
+    """Trap detector: average revenue growth not deeply negative (spec §6.4).
+
+    Eliminates companies whose top line is shrinking faster than ``max_decline``
+    (default ``-0.05`` = -5%) on average over the last few years. Needs at least
+    ``window + 1`` revenue points (default 4 years -> 3 growth observations);
+    insufficient or non-positive history fails the gate.
+    """
+
+    name = "revenue_not_declining"
+
+    def __init__(self, max_decline: float = -0.05, window: int = 3) -> None:
+        self.max_decline = max_decline
+        self.window = window
+
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
+        recent = company.revenue_history[-(self.window + 1) :]
+        if len(recent) < self.window + 1:
+            return RuleResult(
+                passed=False,
+                reason=(
+                    f"insufficient revenue history: {len(recent)} years "
+                    f"(need {self.window + 1})"
+                ),
+            )
+        avg_growth = _avg_growth_rate(recent)
+        if avg_growth is None:
+            return RuleResult(
+                passed=False, reason="non-positive revenue base; growth undefined"
+            )
+        passed = avg_growth > self.max_decline
+        reason = (
+            f"avg revenue growth {avg_growth:.3f} over last {self.window}y "
+            f"{'>' if passed else '<='} floor {self.max_decline:.3f}"
+        )
+        return RuleResult(passed=passed, reason=reason)
+
+
+@register
+class OperatingMarginNotContracting(Rule):
+    """Trap detector: operating margin not eroding sharply (spec §6.4).
+
+    Eliminates companies whose operating margin contracted by more than
+    ``max_contraction_bps`` (default ``-200`` bps) from the start to the end of
+    the window. Margins are fractions (``0.18`` = 18%); the change is measured in
+    basis points (1 bp = 0.0001). Fewer than two points fails the gate.
+    """
+
+    name = "operating_margin_not_contracting"
+
+    def __init__(self, max_contraction_bps: float = -200.0, window: int = 3) -> None:
+        self.max_contraction_bps = max_contraction_bps
+        self.window = window
+
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
+        recent = company.operating_margin_history[-(self.window + 1) :]
+        if len(recent) < 2:
+            return RuleResult(
+                passed=False,
+                reason=(
+                    f"insufficient operating-margin history: {len(recent)} years "
+                    "(need >= 2)"
+                ),
+            )
+        change_bps = (recent[-1] - recent[0]) * 10_000.0
+        passed = change_bps >= self.max_contraction_bps
+        reason = (
+            f"operating margin change {change_bps:.0f}bps over last "
+            f"{len(recent) - 1}y {'>=' if passed else '<'} floor "
+            f"{self.max_contraction_bps:.0f}bps"
+        )
+        return RuleResult(passed=passed, reason=reason)
+
+
+@register
+class ROICAboveSectorWACC(Rule):
+    """Trap detector: company creates value — ROIC above sector WACC (spec §6.4).
+
+    The central Damodaran filter: a company earning a return on invested capital
+    below its sector's cost of capital is destroying value, however cheap it
+    looks. Reads the sector WACC from the Damodaran ``damodaran_industry`` median
+    (:class:`IndustryBenchmarks`), not an absolute hurdle. Missing company ROIC
+    fails the gate; a missing sector-WACC median *skips* (the benchmark gap must
+    not eliminate the company on its own).
+    """
+
+    name = "roic_above_sector_wacc"
+
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
+        if benchmarks.wacc is None:
+            return RuleResult(
+                passed=False, skipped=True, reason="no sector WACC median available"
+            )
+        if company.roic is None:
+            return RuleResult(passed=False, reason="company ROIC unavailable")
+        passed = company.roic > benchmarks.wacc
+        reason = (
+            f"ROIC {company.roic:.3f} {'>' if passed else '<='} "
+            f"sector WACC {benchmarks.wacc:.3f}"
+        )
+        return RuleResult(passed=passed, reason=reason)
+
+
+@register
+class SloanAccrualsBelow(Rule):
+    """Trap detector: Sloan accruals ratio below a ceiling (spec §6.4).
+
+    The Sloan ratio ``(net_income - operating_cashflow) / total_assets`` measures
+    how much of reported earnings is *not* backed by cash. A high ratio (default
+    ceiling ``0.10``) flags low earnings quality / aggressive accruals — a classic
+    value trap. Strictly-below passes; missing data or non-positive total assets
+    fails the gate.
+    """
+
+    name = "sloan_accruals_below"
+
+    def __init__(self, maximum: float = 0.10) -> None:
+        self.maximum = maximum
+
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
+        if (
+            company.net_income is None
+            or company.operating_cashflow is None
+            or company.total_assets is None
+        ):
+            return RuleResult(
+                passed=False,
+                reason="net_income, operating_cashflow or total_assets unavailable",
+            )
+        if company.total_assets <= 0:
+            return RuleResult(passed=False, reason="non-positive total_assets")
+        ratio = (company.net_income - company.operating_cashflow) / company.total_assets
+        passed = ratio < self.maximum
+        reason = (
+            f"Sloan accruals {ratio:.3f} "
+            f"{'<' if passed else '>='} maximum {self.maximum:.3f}"
+        )
+        return RuleResult(passed=passed, reason=reason)
+
+
+@register
+class ShareCountNotDiluting(Rule):
+    """Trap detector: share count not growing too fast without M&A (spec §6.4).
+
+    Persistent share issuance dilutes existing holders; above ``max_annual_growth``
+    (default ``0.05`` = 5% per year, on average) it is a trap signal — *unless* a
+    material acquisition justifies it (``company.had_recent_ma``), since
+    stock-funded M&A is a different story. Fewer than two points, or a
+    non-positive base, fails the gate.
+    """
+
+    name = "share_count_not_diluting"
+
+    def __init__(self, max_annual_growth: float = 0.05) -> None:
+        self.max_annual_growth = max_annual_growth
+
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
+        series = company.share_count_history
+        if len(series) < 2:
+            return RuleResult(
+                passed=False,
+                reason=(
+                    f"insufficient share-count history: {len(series)} years "
+                    "(need >= 2)"
+                ),
+            )
+        avg_growth = _avg_growth_rate(series)
+        if avg_growth is None:
+            return RuleResult(
+                passed=False, reason="non-positive share count; growth undefined"
+            )
+        if avg_growth <= self.max_annual_growth:
+            return RuleResult(
+                passed=True,
+                reason=(
+                    f"avg share-count growth {avg_growth:.3f} "
+                    f"<= maximum {self.max_annual_growth:.3f}"
+                ),
+            )
+        if company.had_recent_ma:
+            return RuleResult(
+                passed=True,
+                reason=(
+                    f"avg share-count growth {avg_growth:.3f} exceeds "
+                    f"{self.max_annual_growth:.3f} but justified by recent M&A"
+                ),
+            )
+        return RuleResult(
+            passed=False,
+            reason=(
+                f"avg share-count growth {avg_growth:.3f} > maximum "
+                f"{self.max_annual_growth:.3f} without M&A justification"
+            ),
+        )
+
+
+@register
+class AuditorChangesAndLateFilings(Rule):
+    """Trap detector: recent auditor changes or late SEC filings (spec §6.4).
+
+    A best-effort governance flag built on SEC data when present. An auditor
+    change or late filing is a red flag and eliminates the company. The flags are
+    ``None`` when the datum is unavailable: a data gap is *not* held against the
+    company (it passes), so the rule only ever eliminates on a positively-known
+    adverse signal.
+    """
+
+    name = "auditor_changes_and_late_filings"
+
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
+        if company.auditor_changed is True:
+            return RuleResult(passed=False, reason="recent auditor change flagged")
+        if company.late_filings is True:
+            return RuleResult(passed=False, reason="recent late SEC filings flagged")
+        return RuleResult(
+            passed=True, reason="no auditor change or late filing flagged"
+        )
