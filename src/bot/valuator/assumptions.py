@@ -32,6 +32,7 @@ import duckdb
 import yaml
 
 from bot.valuator.dcf import Assumptions as DCFAssumptions
+from bot.valuator.story_types import StoryType
 
 T = TypeVar("T")
 
@@ -284,6 +285,7 @@ def resolve_assumptions(
     override_path: Path | None = None,
     *,
     gdp_nominal: float = _DEFAULT_GDP_NOMINAL,
+    auto_story_type: StoryType | None = None,
 ) -> Assumptions:
     """Resolve the six critical DCF assumptions for ``ticker`` (spec §7.3).
 
@@ -294,6 +296,10 @@ def resolve_assumptions(
             non-existent path is treated as "no overrides".
         gdp_nominal: Country nominal-GDP growth used as the terminal-growth
             ceiling and the rule-based revenue-growth anchor.
+        auto_story_type: The story type the classifier
+            (:func:`bot.valuator.story_types.classify`) assigned this company.
+            It fills ``story_type`` only when the override YAML does not set one
+            — a manual ``story_type`` always wins (spec §7.6 override hook).
 
     Returns:
         An :class:`Assumptions` bundle where every field carries its source.
@@ -328,9 +334,21 @@ def resolve_assumptions(
         pretax_cost_of_debt=pretax_cost_of_debt,
         equity_weight=equity_weight,
         debt_weight=debt_weight,
-        story_type=override.get("story_type"),
+        story_type=_resolve_story_type(override, auto_story_type),
         notes=override.get("notes"),
     )
+
+
+def _resolve_story_type(
+    override: dict[str, Any], auto_story_type: StoryType | None
+) -> str | None:
+    """Manual ``story_type`` wins; else the classifier's verdict (spec §7.6)."""
+    manual = override.get("story_type")
+    if manual is not None:
+        return str(manual)
+    if auto_story_type is not None:
+        return str(auto_story_type)
+    return None
 
 
 def _resolve_revenue_growth(

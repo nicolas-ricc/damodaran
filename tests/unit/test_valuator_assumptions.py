@@ -28,6 +28,7 @@ from bot.valuator.assumptions import (
     Sourced,
     resolve_assumptions,
 )
+from bot.valuator.story_types import StoryType
 
 # --------------------------------------------------------------------------- #
 # Fixtures                                                                     #
@@ -312,6 +313,35 @@ def test_story_type_from_override_is_surfaced(
     result = resolve_assumptions("ACME", conn, override_path=override)
     assert result.story_type == "distressed"
     assert result.notes == "see 10-K"
+
+
+def test_auto_story_type_is_used_when_no_override(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """The classifier's verdict is surfaced when the YAML has no story_type."""
+    _seed_full_sector(conn)
+    result = resolve_assumptions("ACME", conn, auto_story_type=StoryType.HIGH_GROWTH)
+    assert result.story_type == "high-growth"
+
+
+def test_manual_story_type_override_beats_auto_classification(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    """A YAML ``story_type`` wins over the classifier (spec §7.6 override hook)."""
+    _seed_full_sector(conn)
+    override = _write_override(tmp_path, "story_type: distressed\n")
+    result = resolve_assumptions(
+        "ACME", conn, override_path=override, auto_story_type=StoryType.HIGH_GROWTH
+    )
+    assert result.story_type == "distressed"
+
+
+def test_story_type_is_none_without_override_or_auto(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_full_sector(conn)
+    result = resolve_assumptions("ACME", conn)
+    assert result.story_type is None
 
 
 # --------------------------------------------------------------------------- #
