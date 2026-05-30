@@ -1,0 +1,87 @@
+# Deep-value screener preset — spec §6.6 ("más Graham que Damodaran").
+#
+# Philosophy: classic Graham deep value. We do NOT pay for growth — we buy
+# statistically cheap, financially-sound companies and let mean reversion work.
+# Versus the default damodaran_value preset this preset *relaxes growth*
+# (ranking weight shifts off growth onto raw cheapness and margin of safety) and
+# *tightens cheapness* (the value indicators demand a steeper discount to the
+# sector median — 0.5x multiples instead of 0.7x — and a higher FCF yield). The
+# eliminatory trap-detection layer is shared verbatim with damodaran_value so a
+# cheap stock that is cheap *for a reason* is still rejected.
+name: deep_value
+
+# --- Quality gates (eliminatory, spec §6.2) -------------------------------- #
+# Graham insisted on financial soundness over a long record, so we keep the
+# balance-sheet floors but lengthen the required history.
+quality_gates:
+  rules:
+    - name: min_market_cap
+      params:
+        minimum_usd: 100000000.0   # USD 100M floor
+    - name: min_years_history
+      params:
+        minimum_years: 7           # >= 7 years (Graham preferred a long record)
+    - name: exclude_sectors
+      params:
+        excluded: [bank, insurance]
+    - name: max_net_debt_to_ebitda
+      params:
+        maximum: 3.0               # tighter leverage cap than the default 4.0
+    - name: min_interest_coverage
+      params:
+        minimum: 2.0
+    - name: positive_operating_cashflow
+      params:
+        min_positive: 4
+        window: 5
+    - name: max_goodwill_to_assets
+      params:
+        maximum: 0.3               # prefer tangible book; tighter than default 0.5
+
+# --- Value indicators (at least one must pass, spec §6.3) ------------------ #
+# The heart of deep value: demand a steep discount, not merely "below median".
+value_indicators:
+  rules:
+    - name: pe_below_industry_multiple
+      params:
+        multiple: 0.5              # PE < 0.5x sector median (vs 0.7x default)
+    - name: ev_ebitda_below_industry_multiple
+      params:
+        multiple: 0.5              # EV/EBITDA < 0.5x sector median
+    - name: pbv_below_industry_multiple_with_roe_above_median
+      params:
+        multiple: 0.6              # P/BV < 0.6x sector median AND ROE > median
+    - name: fcf_yield_above
+      params:
+        minimum: 0.10              # FCF yield > 10% (vs 8% default)
+
+# --- Trap detection (eliminatory, spec §6.4) ------------------------------- #
+# Shared verbatim with damodaran_value — same "cheap for a reason" filters.
+trap_detection:
+  rules:
+    - name: revenue_not_declining
+      params:
+        max_decline: -0.05
+        window: 3
+    - name: operating_margin_not_contracting
+      params:
+        max_contraction_bps: -200.0
+        window: 3
+    - name: roic_above_sector_wacc
+    - name: sloan_accruals_below
+      params:
+        maximum: 0.10
+    - name: share_count_not_diluting
+      params:
+        max_annual_growth: 0.05
+    - name: auditor_changes_and_late_filings
+
+# --- Ranking score weights (spec §6.5) ------------------------------------- #
+# Weight off growth and onto cheapness + margin of safety: we are buying the
+# discount, not the trajectory.
+ranking:
+  weights:
+    value: 0.55
+    quality: 0.20
+    growth: 0.05
+    margin_of_safety: 0.20
