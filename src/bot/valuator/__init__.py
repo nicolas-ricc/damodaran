@@ -7,11 +7,27 @@ ground-truth numbers computed by hand.
 """
 
 from bot.valuator.dcf import Assumptions, DCFResult, Financials, YearProjection, dcf
+from bot.valuator.sensitivity import (
+    Grid2D,
+    GridCell,
+    SensitivityAxis,
+    TornadoEntry,
+    grid_2d,
+    scale_axis,
+    tornado,
+)
 
 __all__ = [
     "Assumptions",
     "DCFResult",
     "Financials",
+    "Grid2D",
+    "GridCell",
+    "SensitivityAxis",
+    "TornadoEntry",
     "YearProjection",
     "dcf",
+    "grid_2d",
+    "scale_axis",
+    "tornado",
 ]
