@@ -19,7 +19,11 @@ from bot.ingest.universe import (
     refresh_universe_from_fmp,
 )
 from bot.reporting.analysis_report import render_analysis
+from bot.reporting.screen_report import render_csv, render_markdown
 from bot.reporting.show import format_company_summary
+from bot.screener.config import load_screener_config
+from bot.screener.engine import run_screen
+from bot.screener.persist import persist_candidates
 from bot.storage.db import apply_schema, connect
 from bot.utils.logging import configure_logging, get_logger
 from bot.valuator.analysis import analyze as run_analysis
@@ -230,6 +234,56 @@ def analyze(
             f"vs price {analysis.current_price:,.2f} → "
             f"margin of safety {analysis.margin_of_safety:.2f}x"
         )
+
+
+@app.command()
+def screen(
+    preset: str = typer.Option(
+        "damodaran_value",
+        "--preset",
+        help="Named screener preset under the presets dir (config/presets/<name>.yaml).",
+    ),
+    config: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--config",
+        help="Explicit screener YAML path (overrides --preset).",
+    ),
+    top: int | None = typer.Option(
+        None, "--top", help="Keep only the best N candidates in the shortlist."
+    ),
+) -> None:
+    """Run the mechanical screener and write the §6.1 shortlist (Markdown + CSV).
+
+    Loads the preset (or ``--config``), iterates the DB universe, applies the
+    three eliminatory layers (§6.2/§6.3/§6.4), ranks the survivors (§6.5),
+    persists the top-N to ``screener_candidates`` under a fresh run id, and writes
+    ``<reports_dir>/YYYY-MM-DD/screen/<preset>.{md,csv}``.
+    """
+    conn, settings = _open_db()
+
+    config_path = config if config is not None else settings.presets_dir / f"{preset}.yaml"
+    if not config_path.exists():
+        typer.echo(f"Screener config not found: {config_path}", err=True)
+        raise typer.Exit(code=2)
+    screener_config = load_screener_config(config_path)
+
+    result = run_screen(conn, screener_config, top=top)
+    run_id = persist_candidates(conn, result)
+
+    today = date.today()
+    out_dir = settings.reports_dir / today.isoformat() / "screen"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    md_path = out_dir / f"{screener_config.name}.md"
+    csv_path = out_dir / f"{screener_config.name}.csv"
+    md_path.write_text(render_markdown(result, generated_on=today))
+    csv_path.write_text(render_csv(result))
+
+    typer.echo(
+        f"Screened {result.screened} companies → {len(result.shortlist)} candidates "
+        f"(run {run_id})"
+    )
+    typer.echo(f"Wrote {md_path}")
+    typer.echo(f"Wrote {csv_path}")
 
 
 @app.command()

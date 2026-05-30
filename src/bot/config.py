@@ -27,6 +27,10 @@ class Settings(BaseSettings):
         description="Financial Modeling Prep API key. Required for global fundamentals (M2).",
     )
     reports_dir: Path = Field(default=Path("./reports"))
+    presets_dir: Path = Field(
+        default=Path("./config/presets"),
+        description="Directory holding screener preset YAMLs (resolved by `bot screen --preset`).",
+    )
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")
 
 
