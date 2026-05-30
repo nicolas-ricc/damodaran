@@ -36,6 +36,22 @@ CREATE TABLE IF NOT EXISTS damodaran_country (
     PRIMARY KEY (country, year)
 );
 
+-- Daily FX rates against USD (M2.5). One row per (currency, date).
+-- `rate_to_usd` is the multiplier that converts 1 unit of `currency` into USD:
+--   usd_amount = amount_in_currency * rate_to_usd.
+-- Sourced from FMP historical forex prices (pair {CURRENCY}USD, daily close).
+-- USD itself is stored with rate_to_usd = 1.0. Lookups use nearest-prior date
+-- (see bot.utils.fx.get_fx_rate) so a period-end on a weekend/holiday resolves
+-- to the last available trading day.
+CREATE TABLE IF NOT EXISTS currencies (
+    currency        VARCHAR NOT NULL,
+    date            DATE NOT NULL,
+    rate_to_usd     DOUBLE NOT NULL,
+    source          VARCHAR NOT NULL DEFAULT 'fmp',
+    fetched_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (currency, date)
+);
+
 CREATE TABLE IF NOT EXISTS companies (
     ticker          VARCHAR PRIMARY KEY,
     cik             VARCHAR,

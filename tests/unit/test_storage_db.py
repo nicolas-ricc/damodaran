@@ -28,6 +28,7 @@ def test_apply_schema_creates_all_tables(tmp_path):
         "filings_log",
         "refresh_log",
         "screener_candidates",
+        "currencies",
     }
     assert expected.issubset(tables)
     conn.close()

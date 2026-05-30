@@ -12,6 +12,7 @@ here (M2.1). Fundamentals ingestion lands in a later slice.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 import httpx
@@ -107,6 +108,46 @@ class FmpClient:
         if not isinstance(data, list):
             return []
         return [e for e in data if isinstance(e, dict)]
+
+    def historical_fx(
+        self,
+        currency: str,
+        *,
+        start: date | None = None,
+        end: date | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return daily {currency}/USD rates as ``[{"date", "rate_to_usd"}, ...]``.
+
+        Uses FMP's ``/historical-price-full/{PAIR}`` endpoint for the forex pair
+        ``{CURRENCY}USD`` (e.g. ``EURUSD``). The daily ``close`` is taken as the
+        rate that converts one unit of ``currency`` into USD. USD itself needs no
+        request — it is the numeraire — so it returns an empty list.
+        """
+        ccy = currency.upper()
+        if ccy == "USD":
+            return []
+        params: dict[str, Any] = {}
+        if start is not None:
+            params["from"] = start.isoformat()
+        if end is not None:
+            params["to"] = end.isoformat()
+        data = self._get(f"/historical-price-full/{ccy}USD", params=params)
+        historical = data.get("historical") if isinstance(data, dict) else None
+        if not isinstance(historical, list):
+            log.info("fmp.historical_fx.empty", currency=ccy)
+            return []
+        out: list[dict[str, Any]] = []
+        for entry in historical:
+            if not isinstance(entry, dict):
+                continue
+            d = entry.get("date")
+            close = entry.get("close")
+            if d is None or close is None:
+                continue
+            # FMP returns datetime-ish strings ("2023-12-29" or "2023-12-29 00:00:00").
+            out.append({"date": str(d)[:10], "rate_to_usd": float(close)})
+        log.info("fmp.historical_fx.fetched", currency=ccy, rows=len(out))
+        return out
 
 
 def _str_or_none(value: Any) -> str | None:
