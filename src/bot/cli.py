@@ -152,7 +152,7 @@ def doctor() -> None:
             "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'main'"
         ).fetchone()
         tables = row[0] if row is not None else 0
-        if tables < 7:
+        if tables < 8:
             issues.append(f"DB has only {tables} tables — schema may be incomplete.")
         else:
             typer.echo(f"DB tables:        {tables} (OK)")

@@ -123,3 +123,26 @@ CREATE TABLE IF NOT EXISTS refresh_log (
     error_message   VARCHAR,
     PRIMARY KEY (source, run_id)
 );
+
+-- Screener shortlist (Capa B) — latest ranked candidates per preset run.
+-- One row per (run_id, ticker). `ticker` references companies.ticker
+-- (logical FK; not enforced because a screen run may rank tickers that have
+-- not yet been individually imported into `companies`).
+-- Sub-scores follow spec §6.5: score = 0.40*value + 0.30*quality
+-- + 0.20*growth + 0.10*margin_of_safety. passed_gates / failed_gates hold the
+-- serialized rule names (§6.2/§6.4) that the candidate cleared or tripped.
+CREATE TABLE IF NOT EXISTS screener_candidates (
+    run_id          VARCHAR NOT NULL,
+    preset          VARCHAR NOT NULL,
+    ticker          VARCHAR NOT NULL,
+    rank            INTEGER NOT NULL,
+    score           DOUBLE,
+    value_score     DOUBLE,
+    quality_score   DOUBLE,
+    growth_score    DOUBLE,
+    mos_score       DOUBLE,
+    passed_gates    VARCHAR[],
+    failed_gates    VARCHAR[],
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (run_id, ticker)
+);
