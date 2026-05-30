@@ -88,6 +88,39 @@ def test_analyze_writes_report(tmp_path: Path, monkeypatch) -> None:
     assert "AAPL.md" in result.stdout
 
 
+def test_analyze_writes_html_alongside_md(tmp_path: Path, monkeypatch) -> None:
+    """The HTML report (M6.1) is produced next to the Markdown one."""
+    db_path = tmp_path / "bot.duckdb"
+    reports_dir = tmp_path / "reports"
+    monkeypatch.setenv("BOT_DB_PATH", str(db_path))
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(reports_dir))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+
+    conn = connect(db_path)
+    apply_schema(conn)
+    _seed(conn)
+    conn.close()
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["analyze", "AAPL"])
+    assert result.exit_code == 0, result.stdout
+
+    md_reports = list(reports_dir.glob("*/analysis/AAPL.md"))
+    html_reports = list(reports_dir.glob("*/analysis/AAPL.html"))
+    assert len(md_reports) == 1
+    assert len(html_reports) == 1
+    # Same directory: the HTML sits right beside the Markdown.
+    assert html_reports[0].parent == md_reports[0].parent
+
+    html = html_reports[0].read_text()
+    assert html.lstrip().lower().startswith("<!doctype html>")
+    # Self-contained: the tornado chart is inlined, no external assets.
+    assert "data:image/png;base64," in html
+    assert "<h1" in html
+    # The CLI echoes the HTML path it wrote to.
+    assert "AAPL.html" in result.stdout
+
+
 def test_analyze_unknown_ticker_exits_nonzero(tmp_path: Path, monkeypatch) -> None:
     db_path = tmp_path / "bot.duckdb"
     monkeypatch.setenv("BOT_DB_PATH", str(db_path))

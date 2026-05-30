@@ -19,6 +19,7 @@ from bot.ingest.universe import (
     refresh_universe_from_fmp,
 )
 from bot.reporting.analysis_report import render_analysis
+from bot.reporting.html import render_analysis_html
 from bot.reporting.screen_report import render_csv, render_markdown
 from bot.reporting.show import format_company_summary
 from bot.screener.config import load_screener_config
@@ -201,12 +202,14 @@ def analyze(
         help="Path to config/assumptions/<TICKER>.yaml with manual overrides.",
     ),
 ) -> None:
-    """Run a Damodaran-style DCF analysis and write the §7.7 Markdown report.
+    """Run a Damodaran-style DCF analysis and write the §7.7 reports.
 
     Produces ``<reports_dir>/YYYY-MM-DD/analysis/<TICKER>.md`` with the executive
     summary, story type, assumptions (with source), year-by-year DCF, sensitivity
     (tornado + 2-D grid), narrative flags, manual overrides, and the sanity check
-    versus sector multiples.
+    versus sector multiples. A self-contained ``<TICKER>.html`` (M6.1) is written
+    alongside it: the same report rendered to HTML with a base64-inlined
+    Matplotlib tornado chart, openable in a browser with no external assets.
     """
     conn, settings = _open_db()
     ticker = ticker.upper()
@@ -222,12 +225,16 @@ def analyze(
 
     today = date.today()
     report_md = render_analysis(analysis, generated_on=today)
+    report_html = render_analysis_html(analysis, generated_on=today)
     out_dir = settings.reports_dir / today.isoformat() / "analysis"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{ticker}.md"
+    html_path = out_dir / f"{ticker}.html"
     out_path.write_text(report_md)
+    html_path.write_text(report_html)
 
     typer.echo(f"Wrote {out_path}")
+    typer.echo(f"Wrote {html_path}")
     if analysis.margin_of_safety is not None:
         typer.echo(
             f"Intrinsic {analysis.dcf_result.intrinsic_value:,.2f} "
