@@ -11,6 +11,12 @@ from bot import __version__
 from bot.config import Settings, load_settings
 from bot.ingest.damodaran import import_damodaran
 from bot.ingest.sec_edgar import import_company_from_sec
+from bot.ingest.universe import (
+    UniverseRefreshResult,
+    default_universe_path,
+    load_universe,
+    refresh_universe_from_fmp,
+)
 from bot.reporting.show import format_company_summary
 from bot.storage.db import apply_schema, connect
 from bot.utils.logging import configure_logging, get_logger
@@ -44,6 +50,14 @@ def version() -> None:
 @app.command()
 def refresh(
     damodaran: bool = typer.Option(False, "--damodaran", help="Refresh Damodaran datasets."),
+    fmp: bool = typer.Option(
+        False, "--fmp", help="Bulk-refresh a universe of tickers from FMP (incremental)."
+    ),
+    universe: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--universe",
+        help="CSV of tickers for --fmp (defaults to the shipped global universe).",
+    ),
     region: str = typer.Option("US", "--region", help="Damodaran region (US, Europe, EM, ...)."),
     year: int | None = typer.Option(
         None, "--year", help="Damodaran dataset year (defaults to current)."
@@ -55,12 +69,16 @@ def refresh(
     ),
 ) -> None:
     """Refresh data from external sources."""
-    if not damodaran:
+    if not damodaran and not fmp:
         typer.echo(
-            "Specify what to refresh. Available flags: --damodaran",
+            "Specify what to refresh. Available flags: --damodaran, --fmp",
             err=True,
         )
         raise typer.Exit(code=2)
+
+    if fmp:
+        _refresh_fmp_universe(universe)
+        return
 
     conn, _ = _open_db()
     typer.echo(f"Importing Damodaran datasets (region={region}, year={year or 'current'})...")
@@ -74,6 +92,44 @@ def refresh(
         raise typer.Exit(code=0)
     typer.echo(f"FAILED — {result.error_message}", err=True)
     raise typer.Exit(code=1)
+
+
+def _refresh_fmp_universe(universe: Path | None) -> None:
+    """Run a bulk FMP universe refresh and map its outcome to an exit code.
+
+    Exit codes follow the spec convention (§9.2) and the M2.6 brief: ``0`` when at
+    most 5% of the universe failed, ``2`` (data error) when more than 5% failed.
+    Per-ticker failures are summarised on stderr; they never abort the run.
+    """
+    conn, settings = _open_db()
+    path = universe or default_universe_path()
+    tickers = load_universe(path)
+    if not tickers:
+        typer.echo(f"Universe file {path} has no tickers.", err=True)
+        raise typer.Exit(code=2)
+
+    typer.echo(f"Refreshing {len(tickers)} tickers from FMP (universe={path})...")
+    result = refresh_universe_from_fmp(
+        conn, api_key=settings.fmp_api_key, tickers=tickers
+    )
+    _report_universe_refresh(result)
+
+    # > 5% failed (i.e. status is not 'success') is a data error.
+    raise typer.Exit(code=0 if result.status == "success" else 2)
+
+
+def _report_universe_refresh(result: UniverseRefreshResult) -> None:
+    typer.echo(
+        f"{result.status.upper()} — {result.total} tickers: "
+        f"{result.imported} imported, {result.skipped} skipped, "
+        f"{result.failed} failed "
+        f"({result.failure_rate * 100:.1f}% failure) "
+        f"in {(result.finished_at - result.started_at).total_seconds():.1f}s"
+    )
+    if result.failures:
+        typer.echo("Failures:", err=True)
+        for outcome in result.failures:
+            typer.echo(f"  {outcome.ticker}: {outcome.error_message}", err=True)
 
 
 @app.command()

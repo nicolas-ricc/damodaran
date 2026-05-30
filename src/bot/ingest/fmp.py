@@ -23,6 +23,7 @@ from bot.ingest.base import IngestResult
 from bot.ingest.sec_edgar import (
     ParsedCompanyData,
     upsert_company,
+    upsert_filings,
     upsert_financials_annual,
     upsert_financials_quarterly,
 )
@@ -695,6 +696,48 @@ def _log_refresh_prices(
 # ---------- Fundamentals importer (M2.3) ----------
 
 
+def _collect_fmp_filings(
+    ticker: str,
+    *statements: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Extract ``filings_log`` rows from FMP statement arrays.
+
+    FMP carries a ``fillingDate`` (sic) and ``acceptedDate`` on each statement
+    object. We key one filing per ``(period_label, filing_date)`` pair so the
+    bulk universe refresh (M2.6) can read the *latest* filing date for a ticker
+    and skip re-importing companies whose newest filing has not advanced since
+    the previous run. ``filing_type`` is the FMP period label (``FY`` for annual,
+    ``Q1``..``Q4`` for quarterly), and ``source`` is ``fmp``.
+    """
+    sym = ticker.upper()
+    seen: set[tuple[str, str]] = set()
+    out: list[dict[str, Any]] = []
+    for statement in statements:
+        for entry in statement:
+            if not isinstance(entry, dict):
+                continue
+            filed_raw = entry.get("fillingDate") or entry.get("acceptedDate")
+            period = _str_or_none(entry.get("period"))
+            if not filed_raw or period is None:
+                continue
+            filing_date = str(filed_raw)[:10]
+            filing_type = period.upper()
+            key = (filing_type, filing_date)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(
+                {
+                    "ticker": sym,
+                    "filing_type": filing_type,
+                    "filing_date": filing_date,
+                    "accession_number": None,
+                    "source": "fmp",
+                }
+            )
+    return out
+
+
 def _company_row(ticker: str, info: CompanyInfo | None, currency: str | None) -> dict[str, Any]:
     """Build the ``companies`` row from the FMP profile (+ parsed currency fallback).
 
@@ -759,18 +802,20 @@ def import_company_from_fmp(
             "currency"
         )
         company = _company_row(sym, info, currency)
+        filing_rows = _collect_fmp_filings(sym, inc_a, inc_q)
 
         conn.execute("BEGIN TRANSACTION")
         try:
             upsert_company(conn, company)
             annual = upsert_financials_annual(conn, parsed_annual.annual)
             quarterly = upsert_financials_quarterly(conn, parsed_quarterly.quarterly)
+            filings = upsert_filings(conn, filing_rows)
             conn.execute("COMMIT")
         except Exception:
             conn.execute("ROLLBACK")
             raise
 
-        total = 1 + annual + quarterly
+        total = 1 + annual + quarterly + filings
         result = IngestResult(
             source="fmp",
             started_at=started,
@@ -781,6 +826,7 @@ def import_company_from_fmp(
                 "ticker": sym,
                 "annual": annual,
                 "quarterly": quarterly,
+                "filings": filings,
                 "currency": currency,
             },
         )

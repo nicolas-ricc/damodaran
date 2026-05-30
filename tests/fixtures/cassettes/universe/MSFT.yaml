@@ -1,0 +1,283 @@
+# SYNTHETIC cassette — hand-authored, fabricated-but-realistic FMP JSON.
+# NOT recorded from the live API. Re-record against the real FMP API with a valid
+# BOT_FMP_API_KEY before production use (issue #23, M2.6 bulk universe refresh).
+#
+# One cassette per ticker in the 5-name mini-universe. Each covers the 7 requests
+# import_company_from_fmp issues: profile + income/balance/cashflow (annual) +
+# income/balance/cashflow (quarter).
+interactions:
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/profile/MSFT?apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "symbol": "MSFT",
+            "companyName": "Microsoft Corporation",
+            "currency": "USD",
+            "exchange": "NASDAQ",
+            "exchangeShortName": "NASDAQ",
+            "industry": "Software",
+            "sector": "Technology",
+            "country": "US",
+            "isActivelyTrading": true
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/MSFT?period=annual&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2023-06-30",
+            "symbol": "MSFT",
+            "reportedCurrency": "USD",
+            "fillingDate": "2023-07-27",
+            "acceptedDate": "2023-07-27 18:00:00",
+            "calendarYear": "2023",
+            "period": "FY",
+            "revenue": 211000000000,
+            "costOfRevenue": 116050000000,
+            "grossProfit": 94950000000,
+            "operatingExpenses": 31650000000,
+            "operatingIncome": 63300000000,
+            "ebitda": 69630000000,
+            "interestExpense": 2110000000,
+            "incomeTaxExpense": 10550000000,
+            "netIncome": 52750000000,
+            "depreciationAndAmortization": 6330000000,
+            "weightedAverageShsDilOut": 1000000000
+          },
+          {
+            "date": "2022-06-30",
+            "symbol": "MSFT",
+            "reportedCurrency": "USD",
+            "fillingDate": "2022-07-28",
+            "acceptedDate": "2022-07-28 18:00:00",
+            "calendarYear": "2022",
+            "period": "FY",
+            "revenue": 198000000000,
+            "costOfRevenue": 108900000000,
+            "grossProfit": 89100000000,
+            "operatingExpenses": 29700000000,
+            "operatingIncome": 59400000000,
+            "ebitda": 65340000000,
+            "interestExpense": 1980000000,
+            "incomeTaxExpense": 9900000000,
+            "netIncome": 49500000000,
+            "depreciationAndAmortization": 5940000000,
+            "weightedAverageShsDilOut": 1000000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/MSFT?period=annual&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2023-06-30",
+            "symbol": "MSFT",
+            "reportedCurrency": "USD",
+            "fillingDate": "2023-07-27",
+            "calendarYear": "2023",
+            "period": "FY",
+            "totalAssets": 316500000000,
+            "totalDebt": 63300000000,
+            "cashAndCashEquivalents": 42200000000,
+            "totalStockholdersEquity": 168800000000,
+            "goodwill": 21100000000,
+            "totalCurrentAssets": 126600000000,
+            "totalCurrentLiabilities": 84400000000
+          },
+          {
+            "date": "2022-06-30",
+            "symbol": "MSFT",
+            "reportedCurrency": "USD",
+            "fillingDate": "2022-07-28",
+            "calendarYear": "2022",
+            "period": "FY",
+            "totalAssets": 297000000000,
+            "totalDebt": 59400000000,
+            "cashAndCashEquivalents": 39600000000,
+            "totalStockholdersEquity": 158400000000,
+            "goodwill": 19800000000,
+            "totalCurrentAssets": 118800000000,
+            "totalCurrentLiabilities": 79200000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/MSFT?period=annual&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2023-06-30",
+            "symbol": "MSFT",
+            "reportedCurrency": "USD",
+            "fillingDate": "2023-07-27",
+            "calendarYear": "2023",
+            "period": "FY",
+            "operatingCashFlow": 59080000000,
+            "freeCashFlow": 46420000000,
+            "capitalExpenditure": -12660000000,
+            "dividendsPaid": -10550000000
+          },
+          {
+            "date": "2022-06-30",
+            "symbol": "MSFT",
+            "reportedCurrency": "USD",
+            "fillingDate": "2022-07-28",
+            "calendarYear": "2022",
+            "period": "FY",
+            "operatingCashFlow": 55440000000,
+            "freeCashFlow": 43560000000,
+            "capitalExpenditure": -11880000000,
+            "dividendsPaid": -9900000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/MSFT?period=quarter&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2024-03-31",
+            "symbol": "MSFT",
+            "reportedCurrency": "USD",
+            "fillingDate": "2024-04-25",
+            "acceptedDate": "2024-04-25 18:00:00",
+            "calendarYear": "2024",
+            "period": "Q4",
+            "revenue": 61000000000,
+            "operatingIncome": 18300000000,
+            "ebitda": 20130000000,
+            "netIncome": 15250000000,
+            "depreciationAndAmortization": 1830000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/MSFT?period=quarter&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2024-03-31",
+            "symbol": "MSFT",
+            "reportedCurrency": "USD",
+            "fillingDate": "2024-04-25",
+            "calendarYear": "2024",
+            "period": "Q4",
+            "totalDebt": 18300000000,
+            "cashAndCashEquivalents": 12200000000,
+            "totalCurrentAssets": 36600000000,
+            "totalCurrentLiabilities": 24400000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/MSFT?period=quarter&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2024-03-31",
+            "symbol": "MSFT",
+            "reportedCurrency": "USD",
+            "fillingDate": "2024-04-25",
+            "calendarYear": "2024",
+            "period": "Q4",
+            "operatingCashFlow": 17080000000,
+            "freeCashFlow": 13420000000,
+            "capitalExpenditure": -3660000000
+          }
+        ]
+    version: 1

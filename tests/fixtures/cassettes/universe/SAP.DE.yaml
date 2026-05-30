@@ -1,0 +1,283 @@
+# SYNTHETIC cassette — hand-authored, fabricated-but-realistic FMP JSON.
+# NOT recorded from the live API. Re-record against the real FMP API with a valid
+# BOT_FMP_API_KEY before production use (issue #23, M2.6 bulk universe refresh).
+#
+# One cassette per ticker in the 5-name mini-universe. Each covers the 7 requests
+# import_company_from_fmp issues: profile + income/balance/cashflow (annual) +
+# income/balance/cashflow (quarter).
+interactions:
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/profile/SAP.DE?apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "symbol": "SAP.DE",
+            "companyName": "SAP SE",
+            "currency": "EUR",
+            "exchange": "XETRA",
+            "exchangeShortName": "XETRA",
+            "industry": "Software",
+            "sector": "Technology",
+            "country": "DE",
+            "isActivelyTrading": true
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/SAP.DE?period=annual&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2023-12-31",
+            "symbol": "SAP.DE",
+            "reportedCurrency": "EUR",
+            "fillingDate": "2024-02-27",
+            "acceptedDate": "2024-02-27 18:00:00",
+            "calendarYear": "2023",
+            "period": "FY",
+            "revenue": 31200000000,
+            "costOfRevenue": 17160000000,
+            "grossProfit": 14040000000,
+            "operatingExpenses": 4680000000,
+            "operatingIncome": 9360000000,
+            "ebitda": 10296000000,
+            "interestExpense": 312000000,
+            "incomeTaxExpense": 1560000000,
+            "netIncome": 7800000000,
+            "depreciationAndAmortization": 936000000,
+            "weightedAverageShsDilOut": 1000000000
+          },
+          {
+            "date": "2022-12-31",
+            "symbol": "SAP.DE",
+            "reportedCurrency": "EUR",
+            "fillingDate": "2023-02-23",
+            "acceptedDate": "2023-02-23 18:00:00",
+            "calendarYear": "2022",
+            "period": "FY",
+            "revenue": 30900000000,
+            "costOfRevenue": 16995000000,
+            "grossProfit": 13905000000,
+            "operatingExpenses": 4635000000,
+            "operatingIncome": 9270000000,
+            "ebitda": 10197000000,
+            "interestExpense": 309000000,
+            "incomeTaxExpense": 1545000000,
+            "netIncome": 7725000000,
+            "depreciationAndAmortization": 927000000,
+            "weightedAverageShsDilOut": 1000000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/SAP.DE?period=annual&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2023-12-31",
+            "symbol": "SAP.DE",
+            "reportedCurrency": "EUR",
+            "fillingDate": "2024-02-27",
+            "calendarYear": "2023",
+            "period": "FY",
+            "totalAssets": 46800000000,
+            "totalDebt": 9360000000,
+            "cashAndCashEquivalents": 6240000000,
+            "totalStockholdersEquity": 24960000000,
+            "goodwill": 3120000000,
+            "totalCurrentAssets": 18720000000,
+            "totalCurrentLiabilities": 12480000000
+          },
+          {
+            "date": "2022-12-31",
+            "symbol": "SAP.DE",
+            "reportedCurrency": "EUR",
+            "fillingDate": "2023-02-23",
+            "calendarYear": "2022",
+            "period": "FY",
+            "totalAssets": 46350000000,
+            "totalDebt": 9270000000,
+            "cashAndCashEquivalents": 6180000000,
+            "totalStockholdersEquity": 24720000000,
+            "goodwill": 3090000000,
+            "totalCurrentAssets": 18540000000,
+            "totalCurrentLiabilities": 12360000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/SAP.DE?period=annual&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2023-12-31",
+            "symbol": "SAP.DE",
+            "reportedCurrency": "EUR",
+            "fillingDate": "2024-02-27",
+            "calendarYear": "2023",
+            "period": "FY",
+            "operatingCashFlow": 8736000000,
+            "freeCashFlow": 6864000000,
+            "capitalExpenditure": -1872000000,
+            "dividendsPaid": -1560000000
+          },
+          {
+            "date": "2022-12-31",
+            "symbol": "SAP.DE",
+            "reportedCurrency": "EUR",
+            "fillingDate": "2023-02-23",
+            "calendarYear": "2022",
+            "period": "FY",
+            "operatingCashFlow": 8652000000,
+            "freeCashFlow": 6798000000,
+            "capitalExpenditure": -1854000000,
+            "dividendsPaid": -1545000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/SAP.DE?period=quarter&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2023-12-31",
+            "symbol": "SAP.DE",
+            "reportedCurrency": "EUR",
+            "fillingDate": "2024-02-27",
+            "acceptedDate": "2024-02-27 18:00:00",
+            "calendarYear": "2023",
+            "period": "Q4",
+            "revenue": 31200000000,
+            "operatingIncome": 9360000000,
+            "ebitda": 10296000000,
+            "netIncome": 7800000000,
+            "depreciationAndAmortization": 936000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/SAP.DE?period=quarter&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2023-12-31",
+            "symbol": "SAP.DE",
+            "reportedCurrency": "EUR",
+            "fillingDate": "2024-02-27",
+            "calendarYear": "2023",
+            "period": "Q4",
+            "totalDebt": 9360000000,
+            "cashAndCashEquivalents": 6240000000,
+            "totalCurrentAssets": 18720000000,
+            "totalCurrentLiabilities": 12480000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/SAP.DE?period=quarter&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2023-12-31",
+            "symbol": "SAP.DE",
+            "reportedCurrency": "EUR",
+            "fillingDate": "2024-02-27",
+            "calendarYear": "2023",
+            "period": "Q4",
+            "operatingCashFlow": 8736000000,
+            "freeCashFlow": 6864000000,
+            "capitalExpenditure": -1872000000
+          }
+        ]
+    version: 1
