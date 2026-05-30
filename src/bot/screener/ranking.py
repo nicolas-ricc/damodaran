@@ -14,13 +14,13 @@ absolute threshold (spec §6.5): a candidate is judged cheap/good/fast relative 
 its peers that also passed the gates, so the ranking adapts to whatever universe
 the screener produced rather than to fixed cut-offs that drift out of date.
 
-``margin_of_safety`` is a **placeholder** here. The real margin of safety is
-``intrinsic_value / price`` from the DCF valuator (Capa C, spec §6.5). Until
-**M4.7** wires that DCF output into the screener, every candidate carries the
-neutral placeholder :data:`PLACEHOLDER_MARGIN_OF_SAFETY` (= 0.5) unless a caller
-supplies an explicit value. When M4.7 lands, replace the placeholder by feeding
-each candidate the DCF-derived margin of safety; the percentile maths below need
-not change.
+``margin_of_safety`` is the real ``intrinsic_value / price`` from the DCF valuator
+(Capa C, spec §6.5) once **M4.7** has run: :func:`bot.screener.engine.run_screen`
+values each shortlisted candidate and feeds the ratio in here. A candidate carries
+the neutral placeholder :data:`PLACEHOLDER_MARGIN_OF_SAFETY` (= 0.5) only when no
+DCF value is available (the valuator could not value the company, or a caller
+passes no value). The percentile maths below is unchanged by this wiring — the
+margin-of-safety component is carried straight through to the score.
 
 The public surface is a pure function :func:`rank`: it reads its inputs, holds no
 global state, and is deterministic given the same candidates and weights.
@@ -95,9 +95,9 @@ class Candidate:
       faster.
 
     ``margin_of_safety`` is the raw ``intrinsic_value / price`` ratio when known;
-    it defaults to :data:`PLACEHOLDER_MARGIN_OF_SAFETY` until M4.7 supplies the
-    DCF figure. It is carried straight through to the score (not percentile-
-    ranked) to keep the placeholder neutral.
+    it defaults to :data:`PLACEHOLDER_MARGIN_OF_SAFETY` when no DCF value is
+    available. It is carried straight through to the score (not percentile-ranked)
+    so the real ratio — and the neutral placeholder — keep their absolute meaning.
     """
 
     ticker: str

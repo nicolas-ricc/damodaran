@@ -206,6 +206,100 @@ def test_markdown_and_csv_reports_match(screened: tuple[Path, Path]) -> None:
     assert 0.0 <= float(rows[0]["score"]) <= 100.0
 
 
+def test_valuator_reranks_vs_placeholder(tmp_path: Path) -> None:
+    """M4.7: the real DCF margin of safety changes the ranking vs the placeholder.
+
+    Runs the same 10-company universe twice through ``run_screen`` — once with the
+    valuator disabled (the M3 placeholder MoS = 0.5) and once with a valuator that
+    skews the margin of safety hard toward a mid-tier candidate — and asserts the
+    shortlist order genuinely changes when the valuator runs.
+    """
+    from bot.screener.config import load_screener_config
+    from bot.screener.engine import run_screen
+
+    db_path = tmp_path / "bot.duckdb"
+    conn = connect(db_path)
+    apply_schema(conn)
+    _seed_universe(conn)
+
+    preset = (
+        Path(__file__).resolve().parents[2]
+        / "config"
+        / "presets"
+        / "damodaran_value.yaml"
+    )
+    config = load_screener_config(preset)
+
+    placeholder = run_screen(conn, config, top=5, valuator=None)
+    placeholder_order = [c.ticker for c in placeholder.shortlist]
+    # Placeholder MoS is the neutral 0.5 for every survivor.
+    assert all(c.margin_of_safety == 0.5 for c in placeholder.shortlist)
+
+    # A valuator that makes a marginal passer wildly undervalued and the winners
+    # overvalued, so the real MoS must reorder the shortlist.
+    def skewed(_c: duckdb.DuckDBPyConnection, ticker: str) -> float | None:
+        return {"MIDA": 8.0, "MIDB": 7.0, "MIDC": 6.0}.get(ticker, 0.1)
+
+    valued = run_screen(conn, config, top=5, valuator=skewed)
+    valued_order = [c.ticker for c in valued.shortlist]
+    conn.close()
+
+    # Real MoS values are persisted onto the candidates (not the 0.5 placeholder).
+    assert {c.ticker: c.margin_of_safety for c in valued.shortlist}["MIDA"] == 8.0
+    # The ranking genuinely changed once the valuator ran.
+    assert valued_order != placeholder_order
+    # A mid-tier candidate with the highest MoS climbs above the placeholder winners.
+    assert valued_order.index("MIDA") < valued_order.index("WINA")
+
+
+def test_screen_cli_persists_real_mos(tmp_path: Path) -> None:
+    """The persisted ``screener_candidates`` MoS column reflects the valuator.
+
+    Runs the full screen + persist path (``run_screen`` → ``persist_candidates``)
+    with a valuator that returns a distinct real ``intrinsic_value / price`` ratio
+    per ticker, and asserts those exact values land in the ``mos_score`` column —
+    not the old fixed 0.5 placeholder. This is the screener↔valuator integration
+    persisting end to end.
+    """
+    from bot.screener.config import load_screener_config
+    from bot.screener.engine import run_screen
+    from bot.screener.persist import persist_candidates
+
+    db_path = tmp_path / "bot.duckdb"
+    conn = connect(db_path)
+    apply_schema(conn)
+    _seed_universe(conn)
+
+    preset = (
+        Path(__file__).resolve().parents[2]
+        / "config"
+        / "presets"
+        / "damodaran_value.yaml"
+    )
+    config = load_screener_config(preset)
+
+    real_mos = {"WINA": 2.1, "WINB": 1.7, "WINC": 1.3, "MIDA": 0.9, "MIDB": 0.8}
+
+    def valuator(_c: duckdb.DuckDBPyConnection, ticker: str) -> float | None:
+        return real_mos.get(ticker)
+
+    result = run_screen(conn, config, top=5, valuator=valuator)
+    persist_candidates(conn, result)
+    persisted = dict(
+        conn.execute(
+            "SELECT ticker, mos_score FROM screener_candidates"
+        ).fetchall()
+    )
+    conn.close()
+
+    assert len(persisted) == 5
+    # Every shortlisted candidate's real MoS was persisted verbatim.
+    for ticker, mos in real_mos.items():
+        assert persisted[ticker] == pytest.approx(mos)
+    # The persisted values are the real ones, not the single fixed 0.5 placeholder.
+    assert all(v != 0.5 for v in persisted.values())
+
+
 def test_config_path_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     db_path = tmp_path / "bot.duckdb"
     reports_dir = tmp_path / "reports"

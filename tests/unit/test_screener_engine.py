@@ -10,7 +10,7 @@ import duckdb
 import pytest
 
 from bot.screener.benchmarks import load_industry_benchmarks
-from bot.screener.config import load_screener_config
+from bot.screener.config import ScreenerConfig, load_screener_config
 from bot.screener.engine import (
     DEFAULT_REGION,
     _CompanyRow,
@@ -180,3 +180,178 @@ def test_load_industry_benchmarks_reused(conn: duckdb.DuckDBPyConnection) -> Non
     bench = load_industry_benchmarks(conn, industry="Software", region="US")
     assert bench is not None
     assert bench.pe == 20.0
+
+
+# --------------------------------------------------------------------------- #
+# M4.7 — valuator wiring into the ranking                                      #
+# --------------------------------------------------------------------------- #
+
+
+def _value_preset() -> ScreenerConfig:
+    from pathlib import Path
+
+    return load_screener_config(
+        Path(__file__).resolve().parents[2]
+        / "config"
+        / "presets"
+        / "damodaran_value.yaml"
+    )
+
+
+def _seed_sector(conn: duckdb.DuckDBPyConnection) -> None:
+    """Insert the shared Software sector + US country rows exactly once."""
+    conn.execute(
+        "INSERT INTO damodaran_country (country, year, region) VALUES (?, ?, ?)",
+        ["United States", 2026, "US"],
+    )
+    conn.execute(
+        "INSERT INTO damodaran_industry (industry, region, year, wacc, pe) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ["Software", "US", 2026, 0.08, 20.0],
+    )
+
+
+def _seed_company(conn: duckdb.DuckDBPyConnection, ticker: str) -> None:
+    """Seed one passing Software company sharing the sector rows from ``_seed_sector``."""
+    conn.execute(
+        "INSERT INTO companies (ticker, name, country, industry, industry_damodaran, source) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        [ticker, f"{ticker} Corp", "United States", "Software", "Software", "fmp"],
+    )
+    for offset in range(6):
+        rev = 1_000_000_000.0 * (1.1**offset)
+        conn.execute(
+            "INSERT INTO financials_annual "
+            "(ticker, fiscal_year, revenue, ebit, ebitda, interest_expense, net_income, "
+            "total_assets, total_debt, cash, total_equity, goodwill, operating_cashflow, "
+            "free_cashflow, shares_diluted, is_restated, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ticker, 2020 + offset, rev, rev * 0.2, 1_000_000_000.0, 50_000_000.0,
+                1_000_000_000.0, 6_000_000_000.0, 0.0, 100_000_000.0,
+                2_000_000_000.0, 500_000_000.0, 700_000_000.0, 600_000_000.0,
+                1_000_000_000.0, False, "fmp",
+            ],
+        )
+    conn.execute(
+        "INSERT INTO prices_daily (ticker, date, close, market_cap, currency, source) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        [ticker, "2026-05-29", 10.0, 5_000_000_000.0, "USD", "fmp"],
+    )
+
+
+def test_run_screen_uses_valuator_mos(conn: duckdb.DuckDBPyConnection) -> None:
+    """The valuator's real MoS lands in each candidate's persisted score."""
+    _seed_sector(conn)
+    _seed_company(conn, "TST")
+
+    def fake_valuator(_c: duckdb.DuckDBPyConnection, ticker: str) -> float | None:
+        return 1.8 if ticker == "TST" else None
+
+    result = run_screen(conn, _value_preset(), valuator=fake_valuator)
+    assert len(result.shortlist) == 1
+    # Real MoS (1.8) flows through, not the 0.5 placeholder.
+    assert result.shortlist[0].margin_of_safety == pytest.approx(1.8)
+
+
+def test_run_screen_falls_back_to_placeholder_when_unvaluable(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """A candidate the valuator cannot value keeps the neutral placeholder."""
+    from bot.screener.ranking import PLACEHOLDER_MARGIN_OF_SAFETY
+
+    _seed_sector(conn)
+    _seed_company(conn, "TST")
+
+    def none_valuator(_c: duckdb.DuckDBPyConnection, _t: str) -> float | None:
+        return None
+
+    result = run_screen(conn, _value_preset(), valuator=none_valuator)
+    assert result.shortlist[0].margin_of_safety == pytest.approx(
+        PLACEHOLDER_MARGIN_OF_SAFETY
+    )
+
+
+def test_run_screen_none_valuator_keeps_placeholder(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """Passing ``valuator=None`` skips valuation (first-pass placeholder kept)."""
+    from bot.screener.ranking import PLACEHOLDER_MARGIN_OF_SAFETY
+
+    _seed_sector(conn)
+    _seed_company(conn, "TST")
+    result = run_screen(conn, _value_preset(), valuator=None)
+    assert result.shortlist[0].margin_of_safety == pytest.approx(
+        PLACEHOLDER_MARGIN_OF_SAFETY
+    )
+
+
+def test_run_screen_valuator_runs_only_on_top_n(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """The valuator (second pass) runs only on the top-N shortlist, not all."""
+    _seed_sector(conn)
+    for tkr in ("AAA", "BBB", "CCC"):
+        _seed_company(conn, tkr)
+
+    valued: list[str] = []
+
+    def recording_valuator(
+        _c: duckdb.DuckDBPyConnection, ticker: str
+    ) -> float | None:
+        valued.append(ticker)
+        return 1.0
+
+    result = run_screen(conn, _value_preset(), top=2, valuator=recording_valuator)
+    assert len(result.shortlist) == 2
+    # Only the two shortlisted candidates were valued.
+    assert len(valued) == 2
+
+
+def test_dcf_margin_of_safety_swallows_lookup_error(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """The default valuator returns None for an unknown/unvaluable ticker."""
+    from bot.screener.engine import _dcf_margin_of_safety
+
+    assert _dcf_margin_of_safety(conn, "NOPE") is None
+
+
+def test_dcf_margin_of_safety_returns_real_ratio(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """The default valuator returns the DCF intrinsic/price ratio when valuable."""
+    from bot.screener.engine import _dcf_margin_of_safety
+    from tests.unit.test_valuator_analysis import _seed as _seed_valuable
+
+    _seed_valuable(conn)
+    mos = _dcf_margin_of_safety(conn, "AAPL")
+    assert mos is not None
+    assert mos > 0.0
+
+
+def test_run_screen_reranks_when_valuator_differs_from_placeholder(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """Real MoS re-orders an otherwise-tied shortlist (placeholder vs valuator)."""
+    # Two near-identical candidates: ranking is a near tie under the placeholder.
+    _seed_sector(conn)
+    _seed_company(conn, "AAA")
+    _seed_company(conn, "BBB")
+
+    placeholder_run = run_screen(conn, _value_preset(), valuator=None)
+    placeholder_order = [c.ticker for c in placeholder_run.shortlist]
+
+    # Give BBB a far higher margin of safety than AAA.
+    def skewed_valuator(
+        _c: duckdb.DuckDBPyConnection, ticker: str
+    ) -> float | None:
+        return {"AAA": 0.6, "BBB": 5.0}.get(ticker)
+
+    valued_run = run_screen(conn, _value_preset(), valuator=skewed_valuator)
+    valued_order = [c.ticker for c in valued_run.shortlist]
+
+    # BBB's higher MoS lifts it to the top under the real valuator.
+    assert valued_order[0] == "BBB"
+    # And the order genuinely changed relative to the placeholder ranking.
+    assert valued_order != placeholder_order

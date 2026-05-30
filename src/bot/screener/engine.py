@@ -18,20 +18,54 @@ is the caller's job (``bot.screener.persist`` / ``bot.reporting.screen_report``)
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import duckdb
 
 from bot.screener.benchmarks import load_industry_benchmarks
 from bot.screener.config import ScreenerConfig
-from bot.screener.ranking import Candidate, RankingWeights, ScoredCandidate, rank
+from bot.screener.ranking import (
+    PLACEHOLDER_MARGIN_OF_SAFETY,
+    Candidate,
+    RankingWeights,
+    ScoredCandidate,
+    rank,
+)
 from bot.screener.rules import Rule
 from bot.screener.types import CompanyData, IndustryBenchmarks
+from bot.valuator.analysis import analyze
 
 #: Damodaran region used when a company's country has no ``damodaran_country``
 #: row (so a value indicator can still look its sector median up). The screener
 #: targets the US-only universe in M1/M3, so US is the sensible default.
 DEFAULT_REGION = "US"
+
+#: A valuator: given an open connection and a ticker, return that company's
+#: DCF-derived margin of safety (``intrinsic_value / price``), or ``None`` when it
+#: cannot be valued. This is the seam M4.7 wires the Capa C valuator into the
+#: screener through; the default :func:`_dcf_margin_of_safety` runs the real DCF
+#: pipeline, but tests inject a deterministic stand-in. ``> 1`` is undervalued.
+type Valuator = Callable[[duckdb.DuckDBPyConnection, str], float | None]
+
+
+def _dcf_margin_of_safety(
+    conn: duckdb.DuckDBPyConnection, ticker: str
+) -> float | None:
+    """Real DCF margin of safety for ``ticker`` (spec §6.5/§7.2, M4.7).
+
+    Runs the Capa C valuation pipeline (:func:`bot.valuator.analysis.analyze`) and
+    returns its ``intrinsic_value / current_price`` ratio. A company that cannot be
+    valued — unknown ticker, missing financials/price, or assumptions too
+    incomplete for the DCF — yields ``None`` so the caller falls back to the
+    neutral :data:`~bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY` rather than
+    dropping the candidate from the shortlist.
+    """
+    try:
+        analysis = analyze(ticker, conn)
+    except (LookupError, ValueError, ZeroDivisionError):
+        return None
+    return analysis.margin_of_safety
 
 
 @dataclass(frozen=True)
@@ -408,13 +442,34 @@ def run_screen(
     config: ScreenerConfig,
     *,
     top: int | None = None,
+    valuator: Valuator | None = _dcf_margin_of_safety,
 ) -> ScreenResult:
     """Screen the DB universe with ``config`` and return the ranked shortlist.
 
-    Iterates every company in ``companies``, assembles its snapshot, runs the
-    three layers, and ranks the survivors with the §6.5 percentile blend. ``top``
-    truncates the shortlist to the best N (``None`` keeps all survivors). Pure in
-    the project sense: accepts the connection, holds no global state, only reads.
+    Two passes (spec §6.5, M4.7). The **first pass** iterates every company in
+    ``companies``, assembles its snapshot, runs the three eliminatory layers, and
+    ranks the survivors with the §6.5 percentile blend carrying the *placeholder*
+    margin of safety; ``top`` truncates that ranking to the best N. The **second
+    pass** runs ``valuator`` on each of those top-N candidates to obtain the real
+    DCF margin of safety (``intrinsic_value / price``) and **re-ranks** them with
+    it — the moment Capa B (the screener) integrates with Capa C (the valuator).
+
+    Args:
+        conn: Open DuckDB connection with the schema applied.
+        config: The loaded screener preset (layers + ranking weights).
+        top: Cap on the shortlist; the valuator runs on at most this many
+            candidates (``None`` keeps and values every survivor).
+        valuator: The seam that yields each candidate's real margin of safety;
+            defaults to the DCF pipeline. ``None`` skips valuation entirely and
+            keeps the first-pass placeholder ranking (e.g. for a fast dry run). A
+            candidate the valuator cannot value keeps the neutral placeholder.
+
+    Returns:
+        The re-ranked shortlist whose ``margin_of_safety`` reflects the real DCF
+        ratio wherever the valuator could value the company.
+
+    Pure in the project sense: accepts the connection, holds no global state, and
+    only reads from the DB.
     """
     quality_gates = config.quality_gates.build()
     value_indicators = config.value_indicators.build()
@@ -455,11 +510,33 @@ def run_screen(
             )
         )
 
-    scored = rank(candidates, weights)
+    by_metric = {c.ticker: c for c in candidates}
+
+    # First pass: placeholder ranking, truncated to the shortlist the valuator runs on.
+    first_pass = rank(candidates, weights)
+    if top is not None:
+        first_pass = first_pass[:top]
+
+    # Second pass: value each shortlisted candidate, then re-rank with the real MoS.
+    valued: list[Candidate] = []
+    for scored_candidate in first_pass:
+        base = by_metric[scored_candidate.ticker]
+        mos = valuator(conn, base.ticker) if valuator is not None else None
+        valued.append(
+            Candidate(
+                ticker=base.ticker,
+                value_metric=base.value_metric,
+                quality_metric=base.quality_metric,
+                growth_metric=base.growth_metric,
+                margin_of_safety=(
+                    mos if mos is not None else PLACEHOLDER_MARGIN_OF_SAFETY
+                ),
+            )
+        )
+
+    scored = rank(valued, weights)
     by_ticker = {p.company.ticker: p for p in pending}
     shortlist = _project(scored, by_ticker)
-    if top is not None:
-        shortlist = shortlist[:top]
     return ScreenResult(preset=config.name, shortlist=shortlist, screened=screened)
 
 
