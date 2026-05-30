@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import duckdb
@@ -17,9 +18,11 @@ from bot.ingest.universe import (
     load_universe,
     refresh_universe_from_fmp,
 )
+from bot.reporting.analysis_report import render_analysis
 from bot.reporting.show import format_company_summary
 from bot.storage.db import apply_schema, connect
 from bot.utils.logging import configure_logging, get_logger
+from bot.valuator.analysis import analyze as run_analysis
 
 app = typer.Typer(
     help="Personal investment bot — value screener + portfolio monitor.",
@@ -183,6 +186,50 @@ def show(
     annual_rows = [dict(zip(columns, r, strict=False)) for r in annual_cursor.fetchall()]
 
     typer.echo(format_company_summary(company, annual_rows))
+
+
+@app.command()
+def analyze(
+    ticker: str = typer.Argument(..., help="Company ticker (e.g. AAPL)."),
+    override: Path | None = typer.Option(  # noqa: B008
+        None,
+        "--override",
+        help="Path to config/assumptions/<TICKER>.yaml with manual overrides.",
+    ),
+) -> None:
+    """Run a Damodaran-style DCF analysis and write the §7.7 Markdown report.
+
+    Produces ``<reports_dir>/YYYY-MM-DD/analysis/<TICKER>.md`` with the executive
+    summary, story type, assumptions (with source), year-by-year DCF, sensitivity
+    (tornado + 2-D grid), narrative flags, manual overrides, and the sanity check
+    versus sector multiples.
+    """
+    conn, settings = _open_db()
+    ticker = ticker.upper()
+
+    try:
+        analysis = run_analysis(ticker, conn, override_path=override)
+    except LookupError as exc:
+        typer.echo(f"{ticker}: {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    except ValueError as exc:
+        typer.echo(f"{ticker}: cannot value — {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    today = date.today()
+    report_md = render_analysis(analysis, generated_on=today)
+    out_dir = settings.reports_dir / today.isoformat() / "analysis"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{ticker}.md"
+    out_path.write_text(report_md)
+
+    typer.echo(f"Wrote {out_path}")
+    if analysis.margin_of_safety is not None:
+        typer.echo(
+            f"Intrinsic {analysis.dcf_result.intrinsic_value:,.2f} "
+            f"vs price {analysis.current_price:,.2f} → "
+            f"margin of safety {analysis.margin_of_safety:.2f}x"
+        )
 
 
 @app.command()

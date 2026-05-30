@@ -382,3 +382,28 @@ def test_to_dcf_assumptions_roundtrip(conn: duckdb.DuckDBPyConnection) -> None:
         [0.18] * len(result.revenue_growth.value)
     )
     assert len(dcf_assumptions.revenue_growth) == len(result.revenue_growth.value)
+    # tax_rate flows through as the Damodaran sector rate, not a 100% placeholder.
+    assert dcf_assumptions.tax_rate == pytest.approx(0.21)
+
+
+def test_tax_rate_uses_sector_default(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_full_sector(conn)
+    result = resolve_assumptions("ACME", conn)
+    assert result.tax_rate.value == pytest.approx(0.21)
+    assert result.tax_rate.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
+
+
+def test_tax_rate_manual_override_wins(conn: duckdb.DuckDBPyConnection, tmp_path: Path) -> None:
+    _seed_full_sector(conn)
+    override = tmp_path / "ACME.yaml"
+    override.write_text("tax_rate: 0.15\n")
+    result = resolve_assumptions("ACME", conn, override_path=override)
+    assert result.tax_rate.value == pytest.approx(0.15)
+    assert result.tax_rate.source is AssumptionSource.MANUAL
+
+
+def test_tax_rate_rule_based_default_when_no_data(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_company(conn)  # company only, no sector/country tax rate
+    result = resolve_assumptions("ACME", conn)
+    assert result.tax_rate.value == pytest.approx(0.25)
+    assert result.tax_rate.source is AssumptionSource.RULE_BASED

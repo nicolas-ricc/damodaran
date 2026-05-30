@@ -47,6 +47,11 @@ _HORIZON = 5
 # long-run US nominal GDP; callers pass a country-specific value when known.
 _DEFAULT_GDP_NOMINAL = 0.04
 
+# Rule-based marginal tax rate used when neither a manual override nor a
+# Damodaran sector/country tax rate is available. A neutral mid-rate so the DCF
+# still produces a NOPAT rather than collapsing.
+_DEFAULT_TAX_RATE = 0.25
+
 
 class AssumptionSource(StrEnum):
     """Provenance of a resolved assumption (spec §7.3)."""
@@ -102,6 +107,7 @@ class Assumptions:
     pretax_cost_of_debt: Sourced[float | None]
     equity_weight: Sourced[float | None]
     debt_weight: Sourced[float | None]
+    tax_rate: Sourced[float | None]
     story_type: str | None = None
     notes: str | None = None
 
@@ -118,7 +124,7 @@ class Assumptions:
         return DCFAssumptions(
             revenue_growth=growth,
             operating_margin=(margin,) * len(growth),
-            tax_rate=1.0 - _require(self.equity_weight, "equity_weight") * 0.0,  # see below
+            tax_rate=_require(self.tax_rate, "tax_rate"),
             sales_to_capital=_require(self.sales_to_capital, "sales_to_capital"),
             terminal_growth=_require(self.terminal_growth, "terminal_growth"),
             cost_of_equity=_require(self.cost_of_equity, "cost_of_equity"),
@@ -322,6 +328,7 @@ def resolve_assumptions(
     wacc = _resolve_wacc(override, sector)
     terminal_growth = _resolve_terminal_growth(override, country, gdp_nominal)
     probability_of_bankruptcy = _resolve_probability_of_bankruptcy(override)
+    tax_rate = _resolve_tax_rate(override, sector, country)
 
     return Assumptions(
         revenue_growth=revenue_growth,
@@ -334,6 +341,7 @@ def resolve_assumptions(
         pretax_cost_of_debt=pretax_cost_of_debt,
         equity_weight=equity_weight,
         debt_weight=debt_weight,
+        tax_rate=tax_rate,
         story_type=_resolve_story_type(override, auto_story_type),
         notes=override.get("notes"),
     )
@@ -457,6 +465,27 @@ def _resolve_terminal_growth(
     if rfr is None:
         return Sourced(value=gdp_nominal, source=AssumptionSource.RULE_BASED)
     return Sourced(value=min(rfr, gdp_nominal), source=AssumptionSource.RULE_BASED)
+
+
+def _resolve_tax_rate(
+    override: dict[str, Any], sector: _SectorRow | None, country: _CountryRow | None
+) -> Sourced[float | None]:
+    """Marginal tax rate: manual → sector → country → rule-based default (§7.2).
+
+    The DCF taxes EBIT to NOPAT, so a tax rate is always required. Damodaran
+    publishes effective tax rates at both the industry and country level; the
+    sector figure is the closer proxy and wins, falling back to the country
+    figure and finally a neutral default so the model never collapses to a
+    zero-NOPAT (100%-tax) degenerate case.
+    """
+    manual = _override_scalar(override, "tax_rate")
+    if manual is not None:
+        return manual
+    if sector is not None and sector.tax_rate is not None:
+        return Sourced(value=sector.tax_rate, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN)
+    if country is not None and country.tax_rate is not None:
+        return Sourced(value=country.tax_rate, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN)
+    return Sourced(value=_DEFAULT_TAX_RATE, source=AssumptionSource.RULE_BASED)
 
 
 def _resolve_probability_of_bankruptcy(override: dict[str, Any]) -> Sourced[float]:

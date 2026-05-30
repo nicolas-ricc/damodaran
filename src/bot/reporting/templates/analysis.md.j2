@@ -1,0 +1,89 @@
+# {{ a.ticker }} — {{ a.name }}
+
+_Generated {{ generated_at }} · currency {{ a.currency or "n/a" }} · country {{ a.country or "n/a" }}_
+
+## 1. Executive summary
+
+- **Intrinsic value (per share):** {{ a.dcf_result.intrinsic_value | money }}
+{% if a.current_price is not none -%}
+- **Current price:** {{ a.current_price | money }}
+- **Margin of safety:** {{ a.margin_of_safety | ratio }} ({{ verdict }})
+{% else -%}
+- **Current price:** not available — margin of safety cannot be computed.
+{% endif -%}
+- **Story type:** {{ a.story_type }}
+- **WACC:** {{ a.dcf_result.wacc | pct }} (equity {{ a.dcf_result.equity_weight | pct }} / debt {{ a.dcf_result.debt_weight | pct }})
+- **Terminal value share of EV:** {{ a.dcf_result.terminal_value_share | pct }}
+
+> A single intrinsic value is a point in a cloud — read the sensitivity section
+> below before drawing any conclusion (spec §7.4).
+
+## 2. Story type + auto-assignment reasons
+
+**{{ a.story_type }}**
+
+{% for reason in a.story_reasons -%}
+- {{ reason }}
+{% endfor %}
+## 3. Assumptions
+
+| Assumption | Value | Source |
+|---|---|---|
+| Revenue growth (yr 1) | {{ a.assumptions.revenue_growth.value[0] | pct }} | {{ a.assumptions.revenue_growth.source }} |
+| Operating margin | {{ a.assumptions.operating_margin.value | pct }} | {{ a.assumptions.operating_margin.source }} |
+| Sales-to-capital | {{ a.assumptions.sales_to_capital.value | num }} | {{ a.assumptions.sales_to_capital.source }} |
+| WACC | {{ a.assumptions.wacc.value | pct }} | {{ a.assumptions.wacc.source }} |
+| Terminal growth | {{ a.assumptions.terminal_growth.value | pct }} | {{ a.assumptions.terminal_growth.source }} |
+| Tax rate | {{ a.assumptions.tax_rate.value | pct }} | {{ a.assumptions.tax_rate.source }} |
+| Probability of bankruptcy | {{ a.assumptions.probability_of_bankruptcy.value | pct }} | {{ a.assumptions.probability_of_bankruptcy.source }} |
+
+## 4. DCF detail
+
+| Year | Revenue | EBIT | NOPAT | Reinvestment | FCFF | PV |
+|---|---|---|---|---|---|---|
+{% for p in a.dcf_result.projections -%}
+| {{ p.year }} | {{ p.revenue | money }} | {{ p.ebit | money }} | {{ p.nopat | money }} | {{ p.reinvestment | money }} | {{ p.fcff | money }} | {{ p.present_value | money }} |
+{% endfor -%}
+| Terminal | — | — | — | — | {{ a.dcf_result.terminal_value | money }} | — |
+
+- **Enterprise value:** {{ a.dcf_result.enterprise_value | money }}
+- **Equity value:** {{ a.dcf_result.equity_value | money }}
+- **Net debt:** {{ a.financials.net_debt | money }}
+
+## 5. Sensitivity
+
+### Tornado (±20% per assumption, ranked by impact)
+
+| Assumption | Intrinsic @ -20% | Intrinsic @ +20% | Impact |
+|---|---|---|---|
+{% for t in a.tornado -%}
+| {{ t.axis }} | {{ t.intrinsic_low | money }} | {{ t.intrinsic_high | money }} | {{ t.impact | money }} |
+{% endfor %}
+### 2-D grid — {{ a.grid.axis_a }} (rows) × {{ a.grid.axis_b }} (cols), margin of safety vs base
+
+{% for line in grid_table -%}
+{{ line }}
+{% endfor %}
+## 6. Narrative flags
+
+| Flag | Colour | Reason |
+|---|---|---|
+{% for f in a.narrative_flags -%}
+| {{ f.name }} | {{ f.color }} | {{ f.reason }} |
+{% endfor %}
+## 7. Manual overrides
+
+{% if a.override_notes -%}
+{{ a.override_notes }}
+
+Overridden assumptions are marked `manual` in the assumptions table above.
+{% else -%}
+No manual overrides applied — all assumptions are sector defaults, rules, or
+historical averages.
+{% endif %}
+## 8. Sanity check vs sector multiples
+
+| Multiple | Implied | Sector (Damodaran) |
+|---|---|---|
+| P/E | {{ a.sanity_check.implied_pe | num }} | {{ a.sanity_check.sector_pe | num }} |
+| EV/Sales | {{ a.sanity_check.implied_ev_sales | num }} | {{ a.sanity_check.sector_ev_sales | num }} |
