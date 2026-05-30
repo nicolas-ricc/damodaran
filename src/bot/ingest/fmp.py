@@ -20,7 +20,12 @@ import duckdb
 import httpx
 
 from bot.ingest.base import IngestResult
-from bot.ingest.sec_edgar import ParsedCompanyData
+from bot.ingest.sec_edgar import (
+    ParsedCompanyData,
+    upsert_company,
+    upsert_financials_annual,
+    upsert_financials_quarterly,
+)
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -198,6 +203,46 @@ class FmpClient:
             )
         log.info("fmp.historical_prices.fetched", ticker=sym, rows=len(out))
         return out
+
+    def _statement(
+        self, kind: str, ticker: str, *, period: str, limit: int
+    ) -> list[dict[str, Any]]:
+        """Fetch one statement array (``kind``) for ``ticker`` from FMP.
+
+        ``kind`` is the endpoint segment (``income-statement``,
+        ``balance-sheet-statement`` or ``cash-flow-statement``). ``period`` is
+        FMP's ``annual`` or ``quarter`` query parameter. Returns the raw JSON
+        array (one object per fiscal period), or ``[]`` for an unknown symbol.
+        """
+        data = self._get(
+            f"/{kind}/{ticker.upper()}",
+            params={"period": period, "limit": limit},
+        )
+        if not isinstance(data, list):
+            return []
+        return [e for e in data if isinstance(e, dict)]
+
+    def income_statement(
+        self, ticker: str, *, period: str = "annual", limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Return the income-statement array for ``ticker`` (``annual``/``quarter``)."""
+        return self._statement("income-statement", ticker, period=period, limit=limit)
+
+    def balance_sheet(
+        self, ticker: str, *, period: str = "annual", limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Return the balance-sheet array for ``ticker`` (``annual``/``quarter``)."""
+        return self._statement(
+            "balance-sheet-statement", ticker, period=period, limit=limit
+        )
+
+    def cash_flow(
+        self, ticker: str, *, period: str = "annual", limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Return the cash-flow array for ``ticker`` (``annual``/``quarter``)."""
+        return self._statement(
+            "cash-flow-statement", ticker, period=period, limit=limit
+        )
 
 
 def _str_or_none(value: Any) -> str | None:
@@ -645,3 +690,112 @@ def _log_refresh_prices(
             result.error_message,
         ],
     )
+
+
+# ---------- Fundamentals importer (M2.3) ----------
+
+
+def _company_row(ticker: str, info: CompanyInfo | None, currency: str | None) -> dict[str, Any]:
+    """Build the ``companies`` row from the FMP profile (+ parsed currency fallback).
+
+    Mirrors the ``company`` dict shape produced for SEC EDGAR. The profile's
+    ``currency`` is preferred; the parsed ``reportedCurrency`` is the fallback so
+    a company row always carries a currency even if the profile omits it.
+    """
+    sym = ticker.upper()
+    if info is None:
+        return {
+            "ticker": sym,
+            "name": sym,
+            "currency": currency,
+            "source": "fmp",
+            "status": "active",
+        }
+    return {
+        "ticker": sym,
+        "name": info.name or sym,
+        "country": info.country,
+        "exchange": info.exchange_short_name or info.exchange,
+        "industry": info.industry,
+        "currency": info.currency or currency,
+        "status": "active" if info.is_actively_trading else "inactive",
+        "source": "fmp",
+    }
+
+
+def import_company_from_fmp(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    ticker: str,
+    api_key: str,
+) -> IngestResult:
+    """Fetch + parse + upsert one ticker's fundamentals from FMP. Atomic on the DB side.
+
+    Mirrors :func:`bot.ingest.sec_edgar.import_company_from_sec`: it returns the
+    same :class:`IngestResult` contract and reuses the existing
+    ``upsert_company`` / ``upsert_financials_*`` helpers. The annual and
+    quarterly statements are fetched separately (FMP scopes period granularity
+    per request) and parsed by the pure M2.2 parser. Currency / country come from
+    the source profile — non-US tickers keep their local currency. All writes
+    happen in a single transaction; the run is recorded in ``refresh_log``.
+    """
+    started = datetime.now()
+    run_id = str(uuid.uuid4())
+    sym = ticker.upper()
+    try:
+        with FmpClient(api_key=api_key) as client:
+            info = client.lookup_company(sym)
+            inc_a = client.income_statement(sym, period="annual")
+            bal_a = client.balance_sheet(sym, period="annual")
+            cf_a = client.cash_flow(sym, period="annual")
+            inc_q = client.income_statement(sym, period="quarter")
+            bal_q = client.balance_sheet(sym, period="quarter")
+            cf_q = client.cash_flow(sym, period="quarter")
+
+        parsed_annual = parse_fmp_fundamentals(sym, inc_a, bal_a, cf_a)
+        parsed_quarterly = parse_fmp_fundamentals(sym, inc_q, bal_q, cf_q)
+
+        currency = parsed_annual.company.get("currency") or parsed_quarterly.company.get(
+            "currency"
+        )
+        company = _company_row(sym, info, currency)
+
+        conn.execute("BEGIN TRANSACTION")
+        try:
+            upsert_company(conn, company)
+            annual = upsert_financials_annual(conn, parsed_annual.annual)
+            quarterly = upsert_financials_quarterly(conn, parsed_quarterly.quarterly)
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+
+        total = 1 + annual + quarterly
+        result = IngestResult(
+            source="fmp",
+            started_at=started,
+            finished_at=datetime.now(),
+            status="success",
+            rows_affected=total,
+            details={
+                "ticker": sym,
+                "annual": annual,
+                "quarterly": quarterly,
+                "currency": currency,
+            },
+        )
+    except Exception as e:
+        log.exception("fmp.import.failed", ticker=sym, error=str(e))
+        result = IngestResult(
+            source="fmp",
+            started_at=started,
+            finished_at=datetime.now(),
+            status="error",
+            error_message=str(e),
+            details={"ticker": sym},
+        )
+    try:
+        _log_refresh_prices(conn, result, run_id)
+    except Exception as log_err:
+        log.exception("fmp.refresh_log_insert_failed", error=str(log_err))
+    return result
