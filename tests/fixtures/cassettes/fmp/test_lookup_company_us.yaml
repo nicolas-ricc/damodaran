@@ -1,0 +1,40 @@
+# SYNTHETIC cassette — hand-authored, fabricated-but-realistic FMP profile JSON.
+# NOT recorded from the live API. Re-record against the real FMP API with a valid
+# BOT_FMP_API_KEY before production use.
+interactions:
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/profile/AAPL?apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "symbol": "AAPL",
+            "price": 195.89,
+            "beta": 1.29,
+            "mktCap": 3019131060000,
+            "companyName": "Apple Inc.",
+            "currency": "USD",
+            "cik": "0000320193",
+            "isin": "US0378331005",
+            "exchange": "NASDAQ",
+            "exchangeShortName": "NASDAQ",
+            "industry": "Consumer Electronics",
+            "sector": "Technology",
+            "country": "US",
+            "ipoDate": "1980-12-12",
+            "isActivelyTrading": true
+          }
+        ]
+    version: 1

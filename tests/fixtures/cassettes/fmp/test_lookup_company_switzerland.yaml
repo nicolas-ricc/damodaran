@@ -1,0 +1,40 @@
+# SYNTHETIC cassette — hand-authored, fabricated-but-realistic FMP profile JSON.
+# NOT recorded from the live API. Re-record against the real FMP API with a valid
+# BOT_FMP_API_KEY before production use.
+interactions:
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/profile/NESN.SW?apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "symbol": "NESN.SW",
+            "price": 92.34,
+            "beta": 0.41,
+            "mktCap": 238900000000,
+            "companyName": "Nestlé S.A.",
+            "currency": "CHF",
+            "cik": null,
+            "isin": "CH0038863350",
+            "exchange": "SIX Swiss Exchange",
+            "exchangeShortName": "SIX",
+            "industry": "Packaged Foods",
+            "sector": "Consumer Defensive",
+            "country": "CH",
+            "ipoDate": "2000-01-03",
+            "isActivelyTrading": true
+          }
+        ]
+    version: 1

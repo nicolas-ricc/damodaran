@@ -1,0 +1,40 @@
+# SYNTHETIC cassette — hand-authored, fabricated-but-realistic FMP profile JSON.
+# NOT recorded from the live API. Re-record against the real FMP API with a valid
+# BOT_FMP_API_KEY before production use.
+interactions:
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/profile/7203.T?apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "symbol": "7203.T",
+            "price": 3210.0,
+            "beta": 0.62,
+            "mktCap": 43200000000000,
+            "companyName": "Toyota Motor Corporation",
+            "currency": "JPY",
+            "cik": null,
+            "isin": "JP3633400001",
+            "exchange": "Tokyo Stock Exchange",
+            "exchangeShortName": "TSE",
+            "industry": "Auto Manufacturers",
+            "sector": "Consumer Cyclical",
+            "country": "JP",
+            "ipoDate": "1949-05-16",
+            "isActivelyTrading": true
+          }
+        ]
+    version: 1

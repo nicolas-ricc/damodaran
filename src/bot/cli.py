@@ -143,6 +143,7 @@ def doctor() -> None:
     typer.echo(f"DB path:          {settings.db_path}")
     typer.echo(f"Reports dir:      {settings.reports_dir}")
     typer.echo(f"SEC user agent:   {settings.sec_user_agent}")
+    typer.echo(f"FMP API key:      {'set' if settings.fmp_api_key else 'MISSING'}")
     typer.echo(f"Log level:        {settings.log_level}")
 
     try:

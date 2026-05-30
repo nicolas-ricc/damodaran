@@ -1,0 +1,21 @@
+# SYNTHETIC cassette — hand-authored. FMP returns an empty JSON array for an
+# unknown symbol. NOT recorded from the live API; re-record before production use.
+interactions:
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/profile/ZZZNOTREAL?apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        []
+    version: 1

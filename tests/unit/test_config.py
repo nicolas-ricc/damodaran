@@ -9,14 +9,25 @@ from bot.config import Settings
 def test_settings_loads_from_env(monkeypatch, tmp_path):
     monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "test.duckdb"))
     monkeypatch.setenv("BOT_SEC_USER_AGENT", "Test User test@example.com")
+    monkeypatch.setenv("BOT_FMP_API_KEY", "abc123")
     monkeypatch.setenv("BOT_REPORTS_DIR", str(tmp_path / "reports"))
     monkeypatch.setenv("BOT_LOG_LEVEL", "DEBUG")
 
     s = Settings(_env_file=None)
     assert s.db_path == tmp_path / "test.duckdb"
     assert s.sec_user_agent == "Test User test@example.com"
+    assert s.fmp_api_key == "abc123"
     assert s.reports_dir == tmp_path / "reports"
     assert s.log_level == "DEBUG"
+
+
+def test_settings_requires_fmp_api_key(monkeypatch, tmp_path):
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "X Y x@y.com")
+    monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "x.duckdb"))
+    monkeypatch.delenv("BOT_FMP_API_KEY", raising=False)
+    with pytest.raises(ValidationError) as exc:
+        Settings(_env_file=None)
+    assert "fmp_api_key" in str(exc.value).lower()
 
 
 def test_settings_requires_sec_user_agent(monkeypatch, tmp_path):

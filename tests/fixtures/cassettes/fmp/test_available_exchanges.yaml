@@ -1,0 +1,28 @@
+# SYNTHETIC cassette — hand-authored, fabricated-but-realistic FMP
+# /available-exchanges JSON (subset). NOT recorded from the live API; re-record
+# against the real FMP API with a valid BOT_FMP_API_KEY before production use.
+interactions:
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/available-exchanges?apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {"exchange": "NASDAQ Global Select", "name": "NASDAQ", "countryName": "United States", "countryCode": "US", "symbolSuffix": null, "delay": "Real-time", "shortName": "NASDAQ"},
+          {"exchange": "New York Stock Exchange", "name": "NYSE", "countryName": "United States", "countryCode": "US", "symbolSuffix": null, "delay": "Real-time", "shortName": "NYSE"},
+          {"exchange": "SIX Swiss Exchange", "name": "SIX Swiss Exchange", "countryName": "Switzerland", "countryCode": "CH", "symbolSuffix": ".SW", "delay": "15 min", "shortName": "SIX"},
+          {"exchange": "Tokyo Stock Exchange", "name": "Tokyo Stock Exchange", "countryName": "Japan", "countryCode": "JP", "symbolSuffix": ".T", "delay": "20 min", "shortName": "TSE"},
+          {"exchange": "London Stock Exchange", "name": "London Stock Exchange", "countryName": "United Kingdom", "countryCode": "GB", "symbolSuffix": ".L", "delay": "15 min", "shortName": "LSE"}
+        ]
+    version: 1

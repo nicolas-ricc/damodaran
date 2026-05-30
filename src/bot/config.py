@@ -22,6 +22,10 @@ class Settings(BaseSettings):
         ...,
         description="User-Agent header for SEC EDGAR requests. Required by SEC fair-use policy.",
     )
+    fmp_api_key: str = Field(
+        ...,
+        description="Financial Modeling Prep API key. Required for global fundamentals (M2).",
+    )
     reports_dir: Path = Field(default=Path("./reports"))
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")
 
