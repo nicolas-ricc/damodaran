@@ -30,11 +30,18 @@ class RuleResult:
         score: Continuous strength in ``[0.0, 1.0]`` for ranking rules (spec
             §6.5). Eliminatory gates leave this at ``0.0``.
         reason: Human-readable explanation for debugging / report traceability.
+        skipped: ``True`` when the rule could not be evaluated for lack of data
+            (e.g. a value indicator whose industry has no Damodaran median, spec
+            §6.3). A skipped rule never counts as a *pass* (``passed`` stays
+            ``False``), but callers can tell "failed the test" apart from "could
+            not run the test" — the latter must not, on its own, disqualify a
+            company that other indicators vouch for.
     """
 
     passed: bool
     score: float = 0.0
     reason: str = ""
+    skipped: bool = False
 
 
 class Rule(ABC):
@@ -336,3 +343,175 @@ class MaxGoodwillToAssets(Rule):
             f"{'<=' if passed else '>'} maximum {self.maximum:.2f}"
         )
         return RuleResult(passed=passed, reason=reason)
+
+
+# --------------------------------------------------------------------------- #
+# Value indicators (spec §6.3). At least one must pass for a candidate to be
+# kept. All are relative to the company's sector medians (Damodaran datasets),
+# so each rule first checks the relevant median is present and *skips* itself
+# (``skipped=True``, never a pass) when the industry has no data — a skip must
+# not, on its own, disqualify a company that other indicators vouch for. Missing
+# company data is likewise a skip: cheapness cannot be judged from nothing.
+# --------------------------------------------------------------------------- #
+
+
+def _value_score(value: float, threshold: float) -> float:
+    """Map a metric to a ``[0.0, 1.0]`` cheapness score for ranking (spec §6.5).
+
+    ``value`` at the threshold scores ``0.0``; ``value`` at or below zero scores
+    ``1.0``; in between it scales linearly with how far below the threshold the
+    metric sits. ``threshold`` is assumed positive (callers only score after a
+    positive-median check).
+    """
+    if threshold <= 0:
+        return 0.0
+    score = (threshold - value) / threshold
+    return max(0.0, min(1.0, score))
+
+
+@register
+class PEBelowIndustryMultiple(Rule):
+    """Value indicator: PE below a multiple of the sector median (spec §6.3).
+
+    Default ``0.7x`` the industry-median PE. A non-positive company PE (loss
+    maker) carries no cheapness signal and is skipped, as is a company or sector
+    with no PE datum.
+    """
+
+    name = "pe_below_industry_multiple"
+
+    def __init__(self, multiple: float = 0.7) -> None:
+        self.multiple = multiple
+
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
+        if benchmarks.pe is None or benchmarks.pe <= 0:
+            return RuleResult(
+                passed=False, skipped=True, reason="no sector PE median available"
+            )
+        if company.pe is None or company.pe <= 0:
+            return RuleResult(
+                passed=False, skipped=True, reason="company PE unavailable or non-positive"
+            )
+        threshold = benchmarks.pe * self.multiple
+        passed = company.pe < threshold
+        score = _value_score(company.pe, threshold) if passed else 0.0
+        reason = (
+            f"PE {company.pe:.2f} {'<' if passed else '>='} "
+            f"{self.multiple:.2f}x sector median {benchmarks.pe:.2f} "
+            f"(= {threshold:.2f})"
+        )
+        return RuleResult(passed=passed, score=score, reason=reason)
+
+
+@register
+class EVEBITDABelowIndustryMultiple(Rule):
+    """Value indicator: EV/EBITDA below a multiple of the sector median (§6.3).
+
+    Default ``0.7x`` the industry-median EV/EBITDA. Skipped when the company or
+    sector lacks the datum.
+    """
+
+    name = "ev_ebitda_below_industry_multiple"
+
+    def __init__(self, multiple: float = 0.7) -> None:
+        self.multiple = multiple
+
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
+        if benchmarks.ev_ebitda is None or benchmarks.ev_ebitda <= 0:
+            return RuleResult(
+                passed=False,
+                skipped=True,
+                reason="no sector EV/EBITDA median available",
+            )
+        if company.ev_ebitda is None or company.ev_ebitda <= 0:
+            return RuleResult(
+                passed=False,
+                skipped=True,
+                reason="company EV/EBITDA unavailable or non-positive",
+            )
+        threshold = benchmarks.ev_ebitda * self.multiple
+        passed = company.ev_ebitda < threshold
+        score = _value_score(company.ev_ebitda, threshold) if passed else 0.0
+        reason = (
+            f"EV/EBITDA {company.ev_ebitda:.2f} {'<' if passed else '>='} "
+            f"{self.multiple:.2f}x sector median {benchmarks.ev_ebitda:.2f} "
+            f"(= {threshold:.2f})"
+        )
+        return RuleResult(passed=passed, score=score, reason=reason)
+
+
+@register
+class PBVBelowIndustryMultipleWithROEAboveMedian(Rule):
+    """Value indicator: cheap on P/BV *and* ROE above the sector median (§6.3).
+
+    The classic "real value, not a trap" combination: P/BV below ``0.7x`` the
+    sector median (default) **and** ROE above the sector median. Both legs need
+    sector medians and company data; any of them missing skips the rule.
+    """
+
+    name = "pbv_below_industry_multiple_with_roe_above_median"
+
+    def __init__(self, multiple: float = 0.7) -> None:
+        self.multiple = multiple
+
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
+        if benchmarks.pbv is None or benchmarks.pbv <= 0 or benchmarks.roe is None:
+            return RuleResult(
+                passed=False,
+                skipped=True,
+                reason="no sector P/BV or ROE median available",
+            )
+        if company.pbv is None or company.pbv <= 0 or company.roe is None:
+            return RuleResult(
+                passed=False,
+                skipped=True,
+                reason="company P/BV or ROE unavailable",
+            )
+        threshold = benchmarks.pbv * self.multiple
+        cheap = company.pbv < threshold
+        quality = company.roe > benchmarks.roe
+        passed = cheap and quality
+        score = _value_score(company.pbv, threshold) if passed else 0.0
+        reason = (
+            f"P/BV {company.pbv:.2f} {'<' if cheap else '>='} "
+            f"{self.multiple:.2f}x sector median {benchmarks.pbv:.2f} "
+            f"(= {threshold:.2f}); ROE {company.roe:.3f} "
+            f"{'>' if quality else '<='} sector median {benchmarks.roe:.3f}"
+        )
+        return RuleResult(passed=passed, score=score, reason=reason)
+
+
+@register
+class FCFYieldAbove(Rule):
+    """Value indicator: free-cash-flow yield above an absolute floor (§6.3).
+
+    Default ``0.08`` (8%). Unlike the multiple rules this is an absolute
+    threshold, not sector-relative, so it needs no benchmark — only the
+    company's FCF yield, which is skipped when unavailable.
+    """
+
+    name = "fcf_yield_above"
+
+    def __init__(self, minimum: float = 0.08) -> None:
+        self.minimum = minimum
+
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
+        if company.fcf_yield is None:
+            return RuleResult(
+                passed=False, skipped=True, reason="company FCF yield unavailable"
+            )
+        passed = company.fcf_yield > self.minimum
+        score = min(1.0, company.fcf_yield / self.minimum) if passed else 0.0
+        reason = (
+            f"FCF yield {company.fcf_yield:.3f} "
+            f"{'>' if passed else '<='} minimum {self.minimum:.3f}"
+        )
+        return RuleResult(passed=passed, score=score, reason=reason)
