@@ -19,6 +19,7 @@ dependencies = [
     "jinja2>=3.1.6",
     "matplotlib>=3.10.9",
     "markdown>=3.10.2",
+    "plotly>=6.7.0",
 ]
 
 [project.scripts]
@@ -60,6 +61,12 @@ strict = true
 python_version = "3.12"
 mypy_path = "src"
 packages = ["bot"]
+
+# Plotly ships no py.typed marker and the third-party stubs are immature, so treat
+# its imports as untyped; the one call site (reporting/html.py) coerces the result.
+[[tool.mypy.overrides]]
+module = ["plotly.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -14,7 +14,11 @@ import duckdb
 import pytest
 
 from bot.reporting.analysis_report import render_analysis
-from bot.reporting.html import render_analysis_html, tornado_chart_png
+from bot.reporting.html import (
+    render_analysis_html,
+    sensitivity_heatmap_html,
+    tornado_chart_png,
+)
 from bot.storage.db import apply_schema, connect
 from bot.valuator.analysis import Analysis, analyze
 
@@ -92,7 +96,12 @@ def test_html_is_self_contained_with_inlined_chart(analysis: Analysis) -> None:
     assert "<html" in html and "</html>" in html
     # The tornado chart is inlined as a base64 data URI — no external assets.
     assert "data:image/png;base64," in html
-    assert "src=\"http" not in html
+    # No tag-level external references: no <img src=http…>, <script src=…>, or <link>.
+    # (The inlined Plotly bundle may contain http URLs in JS *string literals*, but
+    # the page fetches nothing on load — those are not tag attributes.)
+    assert 'img class="tornado" alt' in html
+    assert "<img" in html and 'src="data:image/png' in html
+    assert "<script src=" not in html
     assert "<link" not in html
     # The base64 payload decodes back to a PNG.
     match = re.search(r"data:image/png;base64,([A-Za-z0-9+/=]+)", html)
@@ -119,3 +128,46 @@ def test_chart_matches_textual_tornado_ordering_and_values(analysis: Analysis) -
     # The renderer must read the same ordered tornado entries (descending impact).
     impacts = [entry.impact for entry in analysis.tornado]
     assert impacts == sorted(impacts, reverse=True)
+
+
+def test_heatmap_fragment_inlines_plotly_js_and_renders_a_plot(analysis: Analysis) -> None:
+    # M6.2: the 2-D sensitivity grid renders to an interactive Plotly heatmap whose
+    # JS is inlined (no external <script src>) so the fragment is self-contained.
+    fragment = sensitivity_heatmap_html(analysis.grid)
+    # The Plotly library is embedded, not pulled from a CDN: no external script tag.
+    assert "<script" in fragment
+    assert 'script src="http' not in fragment.lower()
+    assert "<script src=" not in fragment
+    # The heatmap trace is present.
+    assert '"type":"heatmap"' in fragment.replace(" ", "")
+
+
+def test_heatmap_z_values_are_the_grid_margins_of_safety(analysis: Analysis) -> None:
+    # Every cell's margin of safety must appear in the heatmap's z matrix so the
+    # colours faithfully encode the grid the Markdown table renders.
+    fragment = sensitivity_heatmap_html(analysis.grid)
+    for row in analysis.grid.cells:
+        for cell in row:
+            assert str(round(cell.margin_of_safety, 4)) in fragment
+
+
+def test_heatmap_hover_shows_margin_of_safety_and_intrinsic_value(analysis: Analysis) -> None:
+    # Acceptance: hover tooltip shows per-cell margin of safety and intrinsic value.
+    fragment = sensitivity_heatmap_html(analysis.grid)
+    assert "Margin of safety" in fragment
+    assert "Intrinsic value" in fragment
+    # The per-cell intrinsic values are carried as customdata for the tooltip.
+    for row in analysis.grid.cells:
+        for cell in row:
+            assert str(round(cell.intrinsic_value, 4)) in fragment
+
+
+def test_full_report_embeds_the_self_contained_heatmap(analysis: Analysis) -> None:
+    # The M6.1 report now also carries the interactive heatmap, still self-contained.
+    html = render_analysis_html(analysis)
+    # No external script tags slipped in alongside the inlined library.
+    assert "<script src=" not in html
+    assert 'script src="http' not in html.lower()
+    # The axis names from the grid are present so the heatmap is labelled.
+    assert analysis.grid.axis_a.value in html
+    assert analysis.grid.axis_b.value in html

@@ -1,16 +1,20 @@
-"""Render an :class:`Analysis` as a self-contained HTML report (spec §6.5, M6.1).
+"""Render an :class:`Analysis` as a self-contained HTML report (spec §6.5, M6.1/M6.2).
 
 The §7.7 analysis already renders to Markdown (:mod:`bot.reporting.analysis_report`).
 This module is the one place that turns that report into a single, self-contained
-HTML file: the Markdown is converted to HTML (tables included) and a Matplotlib
-*tornado* chart is rendered to PNG and inlined as a ``data:`` URI, so the file
-opens in a browser via ``xdg-open`` with no external assets to fetch.
+HTML file: the Markdown is converted to HTML (tables included) and two charts are
+embedded with no external assets to fetch, so the file opens in a browser via
+``xdg-open`` offline.
 
-The chart is a faithful picture of the textual tornado of M4.3
-(:func:`bot.valuator.sensitivity.tornado`): it reads the *same* ordered
-:class:`~bot.valuator.sensitivity.TornadoEntry` list the Markdown table renders,
-so the bars share the table's ordering (descending by impact) and values
-(``intrinsic_low``/``intrinsic_high`` per axis).
+* A Matplotlib *tornado* chart (M4.3) is rendered to PNG and inlined as a ``data:``
+  URI. It is a faithful picture of the textual tornado: it reads the *same* ordered
+  :class:`~bot.valuator.sensitivity.TornadoEntry` list the Markdown table renders,
+  so the bars share the table's ordering (descending by impact) and values
+  (``intrinsic_low``/``intrinsic_high`` per axis).
+* An interactive Plotly *heatmap* (M6.2) of the 2-D sensitivity grid
+  (``axis_a`` x ``axis_b``, margin of safety per cell). Plotly's JavaScript is
+  inlined into the fragment, so the heatmap stays self-contained, and each cell's
+  hover tooltip surfaces its margin of safety and intrinsic value.
 
 Everything here is pure: :func:`render_analysis_html` takes an :class:`Analysis`
 and returns a string; writing the file to disk is the CLI's job.
@@ -25,6 +29,7 @@ from io import BytesIO
 
 import markdown as md_lib
 import matplotlib
+import plotly.graph_objects as go
 
 # Use the non-interactive Agg backend: this runs head-less (CI, xdg-open user),
 # never opens a window, and must be selected before pyplot is imported.
@@ -34,7 +39,11 @@ import matplotlib.pyplot as plt
 
 from bot.reporting.analysis_report import render_analysis
 from bot.valuator.analysis import Analysis
-from bot.valuator.sensitivity import TornadoEntry
+from bot.valuator.sensitivity import Grid2D, TornadoEntry
+
+#: Round grid figures to this many decimals before handing them to Plotly, so the
+#: serialized z / customdata are stable and compact (4dp is finer than any tooltip).
+_GRID_DECIMALS = 4
 
 #: Markdown extensions: ``tables`` for the §7.7 grids, ``fenced_code`` for safety.
 _MD_EXTENSIONS = ("tables", "fenced_code", "sane_lists")
@@ -104,12 +113,81 @@ def _data_uri(png: bytes) -> str:
     return f"data:image/png;base64,{encoded}"
 
 
+def sensitivity_heatmap_html(grid: Grid2D) -> str:
+    """Render the 2-D sensitivity grid as a self-contained Plotly heatmap (M6.2).
+
+    The heatmap mirrors the Markdown grid table: ``axis_a`` runs down the rows and
+    ``axis_b`` across the columns, each labelled by its signed percentage delta
+    (``-20%`` … ``+20%``), and the cell colour encodes the margin of safety. Each
+    cell's hover tooltip shows that margin of safety together with the per-share
+    intrinsic value (carried as ``customdata``).
+
+    Plotly's JavaScript library is inlined into the returned fragment, so it
+    references no external assets and drops straight into the report's ``<body>``.
+
+    Args:
+        grid: The 5x5 grid from the analysis (``axis_a`` rows x ``axis_b`` cols).
+
+    Returns:
+        An HTML fragment (a ``<div>`` plus inline ``<script>``) rendering the heatmap.
+    """
+    z = [
+        [round(cell.margin_of_safety, _GRID_DECIMALS) for cell in row]
+        for row in grid.cells
+    ]
+    customdata = [
+        [round(cell.intrinsic_value, _GRID_DECIMALS) for cell in row]
+        for row in grid.cells
+    ]
+    col_labels = [_pct_delta(m) for m in grid.col_multipliers]
+    row_labels = [_pct_delta(m) for m in grid.row_multipliers]
+
+    figure = go.Figure(
+        data=go.Heatmap(
+            z=z,
+            x=col_labels,
+            y=row_labels,
+            customdata=customdata,
+            colorscale="RdYlGn",
+            colorbar={"title": "Margin of safety"},
+            hovertemplate=(
+                f"{grid.axis_a.value}: %{{y}}<br>"
+                f"{grid.axis_b.value}: %{{x}}<br>"
+                "Margin of safety: %{z:.2f}x<br>"
+                "Intrinsic value: %{customdata:.2f}<extra></extra>"
+            ),
+        )
+    )
+    figure.update_layout(
+        title=(
+            f"Sensitivity heatmap — {grid.axis_a.value} (rows) x "
+            f"{grid.axis_b.value} (cols)"
+        ),
+        xaxis_title=grid.axis_b.value,
+        yaxis_title=grid.axis_a.value,
+        margin={"l": 60, "r": 20, "t": 60, "b": 60},
+    )
+    return str(
+        figure.to_html(
+            include_plotlyjs="inline",
+            full_html=False,
+            div_id="sensitivity-heatmap",
+        )
+    )
+
+
+def _pct_delta(multiplier: float) -> str:
+    """A grid multiplier (e.g. ``0.8``) as a signed percentage delta (``-20%``)."""
+    return f"{(multiplier - 1.0) * 100.0:+.0f}%"
+
+
 def render_analysis_html(analysis: Analysis, *, generated_on: date | None = None) -> str:
     """Render ``analysis`` as a self-contained HTML report (M6.1).
 
-    The §7.7 Markdown report is converted to HTML and a base64-inlined tornado
-    chart (matching the textual one) is injected after the Sensitivity section's
-    table. The result references no external assets.
+    The §7.7 Markdown report is converted to HTML and two self-contained charts are
+    injected after it: a base64-inlined tornado chart (matching the textual one) and
+    an interactive Plotly heatmap of the 2-D sensitivity grid (M6.2), whose JS is
+    inlined too. The result references no external assets.
 
     Args:
         analysis: The completed analysis to render.
@@ -125,6 +203,7 @@ def render_analysis_html(analysis: Analysis, *, generated_on: date | None = None
         f'<img class="tornado" alt="Tornado sensitivity chart for {analysis.ticker}" '
         f'src="{_data_uri(tornado_chart_png(analysis.tornado))}">'
     )
+    heatmap = sensitivity_heatmap_html(analysis.grid)
 
     return (
         "<!doctype html>\n"
@@ -138,6 +217,7 @@ def render_analysis_html(analysis: Analysis, *, generated_on: date | None = None
         "<body>\n"
         f"{body}\n"
         f"{chart_img}\n"
+        f"{heatmap}\n"
         "</body>\n"
         "</html>\n"
     )
