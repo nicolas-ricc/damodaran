@@ -11,12 +11,15 @@ here (M2.1). Fundamentals ingestion lands in a later slice.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Any
 
+import duckdb
 import httpx
 
+from bot.ingest.base import IngestResult
 from bot.ingest.sec_edgar import ParsedCompanyData
 from bot.utils.logging import get_logger
 
@@ -151,12 +154,68 @@ class FmpClient:
         return out
 
 
+    def historical_prices(
+        self,
+        ticker: str,
+        *,
+        start: date | None = None,
+        end: date | None = None,
+    ) -> list[dict[str, Any]]:
+        """Return daily EOD price rows for ``ticker`` as a list of dicts.
+
+        Uses FMP's ``/historical-price-full/{TICKER}`` endpoint. Each returned
+        dict carries ``date`` (``YYYY-MM-DD``), ``close``, ``volume`` and
+        ``market_cap`` (the last derived from FMP's ``marketCap`` field when
+        present, else ``None``). ``start``/``end`` are passed as FMP's
+        ``from``/``to`` query parameters to bound the fetched window — used by
+        :func:`import_prices_from_fmp` for incremental fetches.
+        """
+        sym = ticker.upper()
+        params: dict[str, Any] = {}
+        if start is not None:
+            params["from"] = start.isoformat()
+        if end is not None:
+            params["to"] = end.isoformat()
+        data = self._get(f"/historical-price-full/{sym}", params=params)
+        historical = data.get("historical") if isinstance(data, dict) else None
+        if not isinstance(historical, list):
+            log.info("fmp.historical_prices.empty", ticker=sym)
+            return []
+        out: list[dict[str, Any]] = []
+        for entry in historical:
+            if not isinstance(entry, dict):
+                continue
+            d = entry.get("date")
+            if d is None:
+                continue
+            out.append(
+                {
+                    "date": str(d)[:10],
+                    "close": _float_or_none(entry.get("close")),
+                    "volume": _float_or_none(entry.get("volume")),
+                    "market_cap": _float_or_none(entry.get("marketCap")),
+                }
+            )
+        log.info("fmp.historical_prices.fetched", ticker=sym, rows=len(out))
+        return out
+
+
 def _str_or_none(value: Any) -> str | None:
     """Coerce to a non-empty string, mapping empty/None to None."""
     if value is None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _float_or_none(value: Any) -> float | None:
+    """Coerce to ``float``, mapping None/non-numeric to None."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 # ---------- Fundamentals parser (M2.2) ----------
@@ -430,3 +489,159 @@ def _quarter_number(period: str) -> int | None:
             return None
         return q if 1 <= q <= 4 else None
     return None
+
+
+# ---------- Daily EOD prices ingest (M2.4) ----------
+
+
+def upsert_prices_daily(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    ticker: str,
+    rows: list[dict[str, Any]],
+    currency: str | None = None,
+    source: str = "fmp",
+) -> int:
+    """Insert/replace daily price rows for ``ticker``. Returns rows written.
+
+    Each row needs ``date`` (ISO string or ``datetime.date``); ``close``,
+    ``volume`` and ``market_cap`` are optional. Replaces on the
+    ``(ticker, date)`` primary key so re-running is idempotent. Assumes it is
+    called inside a single logical write.
+    """
+    if not rows:
+        return 0
+    sym = ticker.upper()
+    for r in rows:
+        d = r["date"]
+        d_iso = d.isoformat() if isinstance(d, date) else str(d)[:10]
+        conn.execute(
+            "DELETE FROM prices_daily WHERE ticker = ? AND date = ?",
+            [sym, d_iso],
+        )
+        conn.execute(
+            """
+            INSERT INTO prices_daily
+                (ticker, date, close, volume, market_cap, currency, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                sym,
+                d_iso,
+                _float_or_none(r.get("close")),
+                _float_or_none(r.get("volume")),
+                _float_or_none(r.get("market_cap")),
+                currency,
+                source,
+            ],
+        )
+    return len(rows)
+
+
+def _max_price_date(
+    conn: duckdb.DuckDBPyConnection, ticker: str
+) -> date | None:
+    """Return the latest stored price date for ``ticker``, or None if absent."""
+    row = conn.execute(
+        "SELECT max(date) FROM prices_daily WHERE ticker = ?",
+        [ticker.upper()],
+    ).fetchone()
+    if row is None or row[0] is None:
+        return None
+    value = row[0]
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return date.fromisoformat(str(value)[:10])
+
+
+def import_prices_from_fmp(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    api_key: str,
+    ticker: str,
+    since_date: date | None = None,
+    currency: str | None = None,
+) -> IngestResult:
+    """Fetch daily EOD prices for ``ticker`` from FMP and upsert them. Atomic.
+
+    Incremental: the fetch window starts at the day *after* the latest date
+    already stored for ``ticker`` (or ``since_date`` if that is later), so a
+    second run with current data fetches nothing new and performs zero INSERTs.
+    Pass ``since_date`` to bound a first import (otherwise FMP's full history is
+    requested). Records the run in ``refresh_log``.
+    """
+    started = datetime.now()
+    run_id = str(uuid.uuid4())
+    sym = ticker.upper()
+    try:
+        last = _max_price_date(conn, sym)
+        # Incremental lower bound: fetch strictly after the newest stored date.
+        start = since_date
+        if last is not None:
+            next_day = last + timedelta(days=1)
+            start = next_day if start is None or next_day > start else start
+
+        with FmpClient(api_key=api_key) as client:
+            rows = client.historical_prices(sym, start=start)
+
+        # Defensive: drop anything at or before the last stored date so a
+        # re-run that re-fetches an overlapping window still INSERTs nothing new.
+        if last is not None:
+            rows = [r for r in rows if str(r["date"])[:10] > last.isoformat()]
+
+        conn.execute("BEGIN TRANSACTION")
+        try:
+            affected = upsert_prices_daily(
+                conn, ticker=sym, rows=rows, currency=currency
+            )
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
+
+        result = IngestResult(
+            source="fmp_prices",
+            started_at=started,
+            finished_at=datetime.now(),
+            status="success",
+            rows_affected=affected,
+            details={"ticker": sym},
+        )
+    except Exception as e:
+        log.exception("fmp_prices.import.failed", ticker=sym, error=str(e))
+        result = IngestResult(
+            source="fmp_prices",
+            started_at=started,
+            finished_at=datetime.now(),
+            status="error",
+            error_message=str(e),
+            details={"ticker": sym},
+        )
+    try:
+        _log_refresh_prices(conn, result, run_id)
+    except Exception as log_err:
+        log.exception("fmp_prices.refresh_log_insert_failed", error=str(log_err))
+    return result
+
+
+def _log_refresh_prices(
+    conn: duckdb.DuckDBPyConnection, result: IngestResult, run_id: str
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO refresh_log
+            (source, run_id, started_at, finished_at, status, rows_affected, error_message)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            result.source,
+            run_id,
+            result.started_at,
+            result.finished_at,
+            result.status,
+            result.rows_affected,
+            result.error_message,
+        ],
+    )

@@ -52,6 +52,25 @@ CREATE TABLE IF NOT EXISTS currencies (
     PRIMARY KEY (currency, date)
 );
 
+-- Daily end-of-day prices (M2.4). One row per (ticker, date).
+-- `close` is the unadjusted closing price in the company's listing currency
+-- (`currency`). `market_cap` is FMP's reported market capitalization for that
+-- day when available. Sourced from FMP's historical EOD price endpoint. The
+-- importer (`import_prices_from_fmp`) is incremental: it only fetches dates
+-- after max(date) already stored for the ticker, so a second run with current
+-- data performs zero new INSERTs.
+CREATE TABLE IF NOT EXISTS prices_daily (
+    ticker          VARCHAR NOT NULL,
+    date            DATE NOT NULL,
+    close           DOUBLE,
+    volume          DOUBLE,
+    market_cap      DOUBLE,
+    currency        VARCHAR,
+    source          VARCHAR NOT NULL DEFAULT 'fmp',
+    fetched_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (ticker, date)
+);
+
 CREATE TABLE IF NOT EXISTS companies (
     ticker          VARCHAR PRIMARY KEY,
     cik             VARCHAR,
