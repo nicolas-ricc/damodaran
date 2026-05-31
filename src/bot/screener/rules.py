@@ -106,33 +106,6 @@ def registered_rules() -> dict[str, type[Rule]]:
     return dict(_REGISTRY)
 
 
-@register
-class MarketCapMin(Rule):
-    """Quality gate: market cap must clear a floor (spec §6.2, default USD 100M).
-
-    A trivial reference rule exercising the abstraction end to end. A company
-    with no market-cap datum fails the gate — the screener will not vouch for a
-    company it cannot size.
-    """
-
-    name = "market_cap_min"
-
-    def __init__(self, minimum_usd: float = 100_000_000.0) -> None:
-        self.minimum_usd = minimum_usd
-
-    def evaluate(
-        self, company: CompanyData, benchmarks: IndustryBenchmarks
-    ) -> RuleResult:
-        if company.market_cap is None:
-            return RuleResult(passed=False, reason="market_cap unavailable")
-        passed = company.market_cap >= self.minimum_usd
-        reason = (
-            f"market_cap {company.market_cap:,.0f} "
-            f"{'>=' if passed else '<'} minimum {self.minimum_usd:,.0f}"
-        )
-        return RuleResult(passed=passed, reason=reason)
-
-
 # --------------------------------------------------------------------------- #
 # Quality gates (spec §6.2). Each gate is eliminatory: a missing datum fails the
 # gate, since the screener will not vouch for a company it cannot measure.
