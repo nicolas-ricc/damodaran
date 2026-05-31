@@ -320,12 +320,20 @@ def resolve_assumptions(
     override = _load_override(override_path)
 
     revenue_growth = _resolve_revenue_growth(conn, ticker, override, gdp_nominal)
-    operating_margin = _resolve_operating_margin(override, sector)
-    sales_to_capital = _resolve_sales_to_capital(override, sector)
-    cost_of_equity = _resolve_cost_of_equity(override, sector)
-    pretax_cost_of_debt = _resolve_cost_of_debt(override, sector)
+    operating_margin = _resolve_sector_scalar(
+        override, sector, key="operating_margin", attr="op_margin"
+    )
+    sales_to_capital = _resolve_sector_scalar(
+        override, sector, key="sales_to_capital", attr="sales_to_capital"
+    )
+    cost_of_equity = _resolve_sector_scalar(
+        override, sector, key="cost_of_equity", attr="cost_of_equity"
+    )
+    pretax_cost_of_debt = _resolve_sector_scalar(
+        override, sector, key="pretax_cost_of_debt", attr="cost_of_debt"
+    )
     equity_weight, debt_weight = _resolve_weights(override, sector)
-    wacc = _resolve_wacc(override, sector)
+    wacc = _resolve_sector_scalar(override, sector, key="wacc", attr="wacc")
     terminal_growth = _resolve_terminal_growth(override, country, gdp_nominal)
     probability_of_bankruptcy = _resolve_probability_of_bankruptcy(override)
     tax_rate = _resolve_tax_rate(override, sector, country)
@@ -376,54 +384,18 @@ def _resolve_revenue_growth(
     return Sourced(value=(gdp_nominal,) * _HORIZON, source=AssumptionSource.RULE_BASED)
 
 
-def _resolve_operating_margin(
-    override: dict[str, Any], sector: _SectorRow | None
+def _resolve_sector_scalar(
+    override: dict[str, Any],
+    sector: _SectorRow | None,
+    *,
+    key: str,
+    attr: str,
 ) -> Sourced[float | None]:
-    manual = _override_scalar(override, "operating_margin")
+    manual = _override_scalar(override, key)
     if manual is not None:
         return manual
-    if sector is not None and sector.op_margin is not None:
-        return Sourced(value=sector.op_margin, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN)
-    return Sourced(value=None, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN)
-
-
-def _resolve_sales_to_capital(
-    override: dict[str, Any], sector: _SectorRow | None
-) -> Sourced[float | None]:
-    manual = _override_scalar(override, "sales_to_capital")
-    if manual is not None:
-        return manual
-    if sector is not None and sector.sales_to_capital is not None:
-        return Sourced(
-            value=sector.sales_to_capital, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN
-        )
-    return Sourced(value=None, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN)
-
-
-def _resolve_cost_of_equity(
-    override: dict[str, Any], sector: _SectorRow | None
-) -> Sourced[float | None]:
-    manual = _override_scalar(override, "cost_of_equity")
-    if manual is not None:
-        return manual
-    if sector is not None and sector.cost_of_equity is not None:
-        return Sourced(
-            value=sector.cost_of_equity, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN
-        )
-    return Sourced(value=None, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN)
-
-
-def _resolve_cost_of_debt(
-    override: dict[str, Any], sector: _SectorRow | None
-) -> Sourced[float | None]:
-    manual = _override_scalar(override, "pretax_cost_of_debt")
-    if manual is not None:
-        return manual
-    if sector is not None and sector.cost_of_debt is not None:
-        return Sourced(
-            value=sector.cost_of_debt, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN
-        )
-    return Sourced(value=None, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN)
+    value = getattr(sector, attr) if sector is not None else None
+    return Sourced(value=value, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN)
 
 
 def _resolve_weights(
@@ -441,17 +413,6 @@ def _resolve_weights(
         return Sourced(value=equity_weight, source=src), Sourced(value=debt_weight, source=src)
     src = AssumptionSource.SECTOR_DEFAULT_DAMODARAN
     return Sourced(value=None, source=src), Sourced(value=None, source=src)
-
-
-def _resolve_wacc(
-    override: dict[str, Any], sector: _SectorRow | None
-) -> Sourced[float | None]:
-    manual = _override_scalar(override, "wacc")
-    if manual is not None:
-        return manual
-    if sector is not None and sector.wacc is not None:
-        return Sourced(value=sector.wacc, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN)
-    return Sourced(value=None, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN)
 
 
 def _resolve_terminal_growth(
