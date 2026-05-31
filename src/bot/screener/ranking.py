@@ -2,17 +2,27 @@
 
 Companies that clear all three screener layers — quality gates, value
 indicators, trap detection (spec §6.2/§6.3/§6.4) — are *candidates*. This module
-turns the surviving universe into an ordered shortlist via a single 0-100 score::
+turns the surviving universe into an ordered shortlist via a single composite
+score::
 
     score = 0.40 * value_score      (cheapness vs sector)
           + 0.30 * quality_score    (ROIC vs WACC, ROE, margin stability)
           + 0.20 * growth_score     (sustained revenue / FCF growth)
           + 0.10 * margin_of_safety (intrinsic_value DCF / price)
 
-Crucially, each sub-score is a *percentile within the filtered universe*, not an
-absolute threshold (spec §6.5): a candidate is judged cheap/good/fast relative to
-its peers that also passed the gates, so the ranking adapts to whatever universe
-the screener produced rather than to fixed cut-offs that drift out of date.
+The first three sub-scores are *percentiles within the filtered universe*, not
+absolute thresholds (spec §6.5): a candidate is judged cheap/good/fast relative
+to its peers that also passed the gates, so the ranking adapts to whatever
+universe the screener produced rather than to fixed cut-offs that drift out of
+date. Each percentile lies in ``[0, 1]``.
+
+``margin_of_safety`` is deliberately *not* a percentile: it is the candidate's
+raw, **absolute and unbounded** ``intrinsic_value / price`` ratio, carried
+straight through so it keeps its real-world meaning across runs. Because that
+ratio can exceed 1.0 (a candidate priced well below its DCF intrinsic value),
+the weighted composite can exceed 100 — it has no strict 0-100 ceiling. The
+three percentile components alone are bounded by 100; the margin-of-safety term
+is what lifts a deeply undervalued candidate above it.
 
 ``margin_of_safety`` is the real ``intrinsic_value / price`` from the DCF valuator
 (Capa C, spec §6.5) once **M4.7** has run: :func:`bot.screener.engine.run_screen`
@@ -46,9 +56,13 @@ class RankingWeights(BaseModel):
     """Weights for the four ranking sub-scores (spec §6.5).
 
     Defaults reproduce the spec's blend. Weights must be non-negative and sum to
-    1.0 so the composite stays on a 0-100 scale; both invariants are validated so
-    a malformed ``config/screener_config.yaml`` fails loudly at load time rather
-    than silently skewing the ranking.
+    1.0 so the three percentile components stay bounded by 100 and the blend is a
+    convex combination; both invariants are validated so a malformed
+    ``config/screener_config.yaml`` fails loudly at load time rather than silently
+    skewing the ranking. Note the composite is *not* capped at 100: because the
+    margin-of-safety component is an absolute, unbounded ``intrinsic_value / price``
+    ratio (see :class:`Candidate`), a candidate above 1.0 can push the score past
+    100.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -96,8 +110,11 @@ class Candidate:
 
     ``margin_of_safety`` is the raw ``intrinsic_value / price`` ratio when known;
     it defaults to :data:`PLACEHOLDER_MARGIN_OF_SAFETY` when no DCF value is
-    available. It is carried straight through to the score (not percentile-ranked)
-    so the real ratio — and the neutral placeholder — keep their absolute meaning.
+    available. Unlike the three metrics above, it is an **absolute, unbounded**
+    component carried straight through to the score (not percentile-ranked), so
+    the real ratio — and the neutral placeholder — keep their absolute meaning. It
+    can exceed 1.0 when intrinsic value is above price, which in turn lets the
+    weighted composite exceed 100.
     """
 
     ticker: str
@@ -147,8 +164,11 @@ def rank(
     """Score and order ``candidates`` by the spec §6.5 composite, best first.
 
     Value/quality/growth sub-scores are percentiles within ``candidates`` (the
-    filtered universe); the margin-of-safety component is the candidate's raw
-    ratio (placeholder 0.5 until M4.7). The weighted blend is scaled to 0-100.
+    filtered universe), each in ``[0, 1]``; the margin-of-safety component is the
+    candidate's raw, absolute and unbounded ``intrinsic_value / price`` ratio
+    (placeholder 0.5 until M4.7). The weighted blend is multiplied by 100: the
+    three percentile terms alone stay within 100, but a margin-of-safety ratio
+    above 1.0 can lift the final score past 100, so there is no strict ceiling.
 
     Pure and deterministic: no I/O, no mutation of the inputs. Ties on the final
     score are broken by ticker so the order is stable.
