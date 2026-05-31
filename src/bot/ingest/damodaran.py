@@ -8,7 +8,6 @@ required.
 
 from __future__ import annotations
 
-import uuid
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +16,7 @@ from typing import Any
 import duckdb
 import httpx
 
-from bot.ingest.base import IngestResult
+from bot.ingest.base import IngestResult, refresh_run, transaction
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -381,25 +380,6 @@ def upsert_country_rows(conn: duckdb.DuckDBPyConnection, rows: list[dict[str, An
 # ---------- High-level importers ----------
 
 
-def _log_refresh(conn: duckdb.DuckDBPyConnection, result: IngestResult, run_id: str) -> None:
-    conn.execute(
-        """
-        INSERT INTO refresh_log
-            (source, run_id, started_at, finished_at, status, rows_affected, error_message)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        [
-            result.source,
-            run_id,
-            result.started_at,
-            result.finished_at,
-            result.status,
-            result.rows_affected,
-            result.error_message,
-        ],
-    )
-
-
 def import_damodaran_from_files(
     conn: duckdb.DuckDBPyConnection,
     *,
@@ -409,9 +389,13 @@ def import_damodaran_from_files(
     year: int,
 ) -> IngestResult:
     """Import already-downloaded Damodaran files into the DB."""
-    started = datetime.now()
-    run_id = str(uuid.uuid4())
-    try:
+    with refresh_run(
+        conn,
+        source="damodaran",
+        log=log,
+        error_event="damodaran.import.failed",
+        log_fail_event="damodaran.refresh_log_insert_failed",
+    ) as run:
         industry_rows = parse_industry_xls(
             industry_path,
             region=region,
@@ -439,47 +423,22 @@ def import_damodaran_from_files(
                 year=year,
             )
 
-        conn.execute("BEGIN TRANSACTION")
-        try:
+        with transaction(conn):
             ind = upsert_industry_rows(conn, industry_rows)
             ctry = upsert_country_rows(conn, country_rows)
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
 
-        total = ind + ctry
+        run.rows_affected = ind + ctry
+        run.details = {
+            "industry_rows": len(industry_rows),
+            "country_rows": len(country_rows),
+            "region": region,
+            "year": year,
+        }
         if empty_sides:
-            status: str = "partial"
-            error_message: str | None = f"empty rows for: {', '.join(empty_sides)}"
-        else:
-            status = "success"
-            error_message = None
-        result = IngestResult(
-            source="damodaran",
-            started_at=started,
-            finished_at=datetime.now(),
-            status=status,  # type: ignore[arg-type]
-            rows_affected=total,
-            error_message=error_message,
-            details={
-                "industry_rows": len(industry_rows),
-                "country_rows": len(country_rows),
-                "region": region,
-                "year": year,
-            },
-        )
-    except Exception as e:
-        log.exception("damodaran.import.failed", error=str(e))
-        result = IngestResult(
-            source="damodaran",
-            started_at=started,
-            finished_at=datetime.now(),
-            status="error",
-            error_message=str(e),
-        )
-    _log_refresh(conn, result, run_id)
-    return result
+            run.status_override = "partial"
+            run.error_message_override = f"empty rows for: {', '.join(empty_sides)}"
+    assert run.result is not None  # refresh_run always sets it on exit
+    return run.result
 
 
 def import_damodaran(
@@ -493,22 +452,27 @@ def import_damodaran(
 ) -> IngestResult:
     """Download and import current-year Damodaran datasets."""
     year = year or datetime.now().year
-    started = datetime.now()
-    run_id = str(uuid.uuid4())
-    try:
-        industry_path = download_dataset(industry_url, download_dir / "wacc.xls")
-        country_path = download_dataset(country_url, download_dir / "ctryprem.xls")
-    except Exception as e:
-        log.exception("damodaran.download.failed", error=str(e))
-        result = IngestResult(
-            source="damodaran",
-            started_at=started,
-            finished_at=datetime.now(),
-            status="error",
-            error_message=f"download failed: {e}",
-        )
-        _log_refresh(conn, result, run_id)
-        return result
+    industry_path: Path | None = None
+    country_path: Path | None = None
+    with refresh_run(
+        conn,
+        source="damodaran",
+        log=log,
+        error_event="damodaran.download.failed",
+        log_fail_event="damodaran.refresh_log_insert_failed",
+    ) as run:
+        try:
+            industry_path = download_dataset(industry_url, download_dir / "wacc.xls")
+            country_path = download_dataset(country_url, download_dir / "ctryprem.xls")
+        except Exception as e:
+            # Surface a download failure as an error run with the legacy message
+            # while keeping the rest of the envelope (timing, refresh_log).
+            run.status_override = "error"
+            run.error_message_override = f"download failed: {e}"
+            log.exception("damodaran.download.failed", error=str(e))
+    if industry_path is None or country_path is None:
+        assert run.result is not None  # refresh_run always sets it on exit
+        return run.result
     return import_damodaran_from_files(
         conn,
         industry_path=industry_path,

@@ -32,7 +32,7 @@ from pathlib import Path
 
 import duckdb
 
-from bot.ingest.base import IngestResult
+from bot.ingest.base import IngestResult, _log_refresh
 from bot.ingest.fmp import FmpClient, import_company_from_fmp
 from bot.utils.logging import get_logger
 
@@ -353,22 +353,15 @@ def _log_universe_refresh(
     if result.failures:
         sample = ", ".join(f.ticker for f in result.failures[:10])
         error_message = f"{result.failed}/{result.total} failed: {sample}"
+    summary = IngestResult(
+        source="fmp_universe",
+        started_at=result.started_at,
+        finished_at=result.finished_at,
+        status=result.status,  # type: ignore[arg-type]
+        rows_affected=result.imported,
+        error_message=error_message,
+    )
     try:
-        conn.execute(
-            """
-            INSERT INTO refresh_log
-                (source, run_id, started_at, finished_at, status, rows_affected, error_message)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                "fmp_universe",
-                result.run_id,
-                result.started_at,
-                result.finished_at,
-                result.status,
-                result.imported,
-                error_message,
-            ],
-        )
+        _log_refresh(conn, summary, run_id=result.run_id)
     except Exception as log_err:
         log.exception("universe.refresh_log_insert_failed", error=str(log_err))

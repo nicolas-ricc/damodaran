@@ -28,13 +28,12 @@ read from the ``currencies`` table.
 
 from __future__ import annotations
 
-import uuid
-from datetime import date, datetime
+from datetime import date
 from typing import Any
 
 import duckdb
 
-from bot.ingest.base import IngestResult
+from bot.ingest.base import IngestResult, refresh_run, transaction
 from bot.ingest.fmp import FmpClient
 from bot.utils.logging import get_logger
 
@@ -136,62 +135,23 @@ def import_fx_rates(
 
     Records the run in ``refresh_log``. USD is a no-op (it needs no rows).
     """
-    started = datetime.now()
-    run_id = str(uuid.uuid4())
     ccy = currency.upper()
-    try:
+    with refresh_run(
+        conn,
+        source="fmp_fx",
+        log=log,
+        error_event="fmp_fx.import.failed",
+        log_fail_event="fmp_fx.refresh_log_insert_failed",
+    ) as run:
+        run.details = {"currency": ccy}
+
         with FmpClient(api_key=api_key) as client:
             rows = client.historical_fx(ccy, start=start, end=end)
 
-        conn.execute("BEGIN TRANSACTION")
-        try:
+        with transaction(conn):
             affected = upsert_fx_rates(conn, currency=ccy, rows=rows)
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
 
-        result = IngestResult(
-            source="fmp_fx",
-            started_at=started,
-            finished_at=datetime.now(),
-            status="success",
-            rows_affected=affected,
-            details={"currency": ccy},
-        )
-    except Exception as e:
-        log.exception("fmp_fx.import.failed", currency=ccy, error=str(e))
-        result = IngestResult(
-            source="fmp_fx",
-            started_at=started,
-            finished_at=datetime.now(),
-            status="error",
-            error_message=str(e),
-            details={"currency": ccy},
-        )
-    try:
-        _log_refresh_fx(conn, result, run_id)
-    except Exception as log_err:
-        log.exception("fmp_fx.refresh_log_insert_failed", error=str(log_err))
-    return result
-
-
-def _log_refresh_fx(
-    conn: duckdb.DuckDBPyConnection, result: IngestResult, run_id: str
-) -> None:
-    conn.execute(
-        """
-        INSERT INTO refresh_log
-            (source, run_id, started_at, finished_at, status, rows_affected, error_message)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        [
-            result.source,
-            run_id,
-            result.started_at,
-            result.finished_at,
-            result.status,
-            result.rows_affected,
-            result.error_message,
-        ],
-    )
+        run.rows_affected = affected
+        run.details = {"currency": ccy}
+    assert run.result is not None  # refresh_run always sets it on exit
+    return run.result

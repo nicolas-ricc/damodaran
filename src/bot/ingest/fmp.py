@@ -11,7 +11,6 @@ here (M2.1). Fundamentals ingestion lands in a later slice.
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -19,7 +18,7 @@ from typing import Any
 import duckdb
 import httpx
 
-from bot.ingest.base import IngestResult
+from bot.ingest.base import IngestResult, refresh_run, transaction
 from bot.ingest.sec_edgar import (
     ParsedCompanyData,
     upsert_company,
@@ -618,10 +617,16 @@ def import_prices_from_fmp(
     Pass ``since_date`` to bound a first import (otherwise FMP's full history is
     requested). Records the run in ``refresh_log``.
     """
-    started = datetime.now()
-    run_id = str(uuid.uuid4())
     sym = ticker.upper()
-    try:
+    with refresh_run(
+        conn,
+        source="fmp_prices",
+        log=log,
+        error_event="fmp_prices.import.failed",
+        log_fail_event="fmp_prices.refresh_log_insert_failed",
+    ) as run:
+        run.details = {"ticker": sym}
+
         last = _max_price_date(conn, sym)
         # Incremental lower bound: fetch strictly after the newest stored date.
         start = since_date
@@ -637,60 +642,15 @@ def import_prices_from_fmp(
         if last is not None:
             rows = [r for r in rows if str(r["date"])[:10] > last.isoformat()]
 
-        conn.execute("BEGIN TRANSACTION")
-        try:
+        with transaction(conn):
             affected = upsert_prices_daily(
                 conn, ticker=sym, rows=rows, currency=currency
             )
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
 
-        result = IngestResult(
-            source="fmp_prices",
-            started_at=started,
-            finished_at=datetime.now(),
-            status="success",
-            rows_affected=affected,
-            details={"ticker": sym},
-        )
-    except Exception as e:
-        log.exception("fmp_prices.import.failed", ticker=sym, error=str(e))
-        result = IngestResult(
-            source="fmp_prices",
-            started_at=started,
-            finished_at=datetime.now(),
-            status="error",
-            error_message=str(e),
-            details={"ticker": sym},
-        )
-    try:
-        _log_refresh_prices(conn, result, run_id)
-    except Exception as log_err:
-        log.exception("fmp_prices.refresh_log_insert_failed", error=str(log_err))
-    return result
-
-
-def _log_refresh_prices(
-    conn: duckdb.DuckDBPyConnection, result: IngestResult, run_id: str
-) -> None:
-    conn.execute(
-        """
-        INSERT INTO refresh_log
-            (source, run_id, started_at, finished_at, status, rows_affected, error_message)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        [
-            result.source,
-            run_id,
-            result.started_at,
-            result.finished_at,
-            result.status,
-            result.rows_affected,
-            result.error_message,
-        ],
-    )
+        run.rows_affected = affected
+        run.details = {"ticker": sym}
+    assert run.result is not None  # refresh_run always sets it on exit
+    return run.result
 
 
 # ---------- Fundamentals importer (M2.3) ----------
@@ -782,10 +742,16 @@ def import_company_from_fmp(
     the source profile — non-US tickers keep their local currency. All writes
     happen in a single transaction; the run is recorded in ``refresh_log``.
     """
-    started = datetime.now()
-    run_id = str(uuid.uuid4())
     sym = ticker.upper()
-    try:
+    with refresh_run(
+        conn,
+        source="fmp",
+        log=log,
+        error_event="fmp.import.failed",
+        log_fail_event="fmp.refresh_log_insert_failed",
+    ) as run:
+        run.details = {"ticker": sym}
+
         with FmpClient(api_key=api_key) as client:
             info = client.lookup_company(sym)
             inc_a = client.income_statement(sym, period="annual")
@@ -804,44 +770,19 @@ def import_company_from_fmp(
         company = _company_row(sym, info, currency)
         filing_rows = _collect_fmp_filings(sym, inc_a, inc_q)
 
-        conn.execute("BEGIN TRANSACTION")
-        try:
+        with transaction(conn):
             upsert_company(conn, company)
             annual = upsert_financials_annual(conn, parsed_annual.annual)
             quarterly = upsert_financials_quarterly(conn, parsed_quarterly.quarterly)
             filings = upsert_filings(conn, filing_rows)
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
 
-        total = 1 + annual + quarterly + filings
-        result = IngestResult(
-            source="fmp",
-            started_at=started,
-            finished_at=datetime.now(),
-            status="success",
-            rows_affected=total,
-            details={
-                "ticker": sym,
-                "annual": annual,
-                "quarterly": quarterly,
-                "filings": filings,
-                "currency": currency,
-            },
-        )
-    except Exception as e:
-        log.exception("fmp.import.failed", ticker=sym, error=str(e))
-        result = IngestResult(
-            source="fmp",
-            started_at=started,
-            finished_at=datetime.now(),
-            status="error",
-            error_message=str(e),
-            details={"ticker": sym},
-        )
-    try:
-        _log_refresh_prices(conn, result, run_id)
-    except Exception as log_err:
-        log.exception("fmp.refresh_log_insert_failed", error=str(log_err))
-    return result
+        run.rows_affected = 1 + annual + quarterly + filings
+        run.details = {
+            "ticker": sym,
+            "annual": annual,
+            "quarterly": quarterly,
+            "filings": filings,
+            "currency": currency,
+        }
+    assert run.result is not None  # refresh_run always sets it on exit
+    return run.result

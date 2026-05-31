@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import uuid
 from dataclasses import dataclass, field
-from datetime import datetime
 from typing import Any
 
 import duckdb
 import httpx
 
-from bot.ingest.base import IngestResult
+from bot.ingest.base import IngestResult, refresh_run, transaction
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -371,25 +369,6 @@ def upsert_filings(conn: duckdb.DuckDBPyConnection, filings: list[dict[str, Any]
     return inserted
 
 
-def _log_refresh_sec(conn: duckdb.DuckDBPyConnection, result: IngestResult, run_id: str) -> None:
-    conn.execute(
-        """
-        INSERT INTO refresh_log
-            (source, run_id, started_at, finished_at, status, rows_affected, error_message)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        [
-            result.source,
-            run_id,
-            result.started_at,
-            result.finished_at,
-            result.status,
-            result.rows_affected,
-            result.error_message,
-        ],
-    )
-
-
 def import_company_from_sec(
     conn: duckdb.DuckDBPyConnection,
     *,
@@ -397,9 +376,15 @@ def import_company_from_sec(
     user_agent: str,
 ) -> IngestResult:
     """Fetch + parse + upsert one US ticker from SEC EDGAR. Atomic on the DB side."""
-    started = datetime.now()
-    run_id = str(uuid.uuid4())
-    try:
+    with refresh_run(
+        conn,
+        source="sec_edgar",
+        log=log,
+        error_event="sec_edgar.import.failed",
+        log_fail_event="sec_edgar.refresh_log_insert_failed",
+    ) as run:
+        run.details = {"ticker": ticker}
+
         with SecEdgarClient(user_agent=user_agent) as client:
             cik = client.lookup_cik(ticker)
             if cik is None:
@@ -407,43 +392,18 @@ def import_company_from_sec(
             facts = client.fetch_company_facts(cik)
         parsed = parse_company_facts(ticker, facts)
 
-        conn.execute("BEGIN TRANSACTION")
-        try:
+        with transaction(conn):
             upsert_company(conn, parsed.company)
             annual = upsert_financials_annual(conn, parsed.annual)
             quarterly = upsert_financials_quarterly(conn, parsed.quarterly)
             filings = upsert_filings(conn, parsed.filings)
-            conn.execute("COMMIT")
-        except Exception:
-            conn.execute("ROLLBACK")
-            raise
 
-        total = 1 + annual + quarterly + filings
-        result = IngestResult(
-            source="sec_edgar",
-            started_at=started,
-            finished_at=datetime.now(),
-            status="success",
-            rows_affected=total,
-            details={
-                "ticker": ticker,
-                "annual": annual,
-                "quarterly": quarterly,
-                "filings": filings,
-            },
-        )
-    except Exception as e:
-        log.exception("sec_edgar.import.failed", ticker=ticker, error=str(e))
-        result = IngestResult(
-            source="sec_edgar",
-            started_at=started,
-            finished_at=datetime.now(),
-            status="error",
-            error_message=str(e),
-            details={"ticker": ticker},
-        )
-    try:
-        _log_refresh_sec(conn, result, run_id)
-    except Exception as log_err:
-        log.exception("sec_edgar.refresh_log_insert_failed", error=str(log_err))
-    return result
+        run.rows_affected = 1 + annual + quarterly + filings
+        run.details = {
+            "ticker": ticker,
+            "annual": annual,
+            "quarterly": quarterly,
+            "filings": filings,
+        }
+    assert run.result is not None  # refresh_run always sets it on exit
+    return run.result

@@ -1,8 +1,8 @@
 """Unit tests for import_company_from_sec (Block 3 hardening).
 
 Covers:
-- Fix 1: if _log_refresh_sec raises, import_company_from_sec still returns the
-  IngestResult instead of propagating the exception.
+- Fix 1: if the shared _log_refresh raises, import_company_from_sec still returns
+  the IngestResult instead of propagating the exception.
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock, patch
 
-import bot.ingest.sec_edgar as sec_edgar_module
 from bot.ingest.base import IngestResult
 from bot.ingest.sec_edgar import import_company_from_sec
 
@@ -33,19 +32,18 @@ def _make_mock_conn() -> MagicMock:
 
 
 # ---------------------------------------------------------------------------
-# Fix 1 — _log_refresh_sec failure must not crash the importer
+# Fix 1 — _log_refresh failure must not crash the importer
 # ---------------------------------------------------------------------------
 
 
 def test_import_company_returns_result_even_when_log_insert_fails() -> None:
-    """If _log_refresh_sec raises, import_company_from_sec must swallow the
+    """If the shared _log_refresh raises, import_company_from_sec must swallow the
     exception and still return a valid IngestResult (success or error)."""
     conn = _make_mock_conn()
 
     with (
-        patch.object(
-            sec_edgar_module,
-            "_log_refresh_sec",
+        patch(
+            "bot.ingest.base._log_refresh",
             side_effect=RuntimeError("DB closed — cannot insert refresh log"),
         ),
         patch(
