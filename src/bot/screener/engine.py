@@ -34,6 +34,7 @@ from bot.screener.ranking import (
 )
 from bot.screener.rules import Rule
 from bot.screener.types import CompanyData, IndustryBenchmarks
+from bot.utils.finance import cagr
 from bot.valuator.analysis import analyze
 
 #: Damodaran region used when a company's country has no ``damodaran_country``
@@ -264,36 +265,35 @@ def build_company_data(
         if (
             close is not None
             and latest.net_income is not None
-            and latest.shares_diluted not in (None, 0.0)
+            and latest.shares_diluted is not None
+            and latest.shares_diluted != 0.0
         ):
-            assert latest.shares_diluted is not None
             eps = latest.net_income / latest.shares_diluted
             pe = close / eps if eps > 0.0 else None
         if (
             close is not None
-            and latest.total_equity not in (None, 0.0)
-            and latest.shares_diluted not in (None, 0.0)
+            and latest.total_equity is not None
+            and latest.total_equity != 0.0
+            and latest.shares_diluted is not None
+            and latest.shares_diluted != 0.0
         ):
-            assert latest.total_equity is not None
-            assert latest.shares_diluted is not None
             book_per_share = latest.total_equity / latest.shares_diluted
             pbv = close / book_per_share if book_per_share > 0.0 else None
-        if market_cap is not None and net_debt is not None and latest.ebitda not in (
-            None,
-            0.0,
+        if (
+            market_cap is not None
+            and net_debt is not None
+            and latest.ebitda is not None
+            and latest.ebitda != 0.0
         ):
-            assert latest.ebitda is not None
             ev_ebitda = (market_cap + net_debt) / latest.ebitda
         # ROIC ≈ NOPAT / invested capital, with invested capital ≈ debt + equity.
         invested = None
         if latest.total_debt is not None or latest.total_equity is not None:
             invested = (latest.total_debt or 0.0) + (latest.total_equity or 0.0)
-        if latest.ebit is not None and invested not in (None, 0.0):
-            assert invested is not None
+        if latest.ebit is not None and invested is not None and invested != 0.0:
             roic = (latest.ebit * 0.79) / invested
         fcf = latest.free_cashflow
-        if fcf is not None and market_cap not in (None, 0.0):
-            assert market_cap is not None
+        if fcf is not None and market_cap is not None and market_cap != 0.0:
             fcf_yield = fcf / market_cap
 
     industry = company.industry_damodaran or company.industry
@@ -356,12 +356,7 @@ def _quality_metric(company: CompanyData, benchmarks: IndustryBenchmarks) -> flo
 
 def _growth_metric(company: CompanyData) -> float:
     """Revenue CAGR over the available history (spec §6.5, higher better)."""
-    history = company.revenue_history
-    if len(history) < 2 or history[0] <= 0.0:
-        return 0.0
-    periods = len(history) - 1
-    cagr: float = (history[-1] / history[0]) ** (1.0 / periods) - 1.0
-    return cagr
+    return cagr(company.revenue_history)
 
 
 def evaluate_company(

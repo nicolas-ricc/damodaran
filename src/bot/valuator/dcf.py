@@ -185,8 +185,6 @@ def dcf(financials: Financials, assumptions: Assumptions) -> DCFResult:
     projections: list[YearProjection] = []
     pv_explicit = 0.0
     prev_revenue = financials.revenue
-    revenue = financials.revenue
-    margin = margins[0]
     for index in range(horizon):
         margin = margins[index]
         revenue = prev_revenue * (1.0 + growth[index])

@@ -153,10 +153,15 @@ def show(
     conn, settings = _open_db()
     ticker = ticker.upper()
 
-    row = conn.execute(
-        "SELECT ticker, name, cik, country, currency FROM companies WHERE ticker = ?",
-        [ticker],
-    ).fetchone()
+    def _load_company_row(
+        conn: duckdb.DuckDBPyConnection, ticker: str
+    ) -> tuple[object, ...] | None:
+        return conn.execute(
+            "SELECT ticker, name, cik, country, currency FROM companies WHERE ticker = ?",
+            [ticker],
+        ).fetchone()
+
+    row = _load_company_row(conn, ticker)
 
     if row is None:
         if not fetch_if_missing:
@@ -167,10 +172,7 @@ def show(
         if not result.is_success():
             typer.echo(f"Failed to import {ticker}: {result.error_message}", err=True)
             raise typer.Exit(code=1)
-        row = conn.execute(
-            "SELECT ticker, name, cik, country, currency FROM companies WHERE ticker = ?",
-            [ticker],
-        ).fetchone()
+        row = _load_company_row(conn, ticker)
 
     if row is None:
         typer.echo(f"{ticker} still not in DB after import — aborting.", err=True)

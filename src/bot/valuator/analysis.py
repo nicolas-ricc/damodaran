@@ -20,6 +20,7 @@ from pathlib import Path
 
 import duckdb
 
+from bot.utils.finance import cagr
 from bot.valuator.assumptions import Assumptions as SourcedAssumptions
 from bot.valuator.assumptions import resolve_assumptions
 from bot.valuator.dcf import DCFResult, Financials, dcf
@@ -163,15 +164,17 @@ def _load_latest_financials(
 
 def _load_history(
     conn: duckdb.DuckDBPyConnection, ticker: str
-) -> tuple[tuple[float, ...], tuple[float, ...]]:
+) -> tuple[tuple[float, ...], tuple[float, ...], tuple[float, ...]]:
+    """Revenue, net-income and EBIT histories, oldest first, in one scan."""
     rows = conn.execute(
-        "SELECT revenue, net_income FROM financials_annual "
+        "SELECT revenue, net_income, ebit FROM financials_annual "
         "WHERE ticker = ? AND is_restated = FALSE ORDER BY fiscal_year",
         [ticker],
     ).fetchall()
     revenues = tuple(float(r[0]) for r in rows if r[0] is not None)
     incomes = tuple(float(r[1]) for r in rows if r[1] is not None)
-    return revenues, incomes
+    ebits = tuple(float(r[2]) for r in rows if r[2] is not None)
+    return revenues, incomes, ebits
 
 
 def _load_latest_price(
@@ -245,8 +248,8 @@ def _story_reasons(
     reasons: list[str] = []
     if len(revenue_history) >= 2 and revenue_history[0] > 0.0:
         periods = len(revenue_history) - 1
-        cagr = (revenue_history[-1] / revenue_history[0]) ** (1.0 / periods) - 1.0
-        reasons.append(f"historical revenue CAGR {cagr:.1%} over {periods} years")
+        rate = cagr(revenue_history)
+        reasons.append(f"historical revenue CAGR {rate:.1%} over {periods} years")
     else:
         reasons.append("too little revenue history for a reliable growth signal")
     if age_years is not None:
@@ -345,8 +348,7 @@ def analyze(
     ticker = ticker.upper()
     company = _load_company(conn, ticker)
     latest = _load_latest_financials(conn, ticker)
-    revenue_history, income_history = _load_history(conn, ticker)
-    ebit_history = _load_ebit_history(conn, ticker)
+    revenue_history, income_history, ebit_history = _load_history(conn, ticker)
     sector = _load_sector_multiples(conn, company)
     current_price = _load_latest_price(conn, ticker)
 
@@ -431,14 +433,3 @@ def analyze(
         margin_of_safety=margin_of_safety,
         override_notes=assumptions.notes,
     )
-
-
-def _load_ebit_history(
-    conn: duckdb.DuckDBPyConnection, ticker: str
-) -> tuple[float, ...]:
-    rows = conn.execute(
-        "SELECT ebit FROM financials_annual "
-        "WHERE ticker = ? AND is_restated = FALSE ORDER BY fiscal_year",
-        [ticker],
-    ).fetchall()
-    return tuple(float(r[0]) for r in rows if r[0] is not None)
