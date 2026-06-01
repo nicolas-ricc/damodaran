@@ -13,9 +13,11 @@ from bot.screener.benchmarks import load_industry_benchmarks
 from bot.screener.config import ScreenerConfig, load_screener_config
 from bot.screener.engine import (
     DEFAULT_REGION,
+    DEFAULT_TAX_RATE,
     _CompanyRow,
     _load_companies,
     _resolve_region,
+    _resolve_tax_rate,
     build_company_data,
     evaluate_company,
     run_screen,
@@ -43,8 +45,7 @@ def _seed_one(conn: duckdb.DuckDBPyConnection, ticker: str = "TST") -> None:
         ["United States", 2026, "US"],
     )
     conn.execute(
-        "INSERT INTO damodaran_industry (industry, region, year, wacc, pe) "
-        "VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO damodaran_industry (industry, region, year, wacc, pe) VALUES (?, ?, ?, ?, ?)",
         ["Software", "US", 2026, 0.08, 20.0],
     )
     for offset in range(6):
@@ -55,8 +56,23 @@ def _seed_one(conn: duckdb.DuckDBPyConnection, ticker: str = "TST") -> None:
             "free_cashflow, shares_diluted, is_restated, source) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
-                ticker, 2020 + offset, 1000.0 * (1.1**offset), 200.0, 300.0, 10.0, 150.0,
-                2000.0, 0.0, 100.0, 1000.0, 100.0, 250.0, 200.0, 100.0, False, "fmp",
+                ticker,
+                2020 + offset,
+                1000.0 * (1.1**offset),
+                200.0,
+                300.0,
+                10.0,
+                150.0,
+                2000.0,
+                0.0,
+                100.0,
+                1000.0,
+                100.0,
+                250.0,
+                200.0,
+                100.0,
+                False,
+                "fmp",
             ],
         )
     conn.execute(
@@ -81,6 +97,33 @@ def test_resolve_region_maps_country(conn: duckdb.DuckDBPyConnection) -> None:
     assert _resolve_region(conn, "Germany") == "Europe"
 
 
+def test_resolve_tax_rate_defaults_when_country_missing(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    assert _resolve_tax_rate(conn, None) == DEFAULT_TAX_RATE
+    assert _resolve_tax_rate(conn, "Atlantis") == DEFAULT_TAX_RATE
+
+
+def test_resolve_tax_rate_reads_country(conn: duckdb.DuckDBPyConnection) -> None:
+    # NB: production damodaran_country rows carry no tax_rate yet (the ERP ingest
+    # omits it), so this row is inserted by hand to exercise the resolver itself.
+    conn.execute(
+        "INSERT INTO damodaran_country (country, year, tax_rate) VALUES (?, ?, ?)",
+        ["Germany", 2026, 0.30],
+    )
+    assert _resolve_tax_rate(conn, "Germany") == pytest.approx(0.30)
+
+
+def test_resolve_tax_rate_rejects_out_of_range(conn: duckdb.DuckDBPyConnection) -> None:
+    # A percentage stored as 30 (instead of 0.30), or a >=100% rate, would make
+    # (1 - tax_rate) negative; the resolver falls back to the default instead.
+    conn.execute(
+        "INSERT INTO damodaran_country (country, year, tax_rate) VALUES (?, ?, ?)",
+        ["Freedonia", 2026, 30.0],
+    )
+    assert _resolve_tax_rate(conn, "Freedonia") == DEFAULT_TAX_RATE
+
+
 def test_build_company_data_derives_ratios(conn: duckdb.DuckDBPyConnection) -> None:
     _seed_one(conn)
     row = _load_companies(conn)[0]
@@ -103,6 +146,63 @@ def test_build_company_data_derives_ratios(conn: duckdb.DuckDBPyConnection) -> N
     assert cd.net_debt == pytest.approx(-100.0)
     assert cd.fcf_yield == pytest.approx(200.0 / 1000.0)
     assert len(cd.revenue_history) == 6
+    # ROIC = ebit*(1-tax)/invested; US country row carries no tax_rate, so the
+    # 0.21 default applies: 200 * 0.79 / 1000 = 0.158.
+    assert cd.roic == pytest.approx(200.0 * (1.0 - DEFAULT_TAX_RATE) / 1000.0)
+
+
+def test_build_company_data_roic_uses_country_tax_rate(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    conn.execute(
+        "INSERT INTO companies (ticker, name, country, industry, industry_damodaran, source) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ["DEU", "Deutsche Test AG", "Germany", "Software", "Software", "fmp"],
+    )
+    conn.execute(
+        "INSERT INTO damodaran_country (country, year, region, tax_rate) VALUES (?, ?, ?, ?)",
+        ["Germany", 2026, "Europe", 0.30],
+    )
+    conn.execute(
+        "INSERT INTO financials_annual "
+        "(ticker, fiscal_year, revenue, ebit, ebitda, interest_expense, net_income, "
+        "total_assets, total_debt, cash, total_equity, goodwill, operating_cashflow, "
+        "free_cashflow, shares_diluted, is_restated, source) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            "DEU",
+            2026,
+            1000.0,
+            200.0,
+            300.0,
+            10.0,
+            150.0,
+            2000.0,
+            0.0,
+            100.0,
+            1000.0,
+            100.0,
+            250.0,
+            200.0,
+            100.0,
+            False,
+            "fmp",
+        ],
+    )
+    from bot.screener.engine import _AnnualRow
+
+    row = next(r for r in _load_companies(conn) if r.ticker == "DEU")
+    annual = conn.execute(
+        "SELECT revenue, ebit, ebitda, interest_expense, net_income, total_assets, "
+        "total_debt, cash, total_equity, goodwill, operating_cashflow, free_cashflow, "
+        "shares_diluted FROM financials_annual WHERE ticker = ? ORDER BY fiscal_year",
+        ["DEU"],
+    ).fetchall()
+    cd = build_company_data(
+        conn, row, [_AnnualRow(*r) for r in annual], market_cap=1000.0, close=10.0
+    )
+    # Germany's 30% tax rate, not the US 21% default: 200 * 0.70 / 1000 = 0.14.
+    assert cd.roic == pytest.approx(200.0 * (1.0 - 0.30) / 1000.0)
 
 
 def test_build_company_data_handles_no_financials(
@@ -165,10 +265,7 @@ def test_run_screen_empty_universe(conn: duckdb.DuckDBPyConnection) -> None:
     from pathlib import Path
 
     cfg = load_screener_config(
-        Path(__file__).resolve().parents[2]
-        / "config"
-        / "presets"
-        / "damodaran_value.yaml"
+        Path(__file__).resolve().parents[2] / "config" / "presets" / "damodaran_value.yaml"
     )
     result = run_screen(conn, cfg)
     assert result.shortlist == ()
@@ -191,10 +288,7 @@ def _value_preset() -> ScreenerConfig:
     from pathlib import Path
 
     return load_screener_config(
-        Path(__file__).resolve().parents[2]
-        / "config"
-        / "presets"
-        / "damodaran_value.yaml"
+        Path(__file__).resolve().parents[2] / "config" / "presets" / "damodaran_value.yaml"
     )
 
 
@@ -205,8 +299,7 @@ def _seed_sector(conn: duckdb.DuckDBPyConnection) -> None:
         ["United States", 2026, "US"],
     )
     conn.execute(
-        "INSERT INTO damodaran_industry (industry, region, year, wacc, pe) "
-        "VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO damodaran_industry (industry, region, year, wacc, pe) VALUES (?, ?, ?, ?, ?)",
         ["Software", "US", 2026, 0.08, 20.0],
     )
 
@@ -227,10 +320,23 @@ def _seed_company(conn: duckdb.DuckDBPyConnection, ticker: str) -> None:
             "free_cashflow, shares_diluted, is_restated, source) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
-                ticker, 2020 + offset, rev, rev * 0.2, 1_000_000_000.0, 50_000_000.0,
-                1_000_000_000.0, 6_000_000_000.0, 0.0, 100_000_000.0,
-                2_000_000_000.0, 500_000_000.0, 700_000_000.0, 600_000_000.0,
-                1_000_000_000.0, False, "fmp",
+                ticker,
+                2020 + offset,
+                rev,
+                rev * 0.2,
+                1_000_000_000.0,
+                50_000_000.0,
+                1_000_000_000.0,
+                6_000_000_000.0,
+                0.0,
+                100_000_000.0,
+                2_000_000_000.0,
+                500_000_000.0,
+                700_000_000.0,
+                600_000_000.0,
+                1_000_000_000.0,
+                False,
+                "fmp",
             ],
         )
     conn.execute(
@@ -267,9 +373,7 @@ def test_run_screen_falls_back_to_placeholder_when_unvaluable(
         return None
 
     result = run_screen(conn, _value_preset(), valuator=none_valuator)
-    assert result.shortlist[0].margin_of_safety == pytest.approx(
-        PLACEHOLDER_MARGIN_OF_SAFETY
-    )
+    assert result.shortlist[0].margin_of_safety == pytest.approx(PLACEHOLDER_MARGIN_OF_SAFETY)
 
 
 def test_run_screen_none_valuator_keeps_placeholder(
@@ -281,9 +385,7 @@ def test_run_screen_none_valuator_keeps_placeholder(
     _seed_sector(conn)
     _seed_company(conn, "TST")
     result = run_screen(conn, _value_preset(), valuator=None)
-    assert result.shortlist[0].margin_of_safety == pytest.approx(
-        PLACEHOLDER_MARGIN_OF_SAFETY
-    )
+    assert result.shortlist[0].margin_of_safety == pytest.approx(PLACEHOLDER_MARGIN_OF_SAFETY)
 
 
 def test_run_screen_valuator_runs_only_on_top_n(
@@ -296,9 +398,7 @@ def test_run_screen_valuator_runs_only_on_top_n(
 
     valued: list[str] = []
 
-    def recording_valuator(
-        _c: duckdb.DuckDBPyConnection, ticker: str
-    ) -> float | None:
+    def recording_valuator(_c: duckdb.DuckDBPyConnection, ticker: str) -> float | None:
         valued.append(ticker)
         return 1.0
 
@@ -343,9 +443,7 @@ def test_run_screen_reranks_when_valuator_differs_from_placeholder(
     placeholder_order = [c.ticker for c in placeholder_run.shortlist]
 
     # Give BBB a far higher margin of safety than AAA.
-    def skewed_valuator(
-        _c: duckdb.DuckDBPyConnection, ticker: str
-    ) -> float | None:
+    def skewed_valuator(_c: duckdb.DuckDBPyConnection, ticker: str) -> float | None:
         return {"AAA": 0.6, "BBB": 5.0}.get(ticker)
 
     valued_run = run_screen(conn, _value_preset(), valuator=skewed_valuator)

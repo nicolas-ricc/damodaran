@@ -42,6 +42,10 @@ from bot.valuator.analysis import analyze
 #: targets the US-only universe in M1/M3, so US is the sensible default.
 DEFAULT_REGION = "US"
 
+#: Fallback NOPAT tax rate for ROIC when a company's country carries no Damodaran
+#: tax rate (1 - 0.21 = 0.79, the prior hardcoded US-federal assumption).
+DEFAULT_TAX_RATE = 0.21
+
 #: A valuator: given an open connection and a ticker, return that company's
 #: DCF-derived margin of safety (``intrinsic_value / price``), or ``None`` when it
 #: cannot be valued. This is the seam M4.7 wires the Capa C valuator into the
@@ -50,9 +54,7 @@ DEFAULT_REGION = "US"
 type Valuator = Callable[[duckdb.DuckDBPyConnection, str], float | None]
 
 
-def _dcf_margin_of_safety(
-    conn: duckdb.DuckDBPyConnection, ticker: str
-) -> float | None:
+def _dcf_margin_of_safety(conn: duckdb.DuckDBPyConnection, ticker: str) -> float | None:
     """Real DCF margin of safety for ``ticker`` (spec §6.5/§7.2, M4.7).
 
     Runs the Capa C valuation pipeline (:func:`bot.valuator.analysis.analyze`) and
@@ -147,8 +149,7 @@ class _AnnualRow:
 
 def _load_companies(conn: duckdb.DuckDBPyConnection) -> list[_CompanyRow]:
     rows = conn.execute(
-        "SELECT ticker, name, country, industry, industry_damodaran "
-        "FROM companies ORDER BY ticker"
+        "SELECT ticker, name, country, industry, industry_damodaran FROM companies ORDER BY ticker"
     ).fetchall()
     return [
         _CompanyRow(
@@ -203,6 +204,37 @@ def _resolve_region(conn: duckdb.DuckDBPyConnection, country: str | None) -> str
         [country],
     ).fetchone()
     return str(row[0]) if row is not None and row[0] is not None else DEFAULT_REGION
+
+
+def _resolve_tax_rate(conn: duckdb.DuckDBPyConnection, country: str | None) -> float:
+    """The company's marginal tax rate from Damodaran, defaulting to 21%.
+
+    Used as the NOPAT factor for ROIC. The screener keys on country (it has no
+    sector tax lookup); an unknown or NULL-tax country falls back to
+    :data:`DEFAULT_TAX_RATE` so US/unknown companies keep their prior behaviour.
+
+    Note: the current Damodaran country ingest (the ERP file) does not carry a
+    tax rate, so ``damodaran_country.tax_rate`` is NULL in production today and
+    every company falls back to the default. Wiring a country corporate-tax
+    dataset (or keying tax off ``industry_damodaran`` like the valuator) is a
+    follow-up; this just removes the hardcoded constant and the plumbing waits
+    on the data. A rate outside ``[0, 1)`` (e.g. a percentage stored as ``30``
+    instead of ``0.30``) is rejected back to the default rather than producing a
+    negative NOPAT.
+    """
+    if country is None:
+        return DEFAULT_TAX_RATE
+    row = conn.execute(
+        "SELECT tax_rate FROM damodaran_country WHERE country = ? "
+        "AND tax_rate IS NOT NULL ORDER BY year DESC LIMIT 1",
+        [country],
+    ).fetchone()
+    if row is None or row[0] is None:
+        return DEFAULT_TAX_RATE
+    tax_rate = float(row[0])
+    if not 0.0 <= tax_rate < 1.0:
+        return DEFAULT_TAX_RATE
+    return tax_rate
 
 
 # --------------------------------------------------------------------------- #
@@ -287,11 +319,13 @@ def build_company_data(
         ):
             ev_ebitda = (market_cap + net_debt) / latest.ebitda
         # ROIC ≈ NOPAT / invested capital, with invested capital ≈ debt + equity.
+        # NOPAT applies the company's country tax rate (not a flat US 21%).
         invested = None
         if latest.total_debt is not None or latest.total_equity is not None:
             invested = (latest.total_debt or 0.0) + (latest.total_equity or 0.0)
         if latest.ebit is not None and invested is not None and invested != 0.0:
-            roic = (latest.ebit * 0.79) / invested
+            tax_rate = _resolve_tax_rate(conn, company.country)
+            roic = (latest.ebit * (1.0 - tax_rate)) / invested
         fcf = latest.free_cashflow
         if fcf is not None and market_cap is not None and market_cap != 0.0:
             fcf_yield = fcf / market_cap
@@ -478,14 +512,10 @@ def run_screen(
         annual = _load_annual(conn, row.ticker)
         market_cap = _latest_market_cap(conn, row.ticker)
         close = _latest_close(conn, row.ticker)
-        company = build_company_data(
-            conn, row, annual, market_cap=market_cap, close=close
-        )
+        company = build_company_data(conn, row, annual, market_cap=market_cap, close=close)
         screened += 1
         region = company.region or DEFAULT_REGION
-        benchmarks = load_industry_benchmarks(
-            conn, industry=company.industry, region=region
-        )
+        benchmarks = load_industry_benchmarks(conn, industry=company.industry, region=region)
         verdict = evaluate_company(
             company,
             benchmarks,
@@ -523,9 +553,7 @@ def run_screen(
                 value_metric=base.value_metric,
                 quality_metric=base.quality_metric,
                 growth_metric=base.growth_metric,
-                margin_of_safety=(
-                    mos if mos is not None else PLACEHOLDER_MARGIN_OF_SAFETY
-                ),
+                margin_of_safety=(mos if mos is not None else PLACEHOLDER_MARGIN_OF_SAFETY),
             )
         )
 
