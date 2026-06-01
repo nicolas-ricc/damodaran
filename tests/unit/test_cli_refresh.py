@@ -127,6 +127,70 @@ def test_refresh_prices_invokes_price_orchestrator(tmp_path, monkeypatch):
     assert result.exit_code == 0
 
 
+def _uni(run_id, status="success", total=1, imported=1, failed=0):
+    return UniverseRefreshResult(
+        run_id=run_id,
+        started_at=datetime(2026, 5, 25, 9, 0, 0),
+        finished_at=datetime(2026, 5, 25, 9, 0, 9),
+        status=status,
+        total=total,
+        imported=imported,
+        skipped=0,
+        failed=failed,
+        outcomes=[],
+    )
+
+
+def test_refresh_fx_invokes_fx_orchestrator(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "test.duckdb"))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(tmp_path / "reports"))
+
+    with patch("bot.cli.refresh_fx_from_fmp", return_value=_uni("fx")) as mfx:
+        runner = CliRunner()
+        result = runner.invoke(app, ["refresh", "--fx"])
+
+    assert mfx.called
+    assert result.exit_code == 0
+
+
+def test_refresh_all_runs_every_source_in_order(tmp_path, monkeypatch):
+    """--all runs damodaran → fmp → prices → fx in dependency order."""
+    monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "test.duckdb"))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(tmp_path / "reports"))
+
+    calls = []
+    dam = IngestResult(
+        source="damodaran",
+        started_at=datetime(2026, 5, 25, 9, 0, 0),
+        finished_at=datetime(2026, 5, 25, 9, 0, 5),
+        status="success",
+        rows_affected=10,
+        details={"industry_rows": 5, "country_rows": 5},
+    )
+    with (
+        patch("bot.cli.import_damodaran", side_effect=lambda *a, **k: calls.append("dam") or dam),
+        patch(
+            "bot.cli.refresh_universe_from_fmp",
+            side_effect=lambda *a, **k: calls.append("fmp") or _uni("u"),
+        ),
+        patch(
+            "bot.cli.refresh_prices_from_fmp",
+            side_effect=lambda *a, **k: calls.append("prices") or _uni("p"),
+        ),
+        patch(
+            "bot.cli.refresh_fx_from_fmp",
+            side_effect=lambda *a, **k: calls.append("fx") or _uni("f"),
+        ),
+    ):
+        runner = CliRunner()
+        result = runner.invoke(app, ["refresh", "--all"])
+
+    assert calls == ["dam", "fmp", "prices", "fx"]
+    assert result.exit_code == 0
+
+
 def test_refresh_without_flags_shows_help(tmp_path, monkeypatch):
     monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "test.duckdb"))
     monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")

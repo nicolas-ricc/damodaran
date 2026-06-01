@@ -16,6 +16,7 @@ from bot.ingest.universe import (
     UniverseRefreshResult,
     default_universe_path,
     load_universe,
+    refresh_fx_from_fmp,
     refresh_prices_from_fmp,
     refresh_universe_from_fmp,
 )
@@ -65,6 +66,12 @@ def refresh(
     prices: bool = typer.Option(
         False, "--prices", help="Refresh EOD prices for the universe from FMP (incremental)."
     ),
+    fx: bool = typer.Option(
+        False, "--fx", help="Refresh FX rates for the currencies held in the universe."
+    ),
+    all_: bool = typer.Option(
+        False, "--all", help="Refresh everything: damodaran + fmp + prices + fx, in order."
+    ),
     universe: Path | None = typer.Option(  # noqa: B008
         None,
         "--universe",
@@ -82,15 +89,18 @@ def refresh(
 ) -> None:
     """Refresh data from external sources.
 
-    Multiple sources can be requested in one invocation; they run in dependency
-    order (damodaran → fmp → prices) and the process exits with the *worst*
-    per-source code (damodaran failure = 1, an fmp/prices data error = 2), so a
-    later source still runs and the operator sees the full picture. Prices run
-    after fmp because they read each ticker's currency from ``companies``.
+    Multiple sources can be requested in one invocation (or all of them with
+    ``--all``); they run in dependency order (damodaran → fmp → prices → fx) and
+    the process exits with the *worst* per-source code (damodaran failure = 1, an
+    fmp/prices/fx data error = 2), so a later source still runs and the operator
+    sees the full picture. Prices and fx run after fmp because they read each
+    ticker's / the universe's currency from ``companies``.
     """
-    if not damodaran and not fmp and not prices:
+    if all_:
+        damodaran = fmp = prices = fx = True
+    if not damodaran and not fmp and not prices and not fx:
         typer.echo(
-            "Specify what to refresh. Available flags: --damodaran, --fmp, --prices",
+            "Specify what to refresh. Flags: --damodaran, --fmp, --prices, --fx, --all",
             err=True,
         )
         raise typer.Exit(code=2)
@@ -106,6 +116,8 @@ def refresh(
         exit_code = max(exit_code, _refresh_fmp_universe(conn, settings, universe))
     if prices:
         exit_code = max(exit_code, _refresh_prices(conn, settings, universe))
+    if fx:
+        exit_code = max(exit_code, _refresh_fx(conn, settings))
     raise typer.Exit(code=exit_code)
 
 
@@ -165,6 +177,15 @@ def _refresh_prices(
 
     typer.echo(f"Refreshing prices for {len(tickers)} tickers from FMP...")
     result = refresh_prices_from_fmp(conn, api_key=settings.fmp_api_key, tickers=tickers)
+    _report_universe_refresh(result)
+
+    return 0 if result.status == "success" else 2
+
+
+def _refresh_fx(conn: duckdb.DuckDBPyConnection, settings: Settings) -> int:
+    """Refresh FX rates for the universe's currencies. Returns the exit code."""
+    typer.echo("Refreshing FX rates for the universe's currencies from FMP...")
+    result = refresh_fx_from_fmp(conn, api_key=settings.fmp_api_key)
     _report_universe_refresh(result)
 
     return 0 if result.status == "success" else 2
