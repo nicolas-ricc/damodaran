@@ -102,6 +102,31 @@ def test_refresh_worst_of_exit_code(tmp_path, monkeypatch):
     assert result.exit_code == 2
 
 
+def test_refresh_prices_invokes_price_orchestrator(tmp_path, monkeypatch):
+    """--prices runs the price refresh and maps its status to an exit code."""
+    monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "test.duckdb"))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(tmp_path / "reports"))
+
+    prices = UniverseRefreshResult(
+        run_id="p",
+        started_at=datetime(2026, 5, 25, 9, 2, 0),
+        finished_at=datetime(2026, 5, 25, 9, 2, 9),
+        status="success",
+        total=3,
+        imported=3,
+        skipped=0,
+        failed=0,
+        outcomes=[],
+    )
+    with patch("bot.cli.refresh_prices_from_fmp", return_value=prices) as mprices:
+        runner = CliRunner()
+        result = runner.invoke(app, ["refresh", "--prices"])
+
+    assert mprices.called
+    assert result.exit_code == 0
+
+
 def test_refresh_without_flags_shows_help(tmp_path, monkeypatch):
     monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "test.duckdb"))
     monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")

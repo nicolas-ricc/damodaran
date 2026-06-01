@@ -16,6 +16,7 @@ from bot.ingest.universe import (
     UniverseRefreshResult,
     default_universe_path,
     load_universe,
+    refresh_prices_from_fmp,
     refresh_universe_from_fmp,
 )
 from bot.reporting.analysis_report import render_analysis
@@ -61,6 +62,9 @@ def refresh(
     fmp: bool = typer.Option(
         False, "--fmp", help="Bulk-refresh a universe of tickers from FMP (incremental)."
     ),
+    prices: bool = typer.Option(
+        False, "--prices", help="Refresh EOD prices for the universe from FMP (incremental)."
+    ),
     universe: Path | None = typer.Option(  # noqa: B008
         None,
         "--universe",
@@ -79,13 +83,14 @@ def refresh(
     """Refresh data from external sources.
 
     Multiple sources can be requested in one invocation; they run in dependency
-    order (damodaran → fmp) and the process exits with the *worst* per-source
-    code (damodaran failure = 1, an fmp data error = 2), so a later source still
-    runs and the operator sees the full picture.
+    order (damodaran → fmp → prices) and the process exits with the *worst*
+    per-source code (damodaran failure = 1, an fmp/prices data error = 2), so a
+    later source still runs and the operator sees the full picture. Prices run
+    after fmp because they read each ticker's currency from ``companies``.
     """
-    if not damodaran and not fmp:
+    if not damodaran and not fmp and not prices:
         typer.echo(
-            "Specify what to refresh. Available flags: --damodaran, --fmp",
+            "Specify what to refresh. Available flags: --damodaran, --fmp, --prices",
             err=True,
         )
         raise typer.Exit(code=2)
@@ -99,6 +104,8 @@ def refresh(
         )
     if fmp:
         exit_code = max(exit_code, _refresh_fmp_universe(conn, settings, universe))
+    if prices:
+        exit_code = max(exit_code, _refresh_prices(conn, settings, universe))
     raise typer.Exit(code=exit_code)
 
 
@@ -143,6 +150,23 @@ def _refresh_fmp_universe(
     _report_universe_refresh(result)
 
     # > 5% failed (i.e. status is not 'success') is a data error.
+    return 0 if result.status == "success" else 2
+
+
+def _refresh_prices(
+    conn: duckdb.DuckDBPyConnection, settings: Settings, universe: Path | None
+) -> int:
+    """Refresh EOD prices for the universe. Returns the exit code (0 ok, 2 data error)."""
+    path = universe or default_universe_path()
+    tickers = load_universe(path)
+    if not tickers:
+        typer.echo(f"Universe file {path} has no tickers.", err=True)
+        return 2
+
+    typer.echo(f"Refreshing prices for {len(tickers)} tickers from FMP...")
+    result = refresh_prices_from_fmp(conn, api_key=settings.fmp_api_key, tickers=tickers)
+    _report_universe_refresh(result)
+
     return 0 if result.status == "success" else 2
 
 

@@ -597,6 +597,7 @@ def import_prices_from_fmp(
     ticker: str,
     since_date: date | None = None,
     currency: str | None = None,
+    client: FmpClient | None = None,
 ) -> IngestResult:
     """Fetch daily EOD prices for ``ticker`` from FMP and upsert them. Atomic.
 
@@ -605,6 +606,10 @@ def import_prices_from_fmp(
     second run with current data fetches nothing new and performs zero INSERTs.
     Pass ``since_date`` to bound a first import (otherwise FMP's full history is
     requested). Records the run in ``refresh_log``.
+
+    Pass ``client`` to reuse an open :class:`FmpClient` across many tickers (the
+    bulk price refresh shares one for the whole run); otherwise one is opened and
+    closed for this call alone.
     """
     sym = ticker.upper()
     with refresh_run(
@@ -623,8 +628,12 @@ def import_prices_from_fmp(
             next_day = last + timedelta(days=1)
             start = next_day if start is None or next_day > start else start
 
-        with FmpClient(api_key=api_key) as client:
-            rows = client.historical_prices(sym, start=start)
+        fmp = client if client is not None else FmpClient(api_key=api_key)
+        try:
+            rows = fmp.historical_prices(sym, start=start)
+        finally:
+            if client is None:
+                fmp.close()
 
         # Defensive: drop anything at or before the last stored date so a
         # re-run that re-fetches an overlapping window still INSERTs nothing new.
