@@ -18,6 +18,7 @@ is the caller's job (``bot.screener.persist`` / ``bot.reporting.screen_report``)
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
@@ -166,45 +167,81 @@ def _load_companies(conn: duckdb.DuckDBPyConnection) -> list[_CompanyRow]:
     ]
 
 
-def _load_annual(conn: duckdb.DuckDBPyConnection, ticker: str) -> list[_AnnualRow]:
-    """Annual financials, oldest first (so histories read most-recent-last)."""
+@dataclass(frozen=True)
+class _PriceSnapshot:
+    """Latest price facts for one ticker: market cap (with currency/date) + close."""
+
+    market_cap: float | None
+    currency: str | None
+    as_of: date | None
+    close: float | None
+
+
+def _load_all_annual(
+    conn: duckdb.DuckDBPyConnection,
+) -> dict[str, list[_AnnualRow]]:
+    """All non-restated annual rows grouped by ticker, oldest first per ticker.
+
+    One scan replaces the per-ticker ``WHERE ticker = ?`` loads of the screen
+    loop (histories read most-recent-last, so fiscal_year ascending is kept).
+    """
     rows = conn.execute(
-        "SELECT revenue, ebit, ebitda, interest_expense, net_income, total_assets, "
+        "SELECT ticker, revenue, ebit, ebitda, interest_expense, net_income, total_assets, "
         "total_debt, cash, total_equity, goodwill, operating_cashflow, free_cashflow, "
         "shares_diluted FROM financials_annual "
-        "WHERE ticker = ? AND is_restated = FALSE ORDER BY fiscal_year",
-        [ticker],
+        "WHERE is_restated = FALSE ORDER BY ticker, fiscal_year"
     ).fetchall()
-    return [_AnnualRow(*r) for r in rows]
+    out: dict[str, list[_AnnualRow]] = defaultdict(list)
+    for r in rows:
+        out[r[0]].append(_AnnualRow(*r[1:]))
+    return out
 
 
-def _latest_market_cap(
-    conn: duckdb.DuckDBPyConnection, ticker: str
-) -> tuple[float | None, str | None, date | None]:
-    """Latest local-currency market cap with its currency and observation date.
+def _load_latest_prices(
+    conn: duckdb.DuckDBPyConnection,
+) -> dict[str, _PriceSnapshot]:
+    """Latest non-null market cap (with currency/date) and close, per ticker.
 
-    The currency/date let the snapshot assembly convert the cap to USD for the
-    absolute MinMarketCap gate (the figure is stored in the listing currency).
+    Two windowed scans replace the per-ticker ``ORDER BY date DESC LIMIT 1``
+    lookups. Market cap and close are resolved independently (each from its own
+    latest non-null row), matching the prior two-query behaviour.
     """
-    row = conn.execute(
-        "SELECT market_cap, currency, date FROM prices_daily "
-        "WHERE ticker = ? AND market_cap IS NOT NULL "
-        "ORDER BY date DESC LIMIT 1",
-        [ticker],
-    ).fetchone()
-    if row is None or row[0] is None:
-        return None, None, None
-    as_of = row[2] if isinstance(row[2], date) else date.fromisoformat(str(row[2])[:10])
-    return float(row[0]), row[1], as_of
+    cap_rows = conn.execute(
+        "SELECT ticker, market_cap, currency, date FROM ("
+        "  SELECT ticker, market_cap, currency, date, "
+        "         ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) AS rn "
+        "  FROM prices_daily WHERE market_cap IS NOT NULL"
+        ") WHERE rn = 1"
+    ).fetchall()
+    close_rows = conn.execute(
+        "SELECT ticker, close FROM ("
+        "  SELECT ticker, close, "
+        "         ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) AS rn "
+        "  FROM prices_daily WHERE close IS NOT NULL"
+        ") WHERE rn = 1"
+    ).fetchall()
+    caps = {r[0]: r for r in cap_rows}
+    closes = {r[0]: float(r[1]) for r in close_rows if r[1] is not None}
 
-
-def _latest_close(conn: duckdb.DuckDBPyConnection, ticker: str) -> float | None:
-    row = conn.execute(
-        "SELECT close FROM prices_daily WHERE ticker = ? AND close IS NOT NULL "
-        "ORDER BY date DESC LIMIT 1",
-        [ticker],
-    ).fetchone()
-    return float(row[0]) if row is not None and row[0] is not None else None
+    out: dict[str, _PriceSnapshot] = {}
+    for ticker in set(caps) | set(closes):
+        cap = caps.get(ticker)
+        if cap is not None and cap[1] is not None:
+            d = cap[3]
+            as_of = d if isinstance(d, date) else date.fromisoformat(str(d)[:10])
+            market_cap: float | None = float(cap[1])
+            currency: str | None = cap[2]
+        else:
+            as_of = None
+            market_cap = None
+            currency = None
+        out[ticker] = _PriceSnapshot(
+            market_cap=market_cap,
+            currency=currency,
+            as_of=as_of,
+            close=closes.get(ticker),
+        )
+    return out
 
 
 def _resolve_region(conn: duckdb.DuckDBPyConnection, country: str | None) -> str:
@@ -551,25 +588,37 @@ def run_screen(
     trap_detection = config.trap_detection.build()
     weights: RankingWeights = config.ranking.weights
 
+    # Bulk-load the per-ticker inputs once (set-based scans) instead of issuing a
+    # handful of queries per company inside the loop.
+    all_annual = _load_all_annual(conn)
+    all_prices = _load_latest_prices(conn)
+    benchmark_cache: dict[tuple[str | None, str], IndustryBenchmarks | None] = {}
+
     pending: list[_Pending] = []
     candidates: list[Candidate] = []
     screened = 0
     for row in _load_companies(conn):
-        annual = _load_annual(conn, row.ticker)
-        market_cap, mc_currency, mc_as_of = _latest_market_cap(conn, row.ticker)
-        close = _latest_close(conn, row.ticker)
+        annual = all_annual.get(row.ticker, [])
+        price = all_prices.get(row.ticker)
         company = build_company_data(
             conn,
             row,
             annual,
-            market_cap=market_cap,
-            close=close,
-            currency=mc_currency,
-            as_of=mc_as_of,
+            market_cap=price.market_cap if price else None,
+            close=price.close if price else None,
+            currency=price.currency if price else None,
+            as_of=price.as_of if price else None,
         )
         screened += 1
         region = company.region or DEFAULT_REGION
-        benchmarks = load_industry_benchmarks(conn, industry=company.industry, region=region)
+        cache_key = (company.industry, region)
+        # `in` check (not `.get()`) so a genuinely absent (None) benchmark is
+        # cached too rather than re-queried for every company in that sector.
+        if cache_key in benchmark_cache:
+            benchmarks = benchmark_cache[cache_key]
+        else:
+            benchmarks = load_industry_benchmarks(conn, industry=company.industry, region=region)
+            benchmark_cache[cache_key] = benchmarks
         verdict = evaluate_company(
             company,
             benchmarks,

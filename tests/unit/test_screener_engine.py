@@ -284,6 +284,58 @@ def test_build_company_data_usd_market_cap_unchanged(
     assert cd.market_cap == pytest.approx(1000.0)
 
 
+def test_load_all_annual_groups_oldest_first_per_ticker(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    from bot.screener.engine import _load_all_annual
+
+    _seed_sector(conn)
+    _seed_company(conn, "AAA")
+    _seed_company(conn, "BBB")
+    # A restated row must be excluded.
+    conn.execute(
+        "INSERT INTO financials_annual (ticker, fiscal_year, revenue, is_restated, source) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ["AAA", 2030, 9999.0, True, "fmp"],
+    )
+
+    by_ticker = _load_all_annual(conn)
+    assert set(by_ticker) == {"AAA", "BBB"}
+    assert len(by_ticker["AAA"]) == 6  # restated row excluded
+    # Oldest-first: revenue grows 1.1**offset, so ascending.
+    revs = [r.revenue for r in by_ticker["AAA"]]
+    assert revs == sorted(revs)
+
+
+def test_load_latest_prices_picks_latest_non_null_per_ticker(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    from bot.screener.engine import _load_latest_prices
+
+    conn.execute(
+        "INSERT INTO companies (ticker, name, source) VALUES (?, ?, ?)", ["XYZ", "Xyz", "fmp"]
+    )
+    # Older row has both; newest row has a close but a NULL market_cap, so the
+    # market cap must come from the older row and the close from the newest.
+    conn.execute(
+        "INSERT INTO prices_daily (ticker, date, close, market_cap, currency, source) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ["XYZ", "2026-05-01", 9.0, 900.0, "EUR", "fmp"],
+    )
+    conn.execute(
+        "INSERT INTO prices_daily (ticker, date, close, market_cap, currency, source) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ["XYZ", "2026-05-29", 11.0, None, "EUR", "fmp"],
+    )
+
+    prices = _load_latest_prices(conn)
+    snap = prices["XYZ"]
+    assert snap.close == pytest.approx(11.0)  # newest close
+    assert snap.market_cap == pytest.approx(900.0)  # latest non-null cap (older row)
+    assert snap.currency == "EUR"
+    assert snap.as_of == date(2026, 5, 1)  # the cap's observation date
+
+
 def test_build_company_data_handles_no_financials(
     conn: duckdb.DuckDBPyConnection,
 ) -> None:
