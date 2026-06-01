@@ -76,7 +76,13 @@ def refresh(
         help="Where to cache downloaded Damodaran files.",
     ),
 ) -> None:
-    """Refresh data from external sources."""
+    """Refresh data from external sources.
+
+    Multiple sources can be requested in one invocation; they run in dependency
+    order (damodaran → fmp) and the process exits with the *worst* per-source
+    code (damodaran failure = 1, an fmp data error = 2), so a later source still
+    runs and the operator sees the full picture.
+    """
     if not damodaran and not fmp:
         typer.echo(
             "Specify what to refresh. Available flags: --damodaran, --fmp",
@@ -84,11 +90,26 @@ def refresh(
         )
         raise typer.Exit(code=2)
 
+    conn, settings = _open_db()
+    exit_code = 0
+    if damodaran:
+        exit_code = max(
+            exit_code,
+            _refresh_damodaran(conn, region=region, year=year, download_dir=download_dir),
+        )
     if fmp:
-        _refresh_fmp_universe(universe)
-        return
+        exit_code = max(exit_code, _refresh_fmp_universe(conn, settings, universe))
+    raise typer.Exit(code=exit_code)
 
-    conn, _ = _open_db()
+
+def _refresh_damodaran(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    region: str,
+    year: int | None,
+    download_dir: Path,
+) -> int:
+    """Import the Damodaran datasets. Returns the source's exit code (0 ok, 1 fail)."""
     typer.echo(f"Importing Damodaran datasets (region={region}, year={year or 'current'})...")
     result = import_damodaran(conn, download_dir=download_dir, region=region, year=year)
     if result.is_success():
@@ -97,33 +118,32 @@ def refresh(
             f"(industry={result.details.get('industry_rows')}, "
             f"country={result.details.get('country_rows')})"
         )
-        raise typer.Exit(code=0)
+        return 0
     typer.echo(f"FAILED — {result.error_message}", err=True)
-    raise typer.Exit(code=1)
+    return 1
 
 
-def _refresh_fmp_universe(universe: Path | None) -> None:
+def _refresh_fmp_universe(
+    conn: duckdb.DuckDBPyConnection, settings: Settings, universe: Path | None
+) -> int:
     """Run a bulk FMP universe refresh and map its outcome to an exit code.
 
     Exit codes follow the spec convention (§9.2) and the M2.6 brief: ``0`` when at
     most 5% of the universe failed, ``2`` (data error) when more than 5% failed.
     Per-ticker failures are summarised on stderr; they never abort the run.
     """
-    conn, settings = _open_db()
     path = universe or default_universe_path()
     tickers = load_universe(path)
     if not tickers:
         typer.echo(f"Universe file {path} has no tickers.", err=True)
-        raise typer.Exit(code=2)
+        return 2
 
     typer.echo(f"Refreshing {len(tickers)} tickers from FMP (universe={path})...")
-    result = refresh_universe_from_fmp(
-        conn, api_key=settings.fmp_api_key, tickers=tickers
-    )
+    result = refresh_universe_from_fmp(conn, api_key=settings.fmp_api_key, tickers=tickers)
     _report_universe_refresh(result)
 
     # > 5% failed (i.e. status is not 'success') is a data error.
-    raise typer.Exit(code=0 if result.status == "success" else 2)
+    return 0 if result.status == "success" else 2
 
 
 def _report_universe_refresh(result: UniverseRefreshResult) -> None:
@@ -288,8 +308,7 @@ def screen(
     csv_path.write_text(render_csv(result))
 
     typer.echo(
-        f"Screened {result.screened} companies → {len(result.shortlist)} candidates "
-        f"(run {run_id})"
+        f"Screened {result.screened} companies → {len(result.shortlist)} candidates (run {run_id})"
     )
     typer.echo(f"Wrote {md_path}")
     typer.echo(f"Wrote {csv_path}")
