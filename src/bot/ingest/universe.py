@@ -27,6 +27,7 @@ import uuid
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from functools import partial
 from importlib import resources
 from pathlib import Path
 
@@ -109,9 +110,7 @@ def default_universe_path() -> Path:
 
 def _parse_universe_csv(text: str) -> list[str]:
     rows = [
-        row
-        for row in csv.reader(text.splitlines())
-        if row and not row[0].strip().startswith("#")
+        row for row in csv.reader(text.splitlines()) if row and not row[0].strip().startswith("#")
     ]
     if not rows:
         return []
@@ -154,17 +153,25 @@ def latest_local_filing_date(
     return date.fromisoformat(str(value)[:10])
 
 
-def make_fmp_latest_filing_probe(api_key: str) -> LatestFilingProbe:
+def make_fmp_latest_filing_probe(
+    api_key: str, client: FmpClient | None = None
+) -> LatestFilingProbe:
     """Build a probe that returns a ticker's newest filing date from FMP.
 
     Uses the lightweight annual income-statement endpoint (``limit=1``) and reads
     its ``fillingDate`` (FMP's spelling). Returns ``None`` when FMP has nothing —
     in which case the caller imports the ticker (better to try than to skip).
+
+    Pass ``client`` to reuse an open :class:`FmpClient` across probes (the bulk
+    refresh shares one for the whole run); otherwise each probe opens its own.
     """
 
     def probe(ticker: str) -> date | None:
-        with FmpClient(api_key=api_key) as client:
+        if client is not None:
             rows = client.income_statement(ticker, period="annual", limit=1)
+        else:
+            with FmpClient(api_key=api_key) as own:
+                rows = own.income_statement(ticker, period="annual", limit=1)
         return _latest_filing_from_statements(rows)
 
     return probe
@@ -224,78 +231,92 @@ def refresh_universe_from_fmp(
     """
     started = datetime.now()
     run_id = str(uuid.uuid4())
-    probe = latest_filing_probe or make_fmp_latest_filing_probe(api_key)
 
-    total = len(tickers)
-    outcomes: list[TickerOutcome] = []
-    imported = skipped = failed = 0
+    # Open one FmpClient (one connection pool) for the whole run and share it
+    # across the probe and the default importer, instead of constructing a fresh
+    # client — and TLS handshake — per ticker on each. Only the real FMP path
+    # needs it: a fully-injected importer + probe (tests) makes no live calls.
+    needs_client = importer is import_company_from_fmp or latest_filing_probe is None
+    shared_client = FmpClient(api_key=api_key) if needs_client else None
+    try:
+        probe = latest_filing_probe or make_fmp_latest_filing_probe(api_key, client=shared_client)
+        active_importer = importer
+        if importer is import_company_from_fmp and shared_client is not None:
+            active_importer = partial(import_company_from_fmp, client=shared_client)
 
-    log.info("universe.refresh.start", run_id=run_id, total=total)
+        total = len(tickers)
+        outcomes: list[TickerOutcome] = []
+        imported = skipped = failed = 0
 
-    for index, ticker in enumerate(tickers, start=1):
-        outcome = _refresh_one(
-            conn,
-            ticker=ticker,
-            api_key=api_key,
-            importer=importer,
-            probe=probe,
+        log.info("universe.refresh.start", run_id=run_id, total=total)
+
+        for index, ticker in enumerate(tickers, start=1):
+            outcome = _refresh_one(
+                conn,
+                ticker=ticker,
+                api_key=api_key,
+                importer=active_importer,
+                probe=probe,
+            )
+            outcomes.append(outcome)
+            if outcome.status == "imported":
+                imported += 1
+            elif outcome.status == "skipped":
+                skipped += 1
+            else:
+                failed += 1
+
+            if progress_every > 0 and index % progress_every == 0:
+                log.info(
+                    "universe.refresh.progress",
+                    run_id=run_id,
+                    processed=index,
+                    total=total,
+                    imported=imported,
+                    skipped=skipped,
+                    failed=failed,
+                )
+
+        finished = datetime.now()
+        failure_rate = failed / total if total else 0.0
+        status = _resolve_status(failure_rate)
+
+        result = UniverseRefreshResult(
+            run_id=run_id,
+            started_at=started,
+            finished_at=finished,
+            status=status,
+            total=total,
+            imported=imported,
+            skipped=skipped,
+            failed=failed,
+            outcomes=outcomes,
         )
-        outcomes.append(outcome)
-        if outcome.status == "imported":
-            imported += 1
-        elif outcome.status == "skipped":
-            skipped += 1
-        else:
-            failed += 1
 
-        if progress_every > 0 and index % progress_every == 0:
-            log.info(
-                "universe.refresh.progress",
+        if result.failures:
+            log.warning(
+                "universe.refresh.failures",
                 run_id=run_id,
-                processed=index,
-                total=total,
-                imported=imported,
-                skipped=skipped,
                 failed=failed,
+                failure_rate=round(failure_rate, 4),
+                tickers=[f.ticker for f in result.failures],
             )
 
-    finished = datetime.now()
-    failure_rate = failed / total if total else 0.0
-    status = _resolve_status(failure_rate)
-
-    result = UniverseRefreshResult(
-        run_id=run_id,
-        started_at=started,
-        finished_at=finished,
-        status=status,
-        total=total,
-        imported=imported,
-        skipped=skipped,
-        failed=failed,
-        outcomes=outcomes,
-    )
-
-    if result.failures:
-        log.warning(
-            "universe.refresh.failures",
+        log.info(
+            "universe.refresh.done",
             run_id=run_id,
+            status=status,
+            total=total,
+            imported=imported,
+            skipped=skipped,
             failed=failed,
-            failure_rate=round(failure_rate, 4),
-            tickers=[f.ticker for f in result.failures],
         )
 
-    log.info(
-        "universe.refresh.done",
-        run_id=run_id,
-        status=status,
-        total=total,
-        imported=imported,
-        skipped=skipped,
-        failed=failed,
-    )
-
-    _log_universe_refresh(conn, result)
-    return result
+        _log_universe_refresh(conn, result)
+        return result
+    finally:
+        if shared_client is not None:
+            shared_client.close()
 
 
 def _refresh_one(
@@ -316,9 +337,7 @@ def _refresh_one(
 
         result = importer(conn, ticker=sym, api_key=api_key)
         if result.is_success():
-            return TickerOutcome(
-                ticker=sym, status="imported", rows_affected=result.rows_affected
-            )
+            return TickerOutcome(ticker=sym, status="imported", rows_affected=result.rows_affected)
         return TickerOutcome(
             ticker=sym,
             status="failed",
@@ -345,9 +364,7 @@ def _should_skip(ticker: str, local_latest: date, probe: LatestFilingProbe) -> b
     return remote_latest <= local_latest
 
 
-def _log_universe_refresh(
-    conn: duckdb.DuckDBPyConnection, result: UniverseRefreshResult
-) -> None:
+def _log_universe_refresh(conn: duckdb.DuckDBPyConnection, result: UniverseRefreshResult) -> None:
     """Write the run summary to ``refresh_log`` (source ``fmp_universe``)."""
     error_message = None
     if result.failures:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, ClassVar
 
 import duckdb
 import pytest
@@ -44,6 +44,56 @@ def _ok_importer(rows: int = 5) -> Any:
         )
 
     return importer
+
+
+class _CountingClient:
+    """Stub FmpClient that counts constructions and returns empty payloads."""
+
+    instances: ClassVar[list[_CountingClient]] = []
+
+    def __init__(self, api_key: str, timeout: float = 30.0) -> None:
+        _CountingClient.instances.append(self)
+
+    def __enter__(self) -> _CountingClient:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+    def close(self) -> None:
+        return None
+
+    def lookup_company(self, ticker: str) -> None:
+        return None
+
+    def income_statement(
+        self, ticker: str, *, period: str = "annual", limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        return []
+
+    def balance_sheet(self, ticker: str, *, period: str = "annual") -> list[dict[str, Any]]:
+        return []
+
+    def cash_flow(self, ticker: str, *, period: str = "annual") -> list[dict[str, Any]]:
+        return []
+
+
+def test_refresh_uses_one_shared_fmp_client_for_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The real FMP path must open a single FmpClient for the whole run, not one
+    per ticker for the probe and another per ticker for the import."""
+    _CountingClient.instances = []
+    monkeypatch.setattr("bot.ingest.universe.FmpClient", _CountingClient)
+    monkeypatch.setattr("bot.ingest.fmp.FmpClient", _CountingClient)
+
+    conn = _db()
+    # Default importer + default probe (no injected fakes) -> real FMP path.
+    refresh_universe_from_fmp(conn, api_key="k", tickers=["AAA", "BBB"])
+
+    assert len(_CountingClient.instances) == 1, (
+        f"expected one shared client, got {len(_CountingClient.instances)}"
+    )
 
 
 # ---------- universe parsing ----------
@@ -227,9 +277,7 @@ def test_status_thresholds(n_fail: int, n_total: int, expected: str) -> None:
             raise ValueError("fail")
         return _ok_importer()(c, ticker=ticker, api_key=api_key)
 
-    tickers = [f"F{i}" for i in range(n_fail)] + [
-        f"OK{i}" for i in range(n_total - n_fail)
-    ]
+    tickers = [f"F{i}" for i in range(n_fail)] + [f"OK{i}" for i in range(n_total - n_fail)]
     result = refresh_universe_from_fmp(
         conn, api_key="k", tickers=tickers, importer=importer, latest_filing_probe=lambda _t: None
     )
