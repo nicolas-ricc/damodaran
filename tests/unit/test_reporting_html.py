@@ -21,6 +21,12 @@ from bot.reporting.html import (
 )
 from bot.storage.db import apply_schema, connect
 from bot.valuator.analysis import Analysis, analyze
+from bot.valuator.sensitivity import (
+    Grid2D,
+    GridCell,
+    SensitivityAxis,
+    TornadoEntry,
+)
 
 
 def _seed(conn: duckdb.DuckDBPyConnection) -> None:
@@ -66,12 +72,21 @@ def _seed(conn: duckdb.DuckDBPyConnection) -> None:
             "(ticker, fiscal_year, revenue, ebit, net_income, total_debt, cash, "
             "shares_diluted, is_restated, source) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ["AAPL", year, revenue, revenue * 0.30, 100_000.0, 110_000.0, 60_000.0,
-             15_500.0, False, "sec_edgar"],
+            [
+                "AAPL",
+                year,
+                revenue,
+                revenue * 0.30,
+                100_000.0,
+                110_000.0,
+                60_000.0,
+                15_500.0,
+                False,
+                "sec_edgar",
+            ],
         )
     conn.execute(
-        "INSERT INTO prices_daily (ticker, date, close, currency, source) "
-        "VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO prices_daily (ticker, date, close, currency, source) VALUES (?, ?, ?, ?, ?)",
         ["AAPL", "2026-05-29", 150.0, "USD", "fmp"],
     )
 
@@ -171,3 +186,56 @@ def test_full_report_embeds_the_self_contained_heatmap(analysis: Analysis) -> No
     # The axis names from the grid are present so the heatmap is labelled.
     assert analysis.grid.axis_a.value in html
     assert analysis.grid.axis_b.value in html
+
+
+# --------------------------------------------------------------------------- #
+# Out-of-domain (None sentinel) scenarios must not crash the renderers.        #
+# --------------------------------------------------------------------------- #
+
+
+def test_tornado_chart_tolerates_none_endpoints() -> None:
+    # An axis whose scaled scenario diverges has None endpoints/impact; it is
+    # omitted from the chart, and a chart with a real bar still renders.
+    entries = (
+        TornadoEntry(
+            axis=SensitivityAxis.REVENUE_GROWTH,
+            low_value=0.08,
+            high_value=0.12,
+            intrinsic_low=10.0,
+            intrinsic_high=14.0,
+            impact=4.0,
+        ),
+        TornadoEntry(
+            axis=SensitivityAxis.TERMINAL_GROWTH,
+            low_value=0.036,
+            high_value=0.054,
+            intrinsic_low=9.0,
+            intrinsic_high=None,
+            impact=None,
+        ),
+    )
+    png = tornado_chart_png(entries)
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_heatmap_tolerates_none_cells() -> None:
+    # A grid with diverging cells (None intrinsic/MoS) renders without raising.
+    def _cell(value: float | None) -> GridCell:
+        return GridCell(
+            intrinsic_value=value,
+            margin_of_safety=None if value is None else value / 10.0,
+        )
+
+    mults = (0.8, 0.9, 1.0, 1.1, 1.2)
+    cells = tuple(
+        tuple(_cell(None if i >= 3 else 10.0 + i + j) for j in range(5)) for i in range(5)
+    )
+    grid = Grid2D(
+        axis_a=SensitivityAxis.TERMINAL_GROWTH,
+        axis_b=SensitivityAxis.OPERATING_MARGIN,
+        row_multipliers=mults,
+        col_multipliers=mults,
+        cells=cells,
+    )
+    fragment = sensitivity_heatmap_html(grid)
+    assert "Margin of safety" in fragment

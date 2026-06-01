@@ -83,16 +83,23 @@ def tornado_chart_png(tornado: Sequence[TornadoEntry]) -> bytes:
         The chart encoded as PNG image bytes.
     """
     # Top-to-bottom = widest-to-narrowest: reverse so y=0 (top) is the first entry.
-    entries = list(tornado)
-    labels = [entry.axis.value for entry in entries][::-1]
-    lows = [entry.intrinsic_low for entry in entries][::-1]
-    highs = [entry.intrinsic_high for entry in entries][::-1]
+    # Scenarios outside the DCF domain (None endpoints) have no drawable span, so
+    # they are omitted from the chart; the Markdown table still lists them. Pull
+    # the three drawable fields in one pass (the filter narrows them to float).
+    drawable = [
+        (entry.axis.value, entry.intrinsic_low, entry.intrinsic_high)
+        for entry in tornado
+        if entry.intrinsic_low is not None and entry.intrinsic_high is not None
+    ][::-1]
+    labels = [axis for axis, _, _ in drawable]
+    lows = [low for _, low, _ in drawable]
+    highs = [high for _, _, high in drawable]
 
-    positions = range(len(entries))
+    positions = range(len(drawable))
     lefts = [min(low, high) for low, high in zip(lows, highs, strict=True)]
     widths = [abs(high - low) for low, high in zip(lows, highs, strict=True)]
 
-    fig, ax = plt.subplots(figsize=(8.0, 0.5 * len(entries) + 1.5), dpi=120)
+    fig, ax = plt.subplots(figsize=(8.0, 0.5 * len(drawable) + 1.5), dpi=120)
     try:
         ax.barh(list(positions), widths, left=lefts, color="#3b7dd8", height=0.6)
         ax.set_yticks(list(positions))
@@ -131,12 +138,19 @@ def sensitivity_heatmap_html(grid: Grid2D) -> str:
     Returns:
         An HTML fragment (a ``<div>`` plus inline ``<script>``) rendering the heatmap.
     """
+    # Out-of-domain cells carry None; Plotly renders a null z as a blank cell.
     z = [
-        [round(cell.margin_of_safety, _GRID_DECIMALS) for cell in row]
+        [
+            None if cell.margin_of_safety is None else round(cell.margin_of_safety, _GRID_DECIMALS)
+            for cell in row
+        ]
         for row in grid.cells
     ]
     customdata = [
-        [round(cell.intrinsic_value, _GRID_DECIMALS) for cell in row]
+        [
+            None if cell.intrinsic_value is None else round(cell.intrinsic_value, _GRID_DECIMALS)
+            for cell in row
+        ]
         for row in grid.cells
     ]
     col_labels = [_pct_delta(m) for m in grid.col_multipliers]
@@ -159,10 +173,7 @@ def sensitivity_heatmap_html(grid: Grid2D) -> str:
         )
     )
     figure.update_layout(
-        title=(
-            f"Sensitivity heatmap — {grid.axis_a.value} (rows) x "
-            f"{grid.axis_b.value} (cols)"
-        ),
+        title=(f"Sensitivity heatmap — {grid.axis_a.value} (rows) x {grid.axis_b.value} (cols)"),
         xaxis_title=grid.axis_b.value,
         yaxis_title=grid.axis_a.value,
         margin={"l": 60, "r": 20, "t": 60, "b": 60},
