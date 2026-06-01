@@ -6,6 +6,8 @@ isolation against an in-memory DuckDB, with no HTTP and no report I/O.
 
 from __future__ import annotations
 
+from datetime import date
+
 import duckdb
 import pytest
 
@@ -203,6 +205,83 @@ def test_build_company_data_roic_uses_country_tax_rate(
     )
     # Germany's 30% tax rate, not the US 21% default: 200 * 0.70 / 1000 = 0.14.
     assert cd.roic == pytest.approx(200.0 * (1.0 - 0.30) / 1000.0)
+
+
+def _load_tst_annual(conn: duckdb.DuckDBPyConnection) -> list:  # type: ignore[type-arg]
+    from bot.screener.engine import _AnnualRow
+
+    rows = conn.execute(
+        "SELECT revenue, ebit, ebitda, interest_expense, net_income, total_assets, "
+        "total_debt, cash, total_equity, goodwill, operating_cashflow, free_cashflow, "
+        "shares_diluted FROM financials_annual WHERE ticker = ? ORDER BY fiscal_year",
+        ["TST"],
+    ).fetchall()
+    return [_AnnualRow(*r) for r in rows]
+
+
+def test_build_company_data_converts_market_cap_to_usd(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_one(conn)
+    conn.execute(
+        "INSERT INTO currencies (currency, date, rate_to_usd, source) VALUES (?, ?, ?, ?)",
+        ["EUR", "2026-05-29", 1.2, "fmp"],
+    )
+    row = _load_companies(conn)[0]
+    cd = build_company_data(
+        conn,
+        row,
+        _load_tst_annual(conn),
+        market_cap=1000.0,
+        close=10.0,
+        currency="EUR",
+        as_of=date(2026, 5, 29),
+    )
+    # The stored market_cap is USD: 1000 EUR * 1.2 = 1200.
+    assert cd.market_cap == pytest.approx(1200.0)
+    # ev_ebitda is currency-self-consistent: computed from the LOCAL market_cap
+    # (1000), not the converted one — (1000 + net_debt(-100)) / ebitda(300).
+    assert cd.ev_ebitda == pytest.approx((1000.0 - 100.0) / 300.0)
+    # fcf_yield likewise uses local market_cap: fcf(200) / 1000.
+    assert cd.fcf_yield == pytest.approx(200.0 / 1000.0)
+
+
+def test_build_company_data_market_cap_none_when_no_fx_rate(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_one(conn)
+    row = _load_companies(conn)[0]
+    # No currencies row for GBP -> to_usd raises LookupError -> market_cap None,
+    # so MinMarketCap treats it as unmeasurable rather than crashing the run.
+    cd = build_company_data(
+        conn,
+        row,
+        _load_tst_annual(conn),
+        market_cap=1000.0,
+        close=10.0,
+        currency="GBP",
+        as_of=date(2026, 5, 29),
+    )
+    assert cd.market_cap is None
+    # Ratios still derive from the local market_cap.
+    assert cd.ev_ebitda == pytest.approx((1000.0 - 100.0) / 300.0)
+
+
+def test_build_company_data_usd_market_cap_unchanged(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_one(conn)
+    row = _load_companies(conn)[0]
+    cd = build_company_data(
+        conn,
+        row,
+        _load_tst_annual(conn),
+        market_cap=1000.0,
+        close=10.0,
+        currency="USD",
+        as_of=date(2026, 5, 29),
+    )
+    assert cd.market_cap == pytest.approx(1000.0)
 
 
 def test_build_company_data_handles_no_financials(

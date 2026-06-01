@@ -21,7 +21,13 @@ class CompanyData:
     """A single company's screener-relevant snapshot.
 
     Assembled by the screener engine from ``companies`` + ``financials_annual``
-    (spec §5). Monetary values are in USD unless otherwise noted.
+    (spec §5). ``market_cap`` is normalised to USD so the absolute MinMarketCap
+    gate compares like with like; the other monetary figures (``net_debt``,
+    ``ebitda``, ``ebit``, ``goodwill``, ``total_assets``, ``net_income``,
+    ``operating_cashflow`` and the histories) remain in the company's listing
+    currency. That is safe because every rule consuming them does so as a
+    currency-self-consistent ratio (e.g. net_debt/EBITDA), never as an absolute
+    USD threshold. Full USD normalisation of all figures is deferred (G2 #2).
     """
 
     ticker: str

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import date
 
 import duckdb
 
@@ -36,6 +37,7 @@ from bot.screener.ranking import (
 from bot.screener.rules import Rule
 from bot.screener.types import CompanyData, IndustryBenchmarks
 from bot.utils.finance import cagr
+from bot.utils.fx import to_usd
 from bot.valuator.analysis import analyze
 
 #: Damodaran region used when a company's country has no ``damodaran_country``
@@ -176,14 +178,24 @@ def _load_annual(conn: duckdb.DuckDBPyConnection, ticker: str) -> list[_AnnualRo
     return [_AnnualRow(*r) for r in rows]
 
 
-def _latest_market_cap(conn: duckdb.DuckDBPyConnection, ticker: str) -> float | None:
+def _latest_market_cap(
+    conn: duckdb.DuckDBPyConnection, ticker: str
+) -> tuple[float | None, str | None, date | None]:
+    """Latest local-currency market cap with its currency and observation date.
+
+    The currency/date let the snapshot assembly convert the cap to USD for the
+    absolute MinMarketCap gate (the figure is stored in the listing currency).
+    """
     row = conn.execute(
-        "SELECT market_cap FROM prices_daily "
+        "SELECT market_cap, currency, date FROM prices_daily "
         "WHERE ticker = ? AND market_cap IS NOT NULL "
         "ORDER BY date DESC LIMIT 1",
         [ticker],
     ).fetchone()
-    return float(row[0]) if row is not None and row[0] is not None else None
+    if row is None or row[0] is None:
+        return None, None, None
+    as_of = row[2] if isinstance(row[2], date) else date.fromisoformat(str(row[2])[:10])
+    return float(row[0]), row[1], as_of
 
 
 def _latest_close(conn: duckdb.DuckDBPyConnection, ticker: str) -> float | None:
@@ -254,6 +266,32 @@ def _ratio(numerator: float | None, denominator: float | None) -> float | None:
     return numerator / denominator
 
 
+def _market_cap_usd(
+    conn: duckdb.DuckDBPyConnection,
+    market_cap: float | None,
+    currency: str | None,
+    as_of: date | None,
+) -> float | None:
+    """Market cap in USD for the absolute MinMarketCap gate.
+
+    Passes the value through unchanged when no currency/date is supplied — i.e.
+    direct unit tests, or a ``prices_daily`` row with a NULL currency. The latter
+    treats the cap as already-USD, which is correct for the current US-only
+    universe but would understate the bug F2 fix for a foreign listing whose
+    price import left the currency unset; populating ``prices_daily.currency`` in
+    the importer (or backfilling from ``companies.currency``) is the follow-up.
+    A non-USD currency with no FX rate on or before ``as_of`` yields ``None`` so
+    the gate treats the company as unmeasurable rather than comparing a
+    foreign-currency figure to a USD floor.
+    """
+    if market_cap is None or currency is None or as_of is None:
+        return market_cap
+    try:
+        return to_usd(conn, market_cap, currency, as_of)
+    except LookupError:
+        return None
+
+
 def build_company_data(
     conn: duckdb.DuckDBPyConnection,
     company: _CompanyRow,
@@ -261,6 +299,8 @@ def build_company_data(
     *,
     market_cap: float | None,
     close: float | None,
+    currency: str | None = None,
+    as_of: date | None = None,
 ) -> CompanyData:
     """Assemble a pure :class:`CompanyData` snapshot for one company (spec §5/§6).
 
@@ -268,6 +308,11 @@ def build_company_data(
     yield) and the histories the gates / trap detectors read, from the latest
     annual row and the price feed. Missing inputs stay ``None`` / empty so each
     rule can decide how to treat the gap.
+
+    ``market_cap`` arrives in the listing currency; the currency-self-consistent
+    ratios (EV/EBITDA, FCF yield) are computed from it directly, but the stored
+    :attr:`CompanyData.market_cap` is converted to USD (via ``currency`` /
+    ``as_of``) so the absolute MinMarketCap gate compares like with like.
     """
     latest = annual[-1] if annual else None
 
@@ -337,7 +382,7 @@ def build_company_data(
         name=company.name,
         industry=industry,
         region=_resolve_region(conn, company.country),
-        market_cap=market_cap,
+        market_cap=_market_cap_usd(conn, market_cap, currency, as_of),
         years_of_financials=len(annual),
         net_debt=net_debt,
         ebitda=ebitda,
@@ -511,9 +556,17 @@ def run_screen(
     screened = 0
     for row in _load_companies(conn):
         annual = _load_annual(conn, row.ticker)
-        market_cap = _latest_market_cap(conn, row.ticker)
+        market_cap, mc_currency, mc_as_of = _latest_market_cap(conn, row.ticker)
         close = _latest_close(conn, row.ticker)
-        company = build_company_data(conn, row, annual, market_cap=market_cap, close=close)
+        company = build_company_data(
+            conn,
+            row,
+            annual,
+            market_cap=market_cap,
+            close=close,
+            currency=mc_currency,
+            as_of=mc_as_of,
+        )
         screened += 1
         region = company.region or DEFAULT_REGION
         benchmarks = load_industry_benchmarks(conn, industry=company.industry, region=region)
