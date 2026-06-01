@@ -103,6 +103,88 @@ def test_import_damodaran_download_failure_returns_error_result(tmp_path: Path) 
     conn.close()
 
 
+def test_import_damodaran_success_writes_single_refresh_log_row(
+    tmp_path: Path,
+) -> None:
+    """The success path must write exactly one 'damodaran' refresh_log row.
+
+    Regression: import_damodaran wrapped the download in its own refresh_run
+    envelope AND delegated to import_damodaran_from_files (which opens a second
+    envelope), so a successful run logged two rows — a phantom rows_affected=0
+    'success' plus the real row.
+    """
+    conn = _make_conn()
+
+    industry_xlsx = tmp_path / "wacc.xlsx"
+    country_xlsx = tmp_path / "ctryprem.xlsx"
+    _make_industry_xlsx(industry_xlsx)
+    _make_country_xlsx(country_xlsx)
+
+    # download_dataset just returns the path it was asked to write to; the files
+    # already exist on disk so the importer can parse them.
+    def _fake_download(url: str, dest: Path) -> Path:
+        return industry_xlsx if "wacc" in dest.name else country_xlsx
+
+    with patch("bot.ingest.damodaran.download_dataset", side_effect=_fake_download):
+        result = import_damodaran(
+            conn,
+            download_dir=tmp_path,
+            region="US",
+            year=2026,
+        )
+
+    assert result.status == "success"
+    assert result.rows_affected > 0
+
+    rows = conn.execute(
+        "SELECT status, rows_affected FROM refresh_log WHERE source = 'damodaran'"
+    ).fetchall()
+    assert len(rows) == 1, f"expected exactly one refresh_log row, got {rows}"
+    assert rows[0][0] == "success"
+    assert rows[0][1] == result.rows_affected
+
+    conn.close()
+
+
+def test_import_damodaran_import_failure_writes_single_error_row(
+    tmp_path: Path,
+) -> None:
+    """A parse/upsert failure after a successful download must still produce a
+    single error refresh_log row (one envelope, not two)."""
+    conn = _make_conn()
+
+    industry_xlsx = tmp_path / "wacc.xlsx"
+    country_xlsx = tmp_path / "ctryprem.xlsx"
+    _make_industry_xlsx(industry_xlsx)
+    _make_country_xlsx(country_xlsx)
+
+    def _fake_download(url: str, dest: Path) -> Path:
+        return industry_xlsx if "wacc" in dest.name else country_xlsx
+
+    with (
+        patch("bot.ingest.damodaran.download_dataset", side_effect=_fake_download),
+        patch(
+            "bot.ingest.damodaran.upsert_industry_rows",
+            side_effect=RuntimeError("boom"),
+        ),
+    ):
+        result = import_damodaran(
+            conn,
+            download_dir=tmp_path,
+            region="US",
+            year=2026,
+        )
+
+    assert result.status == "error"
+    assert result.error_message is not None and "boom" in result.error_message
+
+    rows = conn.execute("SELECT status FROM refresh_log WHERE source = 'damodaran'").fetchall()
+    assert len(rows) == 1, f"expected exactly one refresh_log row, got {rows}"
+    assert rows[0][0] == "error"
+
+    conn.close()
+
+
 # ---------------------------------------------------------------------------
 # Fix 2 — atomic dual upsert (rollback on second-upsert failure)
 # ---------------------------------------------------------------------------
