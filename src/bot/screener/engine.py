@@ -31,6 +31,7 @@ from bot.screener.ranking import (
     RankingWeights,
     ScoredCandidate,
     rank,
+    rescore_with_margins,
 )
 from bot.screener.rules import Rule
 from bot.screener.types import CompanyData, IndustryBenchmarks
@@ -535,29 +536,22 @@ def run_screen(
             )
         )
 
-    by_metric = {c.ticker: c for c in candidates}
-
-    # First pass: placeholder ranking, truncated to the shortlist the valuator runs on.
+    # First pass: rank the FULL survivor universe so the value/quality/growth
+    # percentiles mean "rank within the filtered universe", then truncate to the
+    # shortlist the valuator runs on.
     first_pass = rank(candidates, weights)
     if top is not None:
         first_pass = first_pass[:top]
 
-    # Second pass: value each shortlisted candidate, then re-rank with the real MoS.
-    valued: list[Candidate] = []
+    # Second pass: value each shortlisted candidate and re-blend the composite
+    # with the real MoS, keeping the full-universe percentiles (rescore does not
+    # re-rank the sub-scores over the truncated subset).
+    margins: dict[str, float] = {}
     for scored_candidate in first_pass:
-        base = by_metric[scored_candidate.ticker]
-        mos = valuator(conn, base.ticker) if valuator is not None else None
-        valued.append(
-            Candidate(
-                ticker=base.ticker,
-                value_metric=base.value_metric,
-                quality_metric=base.quality_metric,
-                growth_metric=base.growth_metric,
-                margin_of_safety=(mos if mos is not None else PLACEHOLDER_MARGIN_OF_SAFETY),
-            )
-        )
+        mos = valuator(conn, scored_candidate.ticker) if valuator is not None else None
+        margins[scored_candidate.ticker] = mos if mos is not None else PLACEHOLDER_MARGIN_OF_SAFETY
 
-    scored = rank(valued, weights)
+    scored = rescore_with_margins(first_pass, margins, weights)
     by_ticker = {p.company.ticker: p for p in pending}
     shortlist = _project(scored, by_ticker)
     return ScreenResult(preset=config.name, shortlist=shortlist, screened=screened)
