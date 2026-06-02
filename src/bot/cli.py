@@ -11,6 +11,7 @@ import typer
 from bot import __version__
 from bot.config import Settings, load_settings
 from bot.ingest.damodaran import import_damodaran
+from bot.ingest.ibkr import IbkrClient
 from bot.ingest.sec_edgar import import_company_from_sec
 from bot.ingest.universe import (
     UniverseRefreshResult,
@@ -20,6 +21,7 @@ from bot.ingest.universe import (
     refresh_prices_from_fmp,
     refresh_universe_from_fmp,
 )
+from bot.portfolio.command import run_portfolio
 from bot.reporting.analysis_report import render_analysis
 from bot.reporting.html import render_analysis_html
 from bot.reporting.screen_report import render_csv, render_markdown
@@ -357,6 +359,46 @@ def screen(
     )
     typer.echo(f"Wrote {md_path}")
     typer.echo(f"Wrote {csv_path}")
+
+
+@app.command()
+def portfolio(
+    history: bool = typer.Option(
+        False, "--history", help="Include a P&L time series across snapshots."
+    ),
+    concentration: bool = typer.Option(
+        False, "--concentration", help="Include a concentration breakdown."
+    ),
+) -> None:
+    """Sync the portfolio, diff it against the last snapshot, and write reports.
+
+    Connects to the read-only IBKR client, writes today's snapshot, computes the
+    §8.3 event stream versus the previous snapshot (persisting it to
+    ``events_log``), then writes two artefacts under
+    ``<reports_dir>/YYYY-MM-DD/``: ``portfolio.md`` (full state — positions, P&L,
+    concentration, suggested reviews; plus a P&L time series with ``--history``
+    and an explicit concentration breakdown with ``--concentration``) and
+    ``alerts.md`` (today's events only, always written even when there are none).
+
+    Sending notifications is out of scope (the notifier owns email/Telegram).
+    """
+    conn, settings = _open_db()
+    client = IbkrClient.from_settings(settings)
+    result = run_portfolio(
+        conn,
+        client,
+        reports_dir=settings.reports_dir,
+        today=date.today(),
+        history=history,
+        concentration=concentration,
+    )
+    typer.echo(
+        f"Synced snapshot {result.snapshot_date.isoformat()} "
+        f"(prev {result.prev_snapshot_date.isoformat() if result.prev_snapshot_date else 'none'}) "
+        f"→ {result.events} event(s)"
+    )
+    typer.echo(f"Wrote {result.portfolio_path}")
+    typer.echo(f"Wrote {result.alerts_path}")
 
 
 @app.command()
