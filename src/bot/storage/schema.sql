@@ -247,6 +247,25 @@ CREATE TABLE IF NOT EXISTS corporate_actions (
     fetched_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Portfolio monitor event log (spec §8.3, M5, #28). One row per detected event
+-- between two consecutive portfolio snapshots. `event_type` is a member of
+-- bot.portfolio.events.EventType (e.g. 'position_opened', 'new_filing',
+-- 'intrinsic_value_crossed_price'). `ticker` is the affected position.
+-- `prev_snapshot_date` is NULL for the very first snapshot (no prior baseline);
+-- `curr_snapshot_date` is the snapshot the event was detected on. `details` is a
+-- JSON blob carrying the event-specific payload (the % size change, the crossed
+-- price/intrinsic value, the red flag name, the filing accession, etc.). This is
+-- an append-only audit trail; rendering / alerting lives in #29 / #32.
+CREATE TABLE IF NOT EXISTS events_log (
+    event_type          VARCHAR NOT NULL,
+    ticker              VARCHAR NOT NULL,
+    prev_snapshot_date  DATE,
+    curr_snapshot_date  DATE NOT NULL,
+    details             JSON,
+    source              VARCHAR NOT NULL DEFAULT 'portfolio-monitor',
+    detected_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS screener_candidates (
     run_id          VARCHAR NOT NULL,
     preset          VARCHAR NOT NULL,
