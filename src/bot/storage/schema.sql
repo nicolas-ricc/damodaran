@@ -166,6 +166,40 @@ CREATE TABLE IF NOT EXISTS refresh_log (
 -- Sub-scores follow spec §6.5: score = 0.40*value + 0.30*quality
 -- + 0.20*growth + 0.10*margin_of_safety. passed_gates / failed_gates hold the
 -- serialized rule names (§6.2/§6.4) that the candidate cleared or tripped.
+-- Daily portfolio snapshot from the read-only IBKR client (M5, #26).
+-- Append-only across days; one batch of rows per (account, snapshot_date).
+-- `sync_portfolio` is idempotent per day: re-running on the same calendar day
+-- deletes that day's rows for the account and re-inserts, so a same-day refresh
+-- never duplicates while a new day appends a fresh snapshot.
+CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+    snapshot_date   DATE NOT NULL,
+    account         VARCHAR NOT NULL,
+    ticker          VARCHAR NOT NULL,
+    con_id          INTEGER,
+    sec_type        VARCHAR,
+    exchange        VARCHAR,
+    qty             DOUBLE,
+    avg_cost        DOUBLE,
+    market_value    DOUBLE,
+    currency        VARCHAR,
+    source          VARCHAR NOT NULL DEFAULT 'ibkr',
+    fetched_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (snapshot_date, account, ticker, con_id)
+);
+
+-- Per-currency cash balances captured alongside each portfolio snapshot
+-- (M5, #26). One row per (snapshot_date, account, currency); same per-day
+-- delete-then-insert idempotency as portfolio_snapshots.
+CREATE TABLE IF NOT EXISTS cash_balances (
+    snapshot_date   DATE NOT NULL,
+    account         VARCHAR NOT NULL,
+    currency        VARCHAR NOT NULL,
+    amount          DOUBLE,
+    source          VARCHAR NOT NULL DEFAULT 'ibkr',
+    fetched_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (snapshot_date, account, currency)
+);
+
 CREATE TABLE IF NOT EXISTS screener_candidates (
     run_id          VARCHAR NOT NULL,
     preset          VARCHAR NOT NULL,
