@@ -200,6 +200,53 @@ CREATE TABLE IF NOT EXISTS cash_balances (
     PRIMARY KEY (snapshot_date, account, currency)
 );
 
+-- Trade executions (fills) sourced from the IBKR TWS socket (M5, #27).
+-- Append-only: one row per broker execution. `sync_trades` is incremental —
+-- it derives a watermark from max(executed_at) already stored and only fetches
+-- fills newer than that, de-duping on the broker `exec_id` so an overlapping
+-- look-back window cannot double-insert. `exec_id` is IBKR's globally-unique
+-- execution id and is the primary key. `executed_at` is the fill timestamp
+-- normalised to naive UTC (ib_async returns it timezone-aware; the sync layer
+-- converts to UTC and drops the tzinfo so DuckDB needs no pytz at read time).
+-- NOTE: the live TWS socket only
+-- returns the current session's fills (today + a short look-back), so this
+-- table accumulates history across daily runs; a one-shot historical backfill
+-- needs IBKR Flex (out of scope, see #27 addendum).
+CREATE TABLE IF NOT EXISTS trades (
+    exec_id         VARCHAR PRIMARY KEY,
+    account         VARCHAR NOT NULL,
+    con_id          INTEGER,
+    ticker          VARCHAR NOT NULL,
+    sec_type        VARCHAR,
+    side            VARCHAR,
+    qty             DOUBLE,
+    price           DOUBLE,
+    currency        VARCHAR,
+    executed_at     TIMESTAMP NOT NULL,
+    perm_id         INTEGER,
+    source          VARCHAR NOT NULL DEFAULT 'ibkr',
+    fetched_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Corporate actions — dividends received, splits, mergers (M5, #27).
+-- DEFERRED / STUBBED: the live TWS socket does NOT expose corporate actions in
+-- any reliable form (see #27 addendum). They come from IBKR's Flex Web Service
+-- (a Flex Query + token fetched over HTTP) or downloaded account statements —
+-- a separate integration with its own auth that is out of scope here. This
+-- table is created so the schema is ready, but nothing populates it yet; a
+-- follow-up issue will add a Flex importer. `details` is a JSON blob holding
+-- the fields that vary by action type (split ratio, merger terms, etc.).
+CREATE TABLE IF NOT EXISTS corporate_actions (
+    action_id       VARCHAR PRIMARY KEY,
+    account         VARCHAR,
+    action_type     VARCHAR NOT NULL,
+    ticker          VARCHAR NOT NULL,
+    effective_date  DATE NOT NULL,
+    details         JSON,
+    source          VARCHAR NOT NULL DEFAULT 'ibkr-flex',
+    fetched_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS screener_candidates (
     run_id          VARCHAR NOT NULL,
     preset          VARCHAR NOT NULL,
