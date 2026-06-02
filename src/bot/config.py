@@ -26,6 +26,21 @@ class Settings(BaseSettings):
         ...,
         description="Financial Modeling Prep API key. Required for global fundamentals (M2).",
     )
+    ibkr_host: str = Field(
+        default="127.0.0.1",
+        description="Host of the running TWS / IB Gateway socket (M5).",
+    )
+    ibkr_port: int = Field(
+        default=7496,
+        description=(
+            "TWS API socket port. 7496 = live TWS (default), 7497 = paper TWS, "
+            "4001/4002 = IB Gateway live/paper."
+        ),
+    )
+    ibkr_client_id: int = Field(
+        default=1,
+        description="Client id for the TWS API connection. Each concurrent client needs a distinct id.",
+    )
     reports_dir: Path = Field(default=Path("./reports"))
     presets_dir: Path = Field(
         default=Path("./config/presets"),
