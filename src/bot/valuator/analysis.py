@@ -21,8 +21,8 @@ from pathlib import Path
 import duckdb
 
 from bot.utils.finance import cagr
+from bot.valuator.assumptions import AssumptionInputs, load_assumption_inputs, resolve_assumptions
 from bot.valuator.assumptions import Assumptions as SourcedAssumptions
-from bot.valuator.assumptions import resolve_assumptions
 from bot.valuator.dcf import DCFResult, Financials, dcf
 from bot.valuator.narrative_flags import NarrativeContext, NarrativeFlag, narrative_flags
 from bot.valuator.sensitivity import Grid2D, SensitivityAxis, TornadoEntry, grid_2d, tornado
@@ -234,6 +234,69 @@ def _load_sector_multiples(
     )
 
 
+@dataclass(frozen=True)
+class ValuationInput:
+    """Every DB row :func:`analyze` needs for one company, pre-loaded.
+
+    Threading a pre-built bundle into ``analyze(company=...)`` lets a caller that
+    already holds these rows — e.g. the screener's batched second pass — value
+    the company without re-issuing the per-ticker ``companies`` /
+    ``financials_annual`` / ``prices_daily`` / Damodaran reads. This is the
+    deferred valuator half of the F7 N+1 fix (#53). Build one with
+    :func:`load_valuation_input`.
+
+    Attributes:
+        ticker: The (upper-cased) ticker these rows belong to.
+        company: The ``companies`` row (name, country, currency, industry).
+        latest: The latest non-restated annual financials.
+        revenue_history / income_history / ebit_history: Oldest-first histories.
+        sector: The Damodaran sector/country multiples.
+        current_price: Latest close, or ``None``.
+        assumption_inputs: The pre-loaded rows :func:`resolve_assumptions` needs.
+    """
+
+    ticker: str
+    company: _CompanyRow
+    latest: _LatestFinancials
+    revenue_history: tuple[float, ...]
+    income_history: tuple[float, ...]
+    ebit_history: tuple[float, ...]
+    sector: _SectorMultiples
+    current_price: float | None
+    assumption_inputs: AssumptionInputs
+
+
+def load_valuation_input(
+    conn: duckdb.DuckDBPyConnection, ticker: str
+) -> ValuationInput:
+    """Load every DB row :func:`analyze` needs for ``ticker`` in one place.
+
+    Pure in the project sense (accepts the connection, reads only). The result
+    can be reused across calls (e.g. cached or bulk-built) so each company's
+    per-ticker reads happen exactly once.
+
+    Raises:
+        LookupError: If ``ticker`` is unknown or has no annual financials.
+    """
+    ticker = ticker.upper()
+    company = _load_company(conn, ticker)
+    latest = _load_latest_financials(conn, ticker)
+    revenue_history, income_history, ebit_history = _load_history(conn, ticker)
+    sector = _load_sector_multiples(conn, company)
+    current_price = _load_latest_price(conn, ticker)
+    return ValuationInput(
+        ticker=ticker,
+        company=company,
+        latest=latest,
+        revenue_history=revenue_history,
+        income_history=income_history,
+        ebit_history=ebit_history,
+        sector=sector,
+        current_price=current_price,
+        assumption_inputs=load_assumption_inputs(conn, ticker),
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Derived signals                                                              #
 # --------------------------------------------------------------------------- #
@@ -324,6 +387,7 @@ def analyze(
     *,
     is_cyclical_sector: bool = False,
     age_years: int | None = None,
+    company: ValuationInput | None = None,
 ) -> Analysis:
     """Run the full §7.7 analysis pipeline for ``ticker``.
 
@@ -335,6 +399,12 @@ def analyze(
         is_cyclical_sector: Whether the company's sector is structurally cyclical
             (feeds the story-type classifier's cyclical signal, spec §7.1).
         age_years: Company age in years, if known (a high-growth signal).
+        company: Pre-loaded DB rows for ``ticker`` (see
+            :func:`load_valuation_input`). When supplied, every per-ticker read
+            is skipped and these rows are used verbatim, so a batched caller
+            issues zero DB queries (the F7 N+1 fix, #53). When ``None`` (the
+            default) the rows are loaded from ``conn``. ``ticker`` must match
+            ``company.ticker``.
 
     Returns:
         An :class:`Analysis` carrying everything the §7.7 report renders.
@@ -346,11 +416,16 @@ def analyze(
             :func:`bot.valuator.dcf.dcf`).
     """
     ticker = ticker.upper()
-    company = _load_company(conn, ticker)
-    latest = _load_latest_financials(conn, ticker)
-    revenue_history, income_history, ebit_history = _load_history(conn, ticker)
-    sector = _load_sector_multiples(conn, company)
-    current_price = _load_latest_price(conn, ticker)
+    if company is None:
+        company = load_valuation_input(conn, ticker)
+    inputs = company
+    company_row = inputs.company
+    latest = inputs.latest
+    revenue_history = inputs.revenue_history
+    income_history = inputs.income_history
+    ebit_history = inputs.ebit_history
+    sector = inputs.sector
+    current_price = inputs.current_price
 
     # Story type: classify, then let a manual override win inside resolve.
     interest_coverage = None
@@ -371,6 +446,7 @@ def analyze(
         override_path=override_path,
         gdp_nominal=gdp_nominal,
         auto_story_type=auto_story,
+        db_inputs=inputs.assumption_inputs,
     )
     story_type = assumptions.story_type or auto_story.value
 
@@ -417,9 +493,9 @@ def analyze(
 
     return Analysis(
         ticker=ticker,
-        name=company.name,
-        country=company.country,
-        currency=company.currency,
+        name=company_row.name,
+        country=company_row.country,
+        currency=company_row.currency,
         story_type=story_type,
         story_reasons=_story_reasons(auto_story, revenue_history, age_years),
         assumptions=assumptions,

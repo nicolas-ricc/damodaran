@@ -171,6 +171,55 @@ class _CountryRow:
     tax_rate: float | None
 
 
+@dataclass(frozen=True)
+class AssumptionInputs:
+    """Pre-loaded DB rows :func:`resolve_assumptions` needs for one company.
+
+    Threading a pre-built bundle into :func:`resolve_assumptions` lets a caller
+    that already holds these rows (e.g. the screener's batched second pass) avoid
+    re-issuing the per-ticker ``companies`` / ``damodaran_country`` /
+    ``damodaran_industry`` / ``financials_annual`` reads — the deferred half of
+    the F7 N+1 fix (#53). Build one with :func:`load_assumption_inputs`.
+
+    Attributes:
+        company: The ``companies`` row (country + Damodaran industry).
+        country: The latest ``damodaran_country`` row, or ``None``.
+        sector: The latest ``damodaran_industry`` row for the company's
+            industry/region, or ``None``.
+        historical_growth_path: The historical-average revenue-growth path, or
+            ``None`` when there is too little history.
+    """
+
+    company: _Company
+    country: _CountryRow | None
+    sector: _SectorRow | None
+    historical_growth_path: tuple[float, ...] | None
+
+
+def load_assumption_inputs(
+    conn: duckdb.DuckDBPyConnection, ticker: str
+) -> AssumptionInputs:
+    """Load every DB row :func:`resolve_assumptions` needs for ``ticker``.
+
+    Pure in the project sense (accepts the connection, reads only). The result
+    can be reused across calls so the per-ticker reads happen exactly once.
+
+    Raises:
+        LookupError: If ``ticker`` is unknown.
+    """
+    company = _load_company(conn, ticker)
+    country = _load_country(conn, company.country)
+    region = country.region if country is not None else None
+    sector = _load_sector(conn, company.industry_damodaran, region)
+    historical_growth_path = _historical_growth_path(conn, ticker)
+    return AssumptionInputs(
+        company=company,
+        country=country,
+        sector=sector,
+        historical_growth_path=historical_growth_path,
+    )
+
+
 def _load_company(conn: duckdb.DuckDBPyConnection, ticker: str) -> _Company:
     row = conn.execute(
         "SELECT country, industry_damodaran FROM companies WHERE ticker = ?",
@@ -292,6 +341,7 @@ def resolve_assumptions(
     *,
     gdp_nominal: float = _DEFAULT_GDP_NOMINAL,
     auto_story_type: StoryType | None = None,
+    db_inputs: AssumptionInputs | None = None,
 ) -> Assumptions:
     """Resolve the six critical DCF assumptions for ``ticker`` (spec §7.3).
 
@@ -306,6 +356,10 @@ def resolve_assumptions(
             (:func:`bot.valuator.story_types.classify`) assigned this company.
             It fills ``story_type`` only when the override YAML does not set one
             — a manual ``story_type`` always wins (spec §7.6 override hook).
+        db_inputs: Pre-loaded DB rows (see :func:`load_assumption_inputs`). When
+            supplied, every per-ticker read is skipped and these rows are used
+            verbatim, so a batched caller issues zero queries (the F7 N+1 fix,
+            #53). When ``None`` (the default) the rows are loaded from ``conn``.
 
     Returns:
         An :class:`Assumptions` bundle where every field carries its source.
@@ -313,13 +367,15 @@ def resolve_assumptions(
     Raises:
         LookupError: If ``ticker`` is unknown.
     """
-    company = _load_company(conn, ticker)
-    country = _load_country(conn, company.country)
-    region = country.region if country is not None else None
-    sector = _load_sector(conn, company.industry_damodaran, region)
+    if db_inputs is None:
+        db_inputs = load_assumption_inputs(conn, ticker)
+    country = db_inputs.country
+    sector = db_inputs.sector
     override = _load_override(override_path)
 
-    revenue_growth = _resolve_revenue_growth(conn, ticker, override, gdp_nominal)
+    revenue_growth = _resolve_revenue_growth(
+        db_inputs.historical_growth_path, override, gdp_nominal
+    )
     operating_margin = _resolve_sector_scalar(
         override, sector, key="operating_margin", attr="op_margin"
     )
@@ -368,8 +424,7 @@ def _resolve_story_type(
 
 
 def _resolve_revenue_growth(
-    conn: duckdb.DuckDBPyConnection,
-    ticker: str,
+    historical: tuple[float, ...] | None,
     override: dict[str, Any],
     gdp_nominal: float,
 ) -> Sourced[tuple[float, ...] | None]:
@@ -377,7 +432,6 @@ def _resolve_revenue_growth(
     if manual is not None:
         return manual
     # M1 universe: no analyst-consensus feed → historical average.
-    historical = _historical_growth_path(conn, ticker)
     if historical is not None:
         return Sourced(value=historical, source=AssumptionSource.HISTORICAL_AVERAGE)
     # No history at all: rule-based flat path anchored on nominal GDP.

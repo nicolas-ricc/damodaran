@@ -584,3 +584,157 @@ def test_run_screen_reranks_when_valuator_differs_from_placeholder(
     assert valued_order[0] == "BBB"
     # And the order genuinely changed relative to the placeholder ranking.
     assert valued_order != placeholder_order
+
+
+# --------------------------------------------------------------------------- #
+# #53 — second-pass valuator N+1 (deferred F7 half): zero per-candidate reads  #
+# --------------------------------------------------------------------------- #
+
+
+class _CountingConn:
+    """A connection proxy that counts ``execute`` calls (a query spy).
+
+    Delegates every attribute to the wrapped DuckDB connection so it is a
+    drop-in for the loaders/valuator, while tallying every query issued. Used to
+    prove the second pass issues no per-candidate DB queries once the
+    pre-loaded :class:`ValuationInput` is threaded through ``analyze``.
+    """
+
+    def __init__(self, conn: duckdb.DuckDBPyConnection) -> None:
+        self._conn = conn
+        self.executes = 0
+
+    def execute(self, *args: object, **kwargs: object) -> object:
+        self.executes += 1
+        return self._conn.execute(*args, **kwargs)
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._conn, name)
+
+
+def _seed_valuable_sector(conn: duckdb.DuckDBPyConnection) -> None:
+    """A Software sector row carrying every multiple the real DCF needs.
+
+    ``_seed_sector`` only carries ``wacc``/``pe`` (enough for the screener
+    layers), so a real DCF over those companies leaves ``operating_margin``
+    unresolved and raises. This adds the full Damodaran row so the default
+    valuator can actually value the seeded companies.
+    """
+    conn.execute(
+        "INSERT INTO damodaran_country "
+        "(country, year, region, risk_free_rate, erp, tax_rate) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ["United States", 2026, "US", 0.04, 0.045, 0.21],
+    )
+    conn.execute(
+        "INSERT INTO damodaran_industry "
+        "(industry, region, year, wacc, pe, cost_of_equity, cost_of_debt, "
+        "beta_levered, debt_to_equity, op_margin, sales_to_capital, ev_sales) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ["Software", "US", 2026, 0.08, 20.0, 0.09, 0.045, 1.05, 0.20, 0.25, 2.5, 5.0],
+    )
+
+
+def test_analyze_with_preloaded_input_issues_zero_queries(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """``analyze(company=<preloaded>)`` runs the DCF without touching the DB."""
+    from bot.valuator.analysis import analyze, load_valuation_input
+
+    _seed_valuable_sector(conn)
+    _seed_company(conn, "TST")
+
+    inputs = load_valuation_input(conn, "TST")
+    spy = _CountingConn(conn)
+    analysis = analyze("TST", spy, company=inputs)  # type: ignore[arg-type]
+
+    # Zero per-ticker DB queries: the second pass valued the company purely from
+    # the pre-loaded rows.
+    assert spy.executes == 0
+    # And it still produced a real valuation.
+    assert analysis.dcf_result.intrinsic_value > 0.0
+
+
+def test_batch_dcf_margins_match_per_ticker_default(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """The batched valuator yields the same MoS as the per-ticker default."""
+    from bot.screener.engine import _batch_dcf_margins, _dcf_margin_of_safety
+
+    _seed_valuable_sector(conn)
+    for tkr in ("AAA", "BBB", "CCC"):
+        _seed_company(conn, tkr)
+    tickers = ("AAA", "BBB", "CCC", "NOPE")
+
+    batched = _batch_dcf_margins(conn, tickers)
+    per_ticker = {t: _dcf_margin_of_safety(conn, t) for t in tickers}
+    assert batched == per_ticker
+    # The seeded companies are genuinely valuable (not just both-None).
+    assert batched["AAA"] is not None
+
+
+def test_run_screen_second_pass_is_per_candidate_query_free(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """The default (DCF) second pass issues no redundant per-candidate loads.
+
+    The whole shortlist's rows are pre-loaded once (one
+    ``load_valuation_input`` per ticker), then valued with zero further DB
+    queries — i.e. ``analyze`` issues nothing inside the per-candidate loop.
+    """
+    from bot.screener import engine
+
+    _seed_valuable_sector(conn)
+    for tkr in ("AAA", "BBB", "CCC"):
+        _seed_company(conn, tkr)
+
+    analyze_executes: list[int] = []
+    real_analyze = engine.analyze
+
+    def counting_analyze(
+        ticker: str,
+        c: duckdb.DuckDBPyConnection,
+        *args: object,
+        **kwargs: object,
+    ) -> object:
+        spy = _CountingConn(c)
+        result = real_analyze(ticker, spy, *args, **kwargs)  # type: ignore[arg-type]
+        analyze_executes.append(spy.executes)
+        return result
+
+    engine.analyze = counting_analyze  # type: ignore[assignment]
+    try:
+        result = run_screen(conn, _value_preset(), top=3)
+    finally:
+        engine.analyze = real_analyze
+
+    # analyze ran once per shortlisted candidate, each issuing zero DB queries.
+    assert len(analyze_executes) == 3
+    assert analyze_executes == [0, 0, 0]
+    assert len(result.shortlist) == 3
+
+
+def test_run_screen_default_valuator_byte_identical_to_per_ticker(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """The batched default second pass is behavior-preserving (byte-identical).
+
+    Running the screen with the batched default valuator yields exactly the same
+    shortlist as running it with the un-batched per-ticker
+    :func:`_dcf_margin_of_safety` seam.
+    """
+    from bot.screener.engine import _dcf_margin_of_safety
+
+    _seed_valuable_sector(conn)
+    for tkr in ("AAA", "BBB", "CCC"):
+        _seed_company(conn, tkr)
+
+    # A distinct callable (not the default sentinel) routes through the legacy
+    # per-ticker (un-batched) second-pass branch.
+    def per_ticker_valuator(c: duckdb.DuckDBPyConnection, ticker: str) -> float | None:
+        return _dcf_margin_of_safety(c, ticker)
+
+    batched = run_screen(conn, _value_preset(), top=3)
+    per_ticker = run_screen(conn, _value_preset(), top=3, valuator=per_ticker_valuator)
+
+    assert batched.shortlist == per_ticker.shortlist

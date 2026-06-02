@@ -39,7 +39,7 @@ from bot.screener.rules import Rule
 from bot.screener.types import CompanyData, IndustryBenchmarks
 from bot.utils.finance import cagr
 from bot.utils.fx import to_usd
-from bot.valuator.analysis import analyze
+from bot.valuator.analysis import analyze, load_valuation_input
 
 #: Damodaran region used when a company's country has no ``damodaran_country``
 #: row (so a value indicator can still look its sector median up). The screener
@@ -73,6 +73,40 @@ def _dcf_margin_of_safety(conn: duckdb.DuckDBPyConnection, ticker: str) -> float
     except (LookupError, ValueError, ZeroDivisionError):
         return None
     return analysis.margin_of_safety
+
+
+#: A batched valuator: given an open connection and the shortlist tickers, return
+#: each ticker's DCF margin of safety (``None`` when it cannot be valued). This is
+#: the second-pass seam (#53); the default :func:`_batch_dcf_margins` pre-loads
+#: every shortlisted company's DB rows once and issues **zero** per-ticker queries.
+type BatchValuator = Callable[[duckdb.DuckDBPyConnection, tuple[str, ...]], dict[str, float | None]]
+
+
+def _batch_dcf_margins(
+    conn: duckdb.DuckDBPyConnection, tickers: tuple[str, ...]
+) -> dict[str, float | None]:
+    """Real DCF margin of safety for every shortlisted ticker (the F7 N+1 fix).
+
+    Pre-loads each company's full :class:`~bot.valuator.analysis.ValuationInput`
+    (the per-ticker company / financials / price / Damodaran rows) once via
+    :func:`~bot.valuator.analysis.load_valuation_input`, then runs the valuator
+    over those pre-loaded inputs with ``analyze(company=...)`` — so the second
+    pass issues no redundant per-candidate DB queries. Per-ticker results are
+    identical to calling :func:`_dcf_margin_of_safety` one ticker at a time: a
+    company that cannot be valued (unknown ticker, missing data, or assumptions
+    too incomplete for the DCF) yields ``None`` so the caller falls back to the
+    neutral :data:`~bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY`.
+    """
+    margins: dict[str, float | None] = {}
+    for ticker in tickers:
+        try:
+            inputs = load_valuation_input(conn, ticker)
+            analysis = analyze(ticker, conn, company=inputs)
+        except (LookupError, ValueError, ZeroDivisionError):
+            margins[ticker] = None
+            continue
+        margins[ticker] = analysis.margin_of_safety
+    return margins
 
 
 @dataclass(frozen=True)
@@ -647,11 +681,21 @@ def run_screen(
 
     # Second pass: value each shortlisted candidate and re-blend the composite
     # with the real MoS, keeping the full-universe percentiles (rescore does not
-    # re-rank the sub-scores over the truncated subset).
-    margins: dict[str, float] = {}
-    for scored_candidate in first_pass:
-        mos = valuator(conn, scored_candidate.ticker) if valuator is not None else None
-        margins[scored_candidate.ticker] = mos if mos is not None else PLACEHOLDER_MARGIN_OF_SAFETY
+    # re-rank the sub-scores over the truncated subset). The default DCF valuator
+    # takes the batched path (one pre-load of each company's rows, then zero
+    # per-candidate DB queries — the F7 N+1 fix, #53); an injected per-ticker
+    # ``valuator`` keeps the legacy one-call-per-candidate seam.
+    shortlist_tickers = tuple(s.ticker for s in first_pass)
+    if valuator is _dcf_margin_of_safety:
+        raw_margins = _batch_dcf_margins(conn, shortlist_tickers)
+    elif valuator is None:
+        raw_margins = {ticker: None for ticker in shortlist_tickers}
+    else:
+        raw_margins = {ticker: valuator(conn, ticker) for ticker in shortlist_tickers}
+    margins: dict[str, float] = {
+        ticker: mos if mos is not None else PLACEHOLDER_MARGIN_OF_SAFETY
+        for ticker, mos in raw_margins.items()
+    }
 
     scored = rescore_with_margins(first_pass, margins, weights)
     by_ticker = {p.company.ticker: p for p in pending}
