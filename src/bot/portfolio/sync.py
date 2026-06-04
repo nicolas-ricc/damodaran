@@ -99,7 +99,8 @@ def value_positions(
     *position's* currency (so it lines up with ``avg_cost`` for P&L): if the
     price's listing currency matches (or either side is unknown) the close is
     used directly; otherwise it is cross-converted via USD using ``fx``. Any gap
-    — no price, a non-positive close, or a missing/zero FX rate — yields ``None``.
+    — no price, a non-positive close, or a missing/non-positive FX rate on either
+    the price or position side — yields ``None``.
     """
     return [
         ValuedPosition(
@@ -125,7 +126,7 @@ def _market_value(
         return pos.quantity * quote.close
     rate_price = fx(price_ccy)
     rate_pos = fx(pos_ccy)
-    if rate_price is None or rate_pos is None or rate_pos == 0.0:
+    if rate_price is None or rate_pos is None or rate_price <= 0.0 or rate_pos <= 0.0:
         return None
     close_in_pos = quote.close * rate_price / rate_pos
     return pos.quantity * close_in_pos

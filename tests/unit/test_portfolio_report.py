@@ -163,6 +163,28 @@ def test_build_report_history(conn: duckdb.DuckDBPyConnection) -> None:
     assert report.history[1].pnl == pytest.approx(300.0)
 
 
+def test_history_reconciles_with_headline_when_unpriced(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    # The latest history row must use the same cost-basis fallback for unpriced
+    # positions as the headline, so the two never disagree (regression: history
+    # previously dropped NULL market values, understating MV and faking a loss).
+    _insert(
+        conn,
+        D2,
+        [
+            ("AAPL", 1, 10.0, 100.0, 1300.0, "USD"),  # priced
+            ("ZZZ", 2, 5.0, 40.0, None, "USD"),  # unpriced -> falls back to cost
+        ],
+    )
+    report = build_report(conn, D2, include_history=True)
+    latest = report.history[-1]
+    assert latest.snapshot_date == D2
+    assert latest.market_value == pytest.approx(report.total_market_value)
+    assert latest.cost_basis == pytest.approx(report.total_cost_basis)
+    assert latest.pnl == pytest.approx(report.total_pnl)
+
+
 def test_build_report_no_history_when_not_requested(
     conn: duckdb.DuckDBPyConnection,
 ) -> None:

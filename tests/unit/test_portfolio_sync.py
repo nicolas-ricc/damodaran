@@ -437,6 +437,16 @@ def test_value_positions_is_pure() -> None:
     assert by_ticker["ACME"] == pytest.approx(200.0)  # 2 * 110 / 1.10
 
 
+def test_value_positions_zero_price_side_fx_is_unpriced() -> None:
+    # A bogus non-positive rate on the price side must yield unpriced (None),
+    # not a position valued at 0 (mirrors the position-side rate guard).
+    rates = {"USD": 0.0, "EUR": 1.10}
+    positions = [_position("A", "ACME", 2.0, 90.0, currency="EUR")]
+    prices = {"ACME": _PriceQuote(close=110.0, currency="USD")}
+    valued = value_positions(positions, prices, lambda c: rates.get(c.upper()))
+    assert valued[0].market_value is None
+
+
 def test_prices_loaded_once_regardless_of_position_count(
     conn: duckdb.DuckDBPyConnection, monkeypatch: pytest.MonkeyPatch
 ) -> None:

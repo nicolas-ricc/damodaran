@@ -163,12 +163,46 @@ def _load_cash(
     ]
 
 
+# A snapshot's total market value and cost basis, defined once and shared by the
+# headline (:func:`_snapshot_totals`) and the time series (:func:`_load_history`)
+# so they agree by construction. Unpriced legs (NULL ``market_value``) fall back
+# to cost basis here — the *one* place that rule lives for totals. Note this
+# coalesces per *leg*, whereas the positions table flags a whole ticker as
+# unpriced if any leg lacks a price; that only diverges for a partially-priced
+# ticker, and only in the table's "—" display, never in these reconciled totals.
+_MARKET_VALUE_SQL = "SUM(COALESCE(market_value, qty * avg_cost))"
+_COST_BASIS_SQL = "SUM(qty * avg_cost)"
+
+
+def _snapshot_totals(
+    conn: duckdb.DuckDBPyConnection, snapshot_date: date
+) -> tuple[float, float]:
+    """Return ``(total_market_value, total_cost_basis)`` for one snapshot.
+
+    The single source of truth for the headline totals; the latest
+    :func:`_load_history` row is the same two expressions, so headline and
+    history can never disagree.
+    """
+    row = conn.execute(
+        f"SELECT {_MARKET_VALUE_SQL}, {_COST_BASIS_SQL} "
+        "FROM portfolio_snapshots WHERE snapshot_date = ?",
+        [snapshot_date],
+    ).fetchone()
+    if row is None:
+        return 0.0, 0.0
+    market_value, cost_basis = row
+    return (
+        float(market_value) if market_value is not None else 0.0,
+        float(cost_basis) if cost_basis is not None else 0.0,
+    )
+
+
 def _load_history(conn: duckdb.DuckDBPyConnection) -> list[HistoryRow]:
     """Total market value + cost basis per snapshot date, oldest first."""
     rows = conn.execute(
         "SELECT snapshot_date, "
-        "SUM(market_value) AS market_value, "
-        "SUM(qty * avg_cost) AS cost_basis "
+        f"{_MARKET_VALUE_SQL} AS market_value, "
+        f"{_COST_BASIS_SQL} AS cost_basis "
         "FROM portfolio_snapshots GROUP BY snapshot_date ORDER BY snapshot_date"
     ).fetchall()
     return [
@@ -183,14 +217,14 @@ def _load_history(conn: duckdb.DuckDBPyConnection) -> list[HistoryRow]:
 
 def _concentration(
     positions: list[PositionRow], *, threshold: float
-) -> tuple[list[ConcentrationRow], float]:
+) -> list[ConcentrationRow]:
     """Weight each position by market value; flag those over ``threshold``."""
     valued = [
         p for p in positions if p.market_value is not None and p.market_value > 0.0
     ]
     total = sum(p.market_value or 0.0 for p in valued)
     if total <= 0.0:
-        return [], 0.0
+        return []
     breakdown = [
         ConcentrationRow(
             ticker=p.ticker,
@@ -201,7 +235,7 @@ def _concentration(
         for p in valued
     ]
     breakdown.sort(key=lambda r: r.weight, reverse=True)
-    return breakdown, total
+    return breakdown
 
 
 def build_report(
@@ -227,17 +261,12 @@ def build_report(
         A :class:`PortfolioReport` of plain data, ready to render.
     """
     positions = _load_position_rows(conn, snapshot_date)
-    concentration, _conc_total = _concentration(
-        positions, threshold=concentration_threshold
-    )
-    total_cost = sum(p.cost_basis for p in positions)
-    # Headline market value: real value where priced, cost-basis fallback for
-    # unpriced positions so the total isn't understated (per-position P&L stays
-    # "—"). Concentration weights, by contrast, use only priced positions.
-    total_mv = sum(
-        p.market_value if p.market_value is not None else p.cost_basis
-        for p in positions
-    )
+    concentration = _concentration(positions, threshold=concentration_threshold)
+    # Headline totals: real value where priced, cost-basis fallback for unpriced
+    # positions so the total isn't understated (per-position P&L stays "—"). Same
+    # expression as the history series, so the two never disagree. Concentration
+    # weights, by contrast, use only priced positions.
+    total_mv, total_cost = _snapshot_totals(conn, snapshot_date)
     unpriced = tuple(p.ticker for p in positions if p.market_value is None)
     history = _load_history(conn) if include_history else []
     cash = _load_cash(conn, snapshot_date)
