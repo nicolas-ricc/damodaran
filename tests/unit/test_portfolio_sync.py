@@ -13,8 +13,15 @@ import duckdb
 import pytest
 
 from bot.ingest.ibkr import CashBalance, PortfolioPosition
-from bot.portfolio.sync import SnapshotSummary, sync_portfolio
+from bot.portfolio import sync as sync_mod
+from bot.portfolio.sync import (
+    SnapshotSummary,
+    _PriceQuote,
+    sync_portfolio,
+    value_positions,
+)
 from bot.storage.db import apply_schema
+from bot.utils.fx import upsert_fx_rates
 
 
 class FakeIbkrClient:
@@ -49,16 +56,36 @@ class FakeIbkrClient:
         return list(self._cash.get(account_id, []))
 
 
-def _position(account: str, symbol: str, qty: float, avg_cost: float) -> PortfolioPosition:
+def _position(
+    account: str,
+    symbol: str,
+    qty: float,
+    avg_cost: float,
+    currency: str = "USD",
+) -> PortfolioPosition:
     return PortfolioPosition(
         account=account,
         con_id=hash(symbol) & 0xFFFF,
         symbol=symbol,
         sec_type="STK",
-        currency="USD",
+        currency=currency,
         exchange="NASDAQ",
         quantity=qty,
         avg_cost=avg_cost,
+    )
+
+
+def _seed_price(
+    conn: duckdb.DuckDBPyConnection,
+    ticker: str,
+    close: float | None,
+    *,
+    on: date = date(2026, 6, 1),
+    currency: str = "USD",
+) -> None:
+    conn.execute(
+        "INSERT INTO prices_daily (ticker, date, close, currency) VALUES (?, ?, ?, ?)",
+        [ticker.upper(), on, close, currency],
     )
 
 
@@ -94,13 +121,17 @@ def test_schema_creates_snapshot_tables(conn: duckdb.DuckDBPyConnection) -> None
 
 
 def test_sync_writes_positions_and_cash(conn: duckdb.DuckDBPyConnection) -> None:
+    day = date(2026, 6, 1)
+    _seed_price(conn, "AAPL", 180.0, on=day)
+    _seed_price(conn, "MSFT", 400.0, on=day)
     client = _client()
-    summary = sync_portfolio(conn, client, snapshot_date=date(2026, 6, 1))
+    summary = sync_portfolio(conn, client, snapshot_date=day)
 
     assert isinstance(summary, SnapshotSummary)
     assert summary.positions == 2
     assert summary.cash_rows == 1
     assert summary.accounts == 1
+    assert summary.unpriced == 0
 
     positions = conn.execute(
         "SELECT ticker, qty, avg_cost, market_value, currency, account, snapshot_date "
@@ -111,7 +142,7 @@ def test_sync_writes_positions_and_cash(conn: duckdb.DuckDBPyConnection) -> None
     assert aapl[0] == "AAPL"
     assert aapl[1] == 10.0
     assert aapl[2] == 150.0
-    assert aapl[3] == pytest.approx(1500.0)  # qty * avg_cost
+    assert aapl[3] == pytest.approx(1800.0)  # qty * latest close (10 * 180)
     assert aapl[4] == "USD"
     assert aapl[5] == "DU111"
     assert aapl[6] == date(2026, 6, 1)
@@ -214,3 +245,224 @@ def test_defaults_snapshot_date_to_today(
     ).fetchone()
     assert stored is not None
     assert stored[0] == fixed
+
+
+# --------------------------------------------------------------------------- #
+# Market-value valuation (#55)                                                  #
+# --------------------------------------------------------------------------- #
+
+
+def _one(conn: duckdb.DuckDBPyConnection, sql: str, params: list[Any]) -> Any:
+    row = conn.execute(sql, params).fetchone()
+    assert row is not None
+    return row[0]
+
+
+def test_market_value_uses_latest_price(conn: duckdb.DuckDBPyConnection) -> None:
+    day = date(2026, 6, 1)
+    _seed_price(conn, "AAPL", 180.0, on=day)
+    client = FakeIbkrClient(
+        accounts=["DU1"],
+        positions={"DU1": [_position("DU1", "AAPL", 10.0, 150.0)]},
+        cash={},
+    )
+    summary = sync_portfolio(conn, client, snapshot_date=day)
+
+    mv = _one(
+        conn,
+        "SELECT market_value FROM portfolio_snapshots WHERE ticker = 'AAPL'",
+        [],
+    )
+    assert mv == pytest.approx(1800.0)  # 10 * 180, not the 1500 cost basis
+    # P&L is therefore non-zero: 1800 - (10 * 150) = 300.
+    assert mv - 10.0 * 150.0 == pytest.approx(300.0)
+    assert summary.unpriced == 0
+
+
+def test_unpriced_ticker_stored_null_and_counted(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    day = date(2026, 6, 1)
+    client = FakeIbkrClient(
+        accounts=["DU1"],
+        positions={"DU1": [_position("DU1", "AAPL", 10.0, 150.0)]},
+        cash={},
+    )
+    summary = sync_portfolio(conn, client, snapshot_date=day)
+
+    mv = _one(
+        conn,
+        "SELECT market_value FROM portfolio_snapshots WHERE ticker = 'AAPL'",
+        [],
+    )
+    assert mv is None
+    assert summary.unpriced == 1
+
+
+def test_multi_currency_same_currency_uses_close_directly(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    day = date(2026, 6, 1)
+    _seed_price(conn, "SAP", 200.0, on=day, currency="EUR")
+    client = FakeIbkrClient(
+        accounts=["DU1"],
+        positions={"DU1": [_position("DU1", "SAP", 4.0, 180.0, currency="EUR")]},
+        cash={},
+    )
+    sync_portfolio(conn, client, snapshot_date=day)
+
+    mv = _one(
+        conn, "SELECT market_value FROM portfolio_snapshots WHERE ticker = 'SAP'", []
+    )
+    assert mv == pytest.approx(800.0)  # 4 * 200, no FX applied
+
+
+def test_multi_currency_normalization(conn: duckdb.DuckDBPyConnection) -> None:
+    day = date(2026, 6, 1)
+    # Price listed in USD, but the position is held/cost-based in EUR.
+    _seed_price(conn, "ACME", 110.0, on=day, currency="USD")
+    upsert_fx_rates(
+        conn, currency="EUR", rows=[{"date": day, "rate_to_usd": 1.10}]
+    )
+    client = FakeIbkrClient(
+        accounts=["DU1"],
+        positions={"DU1": [_position("DU1", "ACME", 2.0, 90.0, currency="EUR")]},
+        cash={},
+    )
+    sync_portfolio(conn, client, snapshot_date=day)
+
+    mv = _one(
+        conn, "SELECT market_value FROM portfolio_snapshots WHERE ticker = 'ACME'", []
+    )
+    # close_usd / rate_eur -> EUR, times qty: 2 * (110 / 1.10) = 200 EUR.
+    assert mv == pytest.approx(200.0)
+
+
+def test_unpriced_when_fx_missing(conn: duckdb.DuckDBPyConnection) -> None:
+    day = date(2026, 6, 1)
+    _seed_price(conn, "VOD", 100.0, on=day, currency="USD")  # price USD
+    # Position in GBP, but no GBP FX rate seeded -> cannot normalize.
+    client = FakeIbkrClient(
+        accounts=["DU1"],
+        positions={"DU1": [_position("DU1", "VOD", 5.0, 90.0, currency="GBP")]},
+        cash={},
+    )
+    summary = sync_portfolio(conn, client, snapshot_date=day)
+
+    mv = _one(
+        conn, "SELECT market_value FROM portfolio_snapshots WHERE ticker = 'VOD'", []
+    )
+    assert mv is None
+    assert summary.unpriced == 1
+
+
+def test_latest_price_respects_snapshot_date(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    d1 = date(2026, 6, 1)
+    d2 = date(2026, 6, 2)
+    _seed_price(conn, "AAPL", 100.0, on=d1)
+    _seed_price(conn, "AAPL", 120.0, on=d2)  # future relative to the d1 sync
+    client = FakeIbkrClient(
+        accounts=["DU1"],
+        positions={"DU1": [_position("DU1", "AAPL", 10.0, 150.0)]},
+        cash={},
+    )
+    sync_portfolio(conn, client, snapshot_date=d1)
+
+    mv = _one(
+        conn,
+        "SELECT market_value FROM portfolio_snapshots WHERE ticker = 'AAPL' "
+        "AND snapshot_date = ?",
+        [d1],
+    )
+    assert mv == pytest.approx(1000.0)  # uses d1's 100, never d2's 120
+
+
+def test_nonpositive_close_treated_as_unpriced(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    day = date(2026, 6, 1)
+    _seed_price(conn, "AAPL", 0.0, on=day)
+    client = FakeIbkrClient(
+        accounts=["DU1"],
+        positions={"DU1": [_position("DU1", "AAPL", 10.0, 150.0)]},
+        cash={},
+    )
+    summary = sync_portfolio(conn, client, snapshot_date=day)
+
+    mv = _one(
+        conn, "SELECT market_value FROM portfolio_snapshots WHERE ticker = 'AAPL'", []
+    )
+    assert mv is None
+    assert summary.unpriced == 1
+
+
+def test_short_position_negative_market_value(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    day = date(2026, 6, 1)
+    _seed_price(conn, "AAPL", 180.0, on=day)
+    client = FakeIbkrClient(
+        accounts=["DU1"],
+        positions={"DU1": [_position("DU1", "AAPL", -10.0, 150.0)]},
+        cash={},
+    )
+    sync_portfolio(conn, client, snapshot_date=day)
+
+    mv = _one(
+        conn, "SELECT market_value FROM portfolio_snapshots WHERE ticker = 'AAPL'", []
+    )
+    assert mv == pytest.approx(-1800.0)  # short: qty negative
+    # P&L for a short: market_value - cost_basis = -1800 - (-1500) = -300.
+    assert mv - (-10.0 * 150.0) == pytest.approx(-300.0)
+
+
+def test_value_positions_is_pure() -> None:
+    rates = {"USD": 1.0, "EUR": 1.10}
+    positions = [
+        _position("A", "AAPL", 10.0, 150.0),  # priced, USD
+        _position("A", "NOPRICE", 5.0, 10.0),  # no quote
+        _position("A", "ACME", 2.0, 90.0, currency="EUR"),  # cross-currency
+    ]
+    prices = {
+        "AAPL": _PriceQuote(close=180.0, currency="USD"),
+        "ACME": _PriceQuote(close=110.0, currency="USD"),
+    }
+    valued = value_positions(positions, prices, lambda c: rates.get(c.upper()))
+
+    by_ticker = {v.position.symbol: v.market_value for v in valued}
+    assert by_ticker["AAPL"] == pytest.approx(1800.0)
+    assert by_ticker["NOPRICE"] is None
+    assert by_ticker["ACME"] == pytest.approx(200.0)  # 2 * 110 / 1.10
+
+
+def test_prices_loaded_once_regardless_of_position_count(
+    conn: duckdb.DuckDBPyConnection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    day = date(2026, 6, 1)
+    for sym in ("AAPL", "MSFT", "NVDA"):
+        _seed_price(conn, sym, 100.0, on=day)
+
+    calls = {"n": 0}
+    real = sync_mod._load_latest_prices
+
+    def spy(*args: Any, **kwargs: Any) -> dict[str, _PriceQuote]:
+        calls["n"] += 1
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(sync_mod, "_load_latest_prices", spy)
+    client = FakeIbkrClient(
+        accounts=["DU1"],
+        positions={
+            "DU1": [
+                _position("DU1", "AAPL", 1.0, 10.0),
+                _position("DU1", "MSFT", 2.0, 20.0),
+                _position("DU1", "NVDA", 3.0, 30.0),
+            ]
+        },
+        cash={},
+    )
+    sync_portfolio(conn, client, snapshot_date=day)
+    # One windowed scan loads every ticker — no per-position N+1.
+    assert calls["n"] == 1

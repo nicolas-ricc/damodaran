@@ -20,6 +20,10 @@ _Generated {{ generated_at }}_
 {% else %}
 _No open positions in this snapshot._
 {% endif %}
+{% if r.unpriced %}
+
+> ⚠ No market price for: {% for t in r.unpriced %}{{ t }}{% if not loop.last %}, {% endif %}{% endfor %} — valued at cost basis in totals; per-position P&L shown as “—”.
+{% endif %}
 
 ## Profit & loss
 

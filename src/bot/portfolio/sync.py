@@ -18,10 +18,12 @@ deliberately out of scope (#27, #28, #29).
 
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING, Protocol
 
+from bot.utils.fx import get_fx_rate
 from bot.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -30,6 +32,10 @@ if TYPE_CHECKING:
     from bot.ingest.ibkr import CashBalance, PortfolioPosition
 
 log = get_logger(__name__)
+
+#: A currency -> USD-rate lookup at a fixed as-of date. Keeping valuation behind
+#: this seam lets :func:`value_positions` stay pure (no ``conn``, no I/O).
+type FxLookup = Callable[[str], float | None]
 
 
 class PortfolioSource(Protocol):
@@ -51,6 +57,27 @@ class PortfolioSource(Protocol):
 
 
 @dataclass(frozen=True)
+class _PriceQuote:
+    """The latest known close for a ticker, in its listing currency."""
+
+    close: float
+    currency: str | None
+
+
+@dataclass(frozen=True)
+class ValuedPosition:
+    """A position paired with its computed market value.
+
+    ``market_value is None`` is the *unpriced* sentinel: we had no usable price
+    (no row, a non-positive close, or a missing FX rate), so the snapshot stores
+    NULL rather than silently falling back to cost basis at the position level.
+    """
+
+    position: PortfolioPosition
+    market_value: float | None
+
+
+@dataclass(frozen=True)
 class SnapshotSummary:
     """What a single ``sync_portfolio`` run wrote."""
 
@@ -58,6 +85,50 @@ class SnapshotSummary:
     accounts: int
     positions: int
     cash_rows: int
+    unpriced: int = 0
+
+
+def value_positions(
+    positions: list[PortfolioPosition],
+    prices: Mapping[str, _PriceQuote],
+    fx: FxLookup,
+) -> list[ValuedPosition]:
+    """Value each position at its latest market price (a pure, testable step).
+
+    ``prices`` is keyed by upper-cased ticker. Market value is expressed in the
+    *position's* currency (so it lines up with ``avg_cost`` for P&L): if the
+    price's listing currency matches (or either side is unknown) the close is
+    used directly; otherwise it is cross-converted via USD using ``fx``. Any gap
+    — no price, a non-positive close, or a missing/zero FX rate — yields ``None``.
+    """
+    return [
+        ValuedPosition(
+            position=pos,
+            market_value=_market_value(pos, prices.get(pos.symbol.upper()), fx),
+        )
+        for pos in positions
+    ]
+
+
+def _market_value(
+    pos: PortfolioPosition, quote: _PriceQuote | None, fx: FxLookup
+) -> float | None:
+    if quote is None or quote.close <= 0.0:
+        return None
+    price_ccy = quote.currency
+    pos_ccy = pos.currency
+    if (
+        price_ccy is None
+        or pos_ccy is None
+        or price_ccy.upper() == pos_ccy.upper()
+    ):
+        return pos.quantity * quote.close
+    rate_price = fx(price_ccy)
+    rate_pos = fx(pos_ccy)
+    if rate_price is None or rate_pos is None or rate_pos == 0.0:
+        return None
+    close_in_pos = quote.close * rate_price / rate_pos
+    return pos.quantity * close_in_pos
 
 
 def sync_portfolio(
@@ -82,6 +153,11 @@ def sync_portfolio(
     """
     snap = snapshot_date if snapshot_date is not None else date.today()
 
+    # Load every ticker's latest close once (one windowed scan, no per-position
+    # N+1) and a single FX lookup, then value positions in-process.
+    prices = _load_latest_prices(conn, as_of=snap)
+    fx = _fx_lookup(conn, snap)
+
     client.connect()
     try:
         accounts = client.accounts()
@@ -89,14 +165,25 @@ def sync_portfolio(
 
         position_count = 0
         cash_count = 0
+        unpriced_count = 0
         for account in accounts:
             positions = client.positions(account)
             cash = client.cash_balances(account)
+            valued = value_positions(positions, prices, fx)
             _replace_account_day(conn, snap, account)
-            _insert_positions(conn, snap, positions)
+            _insert_positions(conn, snap, valued)
             _insert_cash(conn, snap, cash)
             position_count += len(positions)
             cash_count += len(cash)
+            for vp in valued:
+                if vp.market_value is None:
+                    unpriced_count += 1
+                    log.warning(
+                        "portfolio_position_unpriced",
+                        ticker=vp.position.symbol,
+                        account=account,
+                        snapshot_date=snap.isoformat(),
+                    )
     finally:
         client.disconnect()
 
@@ -106,13 +193,47 @@ def sync_portfolio(
         accounts=len(accounts),
         positions=position_count,
         cash_rows=cash_count,
+        unpriced=unpriced_count,
     )
     return SnapshotSummary(
         snapshot_date=snap,
         accounts=len(accounts),
         positions=position_count,
         cash_rows=cash_count,
+        unpriced=unpriced_count,
     )
+
+
+def _load_latest_prices(
+    conn: duckdb.DuckDBPyConnection, *, as_of: date
+) -> dict[str, _PriceQuote]:
+    """Latest non-null close (and its currency) per ticker on or before ``as_of``.
+
+    One windowed scan resolves the most recent priced row for every ticker —
+    never looking forward past the snapshot date — keyed by upper-cased ticker.
+    """
+    rows = conn.execute(
+        "SELECT ticker, close, currency FROM ("
+        "  SELECT ticker, close, currency, "
+        "         ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) AS rn "
+        "  FROM prices_daily WHERE close IS NOT NULL AND date <= ?"
+        ") WHERE rn = 1",
+        [as_of],
+    ).fetchall()
+    out: dict[str, _PriceQuote] = {}
+    for ticker, close, currency in rows:
+        if close is None:
+            continue
+        out[str(ticker).upper()] = _PriceQuote(
+            close=float(close),
+            currency=str(currency) if currency is not None else None,
+        )
+    return out
+
+
+def _fx_lookup(conn: duckdb.DuckDBPyConnection, as_of: date) -> FxLookup:
+    """A currency -> USD-rate lookup bound to ``conn`` at ``as_of`` (nearest-prior)."""
+    return lambda ccy: get_fx_rate(conn, ccy, as_of)
 
 
 def _replace_account_day(
@@ -132,9 +253,10 @@ def _replace_account_day(
 def _insert_positions(
     conn: duckdb.DuckDBPyConnection,
     snap: date,
-    positions: list[PortfolioPosition],
+    valued: list[ValuedPosition],
 ) -> None:
-    for pos in positions:
+    for vp in valued:
+        pos = vp.position
         conn.execute(
             "INSERT INTO portfolio_snapshots "
             "(snapshot_date, account, ticker, con_id, sec_type, exchange, "
@@ -149,7 +271,7 @@ def _insert_positions(
                 pos.exchange,
                 pos.quantity,
                 pos.avg_cost,
-                pos.quantity * pos.avg_cost,
+                vp.market_value,
                 pos.currency,
             ],
         )

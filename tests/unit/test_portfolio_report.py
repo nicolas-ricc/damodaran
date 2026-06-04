@@ -9,6 +9,7 @@ import pytest
 
 from bot.portfolio.events import Event, EventType
 from bot.portfolio.report import (
+    _DASH,
     ConcentrationRow,
     HistoryRow,
     PortfolioReport,
@@ -33,7 +34,7 @@ def conn() -> duckdb.DuckDBPyConnection:
 def _insert(
     conn: duckdb.DuckDBPyConnection,
     snapshot_date: date,
-    rows: list[tuple[str, int, float, float, float, str]],
+    rows: list[tuple[str, int, float, float, float | None, str]],
 ) -> None:
     for ticker, con_id, qty, avg_cost, mv, ccy in rows:
         conn.execute(
@@ -88,6 +89,69 @@ def test_build_report_aggregates_and_weights(conn: duckdb.DuckDBPyConnection) ->
     assert msft.flagged is False
     # Sorted descending by weight.
     assert report.concentration[0].ticker == "AAPL"
+
+
+def test_build_report_flags_unpriced(conn: duckdb.DuckDBPyConnection) -> None:
+    _insert(
+        conn,
+        D2,
+        [
+            ("AAPL", 1, 10.0, 100.0, 1300.0, "USD"),  # priced
+            ("ZZZ", 2, 5.0, 40.0, None, "USD"),  # unpriced -> NULL market_value
+        ],
+    )
+    report = build_report(conn, D2)
+
+    assert "ZZZ" in report.unpriced
+    zzz = next(p for p in report.positions if p.ticker == "ZZZ")
+    assert zzz.market_value is None
+    assert zzz.pnl is None
+    aapl = next(p for p in report.positions if p.ticker == "AAPL")
+    assert aapl.pnl == pytest.approx(300.0)  # priced position keeps real P&L
+    # Headline total includes the unpriced position's cost basis (5 * 40 = 200).
+    assert report.total_market_value == pytest.approx(1300.0 + 200.0)
+    assert report.total_cost_basis == pytest.approx(1000.0 + 200.0)
+    # Unpriced positions are excluded from concentration weighting.
+    assert all(c.ticker != "ZZZ" for c in report.concentration)
+
+
+def test_build_report_mixed_legs_same_ticker_unpriced(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    # Two legs of the same ticker: one priced, one unpriced. Any unpriced leg
+    # makes the aggregated position unpriced (no misleading partial value).
+    _insert(
+        conn,
+        D2,
+        [
+            ("AAPL", 1, 10.0, 100.0, 1300.0, "USD"),
+            ("AAPL", 2, 5.0, 100.0, None, "USD"),
+        ],
+    )
+    report = build_report(conn, D2)
+    aapl = next(p for p in report.positions if p.ticker == "AAPL")
+    assert aapl.market_value is None
+    assert "AAPL" in report.unpriced
+
+
+def test_render_portfolio_shows_unpriced_notice() -> None:
+    report = PortfolioReport(
+        snapshot_date=D2,
+        positions=(PositionRow("ZZZ", 5.0, 40.0, None, "USD"),),
+        concentration=(),
+        history=(),
+        cash=(),
+        total_market_value=200.0,
+        total_cost_basis=200.0,
+        concentration_threshold=0.15,
+        include_history=False,
+        include_concentration=False,
+        unpriced=("ZZZ",),
+    )
+    out = render_portfolio(report, generated_on=D2)
+    assert "No market price for" in out
+    assert "ZZZ" in out
+    assert _DASH in out  # market value / P&L render as the dash
 
 
 def test_build_report_history(conn: duckdb.DuckDBPyConnection) -> None:

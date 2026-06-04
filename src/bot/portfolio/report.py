@@ -103,6 +103,7 @@ class PortfolioReport:
     concentration_threshold: float
     include_history: bool
     include_concentration: bool
+    unpriced: tuple[str, ...] = ()
 
     @property
     def total_pnl(self) -> float:
@@ -117,22 +118,31 @@ def _load_position_rows(
         "SELECT ticker, SUM(qty) AS qty, "
         "SUM(qty * avg_cost) AS cost_basis, "
         "SUM(market_value) AS market_value, "
+        "COUNT(*) FILTER (WHERE market_value IS NULL) AS unpriced_legs, "
         "ANY_VALUE(currency) AS currency "
         "FROM portfolio_snapshots WHERE snapshot_date = ? "
         "GROUP BY ticker ORDER BY ticker",
         [snapshot_date],
     ).fetchall()
     out: list[PositionRow] = []
-    for ticker, qty, cost_basis, market_value, currency in rows:
+    for ticker, qty, cost_basis, market_value, unpriced_legs, currency in rows:
         q = float(qty) if qty is not None else 0.0
         basis = float(cost_basis) if cost_basis is not None else 0.0
         avg_cost = basis / q if q != 0.0 else 0.0
+        # If *any* leg of a ticker is unpriced, the SUM(market_value) would
+        # silently understate (DuckDB drops NULLs from the sum), so report the
+        # whole position as unpriced rather than a misleading partial value.
+        mv = (
+            None
+            if (unpriced_legs or 0) > 0 or market_value is None
+            else float(market_value)
+        )
         out.append(
             PositionRow(
                 ticker=str(ticker).upper(),
                 qty=q,
                 avg_cost=avg_cost,
-                market_value=float(market_value) if market_value is not None else None,
+                market_value=mv,
                 currency=str(currency) if currency is not None else None,
             )
         )
@@ -217,10 +227,18 @@ def build_report(
         A :class:`PortfolioReport` of plain data, ready to render.
     """
     positions = _load_position_rows(conn, snapshot_date)
-    concentration, total_mv = _concentration(
+    concentration, _conc_total = _concentration(
         positions, threshold=concentration_threshold
     )
     total_cost = sum(p.cost_basis for p in positions)
+    # Headline market value: real value where priced, cost-basis fallback for
+    # unpriced positions so the total isn't understated (per-position P&L stays
+    # "—"). Concentration weights, by contrast, use only priced positions.
+    total_mv = sum(
+        p.market_value if p.market_value is not None else p.cost_basis
+        for p in positions
+    )
+    unpriced = tuple(p.ticker for p in positions if p.market_value is None)
     history = _load_history(conn) if include_history else []
     cash = _load_cash(conn, snapshot_date)
     return PortfolioReport(
@@ -234,6 +252,7 @@ def build_report(
         concentration_threshold=concentration_threshold,
         include_history=include_history,
         include_concentration=include_concentration,
+        unpriced=unpriced,
     )
 
 
