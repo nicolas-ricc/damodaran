@@ -1,0 +1,283 @@
+# SYNTHETIC cassette — hand-authored, fabricated-but-realistic FMP JSON.
+# NOT recorded from the live API. Re-record against the real FMP API with a valid
+# BOT_FMP_API_KEY before production use (issue #23, M2.6 bulk universe refresh).
+#
+# One cassette per ticker in the 5-name mini-universe. Each covers the 7 requests
+# import_company_from_fmp issues: profile + income/balance/cashflow (annual) +
+# income/balance/cashflow (quarter).
+interactions:
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/profile/NVDA?apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "symbol": "NVDA",
+            "companyName": "NVIDIA Corporation",
+            "currency": "USD",
+            "exchange": "NASDAQ",
+            "exchangeShortName": "NASDAQ",
+            "industry": "Semiconductors",
+            "sector": "Technology",
+            "country": "US",
+            "isActivelyTrading": true
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/NVDA?period=annual&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2024-01-28",
+            "symbol": "NVDA",
+            "reportedCurrency": "USD",
+            "fillingDate": "2024-02-21",
+            "acceptedDate": "2024-02-21 18:00:00",
+            "calendarYear": "2024",
+            "period": "FY",
+            "revenue": 60900000000,
+            "costOfRevenue": 33495000000,
+            "grossProfit": 27405000000,
+            "operatingExpenses": 9135000000,
+            "operatingIncome": 18270000000,
+            "ebitda": 20097000000,
+            "interestExpense": 609000000,
+            "incomeTaxExpense": 3045000000,
+            "netIncome": 15225000000,
+            "depreciationAndAmortization": 1827000000,
+            "weightedAverageShsDilOut": 1000000000
+          },
+          {
+            "date": "2023-01-29",
+            "symbol": "NVDA",
+            "reportedCurrency": "USD",
+            "fillingDate": "2023-02-24",
+            "acceptedDate": "2023-02-24 18:00:00",
+            "calendarYear": "2023",
+            "period": "FY",
+            "revenue": 26970000000,
+            "costOfRevenue": 14833500000,
+            "grossProfit": 12136500000,
+            "operatingExpenses": 4045500000,
+            "operatingIncome": 8091000000,
+            "ebitda": 8900100000,
+            "interestExpense": 269700000,
+            "incomeTaxExpense": 1348500000,
+            "netIncome": 6742500000,
+            "depreciationAndAmortization": 809100000,
+            "weightedAverageShsDilOut": 1000000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/NVDA?period=annual&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2024-01-28",
+            "symbol": "NVDA",
+            "reportedCurrency": "USD",
+            "fillingDate": "2024-02-21",
+            "calendarYear": "2024",
+            "period": "FY",
+            "totalAssets": 91350000000,
+            "totalDebt": 18270000000,
+            "cashAndCashEquivalents": 12180000000,
+            "totalStockholdersEquity": 48720000000,
+            "goodwill": 6090000000,
+            "totalCurrentAssets": 36540000000,
+            "totalCurrentLiabilities": 24360000000
+          },
+          {
+            "date": "2023-01-29",
+            "symbol": "NVDA",
+            "reportedCurrency": "USD",
+            "fillingDate": "2023-02-24",
+            "calendarYear": "2023",
+            "period": "FY",
+            "totalAssets": 40455000000,
+            "totalDebt": 8091000000,
+            "cashAndCashEquivalents": 5394000000,
+            "totalStockholdersEquity": 21576000000,
+            "goodwill": 2697000000,
+            "totalCurrentAssets": 16182000000,
+            "totalCurrentLiabilities": 10788000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/NVDA?period=annual&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2024-01-28",
+            "symbol": "NVDA",
+            "reportedCurrency": "USD",
+            "fillingDate": "2024-02-21",
+            "calendarYear": "2024",
+            "period": "FY",
+            "operatingCashFlow": 17052000000,
+            "freeCashFlow": 13398000000,
+            "capitalExpenditure": -3654000000,
+            "dividendsPaid": -3045000000
+          },
+          {
+            "date": "2023-01-29",
+            "symbol": "NVDA",
+            "reportedCurrency": "USD",
+            "fillingDate": "2023-02-24",
+            "calendarYear": "2023",
+            "period": "FY",
+            "operatingCashFlow": 7551600000,
+            "freeCashFlow": 5933400000,
+            "capitalExpenditure": -1618200000,
+            "dividendsPaid": -1348500000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/NVDA?period=quarter&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2024-04-28",
+            "symbol": "NVDA",
+            "reportedCurrency": "USD",
+            "fillingDate": "2024-05-22",
+            "acceptedDate": "2024-05-22 18:00:00",
+            "calendarYear": "2024",
+            "period": "Q4",
+            "revenue": 26000000000,
+            "operatingIncome": 7800000000,
+            "ebitda": 8580000000,
+            "netIncome": 6500000000,
+            "depreciationAndAmortization": 780000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/NVDA?period=quarter&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2024-04-28",
+            "symbol": "NVDA",
+            "reportedCurrency": "USD",
+            "fillingDate": "2024-05-22",
+            "calendarYear": "2024",
+            "period": "Q4",
+            "totalDebt": 7800000000,
+            "cashAndCashEquivalents": 5200000000,
+            "totalCurrentAssets": 15600000000,
+            "totalCurrentLiabilities": 10400000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/NVDA?period=quarter&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2024-04-28",
+            "symbol": "NVDA",
+            "reportedCurrency": "USD",
+            "fillingDate": "2024-05-22",
+            "calendarYear": "2024",
+            "period": "Q4",
+            "operatingCashFlow": 7280000000,
+            "freeCashFlow": 5720000000,
+            "capitalExpenditure": -1560000000
+          }
+        ]
+    version: 1

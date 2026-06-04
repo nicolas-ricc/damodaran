@@ -1,0 +1,65 @@
+# SYNTHETIC cassette — hand-authored, fabricated-but-realistic FMP historical
+# forex JSON (endpoint /api/v3/historical-price-full/EURUSD). NOT recorded from
+# the live API. The 2023-12-29 close (~1.1039) mirrors the real EUR/USD figure so
+# the +/-0.1% acceptance check is meaningful, but every value here is fabricated.
+# Re-record against the real FMP API with a valid BOT_FMP_API_KEY before
+# production use.
+interactions:
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/historical-price-full/EURUSD?from=2023-12-27&to=2023-12-29&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        {
+          "symbol": "EURUSD",
+          "historical": [
+            {
+              "date": "2023-12-29",
+              "open": 1.1062,
+              "high": 1.1075,
+              "low": 1.1027,
+              "close": 1.1039,
+              "adjClose": 1.1039,
+              "volume": 0,
+              "change": -0.0023,
+              "changePercent": -0.208,
+              "vwap": 1.1047
+            },
+            {
+              "date": "2023-12-28",
+              "open": 1.1105,
+              "high": 1.1139,
+              "low": 1.1045,
+              "close": 1.1050,
+              "adjClose": 1.1050,
+              "volume": 0,
+              "change": -0.0055,
+              "changePercent": -0.495,
+              "vwap": 1.1096
+            },
+            {
+              "date": "2023-12-27",
+              "open": 1.1043,
+              "high": 1.1130,
+              "low": 1.1037,
+              "close": 1.1105,
+              "adjClose": 1.1105,
+              "volume": 0,
+              "change": 0.0062,
+              "changePercent": 0.562,
+              "vwap": 1.1090
+            }
+          ]
+        }
+    version: 1

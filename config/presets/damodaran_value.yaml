@@ -1,0 +1,77 @@
+# Damodaran-value screener preset (default) — spec §6.6.
+#
+# Every rule is referenced by its registry `name`; `params` (when present) are
+# passed verbatim to the rule constructor. Thresholds below reproduce the spec
+# §6.2/§6.3/§6.4/§6.5 defaults, so this preset matches the bot's out-of-the-box
+# behaviour and is the editable starting point for custom screens.
+name: damodaran_value
+
+# --- Quality gates (eliminatory, spec §6.2) -------------------------------- #
+quality_gates:
+  rules:
+    - name: min_market_cap
+      params:
+        minimum_usd: 100000000.0   # USD 100M floor
+    - name: min_years_history
+      params:
+        minimum_years: 5           # >= 5 years of financials
+    - name: exclude_sectors
+      params:
+        excluded: [bank, insurance]  # drop financial services by default
+    - name: max_net_debt_to_ebitda
+      params:
+        maximum: 4.0               # Net Debt / EBITDA < 4.0
+    - name: min_interest_coverage
+      params:
+        minimum: 2.0               # EBIT / Interest > 2.0
+    - name: positive_operating_cashflow
+      params:
+        min_positive: 4            # positive OCF in >= 4 of last 5 years
+        window: 5
+    - name: max_goodwill_to_assets
+      params:
+        maximum: 0.5               # Goodwill / Total Assets < 50%
+
+# --- Value indicators (at least one must pass, spec §6.3) ------------------ #
+value_indicators:
+  rules:
+    - name: pe_below_industry_multiple
+      params:
+        multiple: 0.7              # PE < 0.7x sector median
+    - name: ev_ebitda_below_industry_multiple
+      params:
+        multiple: 0.7              # EV/EBITDA < 0.7x sector median
+    - name: pbv_below_industry_multiple_with_roe_above_median
+      params:
+        multiple: 0.7              # P/BV < 0.7x sector median AND ROE > sector median
+    - name: fcf_yield_above
+      params:
+        minimum: 0.08              # FCF yield > 8%
+
+# --- Trap detection (eliminatory, spec §6.4) ------------------------------- #
+trap_detection:
+  rules:
+    - name: revenue_not_declining
+      params:
+        max_decline: -0.05         # avg revenue growth > -5% over last 3y
+        window: 3
+    - name: operating_margin_not_contracting
+      params:
+        max_contraction_bps: -200.0  # margin contraction <= 200bps over last 3y
+        window: 3
+    - name: roic_above_sector_wacc      # ROIC > sector WACC (central Damodaran filter)
+    - name: sloan_accruals_below
+      params:
+        maximum: 0.10              # Sloan accruals ratio < 10%
+    - name: share_count_not_diluting
+      params:
+        max_annual_growth: 0.05    # share count growth <= 5%/yr without M&A
+    - name: auditor_changes_and_late_filings  # SEC governance red flags
+
+# --- Ranking score weights (spec §6.5) ------------------------------------- #
+ranking:
+  weights:
+    value: 0.40
+    quality: 0.30
+    growth: 0.20
+    margin_of_safety: 0.10

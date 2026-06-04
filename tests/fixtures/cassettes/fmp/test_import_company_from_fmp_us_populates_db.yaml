@@ -1,0 +1,374 @@
+# SYNTHETIC cassette — hand-authored, fabricated-but-realistic FMP JSON.
+# NOT recorded from the live API. Re-record against the real FMP API with a valid
+# BOT_FMP_API_KEY before production use.
+#
+# Covers the 7 requests import_company_from_fmp issues for AAPL:
+#   profile, income/balance/cashflow (annual), income/balance/cashflow (quarter).
+# The 2021 annual income statement appears twice (an original + a later-filed
+# restatement) to exercise the is_restated flag.
+interactions:
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/profile/AAPL?apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "symbol": "AAPL",
+            "companyName": "Apple Inc.",
+            "currency": "USD",
+            "cik": "0000320193",
+            "isin": "US0378331005",
+            "exchange": "NASDAQ",
+            "exchangeShortName": "NASDAQ",
+            "industry": "Consumer Electronics",
+            "sector": "Technology",
+            "country": "US",
+            "isActivelyTrading": true
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/AAPL?period=annual&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2023-09-30",
+            "symbol": "AAPL",
+            "reportedCurrency": "USD",
+            "fillingDate": "2023-11-03",
+            "acceptedDate": "2023-11-02 18:08:27",
+            "calendarYear": "2023",
+            "period": "FY",
+            "revenue": 383285000000,
+            "costOfRevenue": 214137000000,
+            "grossProfit": 169148000000,
+            "operatingExpenses": 54847000000,
+            "operatingIncome": 114301000000,
+            "ebitda": 125820000000,
+            "interestExpense": 3933000000,
+            "incomeTaxExpense": 16741000000,
+            "netIncome": 96995000000,
+            "depreciationAndAmortization": 11519000000,
+            "weightedAverageShsDilOut": 15812547000
+          },
+          {
+            "date": "2022-09-24",
+            "symbol": "AAPL",
+            "reportedCurrency": "USD",
+            "fillingDate": "2022-10-28",
+            "acceptedDate": "2022-10-27 18:01:14",
+            "calendarYear": "2022",
+            "period": "FY",
+            "revenue": 394328000000,
+            "costOfRevenue": 223546000000,
+            "grossProfit": 170782000000,
+            "operatingExpenses": 51345000000,
+            "operatingIncome": 119437000000,
+            "ebitda": 130541000000,
+            "interestExpense": 2931000000,
+            "incomeTaxExpense": 19300000000,
+            "netIncome": 99803000000,
+            "depreciationAndAmortization": 11104000000,
+            "weightedAverageShsDilOut": 16325819000
+          },
+          {
+            "date": "2021-09-25",
+            "symbol": "AAPL",
+            "reportedCurrency": "USD",
+            "fillingDate": "2021-10-29",
+            "acceptedDate": "2021-10-28 18:04:28",
+            "calendarYear": "2021",
+            "period": "FY",
+            "revenue": 365817000000,
+            "costOfRevenue": 212981000000,
+            "grossProfit": 152836000000,
+            "operatingExpenses": 43887000000,
+            "operatingIncome": 108949000000,
+            "interestExpense": 2645000000,
+            "incomeTaxExpense": 14527000000,
+            "netIncome": 94680000000,
+            "depreciationAndAmortization": 11284000000,
+            "weightedAverageShsDilOut": 16864919000
+          },
+          {
+            "date": "2021-09-25",
+            "symbol": "AAPL",
+            "reportedCurrency": "USD",
+            "fillingDate": "2022-10-28",
+            "acceptedDate": "2022-10-27 18:01:14",
+            "calendarYear": "2021",
+            "period": "FY",
+            "revenue": 365820000000,
+            "costOfRevenue": 212980000000,
+            "grossProfit": 152840000000,
+            "operatingExpenses": 43887000000,
+            "operatingIncome": 108953000000,
+            "interestExpense": 2645000000,
+            "incomeTaxExpense": 14527000000,
+            "netIncome": 94684000000,
+            "depreciationAndAmortization": 11284000000,
+            "weightedAverageShsDilOut": 16864919000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/AAPL?period=annual&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2023-09-30",
+            "symbol": "AAPL",
+            "reportedCurrency": "USD",
+            "calendarYear": "2023",
+            "period": "FY",
+            "totalAssets": 352583000000,
+            "totalDebt": 111088000000,
+            "cashAndCashEquivalents": 29965000000,
+            "totalStockholdersEquity": 62146000000,
+            "goodwill": 0,
+            "totalCurrentAssets": 143566000000,
+            "totalCurrentLiabilities": 145308000000
+          },
+          {
+            "date": "2022-09-24",
+            "symbol": "AAPL",
+            "reportedCurrency": "USD",
+            "calendarYear": "2022",
+            "period": "FY",
+            "totalAssets": 352755000000,
+            "totalDebt": 120069000000,
+            "cashAndCashEquivalents": 23646000000,
+            "totalStockholdersEquity": 50672000000,
+            "goodwill": 0,
+            "totalCurrentAssets": 135405000000,
+            "totalCurrentLiabilities": 153982000000
+          },
+          {
+            "date": "2021-09-25",
+            "symbol": "AAPL",
+            "reportedCurrency": "USD",
+            "calendarYear": "2021",
+            "period": "FY",
+            "totalAssets": 351002000000,
+            "totalDebt": 124719000000,
+            "cashAndCashEquivalents": 34940000000,
+            "totalStockholdersEquity": 63090000000,
+            "goodwill": 0,
+            "totalCurrentAssets": 134836000000,
+            "totalCurrentLiabilities": 125481000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/AAPL?period=annual&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2023-09-30",
+            "symbol": "AAPL",
+            "reportedCurrency": "USD",
+            "calendarYear": "2023",
+            "period": "FY",
+            "operatingCashFlow": 110543000000,
+            "capitalExpenditure": -10959000000,
+            "freeCashFlow": 99584000000,
+            "depreciationAndAmortization": 11519000000,
+            "dividendsPaid": -15025000000
+          },
+          {
+            "date": "2022-09-24",
+            "symbol": "AAPL",
+            "reportedCurrency": "USD",
+            "calendarYear": "2022",
+            "period": "FY",
+            "operatingCashFlow": 122151000000,
+            "capitalExpenditure": -10708000000,
+            "depreciationAndAmortization": 11104000000,
+            "dividendsPaid": -14841000000
+          },
+          {
+            "date": "2021-09-25",
+            "symbol": "AAPL",
+            "reportedCurrency": "USD",
+            "calendarYear": "2021",
+            "period": "FY",
+            "operatingCashFlow": 104038000000,
+            "capitalExpenditure": -11085000000,
+            "freeCashFlow": 92953000000,
+            "depreciationAndAmortization": 11284000000,
+            "dividendsPaid": -14467000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/AAPL?period=quarter&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2023-07-01",
+            "symbol": "AAPL",
+            "reportedCurrency": "USD",
+            "fillingDate": "2023-08-04",
+            "calendarYear": "2023",
+            "period": "Q3",
+            "revenue": 81797000000,
+            "operatingIncome": 22998000000,
+            "ebitda": 26000000000,
+            "netIncome": 19881000000,
+            "depreciationAndAmortization": 3052000000
+          },
+          {
+            "date": "2023-04-01",
+            "symbol": "AAPL",
+            "reportedCurrency": "USD",
+            "fillingDate": "2023-05-05",
+            "calendarYear": "2023",
+            "period": "Q2",
+            "revenue": 94836000000,
+            "operatingIncome": 28318000000,
+            "ebitda": 31300000000,
+            "netIncome": 24160000000,
+            "depreciationAndAmortization": 2898000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/AAPL?period=quarter&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2023-07-01",
+            "symbol": "AAPL",
+            "reportedCurrency": "USD",
+            "calendarYear": "2023",
+            "period": "Q3",
+            "totalDebt": 109280000000,
+            "cashAndCashEquivalents": 28408000000
+          },
+          {
+            "date": "2023-04-01",
+            "symbol": "AAPL",
+            "reportedCurrency": "USD",
+            "calendarYear": "2023",
+            "period": "Q2",
+            "totalDebt": 109615000000,
+            "cashAndCashEquivalents": 24687000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/AAPL?period=quarter&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2023-07-01",
+            "symbol": "AAPL",
+            "reportedCurrency": "USD",
+            "calendarYear": "2023",
+            "period": "Q3",
+            "operatingCashFlow": 26380000000,
+            "capitalExpenditure": -2093000000,
+            "freeCashFlow": 24287000000
+          },
+          {
+            "date": "2023-04-01",
+            "symbol": "AAPL",
+            "reportedCurrency": "USD",
+            "calendarYear": "2023",
+            "period": "Q2",
+            "operatingCashFlow": 28560000000,
+            "capitalExpenditure": -2916000000,
+            "freeCashFlow": 25644000000
+          }
+        ]
+    version: 1

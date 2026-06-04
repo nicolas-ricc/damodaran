@@ -1,0 +1,66 @@
+# SYNTHETIC cassette — hand-authored, fabricated-but-realistic FMP historical
+# EOD price JSON (endpoint /api/v3/historical-price-full/AAPL). NOT recorded from
+# the live API. Values are plausible but fabricated. Re-record against the real
+# FMP API with a valid BOT_FMP_API_KEY before production use.
+interactions:
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/historical-price-full/AAPL?from=2023-12-27&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        {
+          "symbol": "AAPL",
+          "historical": [
+            {
+              "date": "2023-12-29",
+              "open": 193.90,
+              "high": 194.40,
+              "low": 191.73,
+              "close": 192.53,
+              "adjClose": 192.53,
+              "volume": 42672148,
+              "marketCap": 2994000000000,
+              "change": -1.37,
+              "changePercent": -0.706,
+              "vwap": 192.89
+            },
+            {
+              "date": "2023-12-28",
+              "open": 194.14,
+              "high": 194.66,
+              "low": 193.17,
+              "close": 193.58,
+              "adjClose": 193.58,
+              "volume": 34049898,
+              "marketCap": 3010000000000,
+              "change": -0.56,
+              "changePercent": -0.288,
+              "vwap": 193.79
+            },
+            {
+              "date": "2023-12-27",
+              "open": 192.49,
+              "high": 193.50,
+              "low": 191.09,
+              "close": 193.15,
+              "adjClose": 193.15,
+              "volume": 48087703,
+              "marketCap": 3003000000000,
+              "change": 0.66,
+              "changePercent": 0.343,
+              "vwap": 192.36
+            }
+          ]
+        }
+    version: 1

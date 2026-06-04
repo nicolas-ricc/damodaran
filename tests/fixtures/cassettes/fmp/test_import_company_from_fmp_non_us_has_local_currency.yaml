@@ -1,0 +1,271 @@
+# SYNTHETIC cassette — hand-authored, fabricated-but-realistic FMP JSON.
+# NOT recorded from the live API. Re-record against the real FMP API with a valid
+# BOT_FMP_API_KEY before production use.
+#
+# Non-US ticker (Nestlé, SIX Swiss Exchange): country CH, currency CHF — verifies
+# the importer preserves local (non-USD) currency and country end to end.
+interactions:
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/profile/NESN.SW?apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "symbol": "NESN.SW",
+            "companyName": "Nestlé S.A.",
+            "currency": "CHF",
+            "isin": "CH0038863350",
+            "exchange": "Swiss Exchange",
+            "exchangeShortName": "SIX",
+            "industry": "Packaged Foods",
+            "sector": "Consumer Defensive",
+            "country": "CH",
+            "isActivelyTrading": true
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/NESN.SW?period=annual&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2023-12-31",
+            "symbol": "NESN.SW",
+            "reportedCurrency": "CHF",
+            "fillingDate": "2024-02-22",
+            "calendarYear": "2023",
+            "period": "FY",
+            "revenue": 92990000000,
+            "costOfRevenue": 48000000000,
+            "grossProfit": 44990000000,
+            "operatingExpenses": 30000000000,
+            "operatingIncome": 14990000000,
+            "ebitda": 18000000000,
+            "interestExpense": 900000000,
+            "incomeTaxExpense": 3000000000,
+            "netIncome": 11210000000,
+            "depreciationAndAmortization": 3010000000,
+            "weightedAverageShsDilOut": 2700000000
+          },
+          {
+            "date": "2022-12-31",
+            "symbol": "NESN.SW",
+            "reportedCurrency": "CHF",
+            "fillingDate": "2023-02-23",
+            "calendarYear": "2022",
+            "period": "FY",
+            "revenue": 94400000000,
+            "costOfRevenue": 49000000000,
+            "grossProfit": 45400000000,
+            "operatingExpenses": 31000000000,
+            "operatingIncome": 14400000000,
+            "interestExpense": 850000000,
+            "incomeTaxExpense": 3100000000,
+            "netIncome": 11600000000,
+            "depreciationAndAmortization": 2900000000,
+            "weightedAverageShsDilOut": 2750000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/NESN.SW?period=annual&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2023-12-31",
+            "symbol": "NESN.SW",
+            "reportedCurrency": "CHF",
+            "calendarYear": "2023",
+            "period": "FY",
+            "totalAssets": 130000000000,
+            "totalDebt": 60000000000,
+            "cashAndCashEquivalents": 8000000000,
+            "totalStockholdersEquity": 45000000000,
+            "goodwill": 33000000000,
+            "totalCurrentAssets": 40000000000,
+            "totalCurrentLiabilities": 50000000000
+          },
+          {
+            "date": "2022-12-31",
+            "symbol": "NESN.SW",
+            "reportedCurrency": "CHF",
+            "calendarYear": "2022",
+            "period": "FY",
+            "totalAssets": 128000000000,
+            "totalDebt": 58000000000,
+            "cashAndCashEquivalents": 5000000000,
+            "totalStockholdersEquity": 43000000000,
+            "goodwill": 32000000000,
+            "totalCurrentAssets": 38000000000,
+            "totalCurrentLiabilities": 48000000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/NESN.SW?period=annual&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2023-12-31",
+            "symbol": "NESN.SW",
+            "reportedCurrency": "CHF",
+            "calendarYear": "2023",
+            "period": "FY",
+            "operatingCashFlow": 16000000000,
+            "capitalExpenditure": -4000000000,
+            "freeCashFlow": 12000000000,
+            "depreciationAndAmortization": 3010000000,
+            "dividendsPaid": -8000000000
+          },
+          {
+            "date": "2022-12-31",
+            "symbol": "NESN.SW",
+            "reportedCurrency": "CHF",
+            "calendarYear": "2022",
+            "period": "FY",
+            "operatingCashFlow": 15000000000,
+            "capitalExpenditure": -3500000000,
+            "depreciationAndAmortization": 2900000000,
+            "dividendsPaid": -7800000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/income-statement/NESN.SW?period=quarter&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2024-06-30",
+            "symbol": "NESN.SW",
+            "reportedCurrency": "CHF",
+            "calendarYear": "2024",
+            "period": "Q2",
+            "revenue": 22000000000,
+            "operatingIncome": 3500000000,
+            "ebitda": 4200000000,
+            "netIncome": 2700000000,
+            "depreciationAndAmortization": 700000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/NESN.SW?period=quarter&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2024-06-30",
+            "symbol": "NESN.SW",
+            "reportedCurrency": "CHF",
+            "calendarYear": "2024",
+            "period": "Q2",
+            "totalDebt": 61000000000,
+            "cashAndCashEquivalents": 7500000000
+          }
+        ]
+    version: 1
+- request:
+    body: ''
+    headers:
+      Accept:
+      - application/json
+    method: GET
+    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/NESN.SW?period=quarter&limit=10&apikey=SCRUBBED
+  response:
+    status:
+      code: 200
+      message: OK
+    headers:
+      Content-Type:
+      - application/json
+    body:
+      string: |
+        [
+          {
+            "date": "2024-06-30",
+            "symbol": "NESN.SW",
+            "reportedCurrency": "CHF",
+            "calendarYear": "2024",
+            "period": "Q2",
+            "operatingCashFlow": 3800000000,
+            "capitalExpenditure": -900000000,
+            "freeCashFlow": 2900000000
+          }
+        ]
+    version: 1
