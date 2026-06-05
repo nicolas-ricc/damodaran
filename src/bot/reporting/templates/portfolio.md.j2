@@ -1,0 +1,90 @@
+# Portfolio — {{ r.snapshot_date.isoformat() }}
+
+_Generated {{ generated_at }}_
+
+- **Total market value:** {{ r.total_market_value | money }}
+- **Total cost basis:** {{ r.total_cost_basis | money }}
+- **Total P&L:** {{ r.total_pnl | signed_money }}
+{% if r.cash %}
+- **Cash:** {% for ccy, amount in r.cash %}{{ amount | money }} {{ ccy }}{% if not loop.last %}, {% endif %}{% endfor %}
+{% endif %}
+
+## Positions
+
+{% if r.positions %}
+| Ticker | Qty | Avg cost | Cost basis | Market value | P&L | P&L % | Currency |
+|---|---|---|---|---|---|---|---|
+{% for p in r.positions %}
+| {{ p.ticker }} | {{ p.qty | num }} | {{ p.avg_cost | money }} | {{ p.cost_basis | money }} | {{ p.market_value | money }} | {{ p.pnl | signed_money }} | {{ p.pnl_pct | signed_pct }} | {{ p.currency or "—" }} |
+{% endfor %}
+{% else %}
+_No open positions in this snapshot._
+{% endif %}
+{% if r.unpriced %}
+
+> ⚠ No market price for: {% for t in r.unpriced %}{{ t }}{% if not loop.last %}, {% endif %}{% endfor %} — valued at cost basis in totals; per-position P&L shown as “—”.
+{% endif %}
+
+## Profit & loss
+
+{% if r.positions %}
+| Ticker | Cost basis | Market value | P&L | P&L % |
+|---|---|---|---|---|
+{% for p in r.positions %}
+| {{ p.ticker }} | {{ p.cost_basis | money }} | {{ p.market_value | money }} | {{ p.pnl | signed_money }} | {{ p.pnl_pct | signed_pct }} |
+{% endfor %}
+| **Total** | {{ r.total_cost_basis | money }} | {{ r.total_market_value | money }} | {{ r.total_pnl | signed_money }} | |
+{% else %}
+_No positions to report P&L for._
+{% endif %}
+
+## Concentration
+
+Single-position concentration threshold: {{ r.concentration_threshold | pct }}.
+
+{% if r.concentration %}
+| Ticker | Market value | Weight | Flagged |
+|---|---|---|---|
+{% for c in r.concentration %}
+| {{ c.ticker }} | {{ c.market_value | money }} | {{ c.weight | pct }} | {% if c.flagged %}⚠ over threshold{% else %}—{% endif %} |
+{% endfor %}
+{% else %}
+_No valued positions to weight._
+{% endif %}
+
+## Suggested reviews
+
+{% set flagged = r.concentration | selectattr("flagged") | list %}
+{% if flagged %}
+{% for c in flagged %}
+- **{{ c.ticker }}** is {{ c.weight | pct }} of the portfolio — above the {{ r.concentration_threshold | pct }} concentration threshold; consider trimming.
+{% endfor %}
+{% else %}
+- No positions exceed the concentration threshold. No reviews suggested.
+{% endif %}
+{% if r.include_history %}
+
+## P&L history
+
+{% if r.history %}
+| Snapshot | Cost basis | Market value | P&L |
+|---|---|---|---|
+{% for h in r.history %}
+| {{ h.snapshot_date.isoformat() }} | {{ h.cost_basis | money }} | {{ h.market_value | money }} | {{ h.pnl | signed_money }} |
+{% endfor %}
+{% else %}
+_No snapshot history available._
+{% endif %}
+{% endif %}
+{% if r.include_concentration %}
+
+## Concentration breakdown
+
+{% if r.concentration %}
+{% for c in r.concentration %}
+- **{{ c.ticker }}**: {{ c.weight | pct }} ({{ c.market_value | money }}){{ " — over threshold" if c.flagged else "" }}
+{% endfor %}
+{% else %}
+_No valued positions to break down._
+{% endif %}
+{% endif %}

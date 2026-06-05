@@ -24,16 +24,19 @@ from __future__ import annotations
 
 import csv
 import uuid
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime
+from functools import partial
 from importlib import resources
 from pathlib import Path
 
 import duckdb
 
 from bot.ingest.base import IngestResult, _log_refresh
-from bot.ingest.fmp import FmpClient, import_company_from_fmp
+from bot.ingest.fmp import FmpClient, import_company_from_fmp, import_prices_from_fmp
+from bot.utils.fx import import_fx_rates
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -109,9 +112,7 @@ def default_universe_path() -> Path:
 
 def _parse_universe_csv(text: str) -> list[str]:
     rows = [
-        row
-        for row in csv.reader(text.splitlines())
-        if row and not row[0].strip().startswith("#")
+        row for row in csv.reader(text.splitlines()) if row and not row[0].strip().startswith("#")
     ]
     if not rows:
         return []
@@ -154,17 +155,25 @@ def latest_local_filing_date(
     return date.fromisoformat(str(value)[:10])
 
 
-def make_fmp_latest_filing_probe(api_key: str) -> LatestFilingProbe:
+def make_fmp_latest_filing_probe(
+    api_key: str, client: FmpClient | None = None
+) -> LatestFilingProbe:
     """Build a probe that returns a ticker's newest filing date from FMP.
 
     Uses the lightweight annual income-statement endpoint (``limit=1``) and reads
     its ``fillingDate`` (FMP's spelling). Returns ``None`` when FMP has nothing —
     in which case the caller imports the ticker (better to try than to skip).
+
+    Pass ``client`` to reuse an open :class:`FmpClient` across probes (the bulk
+    refresh shares one for the whole run); otherwise each probe opens its own.
     """
 
     def probe(ticker: str) -> date | None:
-        with FmpClient(api_key=api_key) as client:
+        if client is not None:
             rows = client.income_statement(ticker, period="annual", limit=1)
+        else:
+            with FmpClient(api_key=api_key) as own:
+                rows = own.income_statement(ticker, period="annual", limit=1)
         return _latest_filing_from_statements(rows)
 
     return probe
@@ -222,24 +231,68 @@ def refresh_universe_from_fmp(
     and ``latest_filing_probe`` are injectable to keep the orchestrator testable
     without live HTTP.
     """
+    # Share one FmpClient (one connection pool) across the probe and the default
+    # importer for the whole run, instead of a fresh client — and TLS handshake —
+    # per ticker. Only the real FMP path needs it: a fully-injected importer +
+    # probe (tests) makes no live calls.
+    needs_client = importer is import_company_from_fmp or latest_filing_probe is None
+    with _shared_fmp_client(api_key, needed=needs_client) as shared_client:
+        probe = latest_filing_probe or make_fmp_latest_filing_probe(api_key, client=shared_client)
+        active_importer = importer
+        if importer is import_company_from_fmp and shared_client is not None:
+            active_importer = partial(import_company_from_fmp, client=shared_client)
+
+        return _run_bulk_refresh(
+            conn,
+            items=tickers,
+            process=lambda ticker: _refresh_one(
+                conn, ticker=ticker, api_key=api_key, importer=active_importer, probe=probe
+            ),
+            source="fmp_universe",
+            label="universe",
+            progress_every=progress_every,
+        )
+
+
+@contextmanager
+def _shared_fmp_client(api_key: str, *, needed: bool) -> Iterator[FmpClient | None]:
+    """Yield one :class:`FmpClient` for a bulk run (or ``None`` when not needed),
+    closing it on exit. Centralises the open/close lifecycle the universe / prices
+    / fx orchestrators share; each still binds the client into its own importer."""
+    client = FmpClient(api_key=api_key) if needed else None
+    try:
+        yield client
+    finally:
+        if client is not None:
+            client.close()
+
+
+def _run_bulk_refresh(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    items: list[str],
+    process: Callable[[str], TickerOutcome],
+    source: str,
+    label: str,
+    progress_every: int,
+) -> UniverseRefreshResult:
+    """Drive a bulk refresh: loop ``items`` through ``process``, tally outcomes,
+    log progress under ``{label}.refresh.*``, and write one ``source`` summary row
+    to ``refresh_log``.
+
+    The caller owns the :class:`FmpClient` lifecycle and binds it into ``process``;
+    this driver only sequences the per-item work and aggregates the result, shared
+    by the universe / prices / fx refreshes.
+    """
     started = datetime.now()
     run_id = str(uuid.uuid4())
-    probe = latest_filing_probe or make_fmp_latest_filing_probe(api_key)
-
-    total = len(tickers)
+    total = len(items)
     outcomes: list[TickerOutcome] = []
     imported = skipped = failed = 0
 
-    log.info("universe.refresh.start", run_id=run_id, total=total)
-
-    for index, ticker in enumerate(tickers, start=1):
-        outcome = _refresh_one(
-            conn,
-            ticker=ticker,
-            api_key=api_key,
-            importer=importer,
-            probe=probe,
-        )
+    log.info(f"{label}.refresh.start", run_id=run_id, total=total)
+    for index, item in enumerate(items, start=1):
+        outcome = process(item)
         outcomes.append(outcome)
         if outcome.status == "imported":
             imported += 1
@@ -250,7 +303,7 @@ def refresh_universe_from_fmp(
 
         if progress_every > 0 and index % progress_every == 0:
             log.info(
-                "universe.refresh.progress",
+                f"{label}.refresh.progress",
                 run_id=run_id,
                 processed=index,
                 total=total,
@@ -262,7 +315,6 @@ def refresh_universe_from_fmp(
     finished = datetime.now()
     failure_rate = failed / total if total else 0.0
     status = _resolve_status(failure_rate)
-
     result = UniverseRefreshResult(
         run_id=run_id,
         started_at=started,
@@ -277,7 +329,7 @@ def refresh_universe_from_fmp(
 
     if result.failures:
         log.warning(
-            "universe.refresh.failures",
+            f"{label}.refresh.failures",
             run_id=run_id,
             failed=failed,
             failure_rate=round(failure_rate, 4),
@@ -285,7 +337,7 @@ def refresh_universe_from_fmp(
         )
 
     log.info(
-        "universe.refresh.done",
+        f"{label}.refresh.done",
         run_id=run_id,
         status=status,
         total=total,
@@ -294,8 +346,153 @@ def refresh_universe_from_fmp(
         failed=failed,
     )
 
-    _log_universe_refresh(conn, result)
+    _log_bulk_refresh(conn, result, source=source)
     return result
+
+
+def company_currency(conn: duckdb.DuckDBPyConnection, ticker: str) -> str | None:
+    """The listing currency stored for ``ticker`` in ``companies`` (None if absent)."""
+    row = conn.execute(
+        "SELECT currency FROM companies WHERE ticker = ?", [ticker.upper()]
+    ).fetchone()
+    return str(row[0]) if row is not None and row[0] else None
+
+
+def refresh_prices_from_fmp(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    api_key: str,
+    tickers: list[str],
+    since_date: date | None = None,
+    progress_every: int = DEFAULT_PROGRESS_EVERY,
+    importer: Importer = import_prices_from_fmp,
+) -> UniverseRefreshResult:
+    """Bulk-refresh EOD prices for ``tickers`` from FMP (incremental per ticker).
+
+    Shares one :class:`FmpClient` across the run; per-ticker errors are isolated
+    into a failed outcome; a ``fmp_prices_universe`` summary row is written to
+    ``refresh_log``. Each ticker's currency is read from ``companies.currency`` and
+    passed through so ``prices_daily.currency`` is set for the screener's USD
+    market-cap conversion. ``importer`` is injectable for tests.
+    """
+    needs_client = importer is import_prices_from_fmp
+    with _shared_fmp_client(api_key, needed=needs_client) as shared_client:
+        active = importer
+        if importer is import_prices_from_fmp and shared_client is not None:
+            active = partial(import_prices_from_fmp, client=shared_client)
+
+        return _run_bulk_refresh(
+            conn,
+            items=tickers,
+            process=lambda ticker: _refresh_one_price(
+                conn, ticker=ticker, api_key=api_key, since_date=since_date, importer=active
+            ),
+            source="fmp_prices_universe",
+            label="prices",
+            progress_every=progress_every,
+        )
+
+
+def _refresh_one_price(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    ticker: str,
+    api_key: str,
+    since_date: date | None,
+    importer: Importer,
+) -> TickerOutcome:
+    """Refresh one ticker's prices, never raising. Returns its outcome."""
+    sym = ticker.upper()
+    try:
+        currency = company_currency(conn, sym)
+        result = importer(
+            conn, ticker=sym, api_key=api_key, since_date=since_date, currency=currency
+        )
+        if result.is_success():
+            return TickerOutcome(ticker=sym, status="imported", rows_affected=result.rows_affected)
+        return TickerOutcome(
+            ticker=sym,
+            status="failed",
+            error_message=result.error_message or "import returned non-success",
+        )
+    except Exception as exc:
+        log.warning("prices.refresh.ticker_failed", ticker=sym, error=str(exc))
+        return TickerOutcome(ticker=sym, status="failed", error_message=str(exc))
+
+
+def distinct_non_usd_currencies(conn: duckdb.DuckDBPyConnection) -> list[str]:
+    """The distinct non-USD listing currencies present in ``companies`` (USD needs
+    no FX rate — it is the numeraire)."""
+    rows = conn.execute(
+        "SELECT DISTINCT currency FROM companies "
+        "WHERE currency IS NOT NULL AND upper(currency) <> 'USD' "
+        "ORDER BY currency"
+    ).fetchall()
+    return [str(r[0]).upper() for r in rows]
+
+
+def refresh_fx_from_fmp(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    api_key: str,
+    start: date | None = None,
+    end: date | None = None,
+    currencies: list[str] | None = None,
+    progress_every: int = DEFAULT_PROGRESS_EVERY,
+    importer: Importer = import_fx_rates,
+) -> UniverseRefreshResult:
+    """Bulk-refresh FX rates for the currencies held in ``companies`` (or an
+    explicit ``currencies`` list).
+
+    Shares one :class:`FmpClient` across the run; per-currency errors are isolated;
+    a ``fmp_fx_universe`` summary row is written to ``refresh_log``. An all-USD
+    universe yields an empty currency set → ``total=0``, status ``success``, no FMP
+    calls. ``importer`` is injectable for tests.
+    """
+    items = currencies if currencies is not None else distinct_non_usd_currencies(conn)
+    # No client needed for an all-USD universe (empty set → no FMP calls).
+    needs_client = importer is import_fx_rates and bool(items)
+    with _shared_fmp_client(api_key, needed=needs_client) as shared_client:
+        active = importer
+        if importer is import_fx_rates and shared_client is not None:
+            active = partial(import_fx_rates, client=shared_client)
+
+        return _run_bulk_refresh(
+            conn,
+            items=items,
+            process=lambda currency: _refresh_one_currency(
+                conn, currency=currency, api_key=api_key, start=start, end=end, importer=active
+            ),
+            source="fmp_fx_universe",
+            label="fx",
+            progress_every=progress_every,
+        )
+
+
+def _refresh_one_currency(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    currency: str,
+    api_key: str,
+    start: date | None,
+    end: date | None,
+    importer: Importer,
+) -> TickerOutcome:
+    """Refresh one currency's FX rates, never raising. Returns its outcome (the
+    ``ticker`` field carries the currency code)."""
+    ccy = currency.upper()
+    try:
+        result = importer(conn, currency=ccy, api_key=api_key, start=start, end=end)
+        if result.is_success():
+            return TickerOutcome(ticker=ccy, status="imported", rows_affected=result.rows_affected)
+        return TickerOutcome(
+            ticker=ccy,
+            status="failed",
+            error_message=result.error_message or "import returned non-success",
+        )
+    except Exception as exc:
+        log.warning("fx.refresh.currency_failed", currency=ccy, error=str(exc))
+        return TickerOutcome(ticker=ccy, status="failed", error_message=str(exc))
 
 
 def _refresh_one(
@@ -316,9 +513,7 @@ def _refresh_one(
 
         result = importer(conn, ticker=sym, api_key=api_key)
         if result.is_success():
-            return TickerOutcome(
-                ticker=sym, status="imported", rows_affected=result.rows_affected
-            )
+            return TickerOutcome(ticker=sym, status="imported", rows_affected=result.rows_affected)
         return TickerOutcome(
             ticker=sym,
             status="failed",
@@ -345,16 +540,16 @@ def _should_skip(ticker: str, local_latest: date, probe: LatestFilingProbe) -> b
     return remote_latest <= local_latest
 
 
-def _log_universe_refresh(
-    conn: duckdb.DuckDBPyConnection, result: UniverseRefreshResult
+def _log_bulk_refresh(
+    conn: duckdb.DuckDBPyConnection, result: UniverseRefreshResult, *, source: str
 ) -> None:
-    """Write the run summary to ``refresh_log`` (source ``fmp_universe``)."""
+    """Write the run summary to ``refresh_log`` under ``source`` (e.g. ``fmp_universe``)."""
     error_message = None
     if result.failures:
         sample = ", ".join(f.ticker for f in result.failures[:10])
         error_message = f"{result.failed}/{result.total} failed: {sample}"
     summary = IngestResult(
-        source="fmp_universe",
+        source=source,
         started_at=result.started_at,
         finished_at=result.finished_at,
         status=result.status,  # type: ignore[arg-type]
@@ -364,4 +559,4 @@ def _log_universe_refresh(
     try:
         _log_refresh(conn, summary, run_id=result.run_id)
     except Exception as log_err:
-        log.exception("universe.refresh_log_insert_failed", error=str(log_err))
+        log.exception("refresh_log_insert_failed", source=source, error=str(log_err))

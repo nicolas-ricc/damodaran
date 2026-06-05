@@ -99,9 +99,7 @@ def test_tornado_entry_records_both_swung_values_and_their_intrinsics() -> None:
     assert entry.low_value == pytest.approx(0.20 * 0.8, abs=TOL)
     assert entry.intrinsic_high == pytest.approx(high.intrinsic_value, abs=TOL)
     assert entry.intrinsic_low == pytest.approx(low.intrinsic_value, abs=TOL)
-    assert entry.impact == pytest.approx(
-        abs(high.intrinsic_value - low.intrinsic_value), abs=TOL
-    )
+    assert entry.impact == pytest.approx(abs(high.intrinsic_value - low.intrinsic_value), abs=TOL)
 
 
 def test_tornado_is_ordered_descending_by_abs_impact() -> None:
@@ -176,9 +174,7 @@ def test_grid_2d_records_the_axes() -> None:
 
 def test_grid_2d_centre_cell_is_the_base_case() -> None:
     fin, base = _financials(), _assumptions()
-    grid = grid_2d(
-        fin, base, SensitivityAxis.REVENUE_GROWTH, SensitivityAxis.OPERATING_MARGIN
-    )
+    grid = grid_2d(fin, base, SensitivityAxis.REVENUE_GROWTH, SensitivityAxis.OPERATING_MARGIN)
     centre = grid.cells[2][2]
     base_intrinsic = dcf(fin, base).intrinsic_value
     assert centre.intrinsic_value == pytest.approx(base_intrinsic, abs=TOL)
@@ -188,9 +184,7 @@ def test_grid_2d_centre_cell_is_the_base_case() -> None:
 
 def test_grid_2d_cell_applies_both_axes() -> None:
     fin, base = _financials(), _assumptions()
-    grid = grid_2d(
-        fin, base, SensitivityAxis.REVENUE_GROWTH, SensitivityAxis.OPERATING_MARGIN
-    )
+    grid = grid_2d(fin, base, SensitivityAxis.REVENUE_GROWTH, SensitivityAxis.OPERATING_MARGIN)
     # Top-left cell: row multiplier 0.8 on axis_a, col multiplier 0.8 on axis_b.
     twisted = scale_axis(base, SensitivityAxis.REVENUE_GROWTH, 0.8)
     twisted = scale_axis(twisted, SensitivityAxis.OPERATING_MARGIN, 0.8)
@@ -200,9 +194,7 @@ def test_grid_2d_cell_applies_both_axes() -> None:
 
 def test_grid_2d_margin_of_safety_is_intrinsic_over_base() -> None:
     fin, base = _financials(), _assumptions()
-    grid = grid_2d(
-        fin, base, SensitivityAxis.REVENUE_GROWTH, SensitivityAxis.OPERATING_MARGIN
-    )
+    grid = grid_2d(fin, base, SensitivityAxis.REVENUE_GROWTH, SensitivityAxis.OPERATING_MARGIN)
     base_intrinsic = dcf(fin, base).intrinsic_value
     for row in grid.cells:
         for cell in row:
@@ -219,3 +211,61 @@ def test_grid_2d_rejects_identical_axes() -> None:
             SensitivityAxis.REVENUE_GROWTH,
             SensitivityAxis.REVENUE_GROWTH,
         )
+
+
+# --------------------------------------------------------------------------- #
+# Out-of-domain scenarios — a scaled axis can push terminal_growth >= WACC     #
+# (the DCF perpetuity diverges). Such scenarios are reported as a None         #
+# sentinel rather than crashing the whole analysis.                           #
+# --------------------------------------------------------------------------- #
+
+
+def _near_wacc_assumptions() -> Assumptions:
+    """Base case whose terminal_growth (0.045) sits just below WACC (0.05).
+
+    Scaling terminal_growth up by the +20% tornado/grid leg (0.045 * 1.2 =
+    0.054) pushes it past WACC, so the DCF for that scenario is undefined.
+    """
+    return Assumptions(
+        revenue_growth=(0.10, 0.08, 0.06, 0.04, 0.02),
+        operating_margin=(0.20, 0.20, 0.20, 0.20, 0.20),
+        tax_rate=0.25,
+        sales_to_capital=2.0,
+        terminal_growth=0.045,
+        cost_of_equity=0.05,
+        pretax_cost_of_debt=0.04,
+        equity_weight=1.0,
+        debt_weight=0.0,
+    )
+
+
+def test_tornado_marks_diverging_scenario_with_none_sentinel() -> None:
+    entries = tornado(_financials(), _near_wacc_assumptions())
+
+    tg = next(e for e in entries if e.axis is SensitivityAxis.TERMINAL_GROWTH)
+    # The +20% leg diverges -> its intrinsic value and the impact are None.
+    assert tg.intrinsic_high is None
+    assert tg.intrinsic_low is not None
+    assert tg.impact is None
+    # None-impact entries rank last (they convey no measurable swing).
+    assert entries[-1].impact is None
+    # Entries with a real impact still come first, descending.
+    real = [e for e in entries if e.impact is not None]
+    assert real == sorted(real, key=lambda e: e.impact, reverse=True)
+
+
+def test_grid_2d_marks_diverging_cells_with_none_sentinel() -> None:
+    grid = grid_2d(
+        _financials(),
+        _near_wacc_assumptions(),
+        SensitivityAxis.TERMINAL_GROWTH,
+        SensitivityAxis.OPERATING_MARGIN,
+    )
+
+    # The +20% terminal_growth rows (multiplier 1.1 and 1.2) diverge -> None.
+    diverging = [cell for row in grid.cells for cell in row if cell.intrinsic_value is None]
+    assert diverging, "expected at least one diverging cell"
+    for cell in diverging:
+        assert cell.margin_of_safety is None
+    # The base/centre cell is always defined.
+    assert grid.cells[2][2].intrinsic_value is not None

@@ -11,13 +11,17 @@ import typer
 from bot import __version__
 from bot.config import Settings, load_settings
 from bot.ingest.damodaran import import_damodaran
+from bot.ingest.ibkr import IbkrClient
 from bot.ingest.sec_edgar import import_company_from_sec
 from bot.ingest.universe import (
     UniverseRefreshResult,
     default_universe_path,
     load_universe,
+    refresh_fx_from_fmp,
+    refresh_prices_from_fmp,
     refresh_universe_from_fmp,
 )
+from bot.portfolio.command import run_portfolio
 from bot.reporting.analysis_report import render_analysis
 from bot.reporting.html import render_analysis_html
 from bot.reporting.screen_report import render_csv, render_markdown
@@ -61,6 +65,15 @@ def refresh(
     fmp: bool = typer.Option(
         False, "--fmp", help="Bulk-refresh a universe of tickers from FMP (incremental)."
     ),
+    prices: bool = typer.Option(
+        False, "--prices", help="Refresh EOD prices for the universe from FMP (incremental)."
+    ),
+    fx: bool = typer.Option(
+        False, "--fx", help="Refresh FX rates for the currencies held in the universe."
+    ),
+    all_: bool = typer.Option(
+        False, "--all", help="Refresh everything: damodaran + fmp + prices + fx, in order."
+    ),
     universe: Path | None = typer.Option(  # noqa: B008
         None,
         "--universe",
@@ -76,19 +89,48 @@ def refresh(
         help="Where to cache downloaded Damodaran files.",
     ),
 ) -> None:
-    """Refresh data from external sources."""
-    if not damodaran and not fmp:
+    """Refresh data from external sources.
+
+    Multiple sources can be requested in one invocation (or all of them with
+    ``--all``); they run in dependency order (damodaran → fmp → prices → fx) and
+    the process exits with the *worst* per-source code (damodaran failure = 1, an
+    fmp/prices/fx data error = 2), so a later source still runs and the operator
+    sees the full picture. Prices and fx run after fmp because they read each
+    ticker's / the universe's currency from ``companies``.
+    """
+    if all_:
+        damodaran = fmp = prices = fx = True
+    if not damodaran and not fmp and not prices and not fx:
         typer.echo(
-            "Specify what to refresh. Available flags: --damodaran, --fmp",
+            "Specify what to refresh. Flags: --damodaran, --fmp, --prices, --fx, --all",
             err=True,
         )
         raise typer.Exit(code=2)
 
+    conn, settings = _open_db()
+    exit_code = 0
+    if damodaran:
+        exit_code = max(
+            exit_code,
+            _refresh_damodaran(conn, region=region, year=year, download_dir=download_dir),
+        )
     if fmp:
-        _refresh_fmp_universe(universe)
-        return
+        exit_code = max(exit_code, _refresh_fmp_universe(conn, settings, universe))
+    if prices:
+        exit_code = max(exit_code, _refresh_prices(conn, settings, universe))
+    if fx:
+        exit_code = max(exit_code, _refresh_fx(conn, settings))
+    raise typer.Exit(code=exit_code)
 
-    conn, _ = _open_db()
+
+def _refresh_damodaran(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    region: str,
+    year: int | None,
+    download_dir: Path,
+) -> int:
+    """Import the Damodaran datasets. Returns the source's exit code (0 ok, 1 fail)."""
     typer.echo(f"Importing Damodaran datasets (region={region}, year={year or 'current'})...")
     result = import_damodaran(conn, download_dir=download_dir, region=region, year=year)
     if result.is_success():
@@ -97,33 +139,58 @@ def refresh(
             f"(industry={result.details.get('industry_rows')}, "
             f"country={result.details.get('country_rows')})"
         )
-        raise typer.Exit(code=0)
+        return 0
     typer.echo(f"FAILED — {result.error_message}", err=True)
-    raise typer.Exit(code=1)
+    return 1
 
 
-def _refresh_fmp_universe(universe: Path | None) -> None:
+def _refresh_fmp_universe(
+    conn: duckdb.DuckDBPyConnection, settings: Settings, universe: Path | None
+) -> int:
     """Run a bulk FMP universe refresh and map its outcome to an exit code.
 
     Exit codes follow the spec convention (§9.2) and the M2.6 brief: ``0`` when at
     most 5% of the universe failed, ``2`` (data error) when more than 5% failed.
     Per-ticker failures are summarised on stderr; they never abort the run.
     """
-    conn, settings = _open_db()
     path = universe or default_universe_path()
     tickers = load_universe(path)
     if not tickers:
         typer.echo(f"Universe file {path} has no tickers.", err=True)
-        raise typer.Exit(code=2)
+        return 2
 
     typer.echo(f"Refreshing {len(tickers)} tickers from FMP (universe={path})...")
-    result = refresh_universe_from_fmp(
-        conn, api_key=settings.fmp_api_key, tickers=tickers
-    )
+    result = refresh_universe_from_fmp(conn, api_key=settings.fmp_api_key, tickers=tickers)
     _report_universe_refresh(result)
 
     # > 5% failed (i.e. status is not 'success') is a data error.
-    raise typer.Exit(code=0 if result.status == "success" else 2)
+    return 0 if result.status == "success" else 2
+
+
+def _refresh_prices(
+    conn: duckdb.DuckDBPyConnection, settings: Settings, universe: Path | None
+) -> int:
+    """Refresh EOD prices for the universe. Returns the exit code (0 ok, 2 data error)."""
+    path = universe or default_universe_path()
+    tickers = load_universe(path)
+    if not tickers:
+        typer.echo(f"Universe file {path} has no tickers.", err=True)
+        return 2
+
+    typer.echo(f"Refreshing prices for {len(tickers)} tickers from FMP...")
+    result = refresh_prices_from_fmp(conn, api_key=settings.fmp_api_key, tickers=tickers)
+    _report_universe_refresh(result)
+
+    return 0 if result.status == "success" else 2
+
+
+def _refresh_fx(conn: duckdb.DuckDBPyConnection, settings: Settings) -> int:
+    """Refresh FX rates for the universe's currencies. Returns the exit code."""
+    typer.echo("Refreshing FX rates for the universe's currencies from FMP...")
+    result = refresh_fx_from_fmp(conn, api_key=settings.fmp_api_key)
+    _report_universe_refresh(result)
+
+    return 0 if result.status == "success" else 2
 
 
 def _report_universe_refresh(result: UniverseRefreshResult) -> None:
@@ -288,11 +355,50 @@ def screen(
     csv_path.write_text(render_csv(result))
 
     typer.echo(
-        f"Screened {result.screened} companies → {len(result.shortlist)} candidates "
-        f"(run {run_id})"
+        f"Screened {result.screened} companies → {len(result.shortlist)} candidates (run {run_id})"
     )
     typer.echo(f"Wrote {md_path}")
     typer.echo(f"Wrote {csv_path}")
+
+
+@app.command()
+def portfolio(
+    history: bool = typer.Option(
+        False, "--history", help="Include a P&L time series across snapshots."
+    ),
+    concentration: bool = typer.Option(
+        False, "--concentration", help="Include a concentration breakdown."
+    ),
+) -> None:
+    """Sync the portfolio, diff it against the last snapshot, and write reports.
+
+    Connects to the read-only IBKR client, writes today's snapshot, computes the
+    §8.3 event stream versus the previous snapshot (persisting it to
+    ``events_log``), then writes two artefacts under
+    ``<reports_dir>/YYYY-MM-DD/``: ``portfolio.md`` (full state — positions, P&L,
+    concentration, suggested reviews; plus a P&L time series with ``--history``
+    and an explicit concentration breakdown with ``--concentration``) and
+    ``alerts.md`` (today's events only, always written even when there are none).
+
+    Sending notifications is out of scope (the notifier owns email/Telegram).
+    """
+    conn, settings = _open_db()
+    client = IbkrClient.from_settings(settings)
+    result = run_portfolio(
+        conn,
+        client,
+        reports_dir=settings.reports_dir,
+        today=date.today(),
+        history=history,
+        concentration=concentration,
+    )
+    typer.echo(
+        f"Synced snapshot {result.snapshot_date.isoformat()} "
+        f"(prev {result.prev_snapshot_date.isoformat() if result.prev_snapshot_date else 'none'}) "
+        f"→ {result.events} event(s)"
+    )
+    typer.echo(f"Wrote {result.portfolio_path}")
+    typer.echo(f"Wrote {result.alerts_path}")
 
 
 @app.command()

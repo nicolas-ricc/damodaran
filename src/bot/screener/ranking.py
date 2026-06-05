@@ -38,7 +38,7 @@ global state, and is deterministic given the same candidates and weights.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -204,3 +204,49 @@ def rank(
 
     scored.sort(key=lambda s: (-s.score, s.ticker))
     return scored
+
+
+def _composite(scored: ScoredCandidate, margin: float, w: RankingWeights) -> float:
+    """The §6.5 composite from existing percentiles and a margin-of-safety."""
+    return 100.0 * (
+        w.value * scored.value_score
+        + w.quality * scored.quality_score
+        + w.growth * scored.growth_score
+        + w.margin_of_safety * margin
+    )
+
+
+def rescore_with_margins(
+    scored: Sequence[ScoredCandidate],
+    margins: Mapping[str, float],
+    weights: RankingWeights | None = None,
+) -> list[ScoredCandidate]:
+    """Re-blend composites with updated margins, keeping the existing percentiles.
+
+    The value/quality/growth sub-scores on ``scored`` are percentiles ranked over
+    the *full* survivor universe (the first :func:`rank` pass). When the second
+    pass replaces the placeholder margin of safety with the real DCF ratio, only
+    the margin-of-safety term and the composite change — the percentiles are
+    carried through unchanged, so a candidate's reported sub-scores keep meaning
+    "rank within the filtered universe" rather than collapsing to its position in
+    the truncated top-N. The result is re-sorted best-first.
+
+    ``margins`` maps ticker → real margin of safety; a candidate absent from the
+    map keeps its current margin. Pure and deterministic; inputs are not mutated.
+    """
+    w = weights if weights is not None else RankingWeights()
+    rescored: list[ScoredCandidate] = []
+    for s in scored:
+        margin = margins.get(s.ticker, s.margin_of_safety)
+        rescored.append(
+            ScoredCandidate(
+                ticker=s.ticker,
+                value_score=s.value_score,
+                quality_score=s.quality_score,
+                growth_score=s.growth_score,
+                margin_of_safety=margin,
+                score=_composite(s, margin, w),
+            )
+        )
+    rescored.sort(key=lambda s: (-s.score, s.ticker))
+    return rescored

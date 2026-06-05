@@ -23,7 +23,7 @@ import dataclasses
 from enum import StrEnum
 from typing import Any
 
-from bot.valuator.dcf import Assumptions, Financials, dcf
+from bot.valuator.dcf import Assumptions, Financials, _wacc, dcf
 
 #: The two ends each assumption is swung to in the tornado.
 _TORNADO_LOW = 0.8
@@ -73,9 +73,9 @@ class TornadoEntry:
     axis: SensitivityAxis
     low_value: float
     high_value: float
-    intrinsic_low: float
-    intrinsic_high: float
-    impact: float
+    intrinsic_low: float | None
+    intrinsic_high: float | None
+    impact: float | None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -84,15 +84,18 @@ class GridCell:
 
     Attributes:
         intrinsic_value: Per-share intrinsic value with both axes scaled by this
-            cell's row/column multipliers.
+            cell's row/column multipliers, or ``None`` if that scenario is
+            outside the DCF's valid domain (e.g. terminal growth scaled past
+            WACC, so the perpetuity diverges).
         margin_of_safety: ``intrinsic_value`` relative to the base case
             (centre cell), i.e. ``intrinsic_value / base_intrinsic_value``. A
             value > 1 means the cell's assumptions are *more* favourable than
-            the base case; the centre cell is exactly 1.
+            the base case; the centre cell is exactly 1. ``None`` when the cell
+            (or the base case) is undefined.
     """
 
-    intrinsic_value: float
-    margin_of_safety: float
+    intrinsic_value: float | None
+    margin_of_safety: float | None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -118,9 +121,7 @@ class Grid2D:
     cells: tuple[tuple[GridCell, ...], ...]
 
 
-def scale_axis(
-    assumptions: Assumptions, axis: SensitivityAxis, multiplier: float
-) -> Assumptions:
+def scale_axis(assumptions: Assumptions, axis: SensitivityAxis, multiplier: float) -> Assumptions:
     """Return a copy of ``assumptions`` with ``axis`` scaled by ``multiplier``.
 
     Path axes are scaled element-wise (every forecast year moves by the same
@@ -141,6 +142,21 @@ def scale_axis(
         scalar: float = getattr(assumptions, axis.value)
         scaled = scalar * multiplier
     return dataclasses.replace(assumptions, **{axis.value: scaled})
+
+
+def _safe_intrinsic(financials: Financials, assumptions: Assumptions) -> float | None:
+    """Per-share intrinsic value, or ``None`` if the scenario is out of domain.
+
+    The only way ±20% scaling moves an assumption outside the DCF's valid range
+    is by pushing ``terminal_growth`` up to or past WACC, where the perpetuity
+    diverges (the other scaled inputs stay in domain: ``sales_to_capital`` stays
+    positive and the paths/share count are untouched). That scenario has no
+    meaningful value, so it is reported as a ``None`` sentinel. Any *other*
+    :class:`ValueError` from :func:`dcf` is a genuine bug and is left to surface.
+    """
+    if assumptions.terminal_growth >= _wacc(assumptions):
+        return None
+    return dcf(financials, assumptions).intrinsic_value
 
 
 def _axis_endpoint_value(assumptions: Assumptions, axis: SensitivityAxis) -> float:
@@ -175,8 +191,15 @@ def tornado(financials: Financials, base_assumptions: Assumptions) -> list[Torna
     for axis in SensitivityAxis:
         low_assumptions = scale_axis(base_assumptions, axis, _TORNADO_LOW)
         high_assumptions = scale_axis(base_assumptions, axis, _TORNADO_HIGH)
-        intrinsic_low = dcf(financials, low_assumptions).intrinsic_value
-        intrinsic_high = dcf(financials, high_assumptions).intrinsic_value
+        intrinsic_low = _safe_intrinsic(financials, low_assumptions)
+        intrinsic_high = _safe_intrinsic(financials, high_assumptions)
+        # The swing is only defined when both ends are in domain; otherwise the
+        # impact is unknown and the entry is ranked last.
+        impact = (
+            abs(intrinsic_high - intrinsic_low)
+            if intrinsic_low is not None and intrinsic_high is not None
+            else None
+        )
         entries.append(
             TornadoEntry(
                 axis=axis,
@@ -184,10 +207,11 @@ def tornado(financials: Financials, base_assumptions: Assumptions) -> list[Torna
                 high_value=_axis_endpoint_value(high_assumptions, axis),
                 intrinsic_low=intrinsic_low,
                 intrinsic_high=intrinsic_high,
-                impact=abs(intrinsic_high - intrinsic_low),
+                impact=impact,
             )
         )
-    entries.sort(key=lambda entry: entry.impact, reverse=True)
+    # Descending by impact, with undefined-impact entries sorted last.
+    entries.sort(key=lambda entry: (entry.impact is None, -(entry.impact or 0.0)))
     return entries
 
 
@@ -219,7 +243,7 @@ def grid_2d(
     if axis_a is axis_b:
         raise ValueError("grid_2d requires two distinct axes")
 
-    base_intrinsic = dcf(financials, base_assumptions).intrinsic_value
+    base_intrinsic = _safe_intrinsic(financials, base_assumptions)
 
     rows: list[tuple[GridCell, ...]] = []
     for row_multiplier in _GRID_MULTIPLIERS:
@@ -227,11 +251,19 @@ def grid_2d(
         cells: list[GridCell] = []
         for col_multiplier in _GRID_MULTIPLIERS:
             cell_assumptions = scale_axis(row_assumptions, axis_b, col_multiplier)
-            intrinsic_value = dcf(financials, cell_assumptions).intrinsic_value
+            intrinsic_value = _safe_intrinsic(financials, cell_assumptions)
+            # Margin of safety needs this cell in domain and a non-zero base to
+            # divide by; a None or 0.0 base (degenerate, e.g. equity wiped out)
+            # leaves every cell's MoS undefined rather than dividing by zero.
+            margin_of_safety = (
+                intrinsic_value / base_intrinsic
+                if intrinsic_value is not None and base_intrinsic
+                else None
+            )
             cells.append(
                 GridCell(
                     intrinsic_value=intrinsic_value,
-                    margin_of_safety=intrinsic_value / base_intrinsic,
+                    margin_of_safety=margin_of_safety,
                 )
             )
         rows.append(tuple(cells))

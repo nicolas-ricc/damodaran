@@ -58,9 +58,7 @@ class FmpClient:
 
     def __init__(self, api_key: str, timeout: float = 30.0) -> None:
         if not api_key:
-            raise ValueError(
-                "FMP API key is required. Set BOT_FMP_API_KEY (no default)."
-            )
+            raise ValueError("FMP API key is required. Set BOT_FMP_API_KEY (no default).")
         self._api_key = api_key
         self._client = httpx.Client(
             base_url=BASE_URL,
@@ -158,7 +156,6 @@ class FmpClient:
         log.info("fmp.historical_fx.fetched", currency=ccy, rows=len(out))
         return out
 
-
     def historical_prices(
         self,
         ticker: str,
@@ -232,17 +229,13 @@ class FmpClient:
         self, ticker: str, *, period: str = "annual", limit: int = 10
     ) -> list[dict[str, Any]]:
         """Return the balance-sheet array for ``ticker`` (``annual``/``quarter``)."""
-        return self._statement(
-            "balance-sheet-statement", ticker, period=period, limit=limit
-        )
+        return self._statement("balance-sheet-statement", ticker, period=period, limit=limit)
 
     def cash_flow(
         self, ticker: str, *, period: str = "annual", limit: int = 10
     ) -> list[dict[str, Any]]:
         """Return the cash-flow array for ``ticker`` (``annual``/``quarter``)."""
-        return self._statement(
-            "cash-flow-statement", ticker, period=period, limit=limit
-        )
+        return self._statement("cash-flow-statement", ticker, period=period, limit=limit)
 
 
 def _str_or_none(value: Any) -> str | None:
@@ -435,9 +428,7 @@ def _merge_statement(
             continue
         period_end = str(raw_period_end)[:10]
 
-        filed_raw = (
-            entry.get("fillingDate") or entry.get("acceptedDate") or raw_period_end
-        )
+        filed_raw = entry.get("fillingDate") or entry.get("acceptedDate") or raw_period_end
         filed = str(filed_raw)[:10]
         if period_end in latest_filed:
             # Same period reported twice within this statement -> restatement.
@@ -583,9 +574,7 @@ def upsert_prices_daily(
     return len(rows)
 
 
-def _max_price_date(
-    conn: duckdb.DuckDBPyConnection, ticker: str
-) -> date | None:
+def _max_price_date(conn: duckdb.DuckDBPyConnection, ticker: str) -> date | None:
     """Return the latest stored price date for ``ticker``, or None if absent."""
     row = conn.execute(
         "SELECT max(date) FROM prices_daily WHERE ticker = ?",
@@ -608,6 +597,7 @@ def import_prices_from_fmp(
     ticker: str,
     since_date: date | None = None,
     currency: str | None = None,
+    client: FmpClient | None = None,
 ) -> IngestResult:
     """Fetch daily EOD prices for ``ticker`` from FMP and upsert them. Atomic.
 
@@ -616,6 +606,10 @@ def import_prices_from_fmp(
     second run with current data fetches nothing new and performs zero INSERTs.
     Pass ``since_date`` to bound a first import (otherwise FMP's full history is
     requested). Records the run in ``refresh_log``.
+
+    Pass ``client`` to reuse an open :class:`FmpClient` across many tickers (the
+    bulk price refresh shares one for the whole run); otherwise one is opened and
+    closed for this call alone.
     """
     sym = ticker.upper()
     with refresh_run(
@@ -634,8 +628,12 @@ def import_prices_from_fmp(
             next_day = last + timedelta(days=1)
             start = next_day if start is None or next_day > start else start
 
-        with FmpClient(api_key=api_key) as client:
-            rows = client.historical_prices(sym, start=start)
+        fmp = client if client is not None else FmpClient(api_key=api_key)
+        try:
+            rows = fmp.historical_prices(sym, start=start)
+        finally:
+            if client is None:
+                fmp.close()
 
         # Defensive: drop anything at or before the last stored date so a
         # re-run that re-fetches an overlapping window still INSERTs nothing new.
@@ -643,9 +641,7 @@ def import_prices_from_fmp(
             rows = [r for r in rows if str(r["date"])[:10] > last.isoformat()]
 
         with transaction(conn):
-            affected = upsert_prices_daily(
-                conn, ticker=sym, rows=rows, currency=currency
-            )
+            affected = upsert_prices_daily(conn, ticker=sym, rows=rows, currency=currency)
 
         run.rows_affected = affected
         run.details = {"ticker": sym}
@@ -731,6 +727,7 @@ def import_company_from_fmp(
     *,
     ticker: str,
     api_key: str,
+    client: FmpClient | None = None,
 ) -> IngestResult:
     """Fetch + parse + upsert one ticker's fundamentals from FMP. Atomic on the DB side.
 
@@ -741,6 +738,10 @@ def import_company_from_fmp(
     per request) and parsed by the pure M2.2 parser. Currency / country come from
     the source profile — non-US tickers keep their local currency. All writes
     happen in a single transaction; the run is recorded in ``refresh_log``.
+
+    Pass ``client`` to reuse an open :class:`FmpClient` (and its connection pool)
+    across many tickers — the bulk universe refresh shares one client for the
+    whole run. When omitted, a client is opened and closed for this call alone.
     """
     sym = ticker.upper()
     with refresh_run(
@@ -752,21 +753,23 @@ def import_company_from_fmp(
     ) as run:
         run.details = {"ticker": sym}
 
-        with FmpClient(api_key=api_key) as client:
-            info = client.lookup_company(sym)
-            inc_a = client.income_statement(sym, period="annual")
-            bal_a = client.balance_sheet(sym, period="annual")
-            cf_a = client.cash_flow(sym, period="annual")
-            inc_q = client.income_statement(sym, period="quarter")
-            bal_q = client.balance_sheet(sym, period="quarter")
-            cf_q = client.cash_flow(sym, period="quarter")
+        fmp = client if client is not None else FmpClient(api_key=api_key)
+        try:
+            info = fmp.lookup_company(sym)
+            inc_a = fmp.income_statement(sym, period="annual")
+            bal_a = fmp.balance_sheet(sym, period="annual")
+            cf_a = fmp.cash_flow(sym, period="annual")
+            inc_q = fmp.income_statement(sym, period="quarter")
+            bal_q = fmp.balance_sheet(sym, period="quarter")
+            cf_q = fmp.cash_flow(sym, period="quarter")
+        finally:
+            if client is None:
+                fmp.close()
 
         parsed_annual = parse_fmp_fundamentals(sym, inc_a, bal_a, cf_a)
         parsed_quarterly = parse_fmp_fundamentals(sym, inc_q, bal_q, cf_q)
 
-        currency = parsed_annual.company.get("currency") or parsed_quarterly.company.get(
-            "currency"
-        )
+        currency = parsed_annual.company.get("currency") or parsed_quarterly.company.get("currency")
         company = _company_row(sym, info, currency)
         filing_rows = _collect_fmp_filings(sym, inc_a, inc_q)
 

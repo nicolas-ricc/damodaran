@@ -11,6 +11,7 @@ from bot.screener.ranking import (
     RankingWeights,
     ScoredCandidate,
     rank,
+    rescore_with_margins,
 )
 
 # --------------------------------------------------------------------------- #
@@ -90,7 +91,9 @@ def test_explicit_margin_of_safety_is_passed_through() -> None:
 
 
 def test_single_candidate_universe_scores_percentile_one() -> None:
-    [scored] = rank([Candidate(ticker="ONE", value_metric=42.0, quality_metric=7.0, growth_metric=3.0)])
+    [scored] = rank(
+        [Candidate(ticker="ONE", value_metric=42.0, quality_metric=7.0, growth_metric=3.0)]
+    )
     assert scored.value_score == pytest.approx(1.0)
     assert scored.quality_score == pytest.approx(1.0)
     assert scored.growth_score == pytest.approx(1.0)
@@ -98,6 +101,53 @@ def test_single_candidate_universe_scores_percentile_one() -> None:
 
 def test_empty_universe_returns_empty_list() -> None:
     assert rank([]) == []
+
+
+# --------------------------------------------------------------------------- #
+# rescore_with_margins — second pass keeps full-universe percentiles            #
+# --------------------------------------------------------------------------- #
+
+
+def test_rescore_with_margins_preserves_full_universe_percentiles() -> None:
+    # Rank the full 5-candidate universe, then take the top 2 (EEE, DDD) and
+    # apply real margins to them. The value/quality/growth sub-scores must stay
+    # the percentiles ranked over all 5 — NOT be recomputed over just the 2
+    # (which would collapse DDD's 0.75 to the subset-min 0.0).
+    full = rank(_universe())
+    top2 = full[:2]
+    rescored = rescore_with_margins(top2, {"EEE": 0.2, "DDD": 0.9})
+    by = {s.ticker: s for s in rescored}
+
+    assert by["EEE"].value_score == pytest.approx(1.0)
+    assert by["DDD"].value_score == pytest.approx(0.75)  # full-universe, not 0.0
+    assert by["DDD"].quality_score == pytest.approx(0.75)
+    assert by["DDD"].growth_score == pytest.approx(0.75)
+    # The supplied margins replace the placeholder.
+    assert by["EEE"].margin_of_safety == pytest.approx(0.2)
+    assert by["DDD"].margin_of_safety == pytest.approx(0.9)
+
+
+def test_rescore_with_margins_reblends_and_resorts() -> None:
+    # Two candidates whose value/quality/growth are deliberately close so the
+    # margin-of-safety term can flip the order once the real margins land.
+    cands = [
+        Candidate(ticker="HI", value_metric=2.0, quality_metric=2.0, growth_metric=2.0),
+        Candidate(ticker="LO", value_metric=1.0, quality_metric=1.0, growth_metric=1.0),
+    ]
+    full = rank(cands)  # HI all 1.0, LO all 0.0; HI ranks first on placeholders
+    assert full[0].ticker == "HI"
+    # A huge margin of safety for LO and a tiny one for HI flips the composite.
+    rescored = rescore_with_margins(full, {"HI": 0.0, "LO": 50.0})
+    assert rescored[0].ticker == "LO"
+    assert rescored == sorted(rescored, key=lambda s: (-s.score, s.ticker))
+
+
+def test_rescore_with_margins_keeps_existing_margin_when_unmapped() -> None:
+    full = rank(_universe())
+    # No margins supplied -> each keeps its current (placeholder) margin.
+    rescored = rescore_with_margins(full, {})
+    for before, after in zip(full, rescored, strict=True):
+        assert after.margin_of_safety == pytest.approx(before.margin_of_safety)
 
 
 def test_ties_share_the_same_percentile() -> None:
@@ -136,9 +186,7 @@ def test_weights_reject_negative() -> None:
 
 def test_weights_load_from_yaml(tmp_path: Path) -> None:
     cfg = tmp_path / "weights.yaml"
-    cfg.write_text(
-        "value: 0.25\nquality: 0.25\ngrowth: 0.25\nmargin_of_safety: 0.25\n"
-    )
+    cfg.write_text("value: 0.25\nquality: 0.25\ngrowth: 0.25\nmargin_of_safety: 0.25\n")
     w = RankingWeights.from_yaml(cfg)
     assert w.value == pytest.approx(0.25)
     assert w.margin_of_safety == pytest.approx(0.25)

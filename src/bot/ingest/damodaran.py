@@ -16,7 +16,7 @@ from typing import Any
 import duckdb
 import httpx
 
-from bot.ingest.base import IngestResult, refresh_run, transaction
+from bot.ingest.base import IngestResult, RefreshOutcome, refresh_run, transaction
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -380,6 +380,64 @@ def upsert_country_rows(conn: duckdb.DuckDBPyConnection, rows: list[dict[str, An
 # ---------- High-level importers ----------
 
 
+def _import_files_into_run(
+    conn: duckdb.DuckDBPyConnection,
+    run: RefreshOutcome,
+    *,
+    industry_path: Path,
+    country_path: Path,
+    region: str,
+    year: int,
+) -> None:
+    """Parse + upsert both datasets, recording counts/status on ``run``.
+
+    Shared body for :func:`import_damodaran_from_files` and
+    :func:`import_damodaran` so a single :func:`refresh_run` envelope wraps the
+    whole operation — exactly one refresh_log row per public call.
+    """
+    industry_rows = parse_industry_xls(
+        industry_path,
+        region=region,
+        year=year,
+        column_map=DEFAULT_INDUSTRY_COLUMN_MAP,
+    )
+    country_rows = parse_country_xls(
+        country_path,
+        year=year,
+        column_map=DEFAULT_COUNTRY_COLUMN_MAP,
+    )
+
+    # Detect empty-row situation before touching the DB.
+    empty_sides: list[str] = []
+    if not industry_rows:
+        empty_sides.append("industry")
+    if not country_rows:
+        empty_sides.append("country")
+    if empty_sides:
+        log.warning(
+            "damodaran.import.empty_rows",
+            industry=len(industry_rows),
+            country=len(country_rows),
+            region=region,
+            year=year,
+        )
+
+    with transaction(conn):
+        ind = upsert_industry_rows(conn, industry_rows)
+        ctry = upsert_country_rows(conn, country_rows)
+
+    run.rows_affected = ind + ctry
+    run.details = {
+        "industry_rows": len(industry_rows),
+        "country_rows": len(country_rows),
+        "region": region,
+        "year": year,
+    }
+    if empty_sides:
+        run.status_override = "partial"
+        run.error_message_override = f"empty rows for: {', '.join(empty_sides)}"
+
+
 def import_damodaran_from_files(
     conn: duckdb.DuckDBPyConnection,
     *,
@@ -396,47 +454,14 @@ def import_damodaran_from_files(
         error_event="damodaran.import.failed",
         log_fail_event="damodaran.refresh_log_insert_failed",
     ) as run:
-        industry_rows = parse_industry_xls(
-            industry_path,
+        _import_files_into_run(
+            conn,
+            run,
+            industry_path=industry_path,
+            country_path=country_path,
             region=region,
             year=year,
-            column_map=DEFAULT_INDUSTRY_COLUMN_MAP,
         )
-        country_rows = parse_country_xls(
-            country_path,
-            year=year,
-            column_map=DEFAULT_COUNTRY_COLUMN_MAP,
-        )
-
-        # Detect empty-row situation before touching the DB.
-        empty_sides: list[str] = []
-        if not industry_rows:
-            empty_sides.append("industry")
-        if not country_rows:
-            empty_sides.append("country")
-        if empty_sides:
-            log.warning(
-                "damodaran.import.empty_rows",
-                industry=len(industry_rows),
-                country=len(country_rows),
-                region=region,
-                year=year,
-            )
-
-        with transaction(conn):
-            ind = upsert_industry_rows(conn, industry_rows)
-            ctry = upsert_country_rows(conn, country_rows)
-
-        run.rows_affected = ind + ctry
-        run.details = {
-            "industry_rows": len(industry_rows),
-            "country_rows": len(country_rows),
-            "region": region,
-            "year": year,
-        }
-        if empty_sides:
-            run.status_override = "partial"
-            run.error_message_override = f"empty rows for: {', '.join(empty_sides)}"
     assert run.result is not None  # refresh_run always sets it on exit
     return run.result
 
@@ -450,33 +475,47 @@ def import_damodaran(
     industry_url: str = INDUSTRY_WACC_URL,
     country_url: str = COUNTRY_RISK_URL,
 ) -> IngestResult:
-    """Download and import current-year Damodaran datasets."""
+    """Download and import current-year Damodaran datasets.
+
+    Download and import share a single :func:`refresh_run` envelope, so the run
+    is recorded in refresh_log exactly once. A download failure surfaces as an
+    error run carrying the legacy ``download failed: ...`` message.
+    """
     year = year or datetime.now().year
-    industry_path: Path | None = None
-    country_path: Path | None = None
     with refresh_run(
         conn,
         source="damodaran",
         log=log,
-        error_event="damodaran.download.failed",
+        error_event="damodaran.refresh.failed",
         log_fail_event="damodaran.refresh_log_insert_failed",
     ) as run:
+        industry_path: Path | None = None
+        country_path: Path | None = None
         try:
             industry_path = download_dataset(industry_url, download_dir / "wacc.xls")
             country_path = download_dataset(country_url, download_dir / "ctryprem.xls")
         except Exception as e:
-            # Surface a download failure as an error run with the legacy message
-            # while keeping the rest of the envelope (timing, refresh_log).
+            # Record the run as a download error with the legacy message; the
+            # status_override keeps it a single refresh_log row and lets the
+            # specific download event be logged here (not the generic envelope).
             run.status_override = "error"
             run.error_message_override = f"download failed: {e}"
             log.exception("damodaran.download.failed", error=str(e))
-    if industry_path is None or country_path is None:
-        assert run.result is not None  # refresh_run always sets it on exit
-        return run.result
-    return import_damodaran_from_files(
-        conn,
-        industry_path=industry_path,
-        country_path=country_path,
-        region=region,
-        year=year,
-    )
+        if industry_path is not None and country_path is not None:
+            try:
+                _import_files_into_run(
+                    conn,
+                    run,
+                    industry_path=industry_path,
+                    country_path=country_path,
+                    region=region,
+                    year=year,
+                )
+            except Exception as e:
+                # A parse/upsert failure is an import error, not a download one;
+                # log it under the import event the from-files path also uses.
+                run.status_override = "error"
+                run.error_message_override = str(e)
+                log.exception("damodaran.import.failed", error=str(e))
+    assert run.result is not None  # refresh_run always sets it on exit
+    return run.result

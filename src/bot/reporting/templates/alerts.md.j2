@@ -1,0 +1,15 @@
+# Alerts — {{ snapshot_date }}
+
+_Generated {{ generated_at }}_
+
+{% if events %}
+{{ events | length }} event{{ "s" if events | length != 1 else "" }} detected today.
+
+| Type | Ticker | Details |
+|---|---|---|
+{% for e in events %}
+| {{ e.event_type.value }} | {{ e.ticker }} | {% for k, v in e.details.items() %}{{ k }}={{ v }}{% if not loop.last %}, {% endif %}{% endfor %} |
+{% endfor %}
+{% else %}
+No events detected today.
+{% endif %}

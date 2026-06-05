@@ -18,8 +18,10 @@ is the caller's job (``bot.screener.persist`` / ``bot.reporting.screen_report``)
 
 from __future__ import annotations
 
+from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from datetime import date
 
 import duckdb
 
@@ -31,16 +33,22 @@ from bot.screener.ranking import (
     RankingWeights,
     ScoredCandidate,
     rank,
+    rescore_with_margins,
 )
 from bot.screener.rules import Rule
 from bot.screener.types import CompanyData, IndustryBenchmarks
 from bot.utils.finance import cagr
-from bot.valuator.analysis import analyze
+from bot.utils.fx import to_usd
+from bot.valuator.analysis import analyze, load_valuation_input
 
 #: Damodaran region used when a company's country has no ``damodaran_country``
 #: row (so a value indicator can still look its sector median up). The screener
 #: targets the US-only universe in M1/M3, so US is the sensible default.
 DEFAULT_REGION = "US"
+
+#: Fallback NOPAT tax rate for ROIC when a company's country carries no Damodaran
+#: tax rate (1 - 0.21 = 0.79, the prior hardcoded US-federal assumption).
+DEFAULT_TAX_RATE = 0.21
 
 #: A valuator: given an open connection and a ticker, return that company's
 #: DCF-derived margin of safety (``intrinsic_value / price``), or ``None`` when it
@@ -50,9 +58,7 @@ DEFAULT_REGION = "US"
 type Valuator = Callable[[duckdb.DuckDBPyConnection, str], float | None]
 
 
-def _dcf_margin_of_safety(
-    conn: duckdb.DuckDBPyConnection, ticker: str
-) -> float | None:
+def _dcf_margin_of_safety(conn: duckdb.DuckDBPyConnection, ticker: str) -> float | None:
     """Real DCF margin of safety for ``ticker`` (spec §6.5/§7.2, M4.7).
 
     Runs the Capa C valuation pipeline (:func:`bot.valuator.analysis.analyze`) and
@@ -67,6 +73,40 @@ def _dcf_margin_of_safety(
     except (LookupError, ValueError, ZeroDivisionError):
         return None
     return analysis.margin_of_safety
+
+
+#: A batched valuator: given an open connection and the shortlist tickers, return
+#: each ticker's DCF margin of safety (``None`` when it cannot be valued). This is
+#: the second-pass seam (#53); the default :func:`_batch_dcf_margins` pre-loads
+#: every shortlisted company's DB rows once and issues **zero** per-ticker queries.
+type BatchValuator = Callable[[duckdb.DuckDBPyConnection, tuple[str, ...]], dict[str, float | None]]
+
+
+def _batch_dcf_margins(
+    conn: duckdb.DuckDBPyConnection, tickers: tuple[str, ...]
+) -> dict[str, float | None]:
+    """Real DCF margin of safety for every shortlisted ticker (the F7 N+1 fix).
+
+    Pre-loads each company's full :class:`~bot.valuator.analysis.ValuationInput`
+    (the per-ticker company / financials / price / Damodaran rows) once via
+    :func:`~bot.valuator.analysis.load_valuation_input`, then runs the valuator
+    over those pre-loaded inputs with ``analyze(company=...)`` — so the second
+    pass issues no redundant per-candidate DB queries. Per-ticker results are
+    identical to calling :func:`_dcf_margin_of_safety` one ticker at a time: a
+    company that cannot be valued (unknown ticker, missing data, or assumptions
+    too incomplete for the DCF) yields ``None`` so the caller falls back to the
+    neutral :data:`~bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY`.
+    """
+    margins: dict[str, float | None] = {}
+    for ticker in tickers:
+        try:
+            inputs = load_valuation_input(conn, ticker)
+            analysis = analyze(ticker, conn, company=inputs)
+        except (LookupError, ValueError, ZeroDivisionError):
+            margins[ticker] = None
+            continue
+        margins[ticker] = analysis.margin_of_safety
+    return margins
 
 
 @dataclass(frozen=True)
@@ -147,8 +187,7 @@ class _AnnualRow:
 
 def _load_companies(conn: duckdb.DuckDBPyConnection) -> list[_CompanyRow]:
     rows = conn.execute(
-        "SELECT ticker, name, country, industry, industry_damodaran "
-        "FROM companies ORDER BY ticker"
+        "SELECT ticker, name, country, industry, industry_damodaran FROM companies ORDER BY ticker"
     ).fetchall()
     return [
         _CompanyRow(
@@ -162,35 +201,81 @@ def _load_companies(conn: duckdb.DuckDBPyConnection) -> list[_CompanyRow]:
     ]
 
 
-def _load_annual(conn: duckdb.DuckDBPyConnection, ticker: str) -> list[_AnnualRow]:
-    """Annual financials, oldest first (so histories read most-recent-last)."""
+@dataclass(frozen=True)
+class _PriceSnapshot:
+    """Latest price facts for one ticker: market cap (with currency/date) + close."""
+
+    market_cap: float | None
+    currency: str | None
+    as_of: date | None
+    close: float | None
+
+
+def _load_all_annual(
+    conn: duckdb.DuckDBPyConnection,
+) -> dict[str, list[_AnnualRow]]:
+    """All non-restated annual rows grouped by ticker, oldest first per ticker.
+
+    One scan replaces the per-ticker ``WHERE ticker = ?`` loads of the screen
+    loop (histories read most-recent-last, so fiscal_year ascending is kept).
+    """
     rows = conn.execute(
-        "SELECT revenue, ebit, ebitda, interest_expense, net_income, total_assets, "
+        "SELECT ticker, revenue, ebit, ebitda, interest_expense, net_income, total_assets, "
         "total_debt, cash, total_equity, goodwill, operating_cashflow, free_cashflow, "
         "shares_diluted FROM financials_annual "
-        "WHERE ticker = ? AND is_restated = FALSE ORDER BY fiscal_year",
-        [ticker],
+        "WHERE is_restated = FALSE ORDER BY ticker, fiscal_year"
     ).fetchall()
-    return [_AnnualRow(*r) for r in rows]
+    out: dict[str, list[_AnnualRow]] = defaultdict(list)
+    for r in rows:
+        out[r[0]].append(_AnnualRow(*r[1:]))
+    return out
 
 
-def _latest_market_cap(conn: duckdb.DuckDBPyConnection, ticker: str) -> float | None:
-    row = conn.execute(
-        "SELECT market_cap FROM prices_daily "
-        "WHERE ticker = ? AND market_cap IS NOT NULL "
-        "ORDER BY date DESC LIMIT 1",
-        [ticker],
-    ).fetchone()
-    return float(row[0]) if row is not None and row[0] is not None else None
+def _load_latest_prices(
+    conn: duckdb.DuckDBPyConnection,
+) -> dict[str, _PriceSnapshot]:
+    """Latest non-null market cap (with currency/date) and close, per ticker.
 
+    Two windowed scans replace the per-ticker ``ORDER BY date DESC LIMIT 1``
+    lookups. Market cap and close are resolved independently (each from its own
+    latest non-null row), matching the prior two-query behaviour.
+    """
+    cap_rows = conn.execute(
+        "SELECT ticker, market_cap, currency, date FROM ("
+        "  SELECT ticker, market_cap, currency, date, "
+        "         ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) AS rn "
+        "  FROM prices_daily WHERE market_cap IS NOT NULL"
+        ") WHERE rn = 1"
+    ).fetchall()
+    close_rows = conn.execute(
+        "SELECT ticker, close FROM ("
+        "  SELECT ticker, close, "
+        "         ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY date DESC) AS rn "
+        "  FROM prices_daily WHERE close IS NOT NULL"
+        ") WHERE rn = 1"
+    ).fetchall()
+    caps = {r[0]: r for r in cap_rows}
+    closes = {r[0]: float(r[1]) for r in close_rows if r[1] is not None}
 
-def _latest_close(conn: duckdb.DuckDBPyConnection, ticker: str) -> float | None:
-    row = conn.execute(
-        "SELECT close FROM prices_daily WHERE ticker = ? AND close IS NOT NULL "
-        "ORDER BY date DESC LIMIT 1",
-        [ticker],
-    ).fetchone()
-    return float(row[0]) if row is not None and row[0] is not None else None
+    out: dict[str, _PriceSnapshot] = {}
+    for ticker in set(caps) | set(closes):
+        cap = caps.get(ticker)
+        if cap is not None and cap[1] is not None:
+            d = cap[3]
+            as_of = d if isinstance(d, date) else date.fromisoformat(str(d)[:10])
+            market_cap: float | None = float(cap[1])
+            currency: str | None = cap[2]
+        else:
+            as_of = None
+            market_cap = None
+            currency = None
+        out[ticker] = _PriceSnapshot(
+            market_cap=market_cap,
+            currency=currency,
+            as_of=as_of,
+            close=closes.get(ticker),
+        )
+    return out
 
 
 def _resolve_region(conn: duckdb.DuckDBPyConnection, country: str | None) -> str:
@@ -203,6 +288,37 @@ def _resolve_region(conn: duckdb.DuckDBPyConnection, country: str | None) -> str
         [country],
     ).fetchone()
     return str(row[0]) if row is not None and row[0] is not None else DEFAULT_REGION
+
+
+def _resolve_tax_rate(conn: duckdb.DuckDBPyConnection, country: str | None) -> float:
+    """The company's marginal tax rate from Damodaran, defaulting to 21%.
+
+    Used as the NOPAT factor for ROIC. The screener keys on country (it has no
+    sector tax lookup); an unknown or NULL-tax country falls back to
+    :data:`DEFAULT_TAX_RATE` so US/unknown companies keep their prior behaviour.
+
+    Note: the current Damodaran country ingest (the ERP file) does not carry a
+    tax rate, so ``damodaran_country.tax_rate`` is NULL in production today and
+    every company falls back to the default. Wiring a country corporate-tax
+    dataset (or keying tax off ``industry_damodaran`` like the valuator) is a
+    follow-up; this just removes the hardcoded constant and the plumbing waits
+    on the data. A rate outside ``[0, 1)`` (e.g. a percentage stored as ``30``
+    instead of ``0.30``) is rejected back to the default rather than producing a
+    negative NOPAT.
+    """
+    if country is None:
+        return DEFAULT_TAX_RATE
+    row = conn.execute(
+        "SELECT tax_rate FROM damodaran_country WHERE country = ? "
+        "AND tax_rate IS NOT NULL ORDER BY year DESC LIMIT 1",
+        [country],
+    ).fetchone()
+    if row is None or row[0] is None:
+        return DEFAULT_TAX_RATE
+    tax_rate = float(row[0])
+    if not 0.0 <= tax_rate < 1.0:
+        return DEFAULT_TAX_RATE
+    return tax_rate
 
 
 # --------------------------------------------------------------------------- #
@@ -221,6 +337,32 @@ def _ratio(numerator: float | None, denominator: float | None) -> float | None:
     return numerator / denominator
 
 
+def _market_cap_usd(
+    conn: duckdb.DuckDBPyConnection,
+    market_cap: float | None,
+    currency: str | None,
+    as_of: date | None,
+) -> float | None:
+    """Market cap in USD for the absolute MinMarketCap gate.
+
+    Passes the value through unchanged when no currency/date is supplied — i.e.
+    direct unit tests, or a ``prices_daily`` row with a NULL currency. The latter
+    treats the cap as already-USD, which is correct for the current US-only
+    universe but would understate the bug F2 fix for a foreign listing whose
+    price import left the currency unset; populating ``prices_daily.currency`` in
+    the importer (or backfilling from ``companies.currency``) is the follow-up.
+    A non-USD currency with no FX rate on or before ``as_of`` yields ``None`` so
+    the gate treats the company as unmeasurable rather than comparing a
+    foreign-currency figure to a USD floor.
+    """
+    if market_cap is None or currency is None or as_of is None:
+        return market_cap
+    try:
+        return to_usd(conn, market_cap, currency, as_of)
+    except LookupError:
+        return None
+
+
 def build_company_data(
     conn: duckdb.DuckDBPyConnection,
     company: _CompanyRow,
@@ -228,6 +370,8 @@ def build_company_data(
     *,
     market_cap: float | None,
     close: float | None,
+    currency: str | None = None,
+    as_of: date | None = None,
 ) -> CompanyData:
     """Assemble a pure :class:`CompanyData` snapshot for one company (spec §5/§6).
 
@@ -235,6 +379,11 @@ def build_company_data(
     yield) and the histories the gates / trap detectors read, from the latest
     annual row and the price feed. Missing inputs stay ``None`` / empty so each
     rule can decide how to treat the gap.
+
+    ``market_cap`` arrives in the listing currency; the currency-self-consistent
+    ratios (EV/EBITDA, FCF yield) are computed from it directly, but the stored
+    :attr:`CompanyData.market_cap` is converted to USD (via ``currency`` /
+    ``as_of``) so the absolute MinMarketCap gate compares like with like.
     """
     latest = annual[-1] if annual else None
 
@@ -287,11 +436,13 @@ def build_company_data(
         ):
             ev_ebitda = (market_cap + net_debt) / latest.ebitda
         # ROIC ≈ NOPAT / invested capital, with invested capital ≈ debt + equity.
+        # NOPAT applies the company's country tax rate (not a flat US 21%).
         invested = None
         if latest.total_debt is not None or latest.total_equity is not None:
             invested = (latest.total_debt or 0.0) + (latest.total_equity or 0.0)
         if latest.ebit is not None and invested is not None and invested != 0.0:
-            roic = (latest.ebit * 0.79) / invested
+            tax_rate = _resolve_tax_rate(conn, company.country)
+            roic = (latest.ebit * (1.0 - tax_rate)) / invested
         fcf = latest.free_cashflow
         if fcf is not None and market_cap is not None and market_cap != 0.0:
             fcf_yield = fcf / market_cap
@@ -302,7 +453,7 @@ def build_company_data(
         name=company.name,
         industry=industry,
         region=_resolve_region(conn, company.country),
-        market_cap=market_cap,
+        market_cap=_market_cap_usd(conn, market_cap, currency, as_of),
         years_of_financials=len(annual),
         net_debt=net_debt,
         ebitda=ebitda,
@@ -471,21 +622,37 @@ def run_screen(
     trap_detection = config.trap_detection.build()
     weights: RankingWeights = config.ranking.weights
 
+    # Bulk-load the per-ticker inputs once (set-based scans) instead of issuing a
+    # handful of queries per company inside the loop.
+    all_annual = _load_all_annual(conn)
+    all_prices = _load_latest_prices(conn)
+    benchmark_cache: dict[tuple[str | None, str], IndustryBenchmarks | None] = {}
+
     pending: list[_Pending] = []
     candidates: list[Candidate] = []
     screened = 0
     for row in _load_companies(conn):
-        annual = _load_annual(conn, row.ticker)
-        market_cap = _latest_market_cap(conn, row.ticker)
-        close = _latest_close(conn, row.ticker)
+        annual = all_annual.get(row.ticker, [])
+        price = all_prices.get(row.ticker)
         company = build_company_data(
-            conn, row, annual, market_cap=market_cap, close=close
+            conn,
+            row,
+            annual,
+            market_cap=price.market_cap if price else None,
+            close=price.close if price else None,
+            currency=price.currency if price else None,
+            as_of=price.as_of if price else None,
         )
         screened += 1
         region = company.region or DEFAULT_REGION
-        benchmarks = load_industry_benchmarks(
-            conn, industry=company.industry, region=region
-        )
+        cache_key = (company.industry, region)
+        # `in` check (not `.get()`) so a genuinely absent (None) benchmark is
+        # cached too rather than re-queried for every company in that sector.
+        if cache_key in benchmark_cache:
+            benchmarks = benchmark_cache[cache_key]
+        else:
+            benchmarks = load_industry_benchmarks(conn, industry=company.industry, region=region)
+            benchmark_cache[cache_key] = benchmarks
         verdict = evaluate_company(
             company,
             benchmarks,
@@ -505,31 +672,32 @@ def run_screen(
             )
         )
 
-    by_metric = {c.ticker: c for c in candidates}
-
-    # First pass: placeholder ranking, truncated to the shortlist the valuator runs on.
+    # First pass: rank the FULL survivor universe so the value/quality/growth
+    # percentiles mean "rank within the filtered universe", then truncate to the
+    # shortlist the valuator runs on.
     first_pass = rank(candidates, weights)
     if top is not None:
         first_pass = first_pass[:top]
 
-    # Second pass: value each shortlisted candidate, then re-rank with the real MoS.
-    valued: list[Candidate] = []
-    for scored_candidate in first_pass:
-        base = by_metric[scored_candidate.ticker]
-        mos = valuator(conn, base.ticker) if valuator is not None else None
-        valued.append(
-            Candidate(
-                ticker=base.ticker,
-                value_metric=base.value_metric,
-                quality_metric=base.quality_metric,
-                growth_metric=base.growth_metric,
-                margin_of_safety=(
-                    mos if mos is not None else PLACEHOLDER_MARGIN_OF_SAFETY
-                ),
-            )
-        )
+    # Second pass: value each shortlisted candidate and re-blend the composite
+    # with the real MoS, keeping the full-universe percentiles (rescore does not
+    # re-rank the sub-scores over the truncated subset). The default DCF valuator
+    # takes the batched path (one pre-load of each company's rows, then zero
+    # per-candidate DB queries — the F7 N+1 fix, #53); an injected per-ticker
+    # ``valuator`` keeps the legacy one-call-per-candidate seam.
+    shortlist_tickers = tuple(s.ticker for s in first_pass)
+    if valuator is _dcf_margin_of_safety:
+        raw_margins = _batch_dcf_margins(conn, shortlist_tickers)
+    elif valuator is None:
+        raw_margins = {ticker: None for ticker in shortlist_tickers}
+    else:
+        raw_margins = {ticker: valuator(conn, ticker) for ticker in shortlist_tickers}
+    margins: dict[str, float] = {
+        ticker: mos if mos is not None else PLACEHOLDER_MARGIN_OF_SAFETY
+        for ticker, mos in raw_margins.items()
+    }
 
-    scored = rank(valued, weights)
+    scored = rescore_with_margins(first_pass, margins, weights)
     by_ticker = {p.company.ticker: p for p in pending}
     shortlist = _project(scored, by_ticker)
     return ScreenResult(preset=config.name, shortlist=shortlist, screened=screened)

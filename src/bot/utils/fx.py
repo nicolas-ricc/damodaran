@@ -117,9 +117,7 @@ def to_usd(
         return None
     rate = get_fx_rate(conn, currency, as_of)
     if rate is None:
-        raise LookupError(
-            f"No FX rate for {currency.upper()} on or before {as_of.isoformat()}"
-        )
+        raise LookupError(f"No FX rate for {currency.upper()} on or before {as_of.isoformat()}")
     return amount * rate
 
 
@@ -130,10 +128,15 @@ def import_fx_rates(
     currency: str,
     start: date | None = None,
     end: date | None = None,
+    client: FmpClient | None = None,
 ) -> IngestResult:
     """Fetch daily ``currency``/USD rates from FMP and upsert them. Atomic on DB.
 
     Records the run in ``refresh_log``. USD is a no-op (it needs no rows).
+
+    Pass ``client`` to reuse an open :class:`FmpClient` across many currencies
+    (the bulk FX refresh shares one for the whole run); otherwise one is opened
+    and closed for this call alone.
     """
     ccy = currency.upper()
     with refresh_run(
@@ -145,8 +148,12 @@ def import_fx_rates(
     ) as run:
         run.details = {"currency": ccy}
 
-        with FmpClient(api_key=api_key) as client:
-            rows = client.historical_fx(ccy, start=start, end=end)
+        fmp = client if client is not None else FmpClient(api_key=api_key)
+        try:
+            rows = fmp.historical_fx(ccy, start=start, end=end)
+        finally:
+            if client is None:
+                fmp.close()
 
         with transaction(conn):
             affected = upsert_fx_rates(conn, currency=ccy, rows=rows)
