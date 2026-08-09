@@ -23,10 +23,42 @@ def _write(tmp_path: Path, body: str) -> Path:
 
 def test_normalize_collapses_case_whitespace_and_dashes() -> None:
     # FMP is inconsistent about the dash it emits between a family and a variant.
-    assert normalize_industry_label("Banks—Diversified") == "banks-diversified"
-    assert normalize_industry_label("Banks – Diversified") == "banks-diversified"  # noqa: RUF001
+    assert normalize_industry_label("Banks\u2014Diversified") == "banks-diversified"
+    assert normalize_industry_label("Banks \u2013 Diversified") == "banks-diversified"
     assert normalize_industry_label("banks - diversified") == "banks-diversified"
-    assert normalize_industry_label("  Software—Application  ") == "software-application"
+    assert normalize_industry_label("  Software\u2014Application  ") == "software-application"
+
+
+def test_normalize_collapses_runs_of_dash_characters() -> None:
+    # A doubled separator (typo, bad copy/paste, future provider quirk) must still
+    # converge to a single '-', not leak a run of dashes into the lookup key.
+    assert normalize_industry_label("Banks\u2014\u2014Diversified") == "banks-diversified"
+    assert (
+        normalize_industry_label("Banks \u2014 \u2014 Diversified") == "banks-diversified"
+    )
+    assert normalize_industry_label("Banks\u2013\u2014Diversified") == "banks-diversified"
+    assert normalize_industry_label("A -- B") == "a-b"
+
+
+def test_normalize_leading_trailing_and_lone_dash() -> None:
+    assert normalize_industry_label("-Banks") == "-banks"
+    assert normalize_industry_label("Banks-") == "banks-"
+    assert normalize_industry_label("-") == "-"
+
+
+def test_normalize_dash_variants_resolve_to_the_same_key(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path,
+        "provider,provider_industry,damodaran_industry\n"
+        "fmp,Banks-Diversified,Bank (Money Center)\n",
+    )
+    mapping = load_industry_mapping(path)
+    single = mapping.resolve("fmp", "Banks-Diversified")
+    doubled = mapping.resolve("fmp", "Banks\u2014\u2014Diversified")
+    spaced = mapping.resolve("fmp", "Banks \u2013 \u2013 Diversified")
+    assert single == "Bank (Money Center)"
+    assert doubled == single
+    assert spaced == single
 
 
 def test_resolve_exact_match(tmp_path: Path) -> None:

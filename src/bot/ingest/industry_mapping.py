@@ -21,6 +21,7 @@ already handles.
 from __future__ import annotations
 
 import csv
+import re
 from dataclasses import dataclass
 from importlib import resources
 from pathlib import Path
@@ -32,8 +33,14 @@ log = structlog.get_logger(__name__)
 _REQUIRED_COLUMNS = ("provider", "provider_industry", "damodaran_industry")
 
 #: Dash characters providers use interchangeably between an industry family and its
-#: variant (em dash, en dash, hyphen-minus, non-breaking hyphen).
-_DASHES = "—–‑"  # noqa: RUF001
+#: variant (em dash, en dash, non-breaking hyphen). ASCII hyphen-minus is the
+#: normalisation target, not a member of this set.
+_DASHES = "\u2014\u2013\u2011"
+
+#: Matches a run of one or more (already-normalised) ASCII dashes, together with
+#: any whitespace hugging them, so ``"a - - b"``, ``"a--b"`` and ``"a-b"`` all
+#: collapse to the same single separator.
+_DASH_RUN_RE = re.compile(r"(?:\s*-\s*)+")
 
 #: The 94 industry labels of Damodaran's ``wacc.xls`` "Industry Averages" sheet,
 #: excluding the two aggregate rows ("Total Market", "Total Market (without
@@ -141,16 +148,17 @@ DAMODARAN_INDUSTRIES: frozenset[str] = frozenset(
 def normalize_industry_label(raw: str) -> str:
     """Fold a provider label to a comparison key.
 
-    Lower-cases, collapses internal whitespace, and normalises every dash variant
-    (and any spaces hugging it) to a single ``-`` so ``"Banks—Diversified"``,
-    ``"Banks – Diversified"`` and ``"banks - diversified"`` all agree.
-    """  # noqa: RUF002
+    Lower-cases, collapses internal whitespace, and collapses every *run* of one
+    or more dash characters (any mix of em dash, en dash, non-breaking hyphen and
+    ASCII hyphen-minus, with or without surrounding spaces) to a single ``-``, so
+    ``"Banks\u2014Diversified"``, ``"Banks \u2013 \u2013 Diversified"`` and
+    ``"banks - diversified"`` all agree.
+    """
     text = raw.strip().lower()
     for dash in _DASHES:
         text = text.replace(dash, "-")
     text = " ".join(text.split())
-    while " -" in text or "- " in text:
-        text = text.replace(" -", "-").replace("- ", "-")
+    text = _DASH_RUN_RE.sub("-", text)
     return text
 
 
