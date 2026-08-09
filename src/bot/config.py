@@ -46,6 +46,13 @@ class Settings(BaseSettings):
         default=Path("./config/presets"),
         description="Directory holding screener preset YAMLs (resolved by `bot screen --preset`).",
     )
+    industry_mapping_path: Path = Field(
+        default=Path("./config/industry_mapping.csv"),
+        description=(
+            "CSV mapping provider industry labels to the Damodaran taxonomy "
+            "(spec §4.3.1). Falls back to the copy shipped with the package."
+        ),
+    )
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")
 
 
