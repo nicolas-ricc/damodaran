@@ -1783,7 +1783,28 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 Después de 1.4 siguen `None` dos assumptions **requeridas** (`operating_margin`, `sales_to_capital`) y todos los múltiplos que usa el sanity check §7.7 y las value indicators §6.3 (`pe`, `pbv`, `ev_ebitda`, `roe`, `roic`, `net_margin`, `ev_sales`). No están en `wacc.xls`: viven en otros archivos de la misma librería de datasets.
 
-**Esta tarea empieza con un paso de descubrimiento.** No hardcodees nombres de hoja ni strings de header adivinados: la tarea provee el script que los imprime y vos registrás lo observado en el registro de datasets. Un header equivocado produce una columna silenciosamente `NULL`, que es exactamente el bug que estamos cerrando.
+**El descubrimiento ya se hizo** (2026-08-09, contra los archivos publicados en vivo). Los nombres de hoja y los strings de header de abajo están **verificados** — usalos verbatim, no los adivines ni los "corrijas": un header equivocado produce una columna silenciosamente `NULL`, que es exactamente el bug que esta fase cierra.
+
+Tabla verificada:
+
+| Columna DB | Archivo | Hoja | Header exacto |
+|---|---|---|---|
+| `op_margin` | `margin.xls` | `Industry Averages` (header fila 8) | `Pre-tax Unadjusted Operating Margin` |
+| `net_margin` | `margin.xls` | `Industry Averages` | `Net Margin` |
+| `sales_to_capital` | `capex.xls` | `Industry Averages` (header fila 7) | `Sales/ Invested Capital (LTM)` — **ojo el espacio después de la barra** |
+| `pe` | `pedata.xls` | `Industry Averages` (header fila 7) | `Current PE` |
+| `pbv` | `pbvdata.xls` | `Industry Averages` (header fila 7) | `PBV` |
+| `roe` | `pbvdata.xls` | `Industry Averages` | `ROE` |
+| `roic` | `pbvdata.xls` | `Industry Averages` | `ROIC` |
+| `ev_ebitda` | `vebitda.xls` | `Industry Averages` (header fila 8) | `EV/EBITDA` |
+| `ev_sales` | `psdata.xls` | `Industry Averages` (header fila 7) | `EV/Sales` |
+
+Tres hallazgos del descubrimiento que hay que respetar:
+
+1. **`eva.xls` da 404.** No lo agregues. `roic` no viene de ahí: está en `pbvdata.xls` junto a `pbv` y `roe`.
+2. **`vebitda.xls` tiene `EV/EBITDA` dos veces** (y `EV/EBIT`, `EV/EBITDAR&D`, `EV/EBIT (1-t)` también). `_load_to_records` desambigua sufijando el segundo: las claves reales son `['Industry Name', 'Number of firms', 'EV/EBITDAR&D', 'EV/EBITDA', 'EV/EBIT', 'EV/EBIT (1-t)', 'EV/EBITDAR&D_1', 'EV/EBITDA_1', 'EV/EBIT_1', 'EV/EBIT (1-t)_1']`. Mapear a `"EV/EBITDA"` toma el primero, que es el correcto.
+3. **`vebitda.xls` no tiene `EV/Sales`** — por eso `psdata.xls` está en el registro. `psdata.xls` también trae `Net Margin` y `Pre-tax Operating Margin`, redundantes con `margin.xls`; el merge da precedencia al primero, así que no hay conflicto.
+4. **`reinvestment_rate` no tiene columna limpia** en ningún archivo (`capex.xls` trae `Net Cap Ex/ EBIT (1-t)`, que es un proxy distinto). Queda fuera del registro; ningún consumidor lo hace `SELECT`.
 
 **Files:**
 - Modify: `src/bot/ingest/damodaran.py`
@@ -1797,51 +1818,45 @@ Después de 1.4 siguen `None` dos assumptions **requeridas** (`operating_margin`
   - `IndustryDataset` — dataclass frozen: `key`, `url`, `sheet_keywords`, `column_map`.
   - `merge_industry_datasets(parts: Sequence[list[dict[str, Any]]]) -> list[dict[str, Any]]` — outer join por `industry`.
 
-- [ ] **Step 1: Descubrir hojas y headers reales**
+- [ ] **Step 1: Bajar los archivos y guardar los fixtures**
 
-Corré este script. Descarga cada candidato a un directorio temporal e imprime nombres de hoja, fila de header detectada y los headers.
+Los cinco archivos nuevos ya están descargados en `/tmp/claude-1000/damodaran-discovery/` de la corrida de descubrimiento. Si no están, bajalos:
 
 ```bash
 uv run python - <<'PY'
 from pathlib import Path
-from bot.ingest.damodaran import download_dataset, _load_rows, _find_header_row, _pick_sheet
-
+from bot.ingest.damodaran import download_dataset
 BASE = "https://pages.stern.nyu.edu/~adamodar/pc/datasets/"
-CANDIDATES = ["margin.xls", "capex.xls", "pedata.xls", "vebitda.xls", "pbvdata.xls", "eva.xls"]
-dest = Path("/tmp/damodaran-discovery"); dest.mkdir(parents=True, exist_ok=True)
-
-for name in CANDIDATES:
-    try:
-        path = download_dataset(BASE + name, dest / name)
-    except Exception as exc:
-        print(f"\n### {name}: DOWNLOAD FAILED: {type(exc).__name__}: {exc}")
-        continue
-    try:
-        import xlrd
-        wb = xlrd.open_workbook(path)
-        print(f"\n### {name}\nsheets: {wb.sheet_names()}")
-    except Exception as exc:
-        print(f"\n### {name}: sheet listing failed: {exc}")
-        continue
-    for sheet in wb.sheet_names():
-        rows, _ = _load_rows(path, sheet)
-        idx = _find_header_row(rows)
-        if idx is None:
-            continue
-        headers = [c for c in rows[idx] if isinstance(c, str) and c.strip()]
-        if any("industry" in h.lower() for h in headers):
-            print(f"  sheet={sheet!r} header_row={idx}")
-            print(f"  headers={headers}")
+dest = Path("/tmp/claude-1000/damodaran-discovery"); dest.mkdir(parents=True, exist_ok=True)
+for name in ("margin.xls", "capex.xls", "pedata.xls", "pbvdata.xls", "vebitda.xls", "psdata.xls"):
+    print(download_dataset(BASE + name, dest / name))
 PY
 ```
 
-Verificá primero los nombres reales de los helpers privados (`grep -n "^def _find_header_row\|^def _pick_sheet" src/bot/ingest/damodaran.py`) y ajustá el script.
+Confirmá que los headers coinciden con la tabla verificada antes de seguir (si Damodaran republicó el archivo, la tabla puede haber quedado stale y hay que actualizarla):
 
-**Registrá el resultado** en el docstring del registro que escribís en el Step 3: URL, nombre de hoja y string de header exacto por cada columna. Si un candidato 404ea, sacalo del registro y anotá en el commit qué columna queda sin fuente.
+```bash
+uv run python - <<'PY'
+from pathlib import Path
+from bot.ingest.damodaran import _load_to_records
+EXPECTED = {
+    "margin.xls": ("Pre-tax Unadjusted Operating Margin", "Net Margin"),
+    "capex.xls": ("Sales/ Invested Capital (LTM)",),
+    "pedata.xls": ("Current PE",),
+    "pbvdata.xls": ("PBV", "ROE", "ROIC"),
+    "vebitda.xls": ("EV/EBITDA",),
+    "psdata.xls": ("EV/Sales",),
+}
+for name, headers in EXPECTED.items():
+    keys = set(_load_to_records(Path("/tmp/claude-1000/damodaran-discovery") / name, None)[0])
+    missing = [h for h in headers if h not in keys]
+    print(f"{name}: {'OK' if not missing else f'MISSING {missing}'}")
+PY
+```
 
-- [ ] **Step 2: Guardar fixtures y escribir el test que falla**
+Copiá cada archivo a `tests/fixtures/damodaran/<key>_sample.xls` (`margin`, `capex`, `pedata`, `pbvdata`, `vebitda`, `psdata`). Son de 50-80 KB, del mismo orden que los dos fixtures ya commiteados, así que se commitean enteros — recortarlos a mano con xlrd/openpyxl reescribiría el archivo y podría alterar la disposición de headers que estamos fijando.
 
-Para cada dataset que respondió, recortá un sample pequeño a `tests/fixtures/damodaran/<key>_sample.xls` siguiendo el patrón de los dos que ya existen (mismas hojas, header en la misma fila, un puñado de industries incluyendo `Semiconductor` y `Software (System & Application)`).
+- [ ] **Step 2: Escribir el test que falla**
 
 Create `tests/unit/test_damodaran_datasets.py`:
 
@@ -1972,63 +1987,67 @@ INDUSTRY_DATASETS: tuple[IndustryDataset, ...] = (
         sheet_keywords=("industry", "average"),
         column_map=DEFAULT_INDUSTRY_COLUMN_MAP,
     ),
-    # margin.xls — operating and net margins.
+    # margin.xls — margins. "Pre-tax Unadjusted Operating Margin" is the plain
+    # operating margin; the file also publishes lease- and R&D-adjusted variants.
     IndustryDataset(
         key="margin",
         url=_DATASET_BASE + "margin.xls",
-        sheet_keywords=("industry", "margin"),
+        sheet_keywords=("industry", "average"),
         column_map={
             "industry": "Industry Name",
-            "op_margin": "<observed header for pre-tax operating margin>",
-            "net_margin": "<observed header for net margin>",
+            "op_margin": "Pre-tax Unadjusted Operating Margin",
+            "net_margin": "Net Margin",
         },
     ),
-    # capex.xls — sales-to-capital / reinvestment.
+    # capex.xls — sales-to-capital. Note the space after the slash in the header.
+    # `reinvestment_rate` has no clean column here (only "Net Cap Ex/ EBIT (1-t)",
+    # a different quantity) and no consumer SELECTs it, so it is left unmapped.
     IndustryDataset(
         key="capex",
         url=_DATASET_BASE + "capex.xls",
-        sheet_keywords=("industry",),
+        sheet_keywords=("industry", "average"),
         column_map={
             "industry": "Industry Name",
-            "sales_to_capital": "<observed header for sales/capital>",
-            "reinvestment_rate": "<observed header for reinvestment rate>",
+            "sales_to_capital": "Sales/ Invested Capital (LTM)",
         },
     ),
-    # pedata.xls — earnings multiples.
+    # pedata.xls — earnings multiples. "Current PE" is the trailing-12-month figure
+    # the §7.7 sanity check compares against; Trailing/Forward PE are alternatives.
     IndustryDataset(
         key="pedata",
         url=_DATASET_BASE + "pedata.xls",
-        sheet_keywords=("industry",),
-        column_map={"industry": "Industry Name", "pe": "<observed header for current PE>"},
+        sheet_keywords=("industry", "average"),
+        column_map={"industry": "Industry Name", "pe": "Current PE"},
     ),
-    # pbvdata.xls — book multiples and ROE.
+    # pbvdata.xls — book multiples plus both returns. ROIC lives here, not in
+    # eva.xls (which 404s).
     IndustryDataset(
         key="pbvdata",
         url=_DATASET_BASE + "pbvdata.xls",
-        sheet_keywords=("industry",),
+        sheet_keywords=("industry", "average"),
         column_map={
             "industry": "Industry Name",
-            "pbv": "<observed header for PBV>",
-            "roe": "<observed header for ROE>",
+            "pbv": "PBV",
+            "roe": "ROE",
+            "roic": "ROIC",
         },
     ),
-    # vebitda.xls — enterprise-value multiples.
+    # vebitda.xls — EV/EBITDA. The sheet publishes EV/EBITDA twice; the record
+    # loader suffixes the second one "_1", so this header takes the first.
     IndustryDataset(
         key="vebitda",
         url=_DATASET_BASE + "vebitda.xls",
-        sheet_keywords=("industry",),
-        column_map={
-            "industry": "Industry Name",
-            "ev_ebitda": "<observed header for EV/EBITDA>",
-            "ev_sales": "<observed header for EV/Sales>",
-        },
+        sheet_keywords=("industry", "average"),
+        column_map={"industry": "Industry Name", "ev_ebitda": "EV/EBITDA"},
     ),
-    # eva.xls — returns on capital.
+    # psdata.xls — EV/Sales, which vebitda.xls does not carry. Its Net Margin and
+    # Pre-tax Operating Margin duplicate margin.xls; the merge gives margin.xls
+    # precedence, so the overlap is harmless.
     IndustryDataset(
-        key="eva",
-        url=_DATASET_BASE + "eva.xls",
-        sheet_keywords=("industry",),
-        column_map={"industry": "Industry Name", "roic": "<observed header for ROIC>"},
+        key="psdata",
+        url=_DATASET_BASE + "psdata.xls",
+        sheet_keywords=("industry", "average"),
+        column_map={"industry": "Industry Name", "ev_sales": "EV/Sales"},
     ),
 )
 
