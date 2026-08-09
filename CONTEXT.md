@@ -23,7 +23,7 @@ Personal investment bot. Local CLI tool. Single user. Greenfield project.
 - **SEC EDGAR** (`data.sec.gov`): US fundamentals, free, requires User-Agent header.
 - **Damodaran datasets** (`pages.stern.nyu.edu/~adamodar/`): industry/country benchmarks, annual.
 - **Financial Modeling Prep** (M2): international fundamentals + global EOD prices.
-- **Interactive Brokers Client Portal API** (M5): portfolio sync, read-only.
+- **Interactive Brokers TWS API** via `ib_async` (M5): portfolio sync, read-only. Needs a local TWS/IB Gateway on `BOT_IBKR_PORT` (default 7496). See [ADR 0004](docs/adr/0004-tws-api-via-ib-async.md).
 
 ## Conventions
 
