@@ -13,7 +13,8 @@ the answers cannot drift:
 
 Membership is exact against the published labels, never substring: an unmapped
 free-text provider label must not accidentally classify. Both sets are asserted to
-be subsets of :data:`DAMODARAN_INDUSTRIES` by the tests, so a typo fails loudly.
+be subsets of :data:`bot.reference.industries.DAMODARAN_INDUSTRIES` by the tests,
+so a typo fails loudly.
 """
 
 from __future__ import annotations

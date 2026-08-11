@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from bot.ingest.industry_mapping import (
-    DAMODARAN_INDUSTRIES,
     IndustryMapping,
     default_mapping_path,
     load_industry_mapping,
@@ -139,14 +138,6 @@ def test_shipped_mapping_loads_and_covers_the_cassette_industries() -> None:
         "Auto Manufacturers",
     ):
         assert mapping.resolve("fmp", fmp_industry) is not None, fmp_industry
-
-
-def test_damodaran_industries_is_the_canonical_taxonomy() -> None:
-    assert "Semiconductor" in DAMODARAN_INDUSTRIES
-    assert "Financial Svcs. (Non-bank & Insurance)" in DAMODARAN_INDUSTRIES
-    # The aggregate rows of wacc.xls are not industries a company belongs to.
-    assert "Total Market" not in DAMODARAN_INDUSTRIES
-    assert len(DAMODARAN_INDUSTRIES) == 94
 
 
 def test_mapping_is_immutable() -> None:

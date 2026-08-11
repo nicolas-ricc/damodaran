@@ -9,10 +9,11 @@ Damodaran's ``"Semiconductor"``. This module is the single translation point.
 
 The mapping is a CSV — one copy, shipped inside the package — so a new provider
 label can be mapped without a code change; ``BOT_INDUSTRY_MAPPING_PATH`` points the
-ingest at a user-maintained file instead. Resolution is deliberately forgiving on formatting (case, whitespace,
-dash variants) because providers are inconsistent about it, but strict on the target:
-a ``damodaran_industry`` that is not in the published taxonomy fails at load time
-rather than silently producing a company whose benchmarks never resolve.
+ingest at a user-maintained file instead. Resolution is deliberately forgiving on
+formatting (case, whitespace, dash variants) because providers are inconsistent
+about it, but strict on the target: a ``damodaran_industry`` outside
+:data:`bot.reference.industries.DAMODARAN_INDUSTRIES` fails at load time rather
+than silently producing a company whose benchmarks never resolve.
 
 Missing file → empty mapping, logged as a warning. Ingest must degrade, not die
 (spec §13.2); the cost is that sector-relative rules skip, which the screener
@@ -29,6 +30,8 @@ from pathlib import Path
 
 import structlog
 
+from bot.reference.industries import DAMODARAN_INDUSTRIES
+
 log = structlog.get_logger(__name__)
 
 _REQUIRED_COLUMNS = ("provider", "provider_industry", "damodaran_industry")
@@ -42,108 +45,6 @@ _DASHES = "\u2014\u2013\u2011"
 #: any whitespace hugging them, so ``"a - - b"``, ``"a--b"`` and ``"a-b"`` all
 #: collapse to the same single separator.
 _DASH_RUN_RE = re.compile(r"(?:\s*-\s*)+")
-
-#: The 94 industry labels of Damodaran's ``wacc.xls`` "Industry Averages" sheet,
-#: excluding the two aggregate rows ("Total Market", "Total Market (without
-#: financials)") which are not industries a company can belong to.
-DAMODARAN_INDUSTRIES: frozenset[str] = frozenset(
-    {
-        "Advertising",
-        "Aerospace/Defense",
-        "Air Transport",
-        "Apparel",
-        "Auto & Truck",
-        "Auto Parts",
-        "Bank (Money Center)",
-        "Banks (Regional)",
-        "Beverage (Alcoholic)",
-        "Beverage (Soft)",
-        "Broadcasting",
-        "Brokerage & Investment Banking",
-        "Building Materials",
-        "Business & Consumer Services",
-        "Cable TV",
-        "Chemical (Basic)",
-        "Chemical (Diversified)",
-        "Chemical (Specialty)",
-        "Coal & Related Energy",
-        "Computer Services",
-        "Computers/Peripherals",
-        "Construction Supplies",
-        "Diversified",
-        "Drugs (Biotechnology)",
-        "Drugs (Pharmaceutical)",
-        "Education",
-        "Electrical Equipment",
-        "Electronics (Consumer & Office)",
-        "Electronics (General)",
-        "Engineering/Construction",
-        "Entertainment",
-        "Environmental & Waste Services",
-        "Farming/Agriculture",
-        "Financial Svcs. (Non-bank & Insurance)",
-        "Food Processing",
-        "Food Wholesalers",
-        "Furn/Home Furnishings",
-        "Green & Renewable Energy",
-        "Healthcare Products",
-        "Healthcare Support Services",
-        "Heathcare Information and Technology",
-        "Homebuilding",
-        "Hospitals/Healthcare Facilities",
-        "Hotel/Gaming",
-        "Household Products",
-        "Information Services",
-        "Insurance (General)",
-        "Insurance (Life)",
-        "Insurance (Prop/Cas.)",
-        "Investments & Asset Management",
-        "Machinery",
-        "Metals & Mining",
-        "Office Equipment & Services",
-        "Oil/Gas (Integrated)",
-        "Oil/Gas (Production and Exploration)",
-        "Oil/Gas Distribution",
-        "Oilfield Svcs/Equip.",
-        "Packaging & Container",
-        "Paper/Forest Products",
-        "Power",
-        "Precious Metals",
-        "Publishing & Newspapers",
-        "R.E.I.T.",
-        "Real Estate (Development)",
-        "Real Estate (General/Diversified)",
-        "Real Estate (Operations & Services)",
-        "Recreation",
-        "Reinsurance",
-        "Restaurant/Dining",
-        "Retail (Automotive)",
-        "Retail (Building Supply)",
-        "Retail (Distributors)",
-        "Retail (General)",
-        "Retail (Grocery and Food)",
-        "Retail (REITs)",
-        "Retail (Special Lines)",
-        "Rubber& Tires",
-        "Semiconductor",
-        "Semiconductor Equip",
-        "Shipbuilding & Marine",
-        "Shoe",
-        "Software (Entertainment)",
-        "Software (Internet)",
-        "Software (System & Application)",
-        "Steel",
-        "Telecom (Wireless)",
-        "Telecom. Equipment",
-        "Telecom. Services",
-        "Tobacco",
-        "Transportation",
-        "Transportation (Railroads)",
-        "Trucking",
-        "Utility (General)",
-        "Utility (Water)",
-    }
-)
 
 
 def normalize_industry_label(raw: str) -> str:

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from bot.ingest.industry_mapping import DAMODARAN_INDUSTRIES
+from bot.reference.industries import DAMODARAN_INDUSTRIES
 from bot.reference.sectors import (
     CYCLICAL_INDUSTRIES,
     FINANCIAL_SERVICES_INDUSTRIES,
