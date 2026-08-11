@@ -512,6 +512,32 @@ def test_partial_weight_override_is_honoured(
     assert result.debt_weight.source is AssumptionSource.MANUAL
 
 
+def test_both_weights_overridden_must_partition(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    # 0.7 + 0.4 used to resolve verbatim and flow into _wacc, producing a wrong
+    # intrinsic value under a MANUAL provenance label.
+    _seed_company(conn, ticker="BAD", industry_damodaran="Software")
+    _seed_industry(conn, debt_to_equity=0.25)
+    override = tmp_path / "BAD.yaml"
+    override.write_text("equity_weight: 0.7\ndebt_weight: 0.4\n")
+    with pytest.raises(ValueError, match=r"must sum to 1\.0"):
+        resolve_assumptions("BAD", conn, override_path=override)
+
+
+def test_both_weights_overridden_are_accepted_when_they_partition(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_company(conn, ticker="OK", industry_damodaran="Software")
+    _seed_industry(conn, debt_to_equity=0.25)
+    override = tmp_path / "OK.yaml"
+    override.write_text("equity_weight: 0.65\ndebt_weight: 0.35\n")
+    result = resolve_assumptions("OK", conn, override_path=override)
+    assert result.equity_weight.value == pytest.approx(0.65)
+    assert result.debt_weight.value == pytest.approx(0.35)
+    assert result.equity_weight.source is AssumptionSource.MANUAL
+
+
 def test_weights_always_partition(conn: duckdb.DuckDBPyConnection) -> None:
     _seed_company(conn, ticker="W", industry_damodaran="Software")
     _seed_industry(conn, debt_to_equity=0.25)

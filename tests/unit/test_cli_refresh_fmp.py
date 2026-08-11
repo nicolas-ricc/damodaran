@@ -47,7 +47,9 @@ def test_refresh_fmp_uses_default_universe(tmp_path: Path, monkeypatch: pytest.M
     _env(tmp_path, monkeypatch)
     captured: dict[str, object] = {}
 
-    def fake_refresh(conn: object, *, api_key: str, tickers: list[str]) -> UniverseRefreshResult:
+    def fake_refresh(
+        conn: object, *, api_key: str, tickers: list[str], mapping_path: Path | None
+    ) -> UniverseRefreshResult:
         captured["tickers"] = tickers
         return _result(total=len(tickers), failed=0, status="success")
 
@@ -67,7 +69,9 @@ def test_refresh_fmp_custom_universe(tmp_path: Path, monkeypatch: pytest.MonkeyP
     uni.write_text("ticker\nAAPL\nMSFT\n")
     captured: dict[str, object] = {}
 
-    def fake_refresh(conn: object, *, api_key: str, tickers: list[str]) -> UniverseRefreshResult:
+    def fake_refresh(
+        conn: object, *, api_key: str, tickers: list[str], mapping_path: Path | None
+    ) -> UniverseRefreshResult:
         captured["tickers"] = tickers
         return _result(total=len(tickers), failed=0, status="success")
 
@@ -85,7 +89,9 @@ def test_refresh_fmp_exit_code_2_when_over_threshold(
     uni = tmp_path / "mini.csv"
     uni.write_text("ticker\n" + "\n".join(f"T{i}" for i in range(20)) + "\n")
 
-    def fake_refresh(conn: object, *, api_key: str, tickers: list[str]) -> UniverseRefreshResult:
+    def fake_refresh(
+        conn: object, *, api_key: str, tickers: list[str], mapping_path: Path | None
+    ) -> UniverseRefreshResult:
         return _result(total=20, failed=6, status="error")
 
     with patch("bot.cli.refresh_universe_from_fmp", side_effect=fake_refresh):
@@ -104,7 +110,9 @@ def test_refresh_fmp_partial_still_exits_2(
     uni = tmp_path / "mini.csv"
     uni.write_text("ticker\n" + "\n".join(f"T{i}" for i in range(20)) + "\n")
 
-    def fake_refresh(conn: object, *, api_key: str, tickers: list[str]) -> UniverseRefreshResult:
+    def fake_refresh(
+        conn: object, *, api_key: str, tickers: list[str], mapping_path: Path | None
+    ) -> UniverseRefreshResult:
         return _result(total=20, failed=2, status="partial")
 
     with patch("bot.cli.refresh_universe_from_fmp", side_effect=fake_refresh):
@@ -134,3 +142,32 @@ def test_refresh_no_flags_mentions_fmp(tmp_path: Path, monkeypatch: pytest.Monke
     assert result.exit_code == 2
     combined = (result.stdout + (result.stderr or "")).lower()
     assert "fmp" in combined
+
+
+def test_refresh_fmp_forwards_the_configured_industry_mapping_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # BOT_INDUSTRY_MAPPING_PATH used to be a silently-ignored config key: nothing
+    # ever read Settings.industry_mapping_path.
+    _env(tmp_path, monkeypatch)
+    custom = tmp_path / "my_mapping.csv"
+    custom.write_text(
+        "provider,provider_industry,damodaran_industry\nfmp,Semiconductors,Semiconductor\n"
+    )
+    monkeypatch.setenv("BOT_INDUSTRY_MAPPING_PATH", str(custom))
+    captured: dict[str, object] = {}
+
+    def fake_refresh(
+        conn: object, *, api_key: str, tickers: list[str], mapping_path: Path | None
+    ) -> UniverseRefreshResult:
+        captured["mapping_path"] = mapping_path
+        return _result(total=len(tickers), failed=0, status="success")
+
+    universe = tmp_path / "universe.txt"
+    universe.write_text("NVDA\n")
+    with patch("bot.cli.refresh_universe_from_fmp", side_effect=fake_refresh):
+        runner = CliRunner()
+        result = runner.invoke(app, ["refresh", "--fmp", "--universe", str(universe)])
+
+    assert result.exit_code == 0
+    assert captured["mapping_path"] == custom

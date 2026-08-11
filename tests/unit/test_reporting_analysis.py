@@ -197,3 +197,22 @@ def test_report_renders_per_share_values_unscaled(
     md = render_analysis(analysis)
     assert "1500.00" in md
     assert "1.50K" not in md
+
+def test_grid_heading_reflects_the_no_price_mode(analysis: Analysis) -> None:
+    # With a price the cells are margins of safety; without one they are intrinsic
+    # values. The heading used to claim "margin of safety" in both modes, while
+    # only a note below said otherwise (the HTML title already switched).
+    with_price = render_analysis(analysis)
+    assert "margin of safety (intrinsic ÷ price)" in with_price
+    assert "intrinsic value (no price available)" not in with_price
+
+    no_price = render_analysis(
+        dataclasses.replace(
+            analysis,
+            current_price=None,
+            margin_of_safety=None,
+            grid=dataclasses.replace(analysis.grid, reference_price=None),
+        )
+    )
+    assert "intrinsic value (no price available)" in no_price
+    assert "margin of safety (intrinsic ÷ price)" not in no_price

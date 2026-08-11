@@ -231,6 +231,47 @@ def test_pipeline_supplies_the_company_leverage(conn: duckdb.DuckDBPyConnection)
     assert flag.color is not FlagColor.UNKNOWN
 
 
+def test_pipeline_does_not_compare_the_sector_margin_to_itself(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    # analysis.py used to pass assumptions.operating_margin as the *company*
+    # margin. Absent an override that value is read from the same
+    # damodaran_industry row as sector.op_margin, so the two sides were
+    # bit-identical and the flag was always green with "at/below sector".
+    # LEV's realised margin is EBIT/revenue = 30%, the sector median is 12%.
+    _seed_company(conn, ticker="LEV", industry_damodaran="Computers/Peripherals")
+    _seed_leveraged_financials(conn, ticker="LEV")
+    override = tmp_path / "LEV.yaml"
+    override.write_text("story_type: high-growth\n")
+
+    analysis = analyze("LEV", conn, override_path=override)
+    flag = next(f for f in analysis.narrative_flags if f.name == "story_margin")
+
+    assert analysis.story_type == "high-growth"
+    assert flag.color is FlagColor.YELLOW
+    assert "30.0%" in flag.reason and "12.0%" in flag.reason
+    # A margin materially *above* sector must never be described as at/below it.
+    assert "at/below sector" not in flag.reason
+
+
+def test_pipeline_story_margin_unknown_when_the_sector_row_is_absent(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    # A company whose Damodaran industry has no row for its region: the sector
+    # median is unavailable, so the check did not run — it must not read as a pass.
+    _seed_company(conn, ticker="LEV", industry_damodaran="Computers/Peripherals")
+    _seed_leveraged_financials(conn, ticker="LEV")
+    conn.execute("UPDATE damodaran_industry SET op_margin = NULL")
+    override = tmp_path / "LEV.yaml"
+    override.write_text("story_type: high-growth\noperating_margin: 0.25\n")
+
+    analysis = analyze("LEV", conn, override_path=override)
+    flag = next(f for f in analysis.narrative_flags if f.name == "story_margin")
+
+    assert flag.color is FlagColor.UNKNOWN
+    assert flag.reason.startswith("not evaluated:")
+
+
 def test_analyze_returns_complete_result(seeded_conn: duckdb.DuckDBPyConnection) -> None:
     analysis = analyze("AAPL", seeded_conn)
 

@@ -103,7 +103,10 @@ class NarrativeContext:
 
     Attributes:
         story_type: Damodaran story type (spec §7.1), e.g. ``"high-growth"``.
-        company_operating_margin: The company's own steady-state EBIT/revenue.
+        company_operating_margin: The company's *realised* EBIT/revenue from its
+            own latest income statement. Never the modelled steady-state margin:
+            that is itself drawn from the sector row, so passing it would compare
+            ``sector_operating_margin`` against itself.
         sector_operating_margin: Sector-median operating margin (Damodaran).
         sector_beta: Sector levered beta used in the CAPM cost of equity.
         operating_leverage: Elasticity of EBIT to revenue (%ΔEBIT / %ΔRevenue).
@@ -139,7 +142,8 @@ def story_margin_flag(
     A ``high-growth`` story usually projects margins *improving toward* the
     sector; starting *above* it leaves little room for the story to play out, so
     the flag turns yellow. Any other story type, or a margin at/below sector, is
-    green.
+    green. Without both margins the check cannot run and returns ``unknown`` — an
+    un-run check must never read as a pass (spec §7.5).
     """
     name = "story_margin"
     if context.story_type != _HIGH_GROWTH_STORY:
@@ -153,8 +157,11 @@ def story_margin_flag(
     if company is None or sector is None:
         return NarrativeFlag(
             name=name,
-            color=FlagColor.GREEN,
-            reason="company or sector operating margin unavailable",
+            color=FlagColor.UNKNOWN,
+            reason=(
+                "not evaluated: the company's realised operating margin or the "
+                "sector median is unavailable"
+            ),
         )
     if company > sector:
         return NarrativeFlag(

@@ -180,11 +180,45 @@ class IndustryMapping:
 
 
 def default_mapping_path() -> Path:
-    """Path of the mapping CSV shipped with the repo (``config/industry_mapping.csv``)."""
+    """Path of the mapping CSV packaged with ``bot.ingest``.
+
+    Returns ``bot/ingest/industry_mapping.csv`` — the copy installed alongside the
+    code, so the mapping resolves from an installed wheel with no repo checkout.
+    Only when that packaged file is missing does it fall back to the repo-relative
+    ``config/industry_mapping.csv`` (the byte-identical user-editable copy).
+    """
     packaged = Path(str(resources.files("bot.ingest").joinpath("industry_mapping.csv")))
     if packaged.exists():
         return packaged
     return Path("config/industry_mapping.csv")
+
+
+def resolve_mapping_path(configured: Path | None) -> Path:
+    """Pick the mapping CSV to read: the configured path, else the packaged one.
+
+    ``Settings.industry_mapping_path`` (``BOT_INDUSTRY_MAPPING_PATH``) lets a user
+    point the ingest at their own edited CSV. An explicitly configured path that
+    does not exist is a misconfiguration, not a reason to run with an empty
+    mapping, so it is logged and the packaged default is used instead.
+
+    Args:
+        configured: The ``Settings``-supplied path, or ``None`` for the default.
+
+    Returns:
+        An existing CSV path, or the packaged default if neither exists (in which
+        case :func:`load_industry_mapping` logs and yields an empty mapping).
+    """
+    if configured is None:
+        return default_mapping_path()
+    if configured.exists():
+        return configured
+    fallback = default_mapping_path()
+    log.warning(
+        "industry_mapping.configured_path_absent",
+        configured_path=str(configured),
+        fallback_path=str(fallback),
+    )
+    return fallback
 
 
 def load_industry_mapping(path: Path | None = None) -> IndustryMapping:

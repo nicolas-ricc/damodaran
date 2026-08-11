@@ -509,9 +509,18 @@ def analyze(
         if invested > 0.0:
             company_debt_weight = latest.total_debt / invested
 
+    # The company's *realised* operating margin, from its own income statement.
+    # Deliberately not ``assumptions.operating_margin``: absent a manual override
+    # that value is read from the same ``damodaran_industry`` row as
+    # ``sector.op_margin``, so the story-margin flag would compare the sector
+    # median against itself — the same vacuous comparison the ERP gap had.
+    company_operating_margin: float | None = None
+    if latest.revenue is not None and latest.revenue != 0.0 and latest.ebit is not None:
+        company_operating_margin = latest.ebit / latest.revenue
+
     context = NarrativeContext(
         story_type=story_type,
-        company_operating_margin=assumptions.operating_margin.value,
+        company_operating_margin=company_operating_margin,
         sector_operating_margin=sector.op_margin,
         sector_beta=sector.beta_levered,
         operating_leverage=_operating_leverage(revenue_history, ebit_history),

@@ -64,6 +64,11 @@ _DEFAULT_GDP_NOMINAL = 0.04
 # still produces a NOPAT rather than collapsing.
 _DEFAULT_TAX_RATE = 0.25
 
+# How far an explicitly overridden equity_weight + debt_weight may drift from 1.0
+# before the pair is rejected. Only float representation error is tolerated: the
+# two weights partition invested capital, so anything else is a user error.
+_WEIGHT_PARTITION_TOLERANCE = 1e-9
+
 
 class AssumptionSource(StrEnum):
     """Provenance of a resolved assumption (spec §7.3)."""
@@ -570,10 +575,28 @@ def _resolve_weights(
     other: a manual override of just one is honoured and the complement is
     derived (both reported as MANUAL). With no override, the split comes from
     the sector's D/E.
+
+    Raises:
+        ValueError: If *both* weights are overridden and they do not sum to 1.0.
+            Accepting a non-partition would feed the WACC a capital structure
+            that does not exist, under a ``manual`` provenance label.
     """
     manual_equity = _override_scalar(override, "equity_weight")
     manual_debt = _override_scalar(override, "debt_weight")
     manual_src = AssumptionSource.MANUAL
+    if (
+        manual_equity is not None
+        and manual_equity.value is not None
+        and manual_debt is not None
+        and manual_debt.value is not None
+        and abs(manual_equity.value + manual_debt.value - 1.0) > _WEIGHT_PARTITION_TOLERANCE
+    ):
+        raise ValueError(
+            "equity_weight and debt_weight must sum to 1.0 (they partition invested "
+            f"capital); got equity_weight={manual_equity.value!r} + "
+            f"debt_weight={manual_debt.value!r} = "
+            f"{manual_equity.value + manual_debt.value!r}"
+        )
     if manual_equity is not None and manual_equity.value is not None:
         equity = manual_equity.value
         debt = (

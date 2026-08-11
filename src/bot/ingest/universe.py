@@ -36,7 +36,7 @@ import duckdb
 
 from bot.ingest.base import IngestResult, _log_refresh
 from bot.ingest.fmp import FmpClient, import_company_from_fmp, import_prices_from_fmp
-from bot.ingest.industry_mapping import load_industry_mapping
+from bot.ingest.industry_mapping import load_industry_mapping, resolve_mapping_path
 from bot.utils.fx import import_fx_rates
 from bot.utils.logging import get_logger
 
@@ -213,6 +213,7 @@ def refresh_universe_from_fmp(
     progress_every: int = DEFAULT_PROGRESS_EVERY,
     importer: Importer = import_company_from_fmp,
     latest_filing_probe: LatestFilingProbe | None = None,
+    mapping_path: Path | None = None,
 ) -> UniverseRefreshResult:
     """Bulk-import ``tickers`` from FMP, skipping those unchanged since last run.
 
@@ -231,6 +232,10 @@ def refresh_universe_from_fmp(
     summary row is written to ``refresh_log`` (source ``fmp_universe``). ``importer``
     and ``latest_filing_probe`` are injectable to keep the orchestrator testable
     without live HTTP.
+
+    ``mapping_path`` is the industry-mapping CSV to load for the run — the CLI
+    passes ``Settings.industry_mapping_path`` so a user-edited CSV actually takes
+    effect; a non-existent path falls back to the packaged copy.
     """
     # Share one FmpClient (one connection pool) across the probe and the default
     # importer for the whole run, instead of a fresh client — and TLS handshake —
@@ -247,7 +252,7 @@ def refresh_universe_from_fmp(
             active_importer = partial(
                 import_company_from_fmp,
                 client=shared_client,
-                mapping=load_industry_mapping(),
+                mapping=load_industry_mapping(resolve_mapping_path(mapping_path)),
             )
 
         return _run_bulk_refresh(

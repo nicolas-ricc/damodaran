@@ -160,7 +160,12 @@ def _refresh_fmp_universe(
         return 2
 
     typer.echo(f"Refreshing {len(tickers)} tickers from FMP (universe={path})...")
-    result = refresh_universe_from_fmp(conn, api_key=settings.fmp_api_key, tickers=tickers)
+    result = refresh_universe_from_fmp(
+        conn,
+        api_key=settings.fmp_api_key,
+        tickers=tickers,
+        mapping_path=settings.industry_mapping_path,
+    )
     _report_universe_refresh(result)
 
     # > 5% failed (i.e. status is not 'success') is a data error.

@@ -12,6 +12,7 @@ from bot.ingest.industry_mapping import (
     default_mapping_path,
     load_industry_mapping,
     normalize_industry_label,
+    resolve_mapping_path,
 )
 
 
@@ -153,3 +154,56 @@ def test_mapping_is_immutable() -> None:
     with pytest.raises(AttributeError):
         mapping.foo = 1  # type: ignore[attr-defined]
     assert isinstance(mapping, IndustryMapping)
+
+
+def test_default_mapping_path_returns_the_packaged_csv() -> None:
+    # The docstring used to claim it returns config/industry_mapping.csv.
+    assert default_mapping_path().name == "industry_mapping.csv"
+    assert default_mapping_path().parent.name == "ingest"
+
+
+def test_packaged_and_config_mapping_csvs_are_identical() -> None:
+    # config/industry_mapping.csv is the user-editable copy; it must not drift
+    # from the packaged one that ships in the wheel.
+    config_copy = Path("config/industry_mapping.csv")
+    assert config_copy.read_bytes() == default_mapping_path().read_bytes()
+
+
+def test_resolve_mapping_path_uses_the_configured_file(tmp_path: Path) -> None:
+    configured = _write(
+        tmp_path,
+        "provider,provider_industry,damodaran_industry\nfmp,Widget Forges,Steel\n",
+    )
+    assert resolve_mapping_path(configured) == configured
+
+
+def test_resolve_mapping_path_defaults_when_unset() -> None:
+    assert resolve_mapping_path(None) == default_mapping_path()
+
+
+def test_resolve_mapping_path_falls_back_when_the_configured_file_is_absent(
+    tmp_path: Path,
+) -> None:
+    # A misconfigured path must not silently run with an empty mapping.
+    assert resolve_mapping_path(tmp_path / "nope.csv") == default_mapping_path()
+
+
+def test_settings_mapping_path_takes_effect(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """BOT_INDUSTRY_MAPPING_PATH must change what the ingest actually resolves."""
+    from bot.config import Settings
+
+    configured = _write(
+        tmp_path,
+        "provider,provider_industry,damodaran_industry\nfmp,Widget Forges,Steel\n",
+    )
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.setenv("BOT_INDUSTRY_MAPPING_PATH", str(configured))
+    settings = Settings()  # type: ignore[call-arg]  # values come from the env
+
+    assert settings.industry_mapping_path == configured
+    mapping = load_industry_mapping(resolve_mapping_path(settings.industry_mapping_path))
+    # A label only the configured CSV knows about — the packaged one does not.
+    assert mapping.resolve("fmp", "Widget Forges") == "Steel"
+    assert load_industry_mapping(default_mapping_path()).resolve("fmp", "Widget Forges") is None

@@ -115,14 +115,49 @@ def test_story_margin_green_for_other_story_types() -> None:
     assert flag.color is FlagColor.GREEN
 
 
-def test_story_margin_green_when_inputs_missing() -> None:
+def test_story_margin_unknown_when_inputs_missing() -> None:
+    # A check that could not run must never read as a pass (spec §7.5).
     fin = _financials()
     asm = _assumptions()
     flag = story_margin_flag(
         fin, asm, _result(fin, asm), _ctx(story_type="high-growth")
     )
-    assert flag.color is FlagColor.GREEN
-    assert "unavailable" in flag.reason
+    assert flag.color is FlagColor.UNKNOWN
+    assert flag.reason.startswith("not evaluated:")
+
+
+def test_story_margin_unknown_when_only_sector_margin_is_missing() -> None:
+    # The realised company margin alone cannot decide the check.
+    fin = _financials()
+    asm = _assumptions()
+    flag = story_margin_flag(
+        fin,
+        asm,
+        _result(fin, asm),
+        _ctx(story_type="high-growth", company_operating_margin=0.30),
+    )
+    assert flag.color is FlagColor.UNKNOWN
+
+
+def test_story_margin_still_reaches_yellow_with_a_real_company_margin() -> None:
+    # Turning the missing-data branch to UNKNOWN must not amputate the logic: a
+    # genuinely divergent realised margin still lands on the yellow verdict.
+    fin = _financials()
+    asm = _assumptions()
+    flag = story_margin_flag(
+        fin,
+        asm,
+        _result(fin, asm),
+        _ctx(
+            story_type="high-growth",
+            company_operating_margin=0.412,
+            sector_operating_margin=0.183,
+        ),
+    )
+    assert flag.color is FlagColor.YELLOW
+    assert "41.2%" in flag.reason
+    assert "18.3%" in flag.reason
+    assert "at/below sector" not in flag.reason
 
 
 # --------------------------------------------------------------------------- #
