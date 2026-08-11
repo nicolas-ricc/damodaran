@@ -20,6 +20,7 @@ from pathlib import Path
 
 import duckdb
 
+from bot.reference.regions import dataset_region
 from bot.reference.sectors import is_cyclical
 from bot.utils.finance import cagr
 from bot.valuator.assumptions import AssumptionInputs, load_assumption_inputs, resolve_assumptions
@@ -202,7 +203,7 @@ class _SectorMultiples:
 def _load_sector_multiples(
     conn: duckdb.DuckDBPyConnection, company: _CompanyRow
 ) -> _SectorMultiples:
-    region: str | None = None
+    geographic_region: str | None = None
     erp: float | None = None
     if company.country is not None:
         country_row = conn.execute(
@@ -211,7 +212,13 @@ def _load_sector_multiples(
             [company.country],
         ).fetchone()
         if country_row is not None:
-            region, erp = country_row[0], country_row[1]
+            geographic_region, erp = country_row[0], country_row[1]
+    # damodaran_country.region is a geographic grouping (e.g. "North America"),
+    # not the damodaran_industry.region dataset key (e.g. "US") — the two
+    # taxonomies share the name but not the values, so a raw join between them
+    # never matches. Translate through the same reference mapping the assumptions
+    # module uses.
+    region = dataset_region(company.country, geographic_region)
     if company.industry_damodaran is None or region is None:
         return _SectorMultiples(
             region=region, pe=None, ev_sales=None, op_margin=None, beta_levered=None, erp=erp

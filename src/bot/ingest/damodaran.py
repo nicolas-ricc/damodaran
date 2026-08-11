@@ -9,6 +9,8 @@ required.
 from __future__ import annotations
 
 import zipfile
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -52,8 +54,139 @@ DEFAULT_COUNTRY_COLUMN_MAP: dict[str, str] = {
     "country_risk_premium": "Country Risk Premium",
 }
 
-INDUSTRY_WACC_URL = "https://pages.stern.nyu.edu/~adamodar/pc/datasets/wacc.xls"
-COUNTRY_RISK_URL = "https://pages.stern.nyu.edu/~adamodar/pc/datasets/ctryprem.xls"
+_DATASET_BASE = "https://pages.stern.nyu.edu/~adamodar/pc/datasets/"
+
+INDUSTRY_WACC_URL = _DATASET_BASE + "wacc.xls"
+COUNTRY_RISK_URL = _DATASET_BASE + "ctryprem.xls"
+
+
+@dataclass(frozen=True)
+class IndustryDataset:
+    """One published Damodaran industry file and how to read it.
+
+    Attributes:
+        key: Short identifier, also the fixture filename stem and the key callers
+            use in ``extra_industry_paths``.
+        url: Published location.
+        sheet_keywords: Passed to the existing sheet auto-detection.
+        column_map: DB column → exact header string, as observed in the file.
+            ``industry`` must be first: ``_to_normalized_rows`` treats the first
+            key as the primary key of the row.
+    """
+
+    key: str
+    url: str
+    sheet_keywords: tuple[str, ...]
+    column_map: dict[str, str]
+
+
+#: Industry datasets merged into ``damodaran_industry``, in precedence order: an
+#: earlier dataset's value for a column wins over a later one's.
+#:
+#: Sheet names and header strings below were observed directly from the published
+#: files (see the discovery step in the plan) — do NOT guess them: a wrong header
+#: silently yields a NULL column, which is the failure mode this registry exists
+#: to eliminate.
+INDUSTRY_DATASETS: tuple[IndustryDataset, ...] = (
+    IndustryDataset(
+        key="wacc",
+        url=INDUSTRY_WACC_URL,
+        sheet_keywords=("industry", "average"),
+        column_map=DEFAULT_INDUSTRY_COLUMN_MAP,
+    ),
+    # margin.xls — margins. "Pre-tax Unadjusted Operating Margin" is the plain
+    # operating margin; the file also publishes lease- and R&D-adjusted variants.
+    IndustryDataset(
+        key="margin",
+        url=_DATASET_BASE + "margin.xls",
+        sheet_keywords=("industry", "average"),
+        column_map={
+            "industry": "Industry Name",
+            "op_margin": "Pre-tax Unadjusted Operating Margin",
+            "net_margin": "Net Margin",
+        },
+    ),
+    # capex.xls — sales-to-capital. Note the space after the slash in the header.
+    # `reinvestment_rate` has no clean column here (only "Net Cap Ex/ EBIT (1-t)",
+    # a different quantity) and no consumer SELECTs it, so it is left unmapped.
+    IndustryDataset(
+        key="capex",
+        url=_DATASET_BASE + "capex.xls",
+        sheet_keywords=("industry", "average"),
+        column_map={
+            "industry": "Industry Name",
+            "sales_to_capital": "Sales/ Invested Capital (LTM)",
+        },
+    ),
+    # pedata.xls — earnings multiples. "Current PE" is the trailing-12-month figure
+    # the §7.7 sanity check compares against; Trailing/Forward PE are alternatives.
+    IndustryDataset(
+        key="pedata",
+        url=_DATASET_BASE + "pedata.xls",
+        sheet_keywords=("industry", "average"),
+        column_map={"industry": "Industry Name", "pe": "Current PE"},
+    ),
+    # pbvdata.xls — book multiples plus both returns. ROIC lives here, not in
+    # eva.xls (which 404s).
+    IndustryDataset(
+        key="pbvdata",
+        url=_DATASET_BASE + "pbvdata.xls",
+        sheet_keywords=("industry", "average"),
+        column_map={
+            "industry": "Industry Name",
+            "pbv": "PBV",
+            "roe": "ROE",
+            "roic": "ROIC",
+        },
+    ),
+    # vebitda.xls — EV/EBITDA. The sheet publishes EV/EBITDA twice; the record
+    # loader suffixes the second one "_1", so this header takes the first.
+    IndustryDataset(
+        key="vebitda",
+        url=_DATASET_BASE + "vebitda.xls",
+        sheet_keywords=("industry", "average"),
+        column_map={"industry": "Industry Name", "ev_ebitda": "EV/EBITDA"},
+    ),
+    # psdata.xls — EV/Sales, which vebitda.xls does not carry. Its Net Margin and
+    # Pre-tax Operating Margin duplicate margin.xls; the merge gives margin.xls
+    # precedence, so the overlap is harmless.
+    IndustryDataset(
+        key="psdata",
+        url=_DATASET_BASE + "psdata.xls",
+        sheet_keywords=("industry", "average"),
+        column_map={"industry": "Industry Name", "ev_sales": "EV/Sales"},
+    ),
+)
+
+#: The registry entry ``industry_path`` / ``industry_url`` refer to; the rest are
+#: the "extra" datasets keyed by ``IndustryDataset.key``.
+_WACC_DATASET = INDUSTRY_DATASETS[0]
+_EXTRA_DATASETS: tuple[IndustryDataset, ...] = INDUSTRY_DATASETS[1:]
+
+
+def merge_industry_datasets(
+    parts: Sequence[list[dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    """Outer-join per-dataset industry rows on the ``industry`` label.
+
+    Earlier datasets win: a column already carrying a non-``None`` value is not
+    overwritten by a later dataset, so the cost-of-capital file stays authoritative
+    for the columns it publishes. Rows without an ``industry`` are dropped. Insertion
+    order of first appearance is preserved so the output is deterministic.
+    """
+    merged: dict[str, dict[str, Any]] = {}
+    for part in parts:
+        for row in part:
+            industry = row.get("industry")
+            if not isinstance(industry, str) or not industry.strip():
+                continue
+            target = merged.setdefault(industry, {"industry": industry})
+            for column, value in row.items():
+                if column == "industry" or value is None:
+                    continue
+                if target.get(column) is None:
+                    target[column] = value
+    return list(merged.values())
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -108,13 +241,23 @@ def _pick_sheet(names: list[str], keywords: tuple[str, ...]) -> str:
     return names[0]
 
 
-def _load_rows(path: Path, sheet_name: str | None) -> tuple[list[list[Any]], str]:
+def _load_rows(
+    path: Path,
+    sheet_name: str | None,
+    keywords: tuple[str, ...] | None = None,
+) -> tuple[list[list[Any]], str]:
     """Load all cell values from *path*, returning (rows, picked_sheet_name).
 
     Tries openpyxl first (xlsx), then falls back to xlrd (legacy xls).
+
+    *keywords* overrides the sheet-detection keywords used when *sheet_name* is
+    ``None``; the default order matches every file the module read before the
+    per-dataset registry existed.
     """
     import openpyxl
     import openpyxl.utils.exceptions
+
+    detect = keywords or (_INDUSTRY_KEYWORDS + _COUNTRY_KEYWORDS + _AVERAGE_KEYWORDS)
 
     try:
         wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
@@ -124,7 +267,7 @@ def _load_rows(path: Path, sheet_name: str | None) -> tuple[list[list[Any]], str
                 raise ValueError(f"Sheet {sheet_name!r} not found in {path}. Available: {names}")
             picked = sheet_name
         else:
-            picked = _pick_sheet(names, _INDUSTRY_KEYWORDS + _COUNTRY_KEYWORDS + _AVERAGE_KEYWORDS)
+            picked = _pick_sheet(names, detect)
         ws = wb[picked]
         rows: list[list[Any]] = [list(r) for r in ws.iter_rows(values_only=True)]
         wb.close()
@@ -147,22 +290,24 @@ def _load_rows(path: Path, sheet_name: str | None) -> tuple[list[list[Any]], str
             raise ValueError(f"Sheet {sheet_name!r} not found in {path}. Available: {names_xlrd}")
         picked_xlrd = sheet_name
     else:
-        picked_xlrd = _pick_sheet(
-            names_xlrd, _INDUSTRY_KEYWORDS + _COUNTRY_KEYWORDS + _AVERAGE_KEYWORDS
-        )
+        picked_xlrd = _pick_sheet(names_xlrd, detect)
     ws_xlrd = book.sheet_by_name(picked_xlrd)
     xlrd_rows: list[list[Any]] = [ws_xlrd.row_values(r) for r in range(ws_xlrd.nrows)]
     return xlrd_rows, picked_xlrd
 
 
-def _load_to_records(path: Path, sheet_name: str | None) -> list[dict[str, Any]]:
+def _load_to_records(
+    path: Path,
+    sheet_name: str | None,
+    keywords: tuple[str, ...] | None = None,
+) -> list[dict[str, Any]]:
     """Read xls/xlsx, detect the header row, and return a list of row dicts.
 
     Using raw dicts instead of a Polars DataFrame avoids type-inference issues
     with Damodaran sheets that mix strings, floats, and ``None`` in the same
     column.
     """
-    rows, picked = _load_rows(path, sheet_name)
+    rows, picked = _load_rows(path, sheet_name, keywords)
     log.debug("damodaran.sheet_picked", path=str(path), sheet=picked)
 
     if not rows:
@@ -211,6 +356,37 @@ def _coerce_value(value: Any) -> Any:
         except ValueError:
             pass
     return value
+
+
+def _null_non_numeric_industry_cells(
+    row: dict[str, Any],
+    column_map: dict[str, str],
+    path: Path,
+) -> dict[str, Any]:
+    """NULL out industry cells that are text where a number is expected.
+
+    Every mapped ``damodaran_industry`` column except the industry label itself is
+    a ``DOUBLE``, but the published sheets write ``"NA"`` (and the occasional other
+    marker) where an industry has no meaningful value — e.g. a negative-earnings
+    industry's PE. Passing that string to DuckDB raises a conversion error that
+    would abort the whole import, so it becomes a NULL, which is what it means.
+    """
+    out = dict(row)
+    pk_field = next(iter(column_map))
+    for db_col in column_map:
+        if db_col == pk_field:
+            continue
+        value = out.get(db_col)
+        if value is not None and not isinstance(value, (int, float)):
+            log.debug(
+                "damodaran.industry.non_numeric_cell",
+                path=str(path),
+                column=db_col,
+                industry=out.get(pk_field),
+                value=str(value)[:40],
+            )
+            out[db_col] = None
+    return out
 
 
 def _to_normalized_rows(
@@ -385,6 +561,7 @@ def parse_industry_xls(
     year: int,
     column_map: dict[str, str],
     sheet_name: str | None = None,
+    sheet_keywords: tuple[str, ...] | None = None,
 ) -> list[dict[str, Any]]:
     """Parse a Damodaran industry-level xls into normalized rows.
 
@@ -394,15 +571,18 @@ def parse_industry_xls(
         year: Data year injected into every row.
         column_map: Mapping ``db_column_name -> xls_header_string``.
         sheet_name: Explicit sheet to open; auto-detected when *None*.
+        sheet_keywords: Keywords driving that auto-detection, most specific
+            first; the module default is used when *None*.
 
     Returns:
         List of dicts ready for DB upsert.
     """
-    records = _load_to_records(path, sheet_name)
+    records = _load_to_records(path, sheet_name, sheet_keywords)
     if not records:
         log.warning("damodaran.industry.empty_file", path=str(path))
         return []
-    return _to_normalized_rows(records, column_map, {"region": region, "year": year})
+    rows = _to_normalized_rows(records, column_map, {"region": region, "year": year})
+    return [_null_non_numeric_industry_cells(row, column_map, path) for row in rows]
 
 
 def parse_country_xls(
@@ -511,19 +691,61 @@ def _import_files_into_run(
     country_path: Path,
     region: str,
     year: int,
+    extra_industry_paths: dict[str, Path] | None = None,
+    unavailable_datasets: Sequence[str] = (),
 ) -> None:
     """Parse + upsert both datasets, recording counts/status on ``run``.
 
     Shared body for :func:`import_damodaran_from_files` and
     :func:`import_damodaran` so a single :func:`refresh_run` envelope wraps the
     whole operation — exactly one refresh_log row per public call.
+
+    ``extra_industry_paths`` maps :data:`INDUSTRY_DATASETS` keys to already-fetched
+    files carrying the industry columns ``wacc.xls`` does not publish (margins,
+    sales-to-capital, the multiples). ``unavailable_datasets`` names datasets the
+    caller could not fetch at all; both a missing download and a dataset that
+    fails to parse degrade the run to ``partial`` instead of aborting it (§13.2).
     """
-    industry_rows = parse_industry_xls(
-        industry_path,
-        region=region,
-        year=year,
-        column_map=DEFAULT_INDUSTRY_COLUMN_MAP,
-    )
+    industry_parts: list[list[dict[str, Any]]] = [
+        parse_industry_xls(
+            industry_path,
+            region=region,
+            year=year,
+            column_map=_WACC_DATASET.column_map,
+            sheet_keywords=_WACC_DATASET.sheet_keywords,
+        )
+    ]
+    degraded: list[str] = list(unavailable_datasets)
+    for dataset in _EXTRA_DATASETS:
+        path = (extra_industry_paths or {}).get(dataset.key)
+        if path is None:
+            continue
+        try:
+            part = parse_industry_xls(
+                path,
+                region=region,
+                year=year,
+                column_map=dataset.column_map,
+                sheet_keywords=dataset.sheet_keywords,
+            )
+        except Exception as exc:
+            # One unreadable file must not cost us the other eight columns.
+            log.warning(
+                "damodaran.dataset.parse_failed",
+                dataset=dataset.key,
+                path=str(path),
+                error=str(exc),
+            )
+            degraded.append(dataset.key)
+            continue
+        if not part:
+            log.warning("damodaran.dataset.no_rows", dataset=dataset.key, path=str(path))
+        industry_parts.append(part)
+
+    # Outer join on the industry label; the cost-of-capital file comes first and
+    # so wins every column it shares with a later dataset.
+    industry_rows = merge_industry_datasets(industry_parts)
+
     country_rows = parse_country_xls(
         country_path,
         year=year,
@@ -581,9 +803,16 @@ def _import_files_into_run(
         "region": region,
         "year": year,
     }
+    if degraded:
+        run.details["unavailable_datasets"] = sorted(degraded)
+    reasons: list[str] = []
     if empty_sides:
+        reasons.append(f"empty rows for: {', '.join(empty_sides)}")
+    if degraded:
+        reasons.append(f"datasets unavailable: {', '.join(sorted(degraded))}")
+    if reasons:
         run.status_override = "partial"
-        run.error_message_override = f"empty rows for: {', '.join(empty_sides)}"
+        run.error_message_override = "; ".join(reasons)
 
 
 def import_damodaran_from_files(
@@ -593,8 +822,15 @@ def import_damodaran_from_files(
     country_path: Path,
     region: str,
     year: int,
+    extra_industry_paths: dict[str, Path] | None = None,
 ) -> IngestResult:
-    """Import already-downloaded Damodaran files into the DB."""
+    """Import already-downloaded Damodaran files into the DB.
+
+    Args:
+        extra_industry_paths: Optional :data:`INDUSTRY_DATASETS` key → file for the
+            additional industry datasets (margins, sales-to-capital, multiples).
+            Omit it to import the cost-of-capital and country files alone.
+    """
     with refresh_run(
         conn,
         source="damodaran",
@@ -609,6 +845,7 @@ def import_damodaran_from_files(
             country_path=country_path,
             region=region,
             year=year,
+            extra_industry_paths=extra_industry_paths,
         )
     assert run.result is not None  # refresh_run always sets it on exit
     return run.result
@@ -625,9 +862,13 @@ def import_damodaran(
 ) -> IngestResult:
     """Download and import current-year Damodaran datasets.
 
-    Download and import share a single :func:`refresh_run` envelope, so the run
-    is recorded in refresh_log exactly once. A download failure surfaces as an
-    error run carrying the legacy ``download failed: ...`` message.
+    Every dataset in :data:`INDUSTRY_DATASETS` is fetched, not just ``wacc.xls``:
+    the margin / capex / multiple files carry the industry columns the valuator
+    and the screener need. Download and import share a single :func:`refresh_run`
+    envelope, so the run is recorded in refresh_log exactly once. Failing to fetch
+    the cost-of-capital or country file surfaces as an error run carrying the
+    legacy ``download failed: ...`` message; failing to fetch one of the extra
+    industry files only degrades the run to ``partial`` (§13.2).
     """
     year = year or datetime.now().year
     with refresh_run(
@@ -639,9 +880,25 @@ def import_damodaran(
     ) as run:
         industry_path: Path | None = None
         country_path: Path | None = None
+        extra_paths: dict[str, Path] = {}
+        unavailable: list[str] = []
         try:
             industry_path = download_dataset(industry_url, download_dir / "wacc.xls")
             country_path = download_dataset(country_url, download_dir / "ctryprem.xls")
+            for dataset in _EXTRA_DATASETS:
+                try:
+                    extra_paths[dataset.key] = download_dataset(
+                        dataset.url, download_dir / f"{dataset.key}.xls"
+                    )
+                except Exception as exc:
+                    # A single missing file costs only its own columns.
+                    log.warning(
+                        "damodaran.dataset.download_failed",
+                        dataset=dataset.key,
+                        url=dataset.url,
+                        error=str(exc),
+                    )
+                    unavailable.append(dataset.key)
         except Exception as e:
             # Record the run as a download error with the legacy message; the
             # status_override keeps it a single refresh_log row and lets the
@@ -658,6 +915,8 @@ def import_damodaran(
                     country_path=country_path,
                     region=region,
                     year=year,
+                    extra_industry_paths=extra_paths,
+                    unavailable_datasets=unavailable,
                 )
             except Exception as e:
                 # A parse/upsert failure is an import error, not a download one;
