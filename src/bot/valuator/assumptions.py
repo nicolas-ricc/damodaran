@@ -77,6 +77,9 @@ class AssumptionSource(StrEnum):
     SECTOR_DEFAULT_DAMODARAN_CROSS_REGION = "sector_default_damodaran_cross_region"
     RULE_BASED = "rule_based"
     HISTORICAL_AVERAGE = "historical_average"
+    #: No layer produced a value. The report shows the gap instead of a number,
+    #: and must not attribute the gap to a source it never came from.
+    UNRESOLVED = "unresolved"
 
 
 @dataclass(frozen=True)
@@ -352,6 +355,28 @@ def _historical_growth_path(
 # --------------------------------------------------------------------------- #
 
 
+#: Every key a `config/assumptions/<TICKER>.yaml` may carry (spec §7.6). Anything
+#: else is a typo: silently ignoring it would let a user believe an override
+#: applied.
+_OVERRIDE_KEYS: frozenset[str] = frozenset(
+    {
+        "revenue_growth",
+        "operating_margin",
+        "sales_to_capital",
+        "terminal_growth",
+        "cost_of_equity",
+        "pretax_cost_of_debt",
+        "equity_weight",
+        "debt_weight",
+        "tax_rate",
+        "probability_of_bankruptcy",
+        "distress_value_per_share",
+        "story_type",
+        "notes",
+    }
+)
+
+
 def _load_override(override_path: Path | None) -> dict[str, Any]:
     if override_path is None or not override_path.exists():
         return {}
@@ -360,6 +385,13 @@ def _load_override(override_path: Path | None) -> dict[str, Any]:
         return {}
     if not isinstance(loaded, dict):
         raise ValueError(f"override file {override_path} must contain a YAML mapping")
+    unknown = sorted(set(loaded) - _OVERRIDE_KEYS)
+    if unknown:
+        valid = ", ".join(sorted(_OVERRIDE_KEYS))
+        raise ValueError(
+            f"{override_path}: unknown override key(s): {', '.join(unknown)}. "
+            f"Valid keys: {valid}"
+        )
     return loaded
 
 
@@ -515,23 +547,46 @@ def _resolve_sector_scalar(
     if manual is not None:
         return manual
     value = getattr(sector, attr) if sector is not None else None
+    if value is None:
+        return Sourced(value=None, source=AssumptionSource.UNRESOLVED)
     return Sourced(value=value, source=_sector_source(cross_region))
 
 
 def _resolve_weights(
     override: dict[str, Any], sector: _SectorRow | None, *, cross_region: bool = False
 ) -> tuple[Sourced[float | None], Sourced[float | None]]:
+    """Resolve the equity/debt split of the capital structure.
+
+    The two weights partition invested capital, so either one determines the
+    other: a manual override of just one is honoured and the complement is
+    derived (both reported as MANUAL). With no override, the split comes from
+    the sector's D/E.
+    """
     manual_equity = _override_scalar(override, "equity_weight")
     manual_debt = _override_scalar(override, "debt_weight")
-    if manual_equity is not None and manual_debt is not None:
-        return manual_equity, manual_debt
-    src = _sector_source(cross_region)
+    manual_src = AssumptionSource.MANUAL
+    if manual_equity is not None and manual_equity.value is not None:
+        equity = manual_equity.value
+        debt = (
+            manual_debt.value
+            if manual_debt is not None and manual_debt.value is not None
+            else 1.0 - equity
+        )
+        return Sourced(value=equity, source=manual_src), Sourced(value=debt, source=manual_src)
+    if manual_debt is not None and manual_debt.value is not None:
+        debt = manual_debt.value
+        return (
+            Sourced(value=1.0 - debt, source=manual_src),
+            Sourced(value=debt, source=manual_src),
+        )
     if sector is not None and sector.debt_to_equity is not None:
         d_to_e = sector.debt_to_equity
         debt_weight = d_to_e / (1.0 + d_to_e)
+        src = _sector_source(cross_region)
         equity_weight = 1.0 - debt_weight
         return Sourced(value=equity_weight, source=src), Sourced(value=debt_weight, source=src)
-    return Sourced(value=None, source=src), Sourced(value=None, source=src)
+    unresolved = AssumptionSource.UNRESOLVED
+    return Sourced(value=None, source=unresolved), Sourced(value=None, source=unresolved)
 
 
 def _resolve_terminal_growth(

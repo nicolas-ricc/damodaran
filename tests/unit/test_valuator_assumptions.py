@@ -1,8 +1,10 @@
 """Unit tests for assumptions resolution with source tracking (issue #12 / M4.2).
 
 Spec §7.3: the six critical DCF assumptions, each carrying its provenance
-(``source ∈ {manual, analyst_consensus, sector_default_damodaran, rule_based,
-historical_average}``). The resolution order is:
+(``source ∈ {manual, sector_default_damodaran,
+sector_default_damodaran_cross_region, rule_based, historical_average,
+unresolved}``). ``analyst_consensus`` was removed: nothing ever emitted it.
+The resolution order is:
 
 1. Manual override from ``config/assumptions/<TICKER>.yaml`` if present
 2. Analyst consensus (FMP, M2 — for the M1 universe, fall back to historical)
@@ -367,7 +369,9 @@ def test_missing_sector_row_leaves_field_unresolved(
     _seed_country(conn)
     result = resolve_assumptions("ACME", conn, gdp_nominal=GDP_NOMINAL_US)
     assert result.operating_margin.value is None
+    assert result.operating_margin.source is AssumptionSource.UNRESOLVED
     assert result.sales_to_capital.value is None
+    assert result.sales_to_capital.source is AssumptionSource.UNRESOLVED
     # Country-derived rule-based terminal growth still resolves.
     assert result.terminal_growth.value == pytest.approx(0.03)
 
@@ -459,7 +463,8 @@ def test_no_sector_row_at_all_is_not_reported_as_cross_region(
     _seed_country(conn, region="North America")
     result = resolve_assumptions("ACME", conn)
     assert result.operating_margin.value is None
-    assert result.operating_margin.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
+    # Unresolved, not a fabricated sector default and not mislabelled cross-region.
+    assert result.operating_margin.source is AssumptionSource.UNRESOLVED
 
 
 def test_assumptions_has_no_redundant_wacc_field() -> None:
@@ -470,6 +475,94 @@ def test_assumptions_has_no_redundant_wacc_field() -> None:
     # Deleted: to_dcf_assumptions() ignored it and the DCF recomputes WACC from
     # its components, so the field only ever produced a contradictory report.
     assert "wacc" not in {f.name for f in fields(Assumptions)}
+
+
+def test_unresolved_assumption_reports_unresolved_not_a_sector_default(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    # A company whose industry has no Damodaran row: the assumption has no value,
+    # so claiming it came from the sector defaults is a lie the report would print.
+    _seed_company(conn, ticker="OBSCURE", industry_damodaran="Obscure")
+    result = resolve_assumptions("OBSCURE", conn)
+    assert result.operating_margin.value is None
+    assert result.operating_margin.source is AssumptionSource.UNRESOLVED
+
+
+def test_resolved_assumption_still_reports_the_sector(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_company(conn, ticker="SEMI", industry_damodaran="Software")
+    _seed_industry(conn, op_margin=0.22)
+    result = resolve_assumptions("SEMI", conn)
+    assert result.operating_margin.value == pytest.approx(0.22)
+    assert result.operating_margin.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
+
+
+def test_partial_weight_override_is_honoured(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    # Setting only equity_weight used to be discarded silently. The complement is
+    # implied: weights partition capital.
+    _seed_company(conn, ticker="LEV", industry_damodaran="Software")
+    _seed_industry(conn, debt_to_equity=0.25)
+    override = tmp_path / "LEV.yaml"
+    override.write_text("equity_weight: 0.7\n")
+    result = resolve_assumptions("LEV", conn, override_path=override)
+    assert result.equity_weight.value == pytest.approx(0.7)
+    assert result.debt_weight.value == pytest.approx(0.3)
+    assert result.equity_weight.source is AssumptionSource.MANUAL
+    assert result.debt_weight.source is AssumptionSource.MANUAL
+
+
+def test_weights_always_partition(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_company(conn, ticker="W", industry_damodaran="Software")
+    _seed_industry(conn, debt_to_equity=0.25)
+    result = resolve_assumptions("W", conn)
+    assert result.equity_weight.value is not None and result.debt_weight.value is not None
+    assert result.equity_weight.value + result.debt_weight.value == pytest.approx(1.0)
+
+
+def test_unknown_override_key_is_rejected(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    # A typo used to be ignored, so the user believed an override applied that did not.
+    _seed_company(conn, ticker="TYPO", industry_damodaran="Software")
+    override = tmp_path / "TYPO.yaml"
+    override.write_text("terminal_grow: 0.02\n")
+    with pytest.raises(ValueError, match="unknown override key"):
+        resolve_assumptions("TYPO", conn, override_path=override)
+
+
+def test_unknown_override_key_error_lists_the_valid_ones(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_company(conn, ticker="TYPO2", industry_damodaran="Software")
+    override = tmp_path / "TYPO2.yaml"
+    override.write_text("wacc: 0.09\n")
+    with pytest.raises(ValueError, match="terminal_growth"):
+        resolve_assumptions("TYPO2", conn, override_path=override)
+
+
+def test_every_documented_override_key_is_accepted(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_company(conn, ticker="ALL", industry_damodaran="Software")
+    override = tmp_path / "ALL.yaml"
+    override.write_text(
+        "revenue_growth: [0.1, 0.09, 0.08, 0.07, 0.06]\n"
+        "operating_margin: 0.2\n"
+        "sales_to_capital: 2.0\n"
+        "terminal_growth: 0.02\n"
+        "cost_of_equity: 0.09\n"
+        "pretax_cost_of_debt: 0.05\n"
+        "equity_weight: 0.8\n"
+        "debt_weight: 0.2\n"
+        "tax_rate: 0.25\n"
+        "probability_of_bankruptcy: 0.05\n"
+        "story_type: high-growth\n"
+        "notes: manual review\n"
+    )
+    result = resolve_assumptions("ALL", conn, override_path=override)
+    assert result.story_type == "high-growth"
+    assert result.notes == "manual review"
 
 
 def test_assumption_source_has_no_unreachable_member() -> None:
@@ -483,4 +576,5 @@ def test_assumption_source_has_no_unreachable_member() -> None:
         "sector_default_damodaran_cross_region",
         "rule_based",
         "historical_average",
+        "unresolved",
     }
