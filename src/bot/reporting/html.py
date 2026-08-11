@@ -38,8 +38,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from bot.reporting.analysis_report import (
-    _GRID_LABEL_INTRINSIC,
-    _GRID_LABEL_MOS,
+    GRID_LABEL_INTRINSIC,
+    GRID_LABEL_MOS,
     render_analysis,
 )
 from bot.valuator.analysis import Analysis
@@ -200,7 +200,7 @@ def sensitivity_heatmap_html(grid: Grid2D) -> str:
             hovertemplate=hovertemplate,
         )
     )
-    title_suffix = _GRID_LABEL_MOS if has_price else _GRID_LABEL_INTRINSIC
+    title_suffix = GRID_LABEL_MOS if has_price else GRID_LABEL_INTRINSIC
     figure.update_layout(
         title=(
             f"Sensitivity heatmap — {grid.axis_a.value} (rows) x {grid.axis_b.value} (cols), "

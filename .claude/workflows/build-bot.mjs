@@ -15,18 +15,9 @@ const DIR = '/home/nicolasr/Projects/investment-bot'
 
 // Strict topological order over the "Blocked by" DAG. Sequential, single working tree,
 // so concurrent edits to shared files (schema.sql, cli.py, config.py) can never race.
+// First 11 (#2,#3,#18,#11,#22,#4,#5,#6,#19,#21,#12) already committed on master — these
+// are the remaining 13, still in valid topo order given that committed set.
 const ISSUES = [
-  { n: 2,  phase: 'M3 Screener' },
-  { n: 3,  phase: 'M3 Screener' },
-  { n: 18, phase: 'M2 Data' },
-  { n: 11, phase: 'M4 Valuator' },
-  { n: 22, phase: 'M2 Data' },
-  { n: 4,  phase: 'M3 Screener' },
-  { n: 5,  phase: 'M3 Screener' },
-  { n: 6,  phase: 'M3 Screener' },
-  { n: 19, phase: 'M2 Data' },
-  { n: 21, phase: 'M2 Data' },
-  { n: 12, phase: 'M4 Valuator' },
   { n: 13, phase: 'M4 Valuator' },
   { n: 15, phase: 'M4 Valuator' },
   { n: 7,  phase: 'M3 Screener' },
@@ -79,20 +70,29 @@ Run \`gh issue view ${it.n} --repo ${REPO}\` to read the full brief (What to bui
 
 ## How to work
 1. TDD: write failing test(s) first that encode the acceptance criteria, then implement until green.
-2. Follow project conventions strictly: full type hints (\`mypy --strict\` clean), \`ruff\` clean, pure adapter/functions (no global state, accept conn/paths), VCR cassettes for any HTTP, Conventional Commits. Screener rules (\`src/bot/screener/\`) and valuator (\`src/bot/valuator/\`) target 100% test coverage.
-3. Verify with the project's configured tools — check \`pyproject.toml\`/\`README.md\` for exact invocations; defaults: \`.venv/bin/python -m pytest -q\`, \`.venv/bin/python -m mypy --strict src\`, \`.venv/bin/python -m ruff check src tests\`. The FULL suite must stay green (no regressions to the existing 45 tests).
-4. Commit your work as ONE conventional commit (e.g. \`feat(m3): ...\`) once green. Do NOT push. Do NOT modify GitHub issue state or labels. Do NOT amend or touch other issues' work.
+2. Follow project conventions strictly: full type hints (\`mypy --strict\` clean), \`ruff\` clean, pure adapter/functions (no global state, accept conn/paths), VCR cassettes for any HTTP, Conventional Commits. Screener rules (\`src/bot/screener/\`) and valuator (\`src/bot/valuator/\`) target 100% test coverage. The project targets Python 3.12 with ruff rules E/F/W/I/N/B/UP/RUF/SIM/TID — use \`enum.StrEnum\` and PEP 695 type parameters (\`class Foo[T]\`, \`type X = ...\`), not \`Generic[T]\`.
+3. Declared deps already include: typer, duckdb, polars, pydantic(-settings), httpx, structlog, python-dotenv, openpyxl, xlrd, rich, pyyaml. If you need ANY other third-party package you MUST declare it, not just import it — run \`uv add <pkg>\` (and \`uv add --dev types-<pkg>\` for stubs). The uv binary is at \`$HOME/.local/bin/uv\`. An undeclared import is a defect even if the venv happens to have it.
+4. Verify with the project's configured tools (run from the repo root): \`.venv/bin/python -m pytest -q\`, \`.venv/bin/python -m mypy --strict\`, \`.venv/bin/python -m ruff check src tests\`. ALL THREE must be clean and the FULL suite green (no regressions — there are 244 passing tests before you start). Run them yourself and confirm before committing.
+5. Commit your work as ONE conventional commit (e.g. \`feat(m3): ...\`) once green. Do NOT push. Do NOT modify GitHub issue state or labels. Do NOT amend or touch other issues' work.
 ${cassette}
 ## If you cannot finish
 If a dependency is genuinely missing or the brief is under-specified, do as much as is safely correct, commit what's green, and report status \`partial\`/\`failed\` with a precise \`blocker\`. Never leave the suite red.
 
-Return the structured result describing exactly what you did.`
+## FINISH BY RETURNING THE RESULT
+Your FINAL action MUST be a call to the StructuredOutput tool with your result — status, summary, testsPassing, typeClean, committed, commitSubject, filesTouched, and any blocker/notes. Do not end your turn with prose; the workflow only sees the StructuredOutput call. This is mandatory.`
 }
 
 const results = []
 for (const it of ISSUES) {
   phase(it.phase)
-  const r = await agent(prompt(it), { label: `#${it.n}`, phase: it.phase, schema: RESULT_SCHEMA })
+  // A schema miss (agent ends without StructuredOutput) throws — keep it from aborting the
+  // whole run. The agent commits before returning, so its work usually survives; reconcile after.
+  let r
+  try {
+    r = await agent(prompt(it), { label: `#${it.n}`, phase: it.phase, schema: RESULT_SCHEMA })
+  } catch (e) {
+    r = { status: 'failed', summary: 'agent threw (likely no StructuredOutput call)', testsPassing: false, committed: false, blocker: String(e && e.message || e) }
+  }
   const rec = { n: it.n, phase: it.phase, ...(r || { status: 'failed', summary: 'no result returned' }) }
   results.push(rec)
   const tag = rec.status === 'done' ? '✓' : rec.status === 'partial' ? '◐' : '✗'

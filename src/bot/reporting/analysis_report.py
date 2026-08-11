@@ -28,8 +28,8 @@ _DASH = "—"
 #: Named here because all three renderers of that grid — this module's heading,
 #: the Jinja template and the Plotly heatmap title in :mod:`bot.reporting.html` —
 #: must say the same thing about the same numbers.
-_GRID_LABEL_MOS = "margin of safety (intrinsic ÷ price)"
-_GRID_LABEL_INTRINSIC = "intrinsic value (no price available)"
+GRID_LABEL_MOS = "margin of safety (intrinsic ÷ price)"
+GRID_LABEL_INTRINSIC = "intrinsic value (no price available)"
 
 
 def _plain_flag_color(color: FlagColor) -> str:
@@ -184,7 +184,7 @@ def render_analysis(
         generated_at=stamp,
         verdict=_margin_verdict(analysis.margin_of_safety),
         grid_table=_grid_table(analysis),
-        grid_label_mos=_GRID_LABEL_MOS,
-        grid_label_intrinsic=_GRID_LABEL_INTRINSIC,
+        grid_label_mos=GRID_LABEL_MOS,
+        grid_label_intrinsic=GRID_LABEL_INTRINSIC,
         flag_color=_html_flag_color if html_flag_colors else _plain_flag_color,
     )
