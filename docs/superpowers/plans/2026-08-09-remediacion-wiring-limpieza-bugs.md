@@ -1779,6 +1779,502 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ---
 
+### Task 1.4b: Región — arreglar el join y el sangrado de la segunda tabla
+
+> **Tarea insertada durante la ejecución** (2026-08-09), decidida por el usuario tras descubrir el defecto ejecutando Task 1.4. Sin ella ni 1.4 ni 1.5 logran que `bot analyze` funcione: es el segundo bloqueante independiente del mismo camino.
+
+Dos bugs, ambos verificados contra los fixtures reales:
+
+**1. El parser sangra a una segunda tabla.** La hoja `ERPs by country` contiene **dos** tablas. La primera (filas 8–165, 158 países con rating de Moody's) tiene el header en la fila 7: `Country | Africa | Moody's rating | Rating-based Default Spread | Total Equity Risk Premium | Country Risk Premium | ...`. La segunda arranca en la fila 166 con su propio header — `Country | PRS Composite Risk Score | ERP | CRP | Default Spread` — y lista 21 países sin rating, puntuados por PRS. `_to_normalized_rows` descarta la fila-header de la segunda tabla (su celda PK dice literalmente `"Country"`), pero **no** las 21 filas siguientes: se leen con las posiciones de columna de la primera tabla. Consecuencia medida para Algeria:
+
+| Columna DB | Valor guardado | Valor real |
+|---|---|---|
+| `region` | `'67.0'` (PRS Composite Risk Score) | `'Africa'` |
+| `rating` | `'0.10057659756375703'` (el ERP, como string) | sin rating |
+| `erp` | `0.038254847141570306` (la columna Default Spread) | `0.10057659756375703` |
+| `country_risk_premium` | `None` | `0.058276597563757034` |
+
+No es una etiqueta mal puesta: son **cifras financieras incorrectas** en 21 países. Guardar ninguna fila es estrictamente mejor que guardar un ERP equivocado.
+
+**2. El join de región nunca matchea.** `damodaran_industry.region` lleva el valor del `--region` del CLI (default `"US"`) — la *región de dataset*, o sea cuál juego de archivos regionales se importó. `damodaran_country.region` lleva la *agrupación geográfica* del archivo publicado (`"North America"`, `"Western Europe"`, …). Son taxonomías distintas, y ambos consumidores tratan la segunda como si fuera la primera:
+
+- `valuator/assumptions.py` → `load_assumption_inputs` toma `region = country.region` y lo pasa a `_load_sector(industry, region)`, que consulta `damodaran_industry WHERE industry = ? AND region = ?`. Nunca matchea → `sector is None` → los cinco defaults sectoriales quedan `None` → `to_dcf_assumptions()` levanta.
+- `screener/engine.py` → `_resolve_region` devuelve `country.region` y alimenta `load_industry_benchmarks(industry, region)`. Nunca matchea → `_EMPTY_BENCHMARKS` → **todas** las reglas sector-relativas hacen skip.
+
+Todos los tests lo ocultan sembrando ambas tablas con `region='US'`.
+
+**Files:**
+- Modify: `src/bot/ingest/damodaran.py` — truncar en la segunda tabla
+- Create: `src/bot/reference/regions.py`
+- Create: `tests/unit/test_reference_regions.py`
+- Modify: `src/bot/valuator/assumptions.py` — `load_assumption_inputs`, `_load_sector`, `AssumptionSource`
+- Modify: `src/bot/screener/engine.py` — `_resolve_region`
+- Modify: `tests/unit/test_damodaran_derived.py` — quitar el workaround `region="North America"`
+- Modify: `tests/unit/test_damodaran_parser.py`, `tests/unit/test_valuator_assumptions.py`, `tests/unit/test_screener_engine.py`
+
+**Interfaces:**
+- Produces:
+  - `DATASET_REGIONS: frozenset[str]` — las 8 claves regionales que publica Damodaran.
+  - `GEOGRAPHIC_TO_DATASET_REGION: dict[str, str]` — las 9 agrupaciones del archivo → región de dataset.
+  - `COUNTRY_REGION_OVERRIDES: dict[str, str]` — Japan/China/India, que tienen su propio dataset.
+  - `dataset_region(country: str | None, geographic_region: str | None) -> str` — resolución con default `"US"`.
+  - `AssumptionSource.SECTOR_DEFAULT_DAMODARAN_CROSS_REGION` — nuevo miembro; el sector se resolvió sustituyendo otra región.
+  - `_to_normalized_rows(..., stop_at_repeated_header: bool = True)`.
+
+- [ ] **Step 1: Escribir el test del truncado**
+
+Agregá a `tests/unit/test_damodaran_parser.py`:
+
+```python
+def test_country_parse_stops_at_the_second_table() -> None:
+    """The ERPs-by-country sheet holds two differently-shaped tables.
+
+    Rows after the second table's header carry PRS scores where the first table
+    has regions, and the Default Spread column where it has the ERP — so reading
+    them with the first table's column positions stored a wrong ERP for 21
+    countries. Parsing must stop at the boundary.
+    """
+    rows = parse_country_xls(
+        Path("tests/fixtures/damodaran/ctryprem_sample.xls"),
+        year=2026,
+        column_map=DEFAULT_COUNTRY_COLUMN_MAP,
+    )
+    assert len(rows) == 158, "only the Moody's-rated first table"
+
+    countries = {r["country"] for r in rows}
+    assert "United States" in countries
+    assert "Abu Dhabi" in countries
+    # Second-table countries must be absent rather than present with wrong figures.
+    for absent in ("Algeria", "Brunei", "Gambia", "Guinea"):
+        assert absent not in countries, absent
+
+    # No region may be a number: that was the PRS score bleeding through.
+    for row in rows:
+        region = row.get("region")
+        if region is None:
+            continue
+        assert isinstance(region, str)
+        with pytest.raises(ValueError):
+            float(region)
+
+
+def test_first_table_erp_is_the_equity_risk_premium() -> None:
+    rows = {
+        r["country"]: r
+        for r in parse_country_xls(
+            Path("tests/fixtures/damodaran/ctryprem_sample.xls"),
+            year=2026,
+            column_map=DEFAULT_COUNTRY_COLUMN_MAP,
+        )
+    }
+    abu = rows["Abu Dhabi"]
+    assert abu["region"] == "Middle East"
+    assert abu["rating"] == "Aa2"
+    assert abu["erp"] == pytest.approx(0.0486906451636496)
+    assert abu["country_risk_premium"] == pytest.approx(0.0063906451636495986)
+```
+
+- [ ] **Step 2: Correr para verificar que falla**
+
+Run: `uv run pytest tests/unit/test_damodaran_parser.py -q -k "second_table or equity_risk"`
+Expected: FAIL — hoy devuelve 179 filas e incluye `Algeria`.
+
+- [ ] **Step 3: Truncar en la segunda tabla**
+
+En `_to_normalized_rows`, la rama que hoy hace `continue` sobre un sub-header repetido pasa a cortar. Cambiá la firma y esa rama:
+
+```python
+def _to_normalized_rows(
+    records: list[dict[str, Any]],
+    column_map: dict[str, str],
+    constants: dict[str, Any],
+    *,
+    stop_at_repeated_header: bool = True,
+) -> list[dict[str, Any]]:
+    """Apply *column_map*, attach *constants*, drop blank-PK rows.
+
+    The first key in *column_map* is the primary-key field; rows with a blank PK
+    are dropped.
+
+    A row whose PK cell repeats the PK column's header string marks the start of a
+    **different table** on the same sheet, not a cosmetic sub-header. Damodaran's
+    ``ERPs by country`` sheet is the case that matters: below the Moody's-rated
+    table it publishes a second table of unrated countries scored by PRS, whose
+    columns do not line up (its column B is a risk score where the first table has
+    the region, and its ERP sits where the first table has the default spread).
+    Continuing past that boundary stored a wrong equity risk premium for 21
+    countries. So parsing stops there, and how many rows were discarded is logged
+    rather than passed over in silence.
+
+    Set ``stop_at_repeated_header=False`` for a sheet where a repeated header is
+    genuinely cosmetic and real data follows.
+    """
+```
+
+y dentro del loop, reemplazá el `continue` del sub-header por:
+
+```python
+        if isinstance(pk_val, str) and pk_val == pk_xls_col:
+            if stop_at_repeated_header:
+                discarded = len(records) - index - 1
+                log.info(
+                    "damodaran.second_table.truncated",
+                    pk_field=pk_field,
+                    kept=len(out),
+                    discarded=discarded,
+                )
+                break
+            continue
+```
+
+Para tener `index`, iterá con `for index, record in enumerate(records):`.
+
+Verificá que el lado industria no pierde filas: `wacc.xls` no tiene header repetido, así que su conteo no debe cambiar. El test de industria existente lo cubre; si el conteo cambia, **pará y reportá**.
+
+- [ ] **Step 4: Escribir el test de regiones**
+
+Create `tests/unit/test_reference_regions.py`:
+
+```python
+"""Country → Damodaran dataset region (spec §5.1)."""
+
+from __future__ import annotations
+
+from bot.reference.regions import (
+    COUNTRY_REGION_OVERRIDES,
+    DATASET_REGIONS,
+    GEOGRAPHIC_TO_DATASET_REGION,
+    dataset_region,
+)
+
+
+def test_every_mapping_target_is_a_published_dataset_region() -> None:
+    assert set(GEOGRAPHIC_TO_DATASET_REGION.values()) <= DATASET_REGIONS
+    assert set(COUNTRY_REGION_OVERRIDES.values()) <= DATASET_REGIONS
+
+
+def test_covers_every_grouping_the_published_file_uses() -> None:
+    # The nine groupings present in the Moody's-rated table of ctryprem.xls.
+    assert set(GEOGRAPHIC_TO_DATASET_REGION) == {
+        "Africa",
+        "Asia",
+        "Australia & New Zealand",
+        "Caribbean",
+        "Central and South America",
+        "Eastern Europe & Russia",
+        "Middle East",
+        "North America",
+        "Western Europe",
+    }
+
+
+def test_united_states_resolves_to_the_us_dataset() -> None:
+    assert dataset_region("United States", "North America") == "US"
+
+
+def test_western_europe_resolves_to_europe() -> None:
+    assert dataset_region("Germany", "Western Europe") == "Europe"
+
+
+def test_country_override_beats_its_grouping() -> None:
+    # Japan, China and India each have their own published dataset, so their
+    # Asia grouping must not send them to EM.
+    assert dataset_region("Japan", "Asia") == "Japan"
+    assert dataset_region("China", "Asia") == "China"
+    assert dataset_region("India", "Asia") == "India"
+    # An unlisted Asian country still goes to EM.
+    assert dataset_region("Thailand", "Asia") == "EM"
+
+
+def test_unknown_grouping_falls_back_to_us() -> None:
+    assert dataset_region("Atlantis", "Nowhere") == "US"
+
+
+def test_missing_inputs_fall_back_to_us() -> None:
+    assert dataset_region(None, None) == "US"
+    assert dataset_region("United States", None) == "US"
+
+
+def test_numeric_region_string_falls_back_rather_than_matching() -> None:
+    # Defence in depth: even if a corrupt PRS score reached the column, it must
+    # not resolve to a dataset region.
+    assert dataset_region("Algeria", "67.0") == "US"
+```
+
+- [ ] **Step 5: Implementar `regions.py`**
+
+Create `src/bot/reference/regions.py`:
+
+```python
+"""Country → Damodaran dataset region.
+
+Two different taxonomies share the word "region" and conflating them silently
+broke every sector lookup in the bot:
+
+- **Dataset region** — which of Damodaran's regional file sets a row came from.
+  This is what ``damodaran_industry.region`` holds, injected from the
+  ``--region`` flag at import time.
+- **Geographic grouping** — the ``ERPs by country`` sheet's own column, with
+  values like ``"Western Europe"`` and ``"Middle East"``. This is what
+  ``damodaran_country.region`` holds.
+
+The consumers need the first but were reading the second, so
+``WHERE industry = ? AND region = ?`` never matched and every company resolved
+no sector row at all. This module is the single translation point.
+
+Only the US dataset is ingested today (``import_damodaran`` downloads the US
+files regardless of ``--region`` — a separate known defect), so a non-US company
+resolves a dataset region that has no rows. The valuator handles that by
+substituting an available region and labelling the assumption
+``sector_default_damodaran_cross_region`` so the report discloses it, rather
+than silently presenting another region's medians as the company's own.
+"""
+
+from __future__ import annotations
+
+#: The regional file sets Damodaran publishes.
+DATASET_REGIONS: frozenset[str] = frozenset(
+    {"US", "Europe", "EM", "Japan", "China", "India", "AusNZCanada", "Global"}
+)
+
+#: Default when a country's grouping cannot be resolved. The US set is the most
+#: complete and is the only one currently ingested.
+DEFAULT_DATASET_REGION = "US"
+
+#: The nine groupings the published ``ERPs by country`` table uses, mapped to the
+#: dataset that covers them.
+GEOGRAPHIC_TO_DATASET_REGION: dict[str, str] = {
+    "North America": "US",
+    "Western Europe": "Europe",
+    "Eastern Europe & Russia": "EM",
+    "Asia": "EM",
+    "Central and South America": "EM",
+    "Caribbean": "EM",
+    "Africa": "EM",
+    "Middle East": "EM",
+    "Australia & New Zealand": "AusNZCanada",
+}
+
+#: Countries with their own published dataset, which their grouping would
+#: otherwise send to EM.
+COUNTRY_REGION_OVERRIDES: dict[str, str] = {
+    "China": "China",
+    "India": "India",
+    "Japan": "Japan",
+}
+
+
+def dataset_region(country: str | None, geographic_region: str | None) -> str:
+    """Resolve the Damodaran dataset region for a company's country.
+
+    A country-level override wins over its geographic grouping; an unknown or
+    malformed grouping falls back to :data:`DEFAULT_DATASET_REGION` rather than
+    resolving to nothing, so a sector lookup always has a region to try.
+    """
+    if country is not None:
+        override = COUNTRY_REGION_OVERRIDES.get(country.strip())
+        if override is not None:
+            return override
+    if geographic_region is not None:
+        mapped = GEOGRAPHIC_TO_DATASET_REGION.get(geographic_region.strip())
+        if mapped is not None:
+            return mapped
+    return DEFAULT_DATASET_REGION
+```
+
+- [ ] **Step 6: Cablear el valuator con fallback declarado**
+
+En `src/bot/valuator/assumptions.py`:
+
+1. Agregá el miembro al enum, con docstring:
+
+```python
+    SECTOR_DEFAULT_DAMODARAN_CROSS_REGION = "sector_default_damodaran_cross_region"
+```
+
+2. `load_assumption_inputs` deja de usar la región geográfica:
+
+```python
+    company = _load_company(conn, ticker)
+    country = _load_country(conn, company.country)
+    region = dataset_region(company.country, country.region if country is not None else None)
+    sector, cross_region = _load_sector_with_fallback(conn, company.industry_damodaran, region)
+```
+
+3. `_load_sector_with_fallback` intenta la región resuelta y, si no hay fila, cae a la única región presente para esa industria:
+
+```python
+def _load_sector_with_fallback(
+    conn: duckdb.DuckDBPyConnection, industry: str | None, region: str
+) -> tuple[_SectorRow | None, bool]:
+    """Load the sector row, substituting another region when the mapped one is absent.
+
+    Returns ``(row, cross_region)``. Only the US dataset is ingested today, so a
+    non-US company's mapped region has no rows; rather than resolving nothing, the
+    most recent row for that industry in *any* region is used and the caller labels
+    every assumption drawn from it ``sector_default_damodaran_cross_region`` so the
+    report shows the substitution instead of hiding it.
+    """
+    exact = _load_sector(conn, industry, region)
+    if exact is not None or industry is None:
+        return exact, False
+    row = conn.execute(
+        "SELECT wacc, cost_of_equity, cost_of_debt, op_margin, sales_to_capital, "
+        "tax_rate, debt_to_equity, region FROM damodaran_industry "
+        "WHERE industry = ? ORDER BY year DESC LIMIT 1",
+        [industry],
+    ).fetchone()
+    if row is None:
+        return None, False
+    log.warning(
+        "assumptions.sector.cross_region_substitution",
+        industry=industry,
+        requested_region=region,
+        used_region=row[7],
+    )
+    return _SectorRow(*row[:7]), True
+```
+
+Verificá el nombre real del logger del módulo; si no tiene uno, agregalo siguiendo el patrón del resto del paquete.
+
+4. Propagá `cross_region` por `AssumptionInputs` (agregá el campo, default `False`) y hacé que `_resolve_sector_scalar` estampe `SECTOR_DEFAULT_DAMODARAN_CROSS_REGION` en vez de `SECTOR_DEFAULT_DAMODARAN` cuando esté activo. Pasá el flag donde haga falta; no cambies la firma pública de `resolve_assumptions`.
+
+- [ ] **Step 7: Cablear el screener**
+
+En `src/bot/screener/engine.py`, `_resolve_region` devuelve hoy la región geográfica. Hacela devolver la región de dataset:
+
+```python
+def _resolve_region(conn: duckdb.DuckDBPyConnection, country: str | None) -> str:
+    """The Damodaran *dataset* region for a company's country (spec §5.1).
+
+    The country table stores a geographic grouping ("Western Europe"), while
+    ``damodaran_industry.region`` is tagged with the dataset the rows came from
+    ("US"). Returning the former made every sector-relative rule skip, because the
+    benchmark query matched nothing.
+    """
+    if country is None:
+        return DEFAULT_REGION
+    row = conn.execute(
+        "SELECT region FROM damodaran_country WHERE country = ? "
+        "AND region IS NOT NULL ORDER BY year DESC LIMIT 1",
+        [country],
+    ).fetchone()
+    geographic = str(row[0]) if row is not None and row[0] is not None else None
+    return dataset_region(country, geographic)
+```
+
+`DEFAULT_REGION` ya es `"US"`, así que sigue siendo el fallback coherente.
+
+- [ ] **Step 8: Quitar el workaround de Task 1.4**
+
+`tests/unit/test_damodaran_derived.py::test_dcf_assumptions_resolve_after_the_real_import` importa con `region="North America"` para esquivar este bug, con un comentario que lo nombra. Cambialo a `region="US"` y borrá el comentario del workaround: ahora el camino real resuelve. Agregá:
+
+```python
+    # The join now matches, so a US company resolves from the US dataset itself
+    # rather than through a cross-region substitution.
+    assert assumptions.equity_weight.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
+```
+
+- [ ] **Step 9: Correr y verificar**
+
+Run: `uv run pytest tests/unit/test_reference_regions.py tests/unit/test_damodaran_parser.py tests/unit/test_damodaran_derived.py tests/unit/test_valuator_assumptions.py tests/unit/test_screener_engine.py tests/integration/test_screen_cli.py -q`
+Expected: PASS.
+
+Después, la prueba real de que el join quedó arreglado:
+
+```bash
+uv run python - <<'PY'
+import duckdb
+from pathlib import Path
+from bot.storage.db import apply_schema
+from bot.ingest.damodaran import import_damodaran_from_files
+from bot.valuator.assumptions import load_assumption_inputs
+conn = duckdb.connect(':memory:'); apply_schema(conn)
+import_damodaran_from_files(conn,
+    industry_path=Path('tests/fixtures/damodaran/wacc_sample.xls'),
+    country_path=Path('tests/fixtures/damodaran/ctryprem_sample.xls'),
+    region='US', year=2026)
+conn.execute("INSERT INTO companies (ticker,name,country,industry,industry_damodaran,source) "
+             "VALUES ('SEMI','Semi Co','United States','Semiconductors','Semiconductor','fmp')")
+inputs = load_assumption_inputs(conn, 'SEMI')
+print("sector row resolved:", inputs.sector is not None)
+print("sector:", inputs.sector)
+print("country region (geographic):", inputs.country.region if inputs.country else None)
+PY
+```
+
+`sector row resolved: True` es el criterio. Pegá la salida real en el reporte.
+
+- [ ] **Step 10: Issues de backlog**
+
+```bash
+gh issue create \
+  --title "Damodaran country data: the 21 PRS-scored countries are not imported" \
+  --body "The ERPs-by-country sheet publishes two tables: 158 Moody's-rated countries, then
+21 unrated ones scored by PRS Composite Risk Score with a different column layout (ERP where
+the first table has the default spread). The parser used to read the second table with the
+first table's column positions, storing a wrong equity risk premium for those 21 countries —
+Algeria got 0.0383 instead of 0.1006. Parsing now stops at the table boundary, so those
+countries have no row at all, which is correct but incomplete.
+
+To include them, parse the second table with its own column map (Country / PRS Composite Risk
+Score / ERP / CRP / Default Spread) and merge. Note its ERP is derived differently, so the
+provenance should be distinguishable.
+
+Plan: docs/superpowers/plans/2026-08-09-remediacion-wiring-limpieza-bugs.md (Task 1.4b)." \
+  --label enhancement
+
+gh issue create \
+  --title "bot refresh --damodaran downloads the US files for every --region" \
+  --body "\`import_damodaran\` hardcodes INDUSTRY_WACC_URL / COUNTRY_RISK_URL, both US files,
+while injecting the \`--region\` value as a row constant. So \`bot refresh --damodaran --region
+Europe\` writes US benchmarks tagged region='Europe'.
+
+Now that Task 1.4b maps a company's country to its dataset region, a non-US company resolves a
+region with no rows and falls back to a cross-region substitution (labelled
+\`sector_default_damodaran_cross_region\` in the report). Fixing this means adding the per-region
+dataset URLs so each region's rows are genuinely that region's.
+
+Plan out-of-scope item 12; docs/superpowers/plans/2026-08-09-remediacion-wiring-limpieza-bugs.md." \
+  --label enhancement
+```
+
+- [ ] **Step 11: Suite completa y commit**
+
+Run: `uv run pytest -q && uv run ruff check src tests && uv run mypy src`
+Expected: PASS.
+
+```bash
+git add src/bot/ingest/damodaran.py src/bot/reference/regions.py src/bot/valuator/assumptions.py \
+        src/bot/screener/engine.py tests/unit/test_reference_regions.py \
+        tests/unit/test_damodaran_parser.py tests/unit/test_damodaran_derived.py \
+        tests/unit/test_valuator_assumptions.py tests/unit/test_screener_engine.py
+git commit -m "fix(ingest,valuator,screener): resolve the Damodaran dataset region correctly
+
+Two verified bugs on the same path, both hidden by fixtures that seed every table
+with region='US'.
+
+The ERPs-by-country sheet holds two tables. Parsing continued past the second
+table's header and read its rows with the first table's column positions, so 21
+countries got a PRS risk score as their region, the ERP as their rating, and the
+default spread as their ERP — Algeria stored 0.0383 where the real figure is
+0.1006. Parsing now stops at the boundary and logs how many rows it dropped; those
+countries have no row rather than wrong figures.
+
+'Region' also named two different taxonomies: damodaran_industry.region is the
+dataset the rows came from, damodaran_country.region is a geographic grouping.
+Both the valuator and the screener read the second as if it were the first, so
+'WHERE industry = ? AND region = ?' never matched — every company resolved no
+sector row, which made to_dcf_assumptions() raise and made every sector-relative
+screener rule skip. A reference module now translates country -> dataset region,
+and a company whose region has no ingested rows falls back to an available one
+labelled sector_default_damodaran_cross_region so the report discloses it.
+
+Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
+```
+
+---
+
 ### Task 1.5: Datasets Damodaran adicionales para las columnas que faltan
 
 Después de 1.4 siguen `None` dos assumptions **requeridas** (`operating_margin`, `sales_to_capital`) y todos los múltiplos que usa el sanity check §7.7 y las value indicators §6.3 (`pe`, `pbv`, `ev_ebitda`, `roe`, `roic`, `net_margin`, `ev_sales`). No están en `wacc.xls`: viven en otros archivos de la misma librería de datasets.
@@ -2809,10 +3305,13 @@ def test_assumption_source_has_no_unreachable_member() -> None:
     assert {s.value for s in AssumptionSource} == {
         "manual",
         "sector_default_damodaran",
+        "sector_default_damodaran_cross_region",
         "rule_based",
         "historical_average",
     }
 ```
+
+> **Dependencia con Task 1.4b.** Esa tarea agregó `SECTOR_DEFAULT_DAMODARAN_CROSS_REGION`, que **sí** se emite (cuando el sector se resuelve sustituyendo otra región), así que va en el conjunto esperado. El punto del test es que no queden miembros *inalcanzables*, no fijar un conteo.
 
 Y a `tests/unit/test_valuator_story_types.py`:
 
@@ -3475,6 +3974,7 @@ En `src/bot/valuator/assumptions.py`:
 >     assert {s.value for s in AssumptionSource} == {
 >         "manual",
 >         "sector_default_damodaran",
+>         "sector_default_damodaran_cross_region",
 >         "rule_based",
 >         "historical_average",
 >         "unresolved",
@@ -3489,6 +3989,8 @@ En `src/bot/valuator/assumptions.py`:
         return Sourced(value=None, source=AssumptionSource.UNRESOLVED)
     return Sourced(value=value, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN)
 ```
+
+> **Dependencia con Task 1.4b.** Esa tarea ya hizo que esta función estampe `SECTOR_DEFAULT_DAMODARAN_CROSS_REGION` cuando el sector se resolvió sustituyendo otra región. No borres esa rama: el orden correcto de las tres es *valor ausente → `UNRESOLVED`*, *presente y sustituido → `..._CROSS_REGION`*, *presente y exacto → `SECTOR_DEFAULT_DAMODARAN`*. Leé la función tal como quedó antes de editarla.
 
 3. `_resolve_weights` — override parcial, y el complemento implícito:
 
