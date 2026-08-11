@@ -14,8 +14,11 @@ required by the acceptance criteria rather than re-deriving the DCF formula.
 
 from __future__ import annotations
 
+import duckdb
 import pytest
 
+from bot.storage.db import apply_schema, connect
+from bot.valuator.analysis import Analysis, analyze
 from bot.valuator.dcf import Assumptions, Financials, dcf
 from bot.valuator.sensitivity import (
     SensitivityAxis,
@@ -24,6 +27,7 @@ from bot.valuator.sensitivity import (
     scale_axis,
     tornado,
 )
+from tests.unit.test_valuator_analysis import _seed
 
 TOL = 1e-9
 
@@ -178,8 +182,6 @@ def test_grid_2d_centre_cell_is_the_base_case() -> None:
     centre = grid.cells[2][2]
     base_intrinsic = dcf(fin, base).intrinsic_value
     assert centre.intrinsic_value == pytest.approx(base_intrinsic, abs=TOL)
-    # Margin of safety at the base case, relative to the base case, is 1.0.
-    assert centre.margin_of_safety == pytest.approx(1.0, abs=TOL)
 
 
 def test_grid_2d_cell_applies_both_axes() -> None:
@@ -192,15 +194,79 @@ def test_grid_2d_cell_applies_both_axes() -> None:
     assert grid.cells[0][0].intrinsic_value == pytest.approx(expected, abs=TOL)
 
 
-def test_grid_2d_margin_of_safety_is_intrinsic_over_base() -> None:
+def test_grid_2d_margin_of_safety_is_intrinsic_over_reference_price() -> None:
     fin, base = _financials(), _assumptions()
-    grid = grid_2d(fin, base, SensitivityAxis.REVENUE_GROWTH, SensitivityAxis.OPERATING_MARGIN)
-    base_intrinsic = dcf(fin, base).intrinsic_value
+    price = dcf(fin, base).intrinsic_value / 2.0
+    grid = grid_2d(
+        fin,
+        base,
+        SensitivityAxis.REVENUE_GROWTH,
+        SensitivityAxis.OPERATING_MARGIN,
+        reference_price=price,
+    )
     for row in grid.cells:
         for cell in row:
-            assert cell.margin_of_safety == pytest.approx(
-                cell.intrinsic_value / base_intrinsic, abs=TOL
-            )
+            assert cell.margin_of_safety == pytest.approx(cell.intrinsic_value / price, abs=TOL)
+
+
+def test_grid_margin_of_safety_is_versus_price() -> None:
+    financials = _financials()
+    assumptions = _assumptions()
+    base = dcf(financials, assumptions).intrinsic_value
+    price = base / 2.0  # deeply undervalued: every cell should be well above 1
+
+    grid = grid_2d(
+        financials,
+        assumptions,
+        SensitivityAxis.REVENUE_GROWTH,
+        SensitivityAxis.OPERATING_MARGIN,
+        reference_price=price,
+    )
+    centre = grid.cells[2][2]
+    assert centre.intrinsic_value == pytest.approx(base)
+    # The centre cell used to be 1.00x by construction, which told the reader
+    # nothing. It must now carry the real base-case margin of safety.
+    assert centre.margin_of_safety == pytest.approx(2.0)
+    assert grid.reference_price == pytest.approx(price)
+
+
+def test_grid_margin_of_safety_none_without_a_price() -> None:
+    grid = grid_2d(
+        _financials(),
+        _assumptions(),
+        SensitivityAxis.REVENUE_GROWTH,
+        SensitivityAxis.OPERATING_MARGIN,
+    )
+    assert grid.reference_price is None
+    assert all(cell.margin_of_safety is None for row in grid.cells for cell in row)
+    # Intrinsic values are still computed: the grid is useful without a price.
+    assert grid.cells[2][2].intrinsic_value is not None
+
+
+def test_grid_margin_of_safety_none_for_an_out_of_domain_cell() -> None:
+    # A cell whose terminal growth crosses WACC has no intrinsic value, so no MoS.
+    grid = grid_2d(
+        _financials(),
+        _assumptions(),
+        SensitivityAxis.TERMINAL_GROWTH,
+        SensitivityAxis.COST_OF_EQUITY,
+        reference_price=10.0,
+    )
+    for row in grid.cells:
+        for cell in row:
+            if cell.intrinsic_value is None:
+                assert cell.margin_of_safety is None
+
+
+def test_grid_margin_of_safety_none_for_a_non_positive_price() -> None:
+    grid = grid_2d(
+        _financials(),
+        _assumptions(),
+        SensitivityAxis.REVENUE_GROWTH,
+        SensitivityAxis.OPERATING_MARGIN,
+        reference_price=0.0,
+    )
+    assert all(cell.margin_of_safety is None for row in grid.cells for cell in row)
 
 
 def test_grid_2d_rejects_identical_axes() -> None:
@@ -269,3 +335,32 @@ def test_grid_2d_marks_diverging_cells_with_none_sentinel() -> None:
         assert cell.margin_of_safety is None
     # The base/centre cell is always defined.
     assert grid.cells[2][2].intrinsic_value is not None
+
+
+# --------------------------------------------------------------------------- #
+# End-to-end: the grid's centre cell must equal the report headline           #
+# --------------------------------------------------------------------------- #
+
+
+@pytest.fixture
+def conn() -> duckdb.DuckDBPyConnection:
+    c = connect(":memory:")
+    apply_schema(c)
+    return c
+
+
+def _seeded_analysis(conn: duckdb.DuckDBPyConnection) -> Analysis:
+    """Seed a minimal company and run the full ``analyze`` pipeline over it."""
+    _seed(conn)
+    return analyze("AAPL", conn)
+
+
+def test_grid_centre_matches_the_headline_margin_of_safety(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    # The invariant the old code violated: one number, one meaning.
+    analysis = _seeded_analysis(conn)
+    assert analysis.margin_of_safety is not None
+    assert analysis.grid.cells[2][2].margin_of_safety == pytest.approx(
+        analysis.margin_of_safety
+    )

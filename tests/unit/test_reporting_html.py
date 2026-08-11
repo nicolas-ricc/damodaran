@@ -236,6 +236,7 @@ def test_heatmap_tolerates_none_cells() -> None:
         row_multipliers=mults,
         col_multipliers=mults,
         cells=cells,
+        reference_price=100.0,
     )
     fragment = sensitivity_heatmap_html(grid)
     assert "Margin of safety" in fragment

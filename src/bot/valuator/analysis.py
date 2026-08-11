@@ -482,7 +482,9 @@ def analyze(
     dcf_result = dcf(financials, dcf_assumptions)
     tornado_entries = tuple(tornado(financials, dcf_assumptions))
     axis_a, axis_b = _two_widest_axes(tornado_entries)
-    grid = grid_2d(financials, dcf_assumptions, axis_a, axis_b)
+    grid = grid_2d(
+        financials, dcf_assumptions, axis_a, axis_b, reference_price=current_price
+    )
 
     context = NarrativeContext(
         story_type=story_type,

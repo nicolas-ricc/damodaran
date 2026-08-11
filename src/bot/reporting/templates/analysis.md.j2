@@ -62,8 +62,10 @@ _Generated {{ generated_at }} · currency {{ a.currency or "n/a" }} · country {
 {% for t in a.tornado -%}
 | {{ t.axis }} | {{ t.intrinsic_low | money }} | {{ t.intrinsic_high | money }} | {{ t.impact | money }} |
 {% endfor %}
-### 2-D grid — {{ a.grid.axis_a }} (rows) × {{ a.grid.axis_b }} (cols), margin of safety vs base
-
+### 2-D grid — {{ a.grid.axis_a }} (rows) × {{ a.grid.axis_b }} (cols), margin of safety (intrinsic ÷ price)
+{% if a.grid.reference_price is none %}
+_No current price available — the grid below shows intrinsic values only._
+{% endif %}
 {% for line in grid_table -%}
 {{ line }}
 {% endfor %}

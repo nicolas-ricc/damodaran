@@ -139,13 +139,7 @@ def sensitivity_heatmap_html(grid: Grid2D) -> str:
         An HTML fragment (a ``<div>`` plus inline ``<script>``) rendering the heatmap.
     """
     # Out-of-domain cells carry None; Plotly renders a null z as a blank cell.
-    z = [
-        [
-            None if cell.margin_of_safety is None else round(cell.margin_of_safety, _GRID_DECIMALS)
-            for cell in row
-        ]
-        for row in grid.cells
-    ]
+    has_price = grid.reference_price is not None
     customdata = [
         [
             None if cell.intrinsic_value is None else round(cell.intrinsic_value, _GRID_DECIMALS)
@@ -156,6 +150,37 @@ def sensitivity_heatmap_html(grid: Grid2D) -> str:
     col_labels = [_pct_delta(m) for m in grid.col_multipliers]
     row_labels = [_pct_delta(m) for m in grid.row_multipliers]
 
+    if has_price:
+        # Colour and hover by margin of safety, identical in meaning to the
+        # report headline and the Markdown grid table.
+        z = [
+            [
+                None
+                if cell.margin_of_safety is None
+                else round(cell.margin_of_safety, _GRID_DECIMALS)
+                for cell in row
+            ]
+            for row in grid.cells
+        ]
+        colorbar_title = "Margin of safety"
+        hovertemplate = (
+            f"{grid.axis_a.value}: %{{y}}<br>"
+            f"{grid.axis_b.value}: %{{x}}<br>"
+            "Margin of safety: %{z:.2f}x<br>"
+            "Intrinsic value: %{customdata:.2f}<extra></extra>"
+        )
+    else:
+        # Without a price every margin of safety is None; fall back to colouring
+        # by intrinsic value so the heatmap still says something, matching the
+        # Markdown grid table's fallback.
+        z = customdata
+        colorbar_title = "Intrinsic value"
+        hovertemplate = (
+            f"{grid.axis_a.value}: %{{y}}<br>"
+            f"{grid.axis_b.value}: %{{x}}<br>"
+            "Intrinsic value: %{z:.2f}<extra></extra>"
+        )
+
     figure = go.Figure(
         data=go.Heatmap(
             z=z,
@@ -163,17 +188,18 @@ def sensitivity_heatmap_html(grid: Grid2D) -> str:
             y=row_labels,
             customdata=customdata,
             colorscale="RdYlGn",
-            colorbar={"title": "Margin of safety"},
-            hovertemplate=(
-                f"{grid.axis_a.value}: %{{y}}<br>"
-                f"{grid.axis_b.value}: %{{x}}<br>"
-                "Margin of safety: %{z:.2f}x<br>"
-                "Intrinsic value: %{customdata:.2f}<extra></extra>"
-            ),
+            colorbar={"title": colorbar_title},
+            hovertemplate=hovertemplate,
         )
     )
+    title_suffix = (
+        "margin of safety (intrinsic ÷ price)" if has_price else "intrinsic value (no price available)"
+    )
     figure.update_layout(
-        title=(f"Sensitivity heatmap — {grid.axis_a.value} (rows) x {grid.axis_b.value} (cols)"),
+        title=(
+            f"Sensitivity heatmap — {grid.axis_a.value} (rows) x {grid.axis_b.value} (cols), "
+            f"{title_suffix}"
+        ),
         xaxis_title=grid.axis_b.value,
         yaxis_title=grid.axis_a.value,
         margin={"l": 60, "r": 20, "t": 60, "b": 60},

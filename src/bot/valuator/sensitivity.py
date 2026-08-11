@@ -87,11 +87,10 @@ class GridCell:
             cell's row/column multipliers, or ``None`` if that scenario is
             outside the DCF's valid domain (e.g. terminal growth scaled past
             WACC, so the perpetuity diverges).
-        margin_of_safety: ``intrinsic_value`` relative to the base case
-            (centre cell), i.e. ``intrinsic_value / base_intrinsic_value``. A
-            value > 1 means the cell's assumptions are *more* favourable than
-            the base case; the centre cell is exactly 1. ``None`` when the cell
-            (or the base case) is undefined.
+        margin_of_safety: ``intrinsic_value / reference_price`` — the same
+            quantity as the report's headline margin of safety, so the centre
+            cell equals it exactly. ``None`` when the cell is out of domain or
+            no (positive) reference price is available.
     """
 
     intrinsic_value: float | None
@@ -112,6 +111,9 @@ class Grid2D:
         row_multipliers: Multipliers applied to ``axis_a`` (spanning ±20%).
         col_multipliers: Multipliers applied to ``axis_b`` (spanning ±20%).
         cells: The 5x5 matrix of results, row-major (``cells[row][col]``).
+        reference_price: The price each cell's margin of safety was measured
+            against, or ``None`` if no price was available (every cell's
+            ``margin_of_safety`` is then ``None`` too).
     """
 
     axis_a: SensitivityAxis
@@ -119,6 +121,7 @@ class Grid2D:
     row_multipliers: tuple[float, float, float, float, float]
     col_multipliers: tuple[float, float, float, float, float]
     cells: tuple[tuple[GridCell, ...], ...]
+    reference_price: float | None = None
 
 
 def scale_axis(assumptions: Assumptions, axis: SensitivityAxis, multiplier: float) -> Assumptions:
@@ -220,19 +223,26 @@ def grid_2d(
     base_assumptions: Assumptions,
     axis_a: SensitivityAxis,
     axis_b: SensitivityAxis,
+    *,
+    reference_price: float | None = None,
 ) -> Grid2D:
     """Build a 5x5 margin-of-safety grid over two assumptions (spec §7.4).
 
-    ``axis_a`` varies across the rows and ``axis_b`` across the columns, each
-    spanning ±20% in five steps ``(0.8, 0.9, 1.0, 1.1, 1.2)``. The centre cell
-    (both multipliers 1.0) is the base case, against which every cell's
-    margin of safety is measured.
+    Each cell's ``margin_of_safety`` is ``intrinsic_value / reference_price`` — the
+    same quantity as the report's headline margin of safety, so the centre cell
+    equals it exactly. Without a ``reference_price`` (or with a non-positive one)
+    every cell's margin is ``None`` while intrinsic values are still computed: the
+    grid remains readable as a value surface.
+
+    A cell whose scaled assumptions leave the model's domain (terminal growth at or
+    above WACC) has no intrinsic value, hence no margin of safety.
 
     Args:
         financials: The company's current-year financial state.
         base_assumptions: The base-case projection and discount-rate inputs.
         axis_a: The assumption varied across rows.
         axis_b: The assumption varied across columns (must differ from ``axis_a``).
+        reference_price: The current price to measure margin of safety against.
 
     Returns:
         A :class:`Grid2D` with the 5x5 matrix of results.
@@ -243,8 +253,6 @@ def grid_2d(
     if axis_a is axis_b:
         raise ValueError("grid_2d requires two distinct axes")
 
-    base_intrinsic = _safe_intrinsic(financials, base_assumptions)
-
     rows: list[tuple[GridCell, ...]] = []
     for row_multiplier in _GRID_MULTIPLIERS:
         row_assumptions = scale_axis(base_assumptions, axis_a, row_multiplier)
@@ -252,12 +260,13 @@ def grid_2d(
         for col_multiplier in _GRID_MULTIPLIERS:
             cell_assumptions = scale_axis(row_assumptions, axis_b, col_multiplier)
             intrinsic_value = _safe_intrinsic(financials, cell_assumptions)
-            # Margin of safety needs this cell in domain and a non-zero base to
-            # divide by; a None or 0.0 base (degenerate, e.g. equity wiped out)
-            # leaves every cell's MoS undefined rather than dividing by zero.
+            # Margin of safety is value-over-price, identical in meaning to the
+            # report headline. It needs an in-domain cell and a positive price.
             margin_of_safety = (
-                intrinsic_value / base_intrinsic
-                if intrinsic_value is not None and base_intrinsic
+                intrinsic_value / reference_price
+                if intrinsic_value is not None
+                and reference_price is not None
+                and reference_price > 0.0
                 else None
             )
             cells.append(
@@ -274,4 +283,5 @@ def grid_2d(
         row_multipliers=_GRID_MULTIPLIERS,
         col_multipliers=_GRID_MULTIPLIERS,
         cells=tuple(rows),
+        reference_price=reference_price,
     )

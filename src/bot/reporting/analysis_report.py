@@ -96,9 +96,15 @@ def _grid_table(analysis: Analysis) -> list[str]:
         f"| {grid.axis_a} ↓ / {grid.axis_b} → | {header_cells} |",
         "|---|" + "---|" * len(grid.col_multipliers),
     ]
+    # Without a reference price every cell's margin of safety is None; falling
+    # back to the intrinsic value keeps the table useful instead of all dashes.
+    has_price = grid.reference_price is not None
     for row_index, row in enumerate(grid.cells):
         row_label = _fmt_mult(grid.row_multipliers[row_index])
-        cells = " | ".join(_fmt_ratio(cell.margin_of_safety) for cell in row)
+        if has_price:
+            cells = " | ".join(_fmt_ratio(cell.margin_of_safety) for cell in row)
+        else:
+            cells = " | ".join(_fmt_money(cell.intrinsic_value) for cell in row)
         lines.append(f"| {row_label} | {cells} |")
     return lines
 
