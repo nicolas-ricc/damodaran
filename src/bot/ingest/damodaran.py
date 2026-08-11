@@ -393,8 +393,6 @@ def _to_normalized_rows(
     records: list[dict[str, Any]],
     column_map: dict[str, str],
     constants: dict[str, Any],
-    *,
-    stop_at_repeated_header: bool = True,
 ) -> list[dict[str, Any]]:
     """Apply *column_map*, attach *constants*, drop blank-PK rows.
 
@@ -410,9 +408,6 @@ def _to_normalized_rows(
     Continuing past that boundary stored a wrong equity risk premium for 21
     countries. So parsing stops there, and how many rows were discarded is logged
     rather than passed over in silence.
-
-    Set ``stop_at_repeated_header=False`` for a sheet where a repeated header is
-    genuinely cosmetic and real data follows.
     """
     pk_field = next(iter(column_map))
     pk_xls_col = column_map[pk_field]  # e.g. "Country" or "Industry Name"
@@ -436,16 +431,13 @@ def _to_normalized_rows(
         # A repeated header cell (e.g. a row whose country cell literally reads
         # "Country") is the start of a second, differently-shaped table.
         if isinstance(pk_val, str) and pk_val == pk_xls_col:
-            if stop_at_repeated_header:
-                discarded = len(records) - index - 1
-                log.info(
-                    "damodaran.second_table.truncated",
-                    pk_field=pk_field,
-                    kept=len(out),
-                    discarded=discarded,
-                )
-                break
-            continue
+            log.info(
+                "damodaran.second_table.truncated",
+                pk_field=pk_field,
+                kept=len(out),
+                discarded=len(records) - index - 1,
+            )
+            break
         out.append(normalized)
 
     return out

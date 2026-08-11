@@ -111,6 +111,35 @@ def _seeded_conn() -> duckdb.DuckDBPyConnection:
     return conn
 
 
+def test_no_dataset_maps_a_column_the_table_does_not_have() -> None:
+    """A stray column_map key would reach INSERT and fail at runtime.
+
+    upsert_industry_rows builds its INSERT column list from the row keys, so a
+    key that is not a damodaran_industry column produces a SQL error against the
+    real table. Only declared parse artefacts — header strings the parser reads
+    and derive_industry_columns consumes and pops before the upsert — are exempt.
+    """
+    #: Row fields the parser produces that are deliberately not DB columns.
+    #: derive_industry_columns turns debt_weight_raw into debt_to_equity plus
+    #: beta_unlevered and drops it.
+    parse_artefacts = {"debt_weight_raw"}
+
+    conn = _seeded_conn()
+    real_columns = {
+        row[0]
+        for row in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'damodaran_industry'"
+        ).fetchall()
+    }
+    conn.close()
+    assert real_columns, "damodaran_industry has no columns; the schema did not apply"
+
+    for dataset in INDUSTRY_DATASETS:
+        stray = set(dataset.column_map) - real_columns - parse_artefacts
+        assert not stray, f"{dataset.key} maps non-columns: {sorted(stray)}"
+
+
 @pytest.mark.skipif(not _ALL_FIXTURES_PRESENT, reason="dataset fixtures absent")
 def test_real_import_fills_the_columns_the_extra_datasets_publish() -> None:
     """The end of the silent-NULL bug: every mapped column arrives populated."""
