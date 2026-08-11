@@ -66,12 +66,6 @@ class CompanyData:
     had_recent_ma: bool = False
     """Whether a material acquisition justifies recent share issuance (spec §6.4):
     dilution funded by M&A is not, on its own, a trap signal."""
-    auditor_changed: bool | None = None
-    """Recent auditor change, when SEC data carries it; ``None`` when unknown
-    (best-effort flag, spec §6.4)."""
-    late_filings: bool | None = None
-    """Recent late SEC filings, when the datum is available; ``None`` when unknown
-    (best-effort flag, spec §6.4)."""
 
 
 @dataclass(frozen=True)

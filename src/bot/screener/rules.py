@@ -723,28 +723,3 @@ class ShareCountNotDiluting(Rule):
                 f"{self.max_annual_growth:.3f} without M&A justification"
             ),
         )
-
-
-@register
-class AuditorChangesAndLateFilings(Rule):
-    """Trap detector: recent auditor changes or late SEC filings (spec §6.4).
-
-    A best-effort governance flag built on SEC data when present. An auditor
-    change or late filing is a red flag and eliminates the company. The flags are
-    ``None`` when the datum is unavailable: a data gap is *not* held against the
-    company (it passes), so the rule only ever eliminates on a positively-known
-    adverse signal.
-    """
-
-    name = "auditor_changes_and_late_filings"
-
-    def evaluate(
-        self, company: CompanyData, benchmarks: IndustryBenchmarks
-    ) -> RuleResult:
-        if company.auditor_changed is True:
-            return RuleResult(passed=False, reason="recent auditor change flagged")
-        if company.late_filings is True:
-            return RuleResult(passed=False, reason="recent late SEC filings flagged")
-        return RuleResult(
-            passed=True, reason="no auditor change or late filing flagged"
-        )

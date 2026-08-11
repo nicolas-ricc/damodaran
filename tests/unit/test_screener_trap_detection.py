@@ -4,16 +4,13 @@ Trap detectors are *eliminatory*: a company that trips one is dropped even if it
 looks cheap. These are the most Damodaran-specific filters — the central one,
 :class:`ROICAboveSectorWACC`, eliminates value destroyers (ROIC < sector WACC).
 
-Every rule gets a passing and a failing fixture. Best-effort SEC flags
-(:class:`AuditorChangesAndLateFilings`) pass when the datum is unknown rather
-than punishing a company for a gap in the data. The Sloan-accruals rule carries
+Every rule gets a passing and a failing fixture. The Sloan-accruals rule carries
 an explicit hand-computed expected-value test.
 """
 
 from __future__ import annotations
 
 from bot.screener.rules import (
-    AuditorChangesAndLateFilings,
     OperatingMarginNotContracting,
     RevenueNotDeclining,
     ROICAboveSectorWACC,
@@ -314,49 +311,3 @@ def test_share_count_not_diluting_configurable() -> None:
     )
     assert result.passed is False
 
-
-# --------------------------------------------------------------------------- #
-# AuditorChangesAndLateFilings — best-effort SEC flags
-# --------------------------------------------------------------------------- #
-def test_auditor_changes_registered() -> None:
-    assert get_rule("auditor_changes_and_late_filings") is AuditorChangesAndLateFilings
-
-
-def test_auditor_changes_pass_clean() -> None:
-    result = AuditorChangesAndLateFilings().evaluate(
-        _company(auditor_changed=False, late_filings=False), _benchmarks()
-    )
-    assert result.passed is True
-
-
-def test_auditor_changes_fail_on_auditor_change() -> None:
-    result = AuditorChangesAndLateFilings().evaluate(
-        _company(auditor_changed=True, late_filings=False), _benchmarks()
-    )
-    assert result.passed is False
-    assert "auditor" in result.reason.lower()
-
-
-def test_auditor_changes_fail_on_late_filings() -> None:
-    result = AuditorChangesAndLateFilings().evaluate(
-        _company(auditor_changed=False, late_filings=True), _benchmarks()
-    )
-    assert result.passed is False
-    assert "late" in result.reason.lower()
-
-
-def test_auditor_changes_unknown_data_passes() -> None:
-    # Best-effort: when SEC data carries neither flag (both None), do not punish
-    # the company for a data gap -> pass (skip-like, but not eliminatory).
-    result = AuditorChangesAndLateFilings().evaluate(
-        _company(auditor_changed=None, late_filings=None), _benchmarks()
-    )
-    assert result.passed is True
-
-
-def test_auditor_changes_partial_unknown_clean_leg_passes() -> None:
-    # One flag known-clean, the other unknown -> nothing adverse -> pass.
-    result = AuditorChangesAndLateFilings().evaluate(
-        _company(auditor_changed=False, late_filings=None), _benchmarks()
-    )
-    assert result.passed is True

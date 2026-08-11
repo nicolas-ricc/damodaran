@@ -127,3 +127,12 @@ def test_registered_rules_returns_a_copy() -> None:
     snapshot.clear()
     # Mutating the returned dict must not affect the live registry.
     assert get_rule("min_market_cap") is MinMarketCap
+
+
+def test_auditor_rule_is_gone_and_fails_loudly() -> None:
+    # Deleted in Fase 2: the flags it read had no production data source, so it
+    # always passed. A stale preset referencing it must fail at load, not silently
+    # skip a governance filter it never applied.
+    assert "auditor_changes_and_late_filings" not in registered_rules()
+    with pytest.raises(KeyError, match="unknown rule"):
+        get_rule("auditor_changes_and_late_filings")
