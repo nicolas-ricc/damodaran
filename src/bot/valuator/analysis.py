@@ -20,6 +20,7 @@ from pathlib import Path
 
 import duckdb
 
+from bot.reference.sectors import is_cyclical
 from bot.utils.finance import cagr
 from bot.valuator.assumptions import AssumptionInputs, load_assumption_inputs, resolve_assumptions
 from bot.valuator.assumptions import Assumptions as SourcedAssumptions
@@ -385,7 +386,7 @@ def analyze(
     conn: duckdb.DuckDBPyConnection,
     override_path: Path | None = None,
     *,
-    is_cyclical_sector: bool = False,
+    is_cyclical_sector: bool | None = None,
     age_years: int | None = None,
     company: ValuationInput | None = None,
 ) -> Analysis:
@@ -398,6 +399,9 @@ def analyze(
         override_path: Optional ``config/assumptions/<TICKER>.yaml`` (spec §7.6).
         is_cyclical_sector: Whether the company's sector is structurally cyclical
             (feeds the story-type classifier's cyclical signal, spec §7.1).
+            ``None`` (the default) derives the flag from the company's
+            ``industry_damodaran`` label via :func:`bot.reference.sectors.is_cyclical`;
+            pass ``True``/``False`` to force it regardless of the sector.
         age_years: Company age in years, if known (a high-growth signal).
         company: Pre-loaded DB rows for ``ticker`` (see
             :func:`load_valuation_input`). When supplied, every per-ticker read
@@ -437,7 +441,14 @@ def analyze(
         age_years=age_years,
         interest_coverage=interest_coverage,
     )
-    auto_story = classify(classification, SectorContext(is_cyclical=is_cyclical_sector))
+    # Derived from the company's Damodaran industry unless the caller forces it,
+    # so StoryType.CYCLICAL is reachable from the CLI and the screener (§7.1).
+    cyclical = (
+        is_cyclical(company_row.industry_damodaran)
+        if is_cyclical_sector is None
+        else is_cyclical_sector
+    )
+    auto_story = classify(classification, SectorContext(is_cyclical=cyclical))
 
     gdp_nominal = _DEFAULT_GDP_NOMINAL
     assumptions = resolve_assumptions(

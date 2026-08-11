@@ -349,6 +349,33 @@ def test_build_company_data_handles_no_financials(
     assert cd.revenue_history == ()
 
 
+def test_build_company_data_flags_financial_services(conn: duckdb.DuckDBPyConnection) -> None:
+    row = _CompanyRow(
+        ticker="JPM",
+        name="JPMorgan",
+        country="United States",
+        industry="Banks—Diversified",
+        industry_damodaran="Bank (Money Center)",
+    )
+    data = build_company_data(conn, row, [], market_cap=None, close=None)
+    assert data.is_financial_services is True
+
+
+def test_build_company_data_does_not_classify_from_a_raw_provider_label(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    # Unmapped: classification must not fall back to the provider string.
+    row = _CompanyRow(
+        ticker="UNK",
+        name="Unknown Bank Co",
+        country="United States",
+        industry="Banks—Diversified",
+        industry_damodaran=None,
+    )
+    data = build_company_data(conn, row, [], market_cap=None, close=None)
+    assert data.is_financial_services is False
+
+
 def test_evaluate_company_fails_on_gate() -> None:
     company = CompanyData(ticker="X", name="X", market_cap=1.0)
     verdict = evaluate_company(

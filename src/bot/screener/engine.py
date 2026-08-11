@@ -25,6 +25,7 @@ from datetime import date
 
 import duckdb
 
+from bot.reference.sectors import is_financial_services as industry_is_financial_services
 from bot.screener.benchmarks import load_industry_benchmarks
 from bot.screener.config import ScreenerConfig
 from bot.screener.ranking import (
@@ -455,6 +456,7 @@ def build_company_data(
         region=_resolve_region(conn, company.country),
         market_cap=_market_cap_usd(conn, market_cap, currency, as_of),
         years_of_financials=len(annual),
+        is_financial_services=industry_is_financial_services(company.industry_damodaran),
         net_debt=net_debt,
         ebitda=ebitda,
         ebit=ebit,

@@ -94,6 +94,88 @@ def seeded_conn() -> duckdb.DuckDBPyConnection:
     return conn
 
 
+@pytest.fixture
+def conn() -> duckdb.DuckDBPyConnection:
+    c = connect(":memory:")
+    apply_schema(c)
+    return c
+
+
+def _seed_company(
+    conn: duckdb.DuckDBPyConnection, ticker: str, industry_damodaran: str
+) -> None:
+    """A minimal company + country + sector row, enough to run ``analyze``."""
+    conn.execute(
+        "INSERT INTO companies "
+        "(ticker, name, country, currency, industry_damodaran, source) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        [ticker, ticker, "United States", "USD", industry_damodaran, "sec_edgar"],
+    )
+    conn.execute(
+        "INSERT INTO damodaran_country "
+        "(country, year, erp, risk_free_rate, tax_rate, region) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ["United States", 2026, 0.045, 0.04, 0.21, "US"],
+    )
+    conn.execute(
+        "INSERT INTO damodaran_industry "
+        "(industry, region, year, wacc, cost_of_equity, cost_of_debt, beta_levered, "
+        "debt_to_equity, op_margin, net_margin, sales_to_capital, pe, ev_ebitda, ev_sales) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            industry_damodaran,
+            "US",
+            2026,
+            0.09,
+            0.10,
+            0.06,
+            1.20,
+            0.30,
+            0.12,
+            0.08,
+            2.0,
+            10.0,
+            8.0,
+            1.2,
+        ],
+    )
+
+
+def _seed_volatile_financials(conn: duckdb.DuckDBPyConnection, ticker: str) -> None:
+    """Financials whose earnings coefficient of variation clears the §7.1 cyclical
+    threshold (``_CYCLICAL_EARNINGS_CV = 0.50``).
+
+    Earnings history ``(100.0, 20.0, 180.0, 10.0, 150.0)``: mean 92.0, population
+    stdev ≈67.94, CV ≈0.738 — comfortably above 0.50. Revenue grows steadily (not
+    used by the cyclical check but needed for a valid DCF); interest expense is 0
+    so interest coverage stays undefined and the company is not classified
+    distressed before the cyclical check runs.
+    """
+    fiscal_years = (2021, 2022, 2023, 2024, 2025)
+    revenues = (1_000.0, 1_050.0, 1_100.0, 1_150.0, 1_200.0)
+    earnings = (100.0, 20.0, 180.0, 10.0, 150.0)
+    for year, revenue, net_income in zip(fiscal_years, revenues, earnings, strict=True):
+        conn.execute(
+            "INSERT INTO financials_annual "
+            "(ticker, fiscal_year, revenue, ebit, net_income, interest_expense, "
+            "total_debt, cash, shares_diluted, is_restated, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ticker,
+                year,
+                revenue,
+                net_income * 1.2,
+                net_income,
+                0.0,
+                200.0,
+                50.0,
+                100.0,
+                False,
+                "sec_edgar",
+            ],
+        )
+
+
 def test_analyze_returns_complete_result(seeded_conn: duckdb.DuckDBPyConnection) -> None:
     analysis = analyze("AAPL", seeded_conn)
 
@@ -165,3 +247,19 @@ def test_analyze_manual_override_applied(
 def test_analyze_unknown_ticker_raises(seeded_conn: duckdb.DuckDBPyConnection) -> None:
     with pytest.raises(LookupError):
         analyze("NOPE", seeded_conn)
+
+
+def test_cyclical_story_reachable_from_the_sector(conn: duckdb.DuckDBPyConnection) -> None:
+    # A steel company with volatile earnings must classify as cyclical without the
+    # caller passing anything: the sector signal now comes from the DB.
+    _seed_company(conn, ticker="STEEL", industry_damodaran="Steel")
+    _seed_volatile_financials(conn, ticker="STEEL")
+    result = analyze("STEEL", conn)
+    assert result.story_type == StoryType.CYCLICAL.value
+
+
+def test_caller_can_still_force_non_cyclical(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_company(conn, ticker="STEEL2", industry_damodaran="Steel")
+    _seed_volatile_financials(conn, ticker="STEEL2")
+    result = analyze("STEEL2", conn, is_cyclical_sector=False)
+    assert result.story_type != StoryType.CYCLICAL.value
