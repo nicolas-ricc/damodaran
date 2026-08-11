@@ -123,6 +123,8 @@ class _LatestFinancials:
     interest_expense: float | None
     net_debt: float | None
     shares_diluted: float | None
+    total_debt: float | None
+    total_equity: float | None
 
 
 def _load_company(conn: duckdb.DuckDBPyConnection, ticker: str) -> _CompanyRow:
@@ -143,14 +145,14 @@ def _load_latest_financials(
 ) -> _LatestFinancials:
     row = conn.execute(
         "SELECT revenue, ebit, net_income, interest_expense, total_debt, cash, "
-        "shares_diluted FROM financials_annual "
+        "shares_diluted, total_equity FROM financials_annual "
         "WHERE ticker = ? AND is_restated = FALSE "
         "ORDER BY fiscal_year DESC LIMIT 1",
         [ticker],
     ).fetchone()
     if row is None:
         raise LookupError(f"no financials_annual rows for {ticker!r}")
-    revenue, ebit, net_income, interest_expense, total_debt, cash, shares = row
+    revenue, ebit, net_income, interest_expense, total_debt, cash, shares, total_equity = row
     net_debt = None
     if total_debt is not None or cash is not None:
         net_debt = (total_debt or 0.0) - (cash or 0.0)
@@ -161,6 +163,8 @@ def _load_latest_financials(
         interest_expense=interest_expense,
         net_debt=net_debt,
         shares_diluted=shares,
+        total_debt=total_debt,
+        total_equity=total_equity,
     )
 
 
@@ -486,14 +490,23 @@ def analyze(
         financials, dcf_assumptions, axis_a, axis_b, reference_price=current_price
     )
 
+    # The company's own capital structure, not the sector's (which drives WACC).
+    company_debt_weight: float | None = None
+    if latest.total_debt is not None and latest.total_equity is not None:
+        invested = latest.total_debt + latest.total_equity
+        if invested > 0.0:
+            company_debt_weight = latest.total_debt / invested
+
     context = NarrativeContext(
         story_type=story_type,
         company_operating_margin=assumptions.operating_margin.value,
         sector_operating_margin=sector.op_margin,
         sector_beta=sector.beta_levered,
         operating_leverage=_operating_leverage(revenue_history, ebit_history),
-        erp_weighted=sector.erp,
-        erp_listing=sector.erp,
+        company_debt_weight=company_debt_weight,
+        # erp_weighted / erp_listing deliberately unset: a revenue-weighted ERP
+        # needs revenue by geography, which no ingest path supplies. Passing the
+        # sector ERP as both made the gap identically zero — a fake calculation.
     )
     flags = narrative_flags(financials, dcf_assumptions, dcf_result, context)
 

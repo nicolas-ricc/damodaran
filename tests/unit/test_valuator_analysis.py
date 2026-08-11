@@ -13,7 +13,7 @@ import duckdb
 import pytest
 
 from bot.storage.db import apply_schema, connect
-from bot.valuator.analysis import analyze
+from bot.valuator.analysis import Analysis, analyze
 from bot.valuator.assumptions import AssumptionSource
 from bot.valuator.narrative_flags import FlagColor
 from bot.valuator.sensitivity import SensitivityAxis
@@ -174,6 +174,61 @@ def _seed_volatile_financials(conn: duckdb.DuckDBPyConnection, ticker: str) -> N
                 "sec_edgar",
             ],
         )
+
+
+def _seed_leveraged_financials(conn: duckdb.DuckDBPyConnection, ticker: str) -> None:
+    """Financials that carry ``total_debt`` and ``total_equity``, so the pipeline
+    can derive :attr:`~bot.valuator.narrative_flags.NarrativeContext.company_debt_weight`
+    (55% debt-heavy: 200,000 / (200,000 + 163,636))."""
+    fiscal_years = (2022, 2023, 2024, 2025)
+    revenues = (380_000.0, 395_000.0, 410_000.0, 430_000.0)
+    for year, revenue in zip(fiscal_years, revenues, strict=True):
+        conn.execute(
+            "INSERT INTO financials_annual "
+            "(ticker, fiscal_year, revenue, ebit, net_income, interest_expense, "
+            "total_debt, cash, total_equity, shares_diluted, is_restated, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ticker,
+                year,
+                revenue,
+                revenue * 0.30,
+                revenue * 0.20,
+                3_000.0,
+                200_000.0,
+                60_000.0,
+                163_636.0,
+                15_500.0,
+                False,
+                "sec_edgar",
+            ],
+        )
+
+
+def _seeded_analysis(conn: duckdb.DuckDBPyConnection) -> Analysis:
+    """A company with real balance-sheet debt and equity, ready for ``analyze()``.
+
+    No revenue-by-geography source exists, so ``country_exposure`` must stay
+    UNKNOWN even here; ``beta_business_risk`` has everything it needs and must
+    not be.
+    """
+    _seed_company(conn, ticker="LEV", industry_damodaran="Computers/Peripherals")
+    _seed_leveraged_financials(conn, ticker="LEV")
+    return analyze("LEV", conn)
+
+
+def test_pipeline_does_not_fake_the_erp_gap(conn: duckdb.DuckDBPyConnection) -> None:
+    # analysis.py used to pass the same sector ERP as both the weighted and the
+    # listing ERP, making the gap identically zero.
+    analysis = _seeded_analysis(conn)
+    flag = next(f for f in analysis.narrative_flags if f.name == "country_exposure")
+    assert flag.color is FlagColor.UNKNOWN
+
+
+def test_pipeline_supplies_the_company_leverage(conn: duckdb.DuckDBPyConnection) -> None:
+    analysis = _seeded_analysis(conn)
+    flag = next(f for f in analysis.narrative_flags if f.name == "beta_business_risk")
+    assert flag.color is not FlagColor.UNKNOWN
 
 
 def test_analyze_returns_complete_result(seeded_conn: duckdb.DuckDBPyConnection) -> None:
