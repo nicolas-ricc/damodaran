@@ -470,3 +470,17 @@ def test_assumptions_has_no_redundant_wacc_field() -> None:
     # Deleted: to_dcf_assumptions() ignored it and the DCF recomputes WACC from
     # its components, so the field only ever produced a contradictory report.
     assert "wacc" not in {f.name for f in fields(Assumptions)}
+
+
+def test_assumption_source_has_no_unreachable_member() -> None:
+    from bot.valuator.assumptions import AssumptionSource
+
+    # ANALYST_CONSENSUS was never emitted by any resolver: revenue growth comes
+    # from the historical average. Deleted so the enum describes what can happen.
+    assert {s.value for s in AssumptionSource} == {
+        "manual",
+        "sector_default_damodaran",
+        "sector_default_damodaran_cross_region",
+        "rule_based",
+        "historical_average",
+    }

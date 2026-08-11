@@ -36,7 +36,6 @@ def _financials(**overrides: object) -> ClassificationFinancials:
         revenue_history=(1000.0, 1030.0, 1061.0, 1093.0, 1126.0),
         earnings_history=(100.0, 103.0, 106.0, 109.0, 112.0),
         age_years=40,
-        debt_to_equity=0.4,
         interest_coverage=8.0,
         altman_z=4.0,
     )
@@ -72,7 +71,6 @@ def test_distressed_takes_precedence_over_high_growth() -> None:
         age_years=3,
         altman_z=1.2,
         interest_coverage=0.5,
-        debt_to_equity=5.0,
     )
     assert classify(fin, _sector()) is StoryType.DISTRESSED
 
@@ -190,3 +188,13 @@ def test_classification_inputs_are_immutable() -> None:
     fin = _financials()
     with pytest.raises(dataclasses.FrozenInstanceError):
         fin.age_years = 1  # type: ignore[misc]
+
+
+def test_classification_financials_has_no_unread_field() -> None:
+    from dataclasses import fields
+
+    from bot.valuator.story_types import ClassificationFinancials
+
+    # debt_to_equity was declared but _is_distressed reads only altman_z and
+    # interest_coverage.
+    assert "debt_to_equity" not in {f.name for f in fields(ClassificationFinancials)}

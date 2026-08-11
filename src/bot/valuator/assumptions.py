@@ -69,7 +69,6 @@ class AssumptionSource(StrEnum):
     """Provenance of a resolved assumption (spec §7.3)."""
 
     MANUAL = "manual"
-    ANALYST_CONSENSUS = "analyst_consensus"
     SECTOR_DEFAULT_DAMODARAN = "sector_default_damodaran"
     #: The sector median came from a *different* Damodaran dataset region than the
     #: company's own, because the mapped region has no ingested rows. Disclosed so
@@ -480,6 +479,13 @@ def _resolve_revenue_growth(
     override: dict[str, Any],
     gdp_nominal: float,
 ) -> Sourced[tuple[float, ...] | None]:
+    """Resolve the revenue-growth path.
+
+    Spec §7.3 wants analyst consensus for years 1-5 with convergence to nominal GDP by
+    year 10. Neither is implemented: the path is the historical average repeated over a
+    5-year horizon, sourced as HISTORICAL_AVERAGE. There is no ANALYST_CONSENSUS source
+    because nothing can emit it — FMP's analyst-estimates endpoint is not wired.
+    """
     manual = _override_path_field(override, "revenue_growth")
     if manual is not None:
         return manual
