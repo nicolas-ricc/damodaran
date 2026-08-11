@@ -36,6 +36,7 @@ import duckdb
 
 from bot.ingest.base import IngestResult, _log_refresh
 from bot.ingest.fmp import FmpClient, import_company_from_fmp, import_prices_from_fmp
+from bot.ingest.industry_mapping import load_industry_mapping
 from bot.utils.fx import import_fx_rates
 from bot.utils.logging import get_logger
 
@@ -240,7 +241,14 @@ def refresh_universe_from_fmp(
         probe = latest_filing_probe or make_fmp_latest_filing_probe(api_key, client=shared_client)
         active_importer = importer
         if importer is import_company_from_fmp and shared_client is not None:
-            active_importer = partial(import_company_from_fmp, client=shared_client)
+            # Load the mapping once for the whole bulk run instead of once per
+            # ticker (the default importer would otherwise re-read + re-parse
+            # the CSV on every single call).
+            active_importer = partial(
+                import_company_from_fmp,
+                client=shared_client,
+                mapping=load_industry_mapping(),
+            )
 
         return _run_bulk_refresh(
             conn,

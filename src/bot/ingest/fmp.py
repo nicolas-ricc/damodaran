@@ -19,6 +19,7 @@ import duckdb
 import httpx
 
 from bot.ingest.base import IngestResult, refresh_run, transaction
+from bot.ingest.industry_mapping import IndustryMapping, load_industry_mapping
 from bot.ingest.sec_edgar import (
     ParsedCompanyData,
     upsert_company,
@@ -694,12 +695,22 @@ def _collect_fmp_filings(
     return out
 
 
-def _company_row(ticker: str, info: CompanyInfo | None, currency: str | None) -> dict[str, Any]:
+def _company_row(
+    ticker: str,
+    info: CompanyInfo | None,
+    currency: str | None,
+    *,
+    mapping: IndustryMapping,
+) -> dict[str, Any]:
     """Build the ``companies`` row from the FMP profile (+ parsed currency fallback).
 
     Mirrors the ``company`` dict shape produced for SEC EDGAR. The profile's
     ``currency`` is preferred; the parsed ``reportedCurrency`` is the fallback so
     a company row always carries a currency even if the profile omits it.
+
+    ``industry`` keeps the provider's own label for traceability;
+    ``industry_damodaran`` carries the translated label the sector-relative rules
+    and the valuator key off (spec §4.3.1), or ``None`` when unmapped.
     """
     sym = ticker.upper()
     if info is None:
@@ -709,6 +720,7 @@ def _company_row(ticker: str, info: CompanyInfo | None, currency: str | None) ->
             "currency": currency,
             "source": "fmp",
             "status": "active",
+            "industry_damodaran": None,
         }
     return {
         "ticker": sym,
@@ -716,6 +728,7 @@ def _company_row(ticker: str, info: CompanyInfo | None, currency: str | None) ->
         "country": info.country,
         "exchange": info.exchange_short_name or info.exchange,
         "industry": info.industry,
+        "industry_damodaran": mapping.resolve("fmp", info.industry),
         "currency": info.currency or currency,
         "status": "active" if info.is_actively_trading else "inactive",
         "source": "fmp",
@@ -728,6 +741,7 @@ def import_company_from_fmp(
     ticker: str,
     api_key: str,
     client: FmpClient | None = None,
+    mapping: IndustryMapping | None = None,
 ) -> IngestResult:
     """Fetch + parse + upsert one ticker's fundamentals from FMP. Atomic on the DB side.
 
@@ -742,6 +756,10 @@ def import_company_from_fmp(
     Pass ``client`` to reuse an open :class:`FmpClient` (and its connection pool)
     across many tickers — the bulk universe refresh shares one client for the
     whole run. When omitted, a client is opened and closed for this call alone.
+
+    Pass ``mapping`` to reuse an already-loaded :class:`IndustryMapping` across
+    many tickers; when omitted, the default mapping CSV is loaded for this call
+    alone.
     """
     sym = ticker.upper()
     with refresh_run(
@@ -770,7 +788,8 @@ def import_company_from_fmp(
         parsed_quarterly = parse_fmp_fundamentals(sym, inc_q, bal_q, cf_q)
 
         currency = parsed_annual.company.get("currency") or parsed_quarterly.company.get("currency")
-        company = _company_row(sym, info, currency)
+        resolved_mapping = mapping if mapping is not None else load_industry_mapping()
+        company = _company_row(sym, info, currency, mapping=resolved_mapping)
         filing_rows = _collect_fmp_filings(sym, inc_a, inc_q)
 
         with transaction(conn):
