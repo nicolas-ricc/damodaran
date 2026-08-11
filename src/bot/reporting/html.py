@@ -37,7 +37,11 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 
-from bot.reporting.analysis_report import render_analysis
+from bot.reporting.analysis_report import (
+    GRID_LABEL_INTRINSIC,
+    GRID_LABEL_MOS,
+    render_analysis,
+)
 from bot.valuator.analysis import Analysis
 from bot.valuator.sensitivity import Grid2D, TornadoEntry
 
@@ -64,6 +68,10 @@ th, td { border: 1px solid #8884; padding: 0.3rem 0.6rem; text-align: right; }
 th:first-child, td:first-child { text-align: left; }
 img.tornado { max-width: 100%; height: auto; margin: 1rem 0; }
 code, pre { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; }
+.flag-green { color: #1a7f37; font-weight: 600; }
+.flag-yellow { color: #9a6700; font-weight: 600; }
+.flag-red { color: #cf222e; font-weight: 600; }
+.flag-unknown { color: #6e7781; font-style: italic; font-weight: 400; }
 """.strip()
 
 
@@ -139,13 +147,7 @@ def sensitivity_heatmap_html(grid: Grid2D) -> str:
         An HTML fragment (a ``<div>`` plus inline ``<script>``) rendering the heatmap.
     """
     # Out-of-domain cells carry None; Plotly renders a null z as a blank cell.
-    z = [
-        [
-            None if cell.margin_of_safety is None else round(cell.margin_of_safety, _GRID_DECIMALS)
-            for cell in row
-        ]
-        for row in grid.cells
-    ]
+    has_price = grid.reference_price is not None
     customdata = [
         [
             None if cell.intrinsic_value is None else round(cell.intrinsic_value, _GRID_DECIMALS)
@@ -156,6 +158,37 @@ def sensitivity_heatmap_html(grid: Grid2D) -> str:
     col_labels = [_pct_delta(m) for m in grid.col_multipliers]
     row_labels = [_pct_delta(m) for m in grid.row_multipliers]
 
+    if has_price:
+        # Colour and hover by margin of safety, identical in meaning to the
+        # report headline and the Markdown grid table.
+        z = [
+            [
+                None
+                if cell.margin_of_safety is None
+                else round(cell.margin_of_safety, _GRID_DECIMALS)
+                for cell in row
+            ]
+            for row in grid.cells
+        ]
+        colorbar_title = "Margin of safety"
+        hovertemplate = (
+            f"{grid.axis_a.value}: %{{y}}<br>"
+            f"{grid.axis_b.value}: %{{x}}<br>"
+            "Margin of safety: %{z:.2f}x<br>"
+            "Intrinsic value: %{customdata:.2f}<extra></extra>"
+        )
+    else:
+        # Without a price every margin of safety is None; fall back to colouring
+        # by intrinsic value so the heatmap still says something, matching the
+        # Markdown grid table's fallback.
+        z = customdata
+        colorbar_title = "Intrinsic value"
+        hovertemplate = (
+            f"{grid.axis_a.value}: %{{y}}<br>"
+            f"{grid.axis_b.value}: %{{x}}<br>"
+            "Intrinsic value: %{z:.2f}<extra></extra>"
+        )
+
     figure = go.Figure(
         data=go.Heatmap(
             z=z,
@@ -163,17 +196,16 @@ def sensitivity_heatmap_html(grid: Grid2D) -> str:
             y=row_labels,
             customdata=customdata,
             colorscale="RdYlGn",
-            colorbar={"title": "Margin of safety"},
-            hovertemplate=(
-                f"{grid.axis_a.value}: %{{y}}<br>"
-                f"{grid.axis_b.value}: %{{x}}<br>"
-                "Margin of safety: %{z:.2f}x<br>"
-                "Intrinsic value: %{customdata:.2f}<extra></extra>"
-            ),
+            colorbar={"title": colorbar_title},
+            hovertemplate=hovertemplate,
         )
     )
+    title_suffix = GRID_LABEL_MOS if has_price else GRID_LABEL_INTRINSIC
     figure.update_layout(
-        title=(f"Sensitivity heatmap — {grid.axis_a.value} (rows) x {grid.axis_b.value} (cols)"),
+        title=(
+            f"Sensitivity heatmap — {grid.axis_a.value} (rows) x {grid.axis_b.value} (cols), "
+            f"{title_suffix}"
+        ),
         xaxis_title=grid.axis_b.value,
         yaxis_title=grid.axis_a.value,
         margin={"l": 60, "r": 20, "t": 60, "b": 60},
@@ -207,7 +239,7 @@ def render_analysis_html(analysis: Analysis, *, generated_on: date | None = None
     Returns:
         A complete, self-contained HTML document as a string.
     """
-    report_md = render_analysis(analysis, generated_on=generated_on)
+    report_md = render_analysis(analysis, generated_on=generated_on, html_flag_colors=True)
     body = md_lib.markdown(report_md, extensions=list(_MD_EXTENSIONS), output_format="html")
 
     chart_img = (

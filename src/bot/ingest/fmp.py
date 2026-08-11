@@ -13,12 +13,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import duckdb
 import httpx
 
 from bot.ingest.base import IngestResult, refresh_run, transaction
+from bot.ingest.industry_mapping import (
+    IndustryMapping,
+    load_industry_mapping,
+    resolve_mapping_path,
+)
 from bot.ingest.sec_edgar import (
     ParsedCompanyData,
     upsert_company,
@@ -694,12 +700,25 @@ def _collect_fmp_filings(
     return out
 
 
-def _company_row(ticker: str, info: CompanyInfo | None, currency: str | None) -> dict[str, Any]:
+def _company_row(
+    ticker: str,
+    info: CompanyInfo | None,
+    currency: str | None,
+    *,
+    mapping: IndustryMapping,
+) -> dict[str, Any]:
     """Build the ``companies`` row from the FMP profile (+ parsed currency fallback).
 
     Mirrors the ``company`` dict shape produced for SEC EDGAR. The profile's
     ``currency`` is preferred; the parsed ``reportedCurrency`` is the fallback so
     a company row always carries a currency even if the profile omits it.
+
+    ``industry`` keeps the provider's own label for traceability;
+    ``industry_damodaran`` carries the translated label the sector-relative rules
+    and the valuator key off (spec §4.3.1), or ``None`` when unmapped. An unmapped
+    label is logged as a warning: it leaves every sector assumption ``unresolved``
+    (so ``analyze`` raises) and ``is_financial_services`` ``False`` (so a bank
+    slips past the §6.2 exclusion), and the only fix is a mapping-CSV row.
     """
     sym = ticker.upper()
     if info is None:
@@ -709,13 +728,22 @@ def _company_row(ticker: str, info: CompanyInfo | None, currency: str | None) ->
             "currency": currency,
             "source": "fmp",
             "status": "active",
+            "industry_damodaran": None,
         }
+    damodaran_industry = mapping.resolve("fmp", info.industry)
+    if damodaran_industry is None and info.industry is not None:
+        log.warning(
+            "fmp.industry_mapping.unmapped",
+            ticker=sym,
+            provider_industry=info.industry,
+        )
     return {
         "ticker": sym,
         "name": info.name or sym,
         "country": info.country,
         "exchange": info.exchange_short_name or info.exchange,
         "industry": info.industry,
+        "industry_damodaran": damodaran_industry,
         "currency": info.currency or currency,
         "status": "active" if info.is_actively_trading else "inactive",
         "source": "fmp",
@@ -728,6 +756,8 @@ def import_company_from_fmp(
     ticker: str,
     api_key: str,
     client: FmpClient | None = None,
+    mapping: IndustryMapping | None = None,
+    mapping_path: Path | None = None,
 ) -> IngestResult:
     """Fetch + parse + upsert one ticker's fundamentals from FMP. Atomic on the DB side.
 
@@ -742,6 +772,11 @@ def import_company_from_fmp(
     Pass ``client`` to reuse an open :class:`FmpClient` (and its connection pool)
     across many tickers — the bulk universe refresh shares one client for the
     whole run. When omitted, a client is opened and closed for this call alone.
+
+    Pass ``mapping`` to reuse an already-loaded :class:`IndustryMapping` across
+    many tickers; when omitted, ``mapping_path`` (i.e.
+    ``Settings.industry_mapping_path``) is loaded for this call alone, falling
+    back to the packaged CSV when that file does not exist.
     """
     sym = ticker.upper()
     with refresh_run(
@@ -770,7 +805,12 @@ def import_company_from_fmp(
         parsed_quarterly = parse_fmp_fundamentals(sym, inc_q, bal_q, cf_q)
 
         currency = parsed_annual.company.get("currency") or parsed_quarterly.company.get("currency")
-        company = _company_row(sym, info, currency)
+        resolved_mapping = (
+            mapping
+            if mapping is not None
+            else load_industry_mapping(resolve_mapping_path(mapping_path))
+        )
+        company = _company_row(sym, info, currency, mapping=resolved_mapping)
         filing_rows = _collect_fmp_filings(sym, inc_a, inc_q)
 
         with transaction(conn):

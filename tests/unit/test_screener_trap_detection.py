@@ -4,16 +4,13 @@ Trap detectors are *eliminatory*: a company that trips one is dropped even if it
 looks cheap. These are the most Damodaran-specific filters — the central one,
 :class:`ROICAboveSectorWACC`, eliminates value destroyers (ROIC < sector WACC).
 
-Every rule gets a passing and a failing fixture. Best-effort SEC flags
-(:class:`AuditorChangesAndLateFilings`) pass when the datum is unknown rather
-than punishing a company for a gap in the data. The Sloan-accruals rule carries
+Every rule gets a passing and a failing fixture. The Sloan-accruals rule carries
 an explicit hand-computed expected-value test.
 """
 
 from __future__ import annotations
 
 from bot.screener.rules import (
-    AuditorChangesAndLateFilings,
     OperatingMarginNotContracting,
     RevenueNotDeclining,
     ROICAboveSectorWACC,
@@ -275,15 +272,6 @@ def test_share_count_not_diluting_fail_heavy_issuance() -> None:
     assert result.passed is False
 
 
-def test_share_count_not_diluting_pass_when_ma_justified() -> None:
-    # Same heavy issuance but funded by a material acquisition -> not a trap.
-    result = ShareCountNotDiluting().evaluate(
-        _company(share_count_history=(100.0, 110.0, 121.0), had_recent_ma=True),
-        _benchmarks(),
-    )
-    assert result.passed is True
-
-
 def test_share_count_not_diluting_pass_within_tolerance() -> None:
     # ~3%/yr is below the 5% default.
     result = ShareCountNotDiluting().evaluate(
@@ -307,6 +295,21 @@ def test_share_count_not_diluting_nonpositive_fails() -> None:
     assert result.passed is False
 
 
+def test_share_count_dilution_cap_is_unconditional() -> None:
+    from dataclasses import fields
+
+    from bot.screener.types import CompanyData
+
+    # The M&A escape hatch was deleted: nothing populated had_recent_ma, so the
+    # branch was unreachable and the cap was always unconditional.
+    assert "had_recent_ma" not in {f.name for f in fields(CompanyData)}
+    result = ShareCountNotDiluting().evaluate(
+        _company(share_count_history=(100.0, 110.0, 121.0)), _benchmarks()
+    )
+    assert result.passed is False
+    assert "M&A" not in result.reason
+
+
 def test_share_count_not_diluting_configurable() -> None:
     # Tighten to 2%: a 3%/yr issuer now fails.
     result = ShareCountNotDiluting(max_annual_growth=0.02).evaluate(
@@ -314,49 +317,3 @@ def test_share_count_not_diluting_configurable() -> None:
     )
     assert result.passed is False
 
-
-# --------------------------------------------------------------------------- #
-# AuditorChangesAndLateFilings — best-effort SEC flags
-# --------------------------------------------------------------------------- #
-def test_auditor_changes_registered() -> None:
-    assert get_rule("auditor_changes_and_late_filings") is AuditorChangesAndLateFilings
-
-
-def test_auditor_changes_pass_clean() -> None:
-    result = AuditorChangesAndLateFilings().evaluate(
-        _company(auditor_changed=False, late_filings=False), _benchmarks()
-    )
-    assert result.passed is True
-
-
-def test_auditor_changes_fail_on_auditor_change() -> None:
-    result = AuditorChangesAndLateFilings().evaluate(
-        _company(auditor_changed=True, late_filings=False), _benchmarks()
-    )
-    assert result.passed is False
-    assert "auditor" in result.reason.lower()
-
-
-def test_auditor_changes_fail_on_late_filings() -> None:
-    result = AuditorChangesAndLateFilings().evaluate(
-        _company(auditor_changed=False, late_filings=True), _benchmarks()
-    )
-    assert result.passed is False
-    assert "late" in result.reason.lower()
-
-
-def test_auditor_changes_unknown_data_passes() -> None:
-    # Best-effort: when SEC data carries neither flag (both None), do not punish
-    # the company for a data gap -> pass (skip-like, but not eliminatory).
-    result = AuditorChangesAndLateFilings().evaluate(
-        _company(auditor_changed=None, late_filings=None), _benchmarks()
-    )
-    assert result.passed is True
-
-
-def test_auditor_changes_partial_unknown_clean_leg_passes() -> None:
-    # One flag known-clean, the other unknown -> nothing adverse -> pass.
-    result = AuditorChangesAndLateFilings().evaluate(
-        _company(auditor_changed=False, late_filings=None), _benchmarks()
-    )
-    assert result.passed is True

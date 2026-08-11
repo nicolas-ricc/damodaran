@@ -86,7 +86,6 @@ class ClassificationFinancials:
             first. Drives the earnings-volatility (sigma) cyclical signal.
         age_years: Company age in years; the high-growth archetype requires
             youth as well as growth (``None`` when unknown).
-        debt_to_equity: Book debt / equity (a leverage signal, spec §7.1).
         interest_coverage: EBIT / interest expense; low or negative coverage is
             a distress signal (``None`` when unknown).
         altman_z: Altman Z-score; below the distress zone marks ``distressed``
@@ -96,7 +95,6 @@ class ClassificationFinancials:
     revenue_history: tuple[float, ...]
     earnings_history: tuple[float, ...]
     age_years: int | None = None
-    debt_to_equity: float | None = None
     interest_coverage: float | None = None
     altman_z: float | None = None
 

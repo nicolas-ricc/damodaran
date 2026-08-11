@@ -374,3 +374,110 @@ def test_parse_output_upserts_into_db() -> None:
     assert q is not None
     assert q[0] == 4200000000
     conn.close()
+
+
+def test_company_row_maps_industry_to_damodaran() -> None:
+    from bot.ingest.fmp import CompanyInfo, _company_row
+    from bot.ingest.industry_mapping import IndustryMapping, normalize_industry_label
+
+    mapping = IndustryMapping(
+        _entries={("fmp", normalize_industry_label("Semiconductors")): "Semiconductor"}
+    )
+    info = CompanyInfo(
+        ticker="NVDA",
+        name="NVIDIA Corp",
+        exchange="NASDAQ",
+        exchange_short_name="NASDAQ",
+        country="US",
+        currency="USD",
+        sector="Technology",
+        industry="Semiconductors",
+        is_actively_trading=True,
+    )
+    row = _company_row("NVDA", info, "USD", mapping=mapping)
+    assert row["industry"] == "Semiconductors"
+    assert row["industry_damodaran"] == "Semiconductor"
+
+
+def test_company_row_unmapped_industry_leaves_damodaran_none() -> None:
+    from bot.ingest.fmp import CompanyInfo, _company_row
+    from bot.ingest.industry_mapping import IndustryMapping
+
+    info = CompanyInfo(
+        ticker="WEIRD",
+        name="Weird Co",
+        exchange="NYSE",
+        exchange_short_name="NYSE",
+        country="US",
+        currency="USD",
+        sector="Unknown",
+        industry="Blockchain Widgets",
+        is_actively_trading=True,
+    )
+    row = _company_row("WEIRD", info, "USD", mapping=IndustryMapping(_entries={}))
+    assert row["industry"] == "Blockchain Widgets"
+    assert row["industry_damodaran"] is None
+
+
+def test_company_row_without_profile_has_no_damodaran_industry() -> None:
+    from bot.ingest.fmp import _company_row
+    from bot.ingest.industry_mapping import IndustryMapping
+
+    row = _company_row("GHOST", None, "USD", mapping=IndustryMapping(_entries={}))
+    assert row.get("industry_damodaran") is None
+
+
+def _company_info(industry: str | None) -> Any:
+    from bot.ingest.fmp import CompanyInfo
+
+    return CompanyInfo(
+        ticker="WEIRD",
+        name="Weird Co",
+        exchange="NYSE",
+        exchange_short_name="NYSE",
+        country="US",
+        currency="USD",
+        sector="Unknown",
+        industry=industry,
+        is_actively_trading=True,
+    )
+
+
+def _unmapped_events(industry: str | None, mapping: Any) -> list[dict[str, Any]]:
+    """Run ``_company_row`` and return only its unmapped-industry warnings."""
+    from structlog.testing import capture_logs
+
+    from bot.ingest.fmp import _company_row
+
+    with capture_logs() as events:
+        _company_row("WEIRD", _company_info(industry), "USD", mapping=mapping)
+    return [e for e in events if e.get("event") == "fmp.industry_mapping.unmapped"]
+
+
+def test_company_row_warns_when_the_provider_industry_is_unmapped() -> None:
+    # An unmapped label leaves every sector assumption unresolved (so `analyze`
+    # raises) and is_financial_services False (so a bank slips past the §6.2
+    # exclusion). Silence made that undiagnosable from the logs.
+    from bot.ingest.industry_mapping import IndustryMapping
+
+    warnings = _unmapped_events("Blockchain Widgets", IndustryMapping(_entries={}))
+    assert len(warnings) == 1
+    assert warnings[0]["log_level"] == "warning"
+    assert warnings[0]["ticker"] == "WEIRD"
+    assert warnings[0]["provider_industry"] == "Blockchain Widgets"
+
+
+def test_company_row_does_not_warn_when_the_industry_maps() -> None:
+    from bot.ingest.industry_mapping import IndustryMapping, normalize_industry_label
+
+    mapping = IndustryMapping(
+        _entries={("fmp", normalize_industry_label("Blockchain Widgets")): "Software (Entertainment)"}
+    )
+    assert _unmapped_events("Blockchain Widgets", mapping) == []
+
+
+def test_company_row_does_not_warn_when_the_provider_has_no_industry() -> None:
+    # A profile with no industry at all is not a mapping gap — nothing to map.
+    from bot.ingest.industry_mapping import IndustryMapping
+
+    assert _unmapped_events(None, IndustryMapping(_entries={})) == []

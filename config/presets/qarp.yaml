@@ -73,7 +73,6 @@ trap_detection:
     - name: share_count_not_diluting
       params:
         max_annual_growth: 0.05
-    - name: auditor_changes_and_late_filings
 
 # --- Ranking score weights (spec §6.5) ------------------------------------- #
 # Quality dominates; growth still matters (a compounder grows); value matters

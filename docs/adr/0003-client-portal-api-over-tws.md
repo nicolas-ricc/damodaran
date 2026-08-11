@@ -1,6 +1,6 @@
 # ADR 0003 — Use IBKR Client Portal API (REST) over TWS API (deferred to M5)
 
-**Status:** Accepted (2026-05-25)
+**Status:** Superseded by [ADR 0004](0004-tws-api-via-ib-async.md) (2026-08-09).
 
 ## Context
 
@@ -20,3 +20,11 @@ Use Client Portal API.
 - Daily re-auth via browser (~10 seconds, tolerable).
 - Simpler ops (one Docker container vs full TWS install).
 - If the daily re-auth becomes intolerable or we want execution later, migrate to TWS API. Sync logic is behind an adapter so this is a contained change.
+
+## Why this was superseded
+
+The Client Portal API requires a Dockerised `cp-gateway` plus a browser OAuth
+handshake whose session must be re-established interactively. That is incompatible
+with a headless, cron-driven daily sync (spec §9.3). The TWS socket API reached
+through `ib_async` needs only a running TWS/IB Gateway with the Read-Only API
+toggle enabled, and no browser step. See ADR 0004.

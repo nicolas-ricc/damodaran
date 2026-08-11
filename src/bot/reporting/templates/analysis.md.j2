@@ -4,15 +4,15 @@ _Generated {{ generated_at }} · currency {{ a.currency or "n/a" }} · country {
 
 ## 1. Executive summary
 
-- **Intrinsic value (per share):** {{ a.dcf_result.intrinsic_value | money }}
+- **Intrinsic value (per share):** {{ a.dcf_result.intrinsic_value | per_share }}
 {% if a.current_price is not none -%}
-- **Current price:** {{ a.current_price | money }}
+- **Current price:** {{ a.current_price | per_share }}
 - **Margin of safety:** {{ a.margin_of_safety | ratio }} ({{ verdict }})
 {% else -%}
 - **Current price:** not available — margin of safety cannot be computed.
 {% endif -%}
 - **Story type:** {{ a.story_type }}
-- **WACC:** {{ a.dcf_result.wacc | pct }} (equity {{ a.dcf_result.equity_weight | pct }} / debt {{ a.dcf_result.debt_weight | pct }})
+- **WACC (computed from the components in §3):** {{ a.dcf_result.wacc | pct }} (equity {{ a.dcf_result.equity_weight | pct }} / debt {{ a.dcf_result.debt_weight | pct }})
 - **Terminal value share of EV:** {{ a.dcf_result.terminal_value_share | pct }}
 
 > A single intrinsic value is a point in a cloud — read the sensitivity section
@@ -32,7 +32,10 @@ _Generated {{ generated_at }} · currency {{ a.currency or "n/a" }} · country {
 | Revenue growth (yr 1) | {{ a.assumptions.revenue_growth.value[0] | pct }} | {{ a.assumptions.revenue_growth.source }} |
 | Operating margin | {{ a.assumptions.operating_margin.value | pct }} | {{ a.assumptions.operating_margin.source }} |
 | Sales-to-capital | {{ a.assumptions.sales_to_capital.value | num }} | {{ a.assumptions.sales_to_capital.source }} |
-| WACC | {{ a.assumptions.wacc.value | pct }} | {{ a.assumptions.wacc.source }} |
+| Cost of equity | {{ a.assumptions.cost_of_equity.value | pct }} | {{ a.assumptions.cost_of_equity.source }} |
+| Pre-tax cost of debt | {{ a.assumptions.pretax_cost_of_debt.value | pct }} | {{ a.assumptions.pretax_cost_of_debt.source }} |
+| Equity weight | {{ a.assumptions.equity_weight.value | pct }} | {{ a.assumptions.equity_weight.source }} |
+| Debt weight | {{ a.assumptions.debt_weight.value | pct }} | {{ a.assumptions.debt_weight.source }} |
 | Terminal growth | {{ a.assumptions.terminal_growth.value | pct }} | {{ a.assumptions.terminal_growth.source }} |
 | Tax rate | {{ a.assumptions.tax_rate.value | pct }} | {{ a.assumptions.tax_rate.source }} |
 | Probability of bankruptcy | {{ a.assumptions.probability_of_bankruptcy.value | pct }} | {{ a.assumptions.probability_of_bankruptcy.source }} |
@@ -57,10 +60,12 @@ _Generated {{ generated_at }} · currency {{ a.currency or "n/a" }} · country {
 | Assumption | Intrinsic @ -20% | Intrinsic @ +20% | Impact |
 |---|---|---|---|
 {% for t in a.tornado -%}
-| {{ t.axis }} | {{ t.intrinsic_low | money }} | {{ t.intrinsic_high | money }} | {{ t.impact | money }} |
+| {{ t.axis }} | {{ t.intrinsic_low | per_share }} | {{ t.intrinsic_high | per_share }} | {{ t.impact | per_share }} |
 {% endfor %}
-### 2-D grid — {{ a.grid.axis_a }} (rows) × {{ a.grid.axis_b }} (cols), margin of safety vs base
-
+### 2-D grid — {{ a.grid.axis_a }} (rows) × {{ a.grid.axis_b }} (cols), {% if a.grid.reference_price is none %}{{ grid_label_intrinsic }}{% else %}{{ grid_label_mos }}{% endif %}
+{% if a.grid.reference_price is none %}
+_No current price available — the grid below shows intrinsic values only._
+{% endif %}
 {% for line in grid_table -%}
 {{ line }}
 {% endfor %}
@@ -69,7 +74,7 @@ _Generated {{ generated_at }} · currency {{ a.currency or "n/a" }} · country {
 | Flag | Colour | Reason |
 |---|---|---|
 {% for f in a.narrative_flags -%}
-| {{ f.name }} | {{ f.color }} | {{ f.reason }} |
+| {{ f.name }} | {{ flag_color(f.color) }} | {{ f.reason }} |
 {% endfor %}
 ## 7. Manual overrides
 

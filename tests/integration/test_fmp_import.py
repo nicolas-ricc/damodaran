@@ -52,6 +52,14 @@ def test_import_company_from_fmp_us_populates_db() -> None:
     assert len(companies) == 1
     assert companies[0] == ("AAPL", "Apple Inc.", "US", "USD", "fmp")
 
+    industry, damodaran = conn.execute(
+        "SELECT industry, industry_damodaran FROM companies WHERE ticker = 'AAPL'"
+    ).fetchone()
+    # The provider label is kept verbatim; the mapped label is what every
+    # sector-relative rule and the valuator actually key off (spec §4.3.1).
+    assert industry is not None
+    assert damodaran is not None, f"{industry!r} did not map to a Damodaran industry"
+
     annual = conn.execute(
         "SELECT fiscal_year, revenue, ebitda, free_cashflow, currency, is_restated "
         "FROM financials_annual WHERE ticker = 'AAPL' ORDER BY fiscal_year"

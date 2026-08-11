@@ -47,6 +47,7 @@ packages = ["src/bot"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/bot/storage/schema.sql" = "bot/storage/schema.sql"
 "src/bot/ingest/universe_default.csv" = "bot/ingest/universe_default.csv"
+"src/bot/ingest/industry_mapping.csv" = "bot/ingest/industry_mapping.csv"
 "src/bot/reporting/templates/analysis.md.j2" = "bot/reporting/templates/analysis.md.j2"
 
 [tool.ruff]

@@ -8,6 +8,7 @@ whose bars match the textual tornado of M4.3 — same ordering and same values.
 from __future__ import annotations
 
 import base64
+import dataclasses
 import re
 
 import duckdb
@@ -21,6 +22,7 @@ from bot.reporting.html import (
 )
 from bot.storage.db import apply_schema, connect
 from bot.valuator.analysis import Analysis, analyze
+from bot.valuator.narrative_flags import FlagColor, NarrativeFlag
 from bot.valuator.sensitivity import (
     Grid2D,
     GridCell,
@@ -134,6 +136,83 @@ def test_html_embeds_rendered_markdown(analysis: Analysis) -> None:
         assert section in html
 
 
+def _with_flags(analysis: Analysis, flags: tuple[NarrativeFlag, ...]) -> Analysis:
+    return dataclasses.replace(analysis, narrative_flags=flags)
+
+
+def test_each_flag_color_gets_its_own_styled_markup(analysis: Analysis) -> None:
+    # The whole point of FlagColor.UNKNOWN is that it must not inherit GREEN's
+    # styling — an un-run check must not look like a pass. Pin the exact markup
+    # each color produces, and pin that unknown's differs from green's.
+    flags = (
+        NarrativeFlag(name="story_margin", color=FlagColor.GREEN, reason="ok"),
+        NarrativeFlag(name="growth_reinvestment", color=FlagColor.YELLOW, reason="ok"),
+        NarrativeFlag(name="beta_business_risk", color=FlagColor.RED, reason="ok"),
+        NarrativeFlag(name="terminal_value_share", color=FlagColor.UNKNOWN, reason="ok"),
+        NarrativeFlag(name="country_exposure", color=FlagColor.UNKNOWN, reason="not evaluated"),
+    )
+    html = render_analysis_html(_with_flags(analysis, flags))
+
+    assert '<td><span class="flag-green">green</span></td>' in html
+    assert '<td><span class="flag-yellow">yellow</span></td>' in html
+    assert '<td><span class="flag-red">red</span></td>' in html
+    assert '<td><span class="flag-unknown">unknown</span></td>' in html
+
+    green_markup = '<td><span class="flag-green">green</span></td>'
+    unknown_markup = '<td><span class="flag-unknown">unknown</span></td>'
+    assert green_markup != unknown_markup
+
+
+def test_reason_text_containing_a_bare_color_word_is_not_rewritten(
+    analysis: Analysis,
+) -> None:
+    # Adversarial case: a reason mid-sentence saying "green"/"red" must survive
+    # verbatim — only the exact <td>colour</td> colour cell gets wrapped, not
+    # any <td> that merely contains the word.
+    flags = (
+        NarrativeFlag(
+            name="story_margin",
+            color=FlagColor.YELLOW,
+            reason="margin is not yet green enough to worry about",
+        ),
+        NarrativeFlag(
+            name="beta_business_risk",
+            color=FlagColor.GREEN,
+            reason="beta understates risk unless the red flags below fire too",
+        ),
+    )
+    html = render_analysis_html(_with_flags(analysis, flags))
+
+    assert "margin is not yet green enough to worry about" in html
+    assert "beta understates risk unless the red flags below fire too" in html
+    # The reason cells themselves must not have been wrapped in a flag-* span.
+    assert '<span class="flag-green">margin is not yet green' not in html
+    assert '<span class="flag-red">unless the red flags' not in html
+    # Only the actual colour cells (exactly "yellow" / "green") got styled.
+    assert '<td><span class="flag-yellow">yellow</span></td>' in html
+    assert '<td><span class="flag-green">green</span></td>' in html
+
+
+def test_flag_colours_are_not_produced_by_rewriting_rendered_html() -> None:
+    # The flag colours are emitted with their class hook at generation time, so
+    # nothing re-parses the rendered document to find them. Pinning the absence
+    # stops the regex pass reappearing: it matched any <td> whose whole content
+    # was a colour word, flag cell or not.
+    import bot.reporting.html as html_mod
+
+    assert not hasattr(html_mod, "_style_narrative_flag_colors")
+    assert not hasattr(html_mod, "_FLAG_COLOR_WORDS")
+
+
+def test_flag_color_css_rules_are_present(analysis: Analysis) -> None:
+    # The emitted flag-* classes must actually be styled, not dangling.
+    html = render_analysis_html(analysis)
+    assert ".flag-green" in html
+    assert ".flag-yellow" in html
+    assert ".flag-red" in html
+    assert ".flag-unknown" in html
+
+
 def test_chart_matches_textual_tornado_ordering_and_values(analysis: Analysis) -> None:
     # The chart axis labels and impacts come straight from a.tornado, which is
     # the same source the Markdown table renders — so ordering and values match.
@@ -175,6 +254,17 @@ def test_heatmap_hover_shows_margin_of_safety_and_intrinsic_value(analysis: Anal
     for row in analysis.grid.cells:
         for cell in row:
             assert str(round(cell.intrinsic_value, 4)) in fragment
+
+
+def test_heatmap_without_a_price_is_titled_by_intrinsic_value(analysis: Analysis) -> None:
+    # Without a reference price every margin of safety is None, so the heatmap
+    # falls back to intrinsic values — and must say so, in the same words the
+    # Markdown grid heading uses.
+    fragment = sensitivity_heatmap_html(
+        dataclasses.replace(analysis.grid, reference_price=None)
+    )
+    assert "intrinsic value (no price available)" in fragment
+    assert "margin of safety (intrinsic ÷ price)" not in fragment
 
 
 def test_full_report_embeds_the_self_contained_heatmap(analysis: Analysis) -> None:
@@ -236,6 +326,7 @@ def test_heatmap_tolerates_none_cells() -> None:
         row_multipliers=mults,
         col_multipliers=mults,
         cells=cells,
+        reference_price=100.0,
     )
     fragment = sensitivity_heatmap_html(grid)
     assert "Margin of safety" in fragment

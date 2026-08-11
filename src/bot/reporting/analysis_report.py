@@ -20,8 +20,32 @@ from typing import Any
 from jinja2 import Environment, PackageLoader, select_autoescape
 
 from bot.valuator.analysis import Analysis
+from bot.valuator.narrative_flags import FlagColor
 
 _DASH = "—"
+
+#: What the §7.5 2-D grid measures, in the two modes the reference price decides.
+#: Named here because all three renderers of that grid — this module's heading,
+#: the Jinja template and the Plotly heatmap title in :mod:`bot.reporting.html` —
+#: must say the same thing about the same numbers.
+GRID_LABEL_MOS = "margin of safety (intrinsic ÷ price)"
+GRID_LABEL_INTRINSIC = "intrinsic value (no price available)"
+
+
+def _plain_flag_color(color: FlagColor) -> str:
+    """The flag colour as the bare word — the Markdown deliverable (§7.5)."""
+    return color.value
+
+
+def _html_flag_color(color: FlagColor) -> str:
+    """The flag colour wrapped in a class hook, for the HTML report.
+
+    Python-Markdown's ``tables`` extension carries inline HTML through table
+    cells verbatim, so the class survives the Markdown-to-HTML conversion and
+    ``FlagColor.UNKNOWN`` can be styled distinctly from ``GREEN`` without
+    re-parsing the rendered document.
+    """
+    return f'<span class="flag-{color.value}">{color.value}</span>'
 
 
 def _fmt_money(value: Any) -> str:
@@ -38,6 +62,18 @@ def _fmt_money(value: Any) -> str:
     if magnitude >= 1e3:
         return f"{sign}{magnitude / 1e3:,.2f}K"
     return f"{sign}{magnitude:,.2f}"
+
+
+def _fmt_per_share(value: float | None) -> str:
+    """Format a per-share figure at full magnitude.
+
+    Distinct from :func:`_fmt_money`, whose B/M/K scaling is right for
+    enterprise-scale aggregates and wrong for a share price: a per-share intrinsic
+    value of 1500 must not render as "1.50K".
+    """
+    if value is None:
+        return _DASH
+    return f"{value:.2f}"
 
 
 def _fmt_pct(value: Any) -> str:
@@ -76,6 +112,7 @@ def _environment() -> Environment:
         keep_trailing_newline=True,
     )
     env.filters["money"] = _fmt_money
+    env.filters["per_share"] = _fmt_per_share
     env.filters["pct"] = _fmt_pct
     env.filters["ratio"] = _fmt_ratio
     env.filters["num"] = _fmt_num
@@ -96,9 +133,15 @@ def _grid_table(analysis: Analysis) -> list[str]:
         f"| {grid.axis_a} ↓ / {grid.axis_b} → | {header_cells} |",
         "|---|" + "---|" * len(grid.col_multipliers),
     ]
+    # Without a reference price every cell's margin of safety is None; falling
+    # back to the intrinsic value keeps the table useful instead of all dashes.
+    has_price = grid.reference_price is not None
     for row_index, row in enumerate(grid.cells):
         row_label = _fmt_mult(grid.row_multipliers[row_index])
-        cells = " | ".join(_fmt_ratio(cell.margin_of_safety) for cell in row)
+        if has_price:
+            cells = " | ".join(_fmt_ratio(cell.margin_of_safety) for cell in row)
+        else:
+            cells = " | ".join(_fmt_per_share(cell.intrinsic_value) for cell in row)
         lines.append(f"| {row_label} | {cells} |")
     return lines
 
@@ -114,12 +157,22 @@ def _margin_verdict(margin_of_safety: float | None) -> str:
     return "potentially overvalued"
 
 
-def render_analysis(analysis: Analysis, *, generated_on: date | None = None) -> str:
+def render_analysis(
+    analysis: Analysis,
+    *,
+    generated_on: date | None = None,
+    html_flag_colors: bool = False,
+) -> str:
     """Render ``analysis`` as the §7.7 Markdown report.
 
     Args:
         analysis: The completed analysis to render.
         generated_on: Date stamped in the report header; defaults to today.
+        html_flag_colors: Emit each §7.5 flag colour wrapped in a
+            ``<span class="flag-...">`` instead of as the bare word. The CLI
+            writes this Markdown out as its own deliverable next to the HTML
+            one, so the class hook is opt-in and only :mod:`bot.reporting.html`
+            asks for it.
 
     Returns:
         The full Markdown report as a string.
@@ -131,4 +184,7 @@ def render_analysis(analysis: Analysis, *, generated_on: date | None = None) -> 
         generated_at=stamp,
         verdict=_margin_verdict(analysis.margin_of_safety),
         grid_table=_grid_table(analysis),
+        grid_label_mos=GRID_LABEL_MOS,
+        grid_label_intrinsic=GRID_LABEL_INTRINSIC,
+        flag_color=_html_flag_color if html_flag_colors else _plain_flag_color,
     )

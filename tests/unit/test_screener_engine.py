@@ -92,11 +92,22 @@ def test_resolve_region_defaults_when_country_missing(
 
 
 def test_resolve_region_maps_country(conn: duckdb.DuckDBPyConnection) -> None:
+    # damodaran_country.region holds the published file's geographic grouping, not
+    # a dataset region: the resolver must translate "Western Europe" -> "Europe".
     conn.execute(
         "INSERT INTO damodaran_country (country, year, region) VALUES (?, ?, ?)",
-        ["Germany", 2026, "Europe"],
+        ["Germany", 2026, "Western Europe"],
     )
     assert _resolve_region(conn, "Germany") == "Europe"
+
+
+def test_resolve_region_ignores_a_numeric_grouping(conn: duckdb.DuckDBPyConnection) -> None:
+    # A PRS score bleeding into the region column must not become a region.
+    conn.execute(
+        "INSERT INTO damodaran_country (country, year, region) VALUES (?, ?, ?)",
+        ["Algeria", 2026, "67.0"],
+    )
+    assert _resolve_region(conn, "Algeria") == DEFAULT_REGION
 
 
 def test_resolve_tax_rate_defaults_when_country_missing(
@@ -163,7 +174,7 @@ def test_build_company_data_roic_uses_country_tax_rate(
     )
     conn.execute(
         "INSERT INTO damodaran_country (country, year, region, tax_rate) VALUES (?, ?, ?, ?)",
-        ["Germany", 2026, "Europe", 0.30],
+        ["Germany", 2026, "Western Europe", 0.30],
     )
     conn.execute(
         "INSERT INTO financials_annual "
@@ -347,6 +358,33 @@ def test_build_company_data_handles_no_financials(
     assert cd.pe is None
     assert cd.region == DEFAULT_REGION
     assert cd.revenue_history == ()
+
+
+def test_build_company_data_flags_financial_services(conn: duckdb.DuckDBPyConnection) -> None:
+    row = _CompanyRow(
+        ticker="JPM",
+        name="JPMorgan",
+        country="United States",
+        industry="Banks—Diversified",
+        industry_damodaran="Bank (Money Center)",
+    )
+    data = build_company_data(conn, row, [], market_cap=None, close=None)
+    assert data.is_financial_services is True
+
+
+def test_build_company_data_does_not_classify_from_a_raw_provider_label(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    # Unmapped: classification must not fall back to the provider string.
+    row = _CompanyRow(
+        ticker="UNK",
+        name="Unknown Bank Co",
+        country="United States",
+        industry="Banks—Diversified",
+        industry_damodaran=None,
+    )
+    data = build_company_data(conn, row, [], market_cap=None, close=None)
+    assert data.is_financial_services is False
 
 
 def test_evaluate_company_fails_on_gate() -> None:

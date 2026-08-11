@@ -20,6 +20,8 @@ from pathlib import Path
 
 import duckdb
 
+from bot.reference.regions import dataset_region
+from bot.reference.sectors import is_cyclical
 from bot.utils.finance import cagr
 from bot.valuator.assumptions import AssumptionInputs, load_assumption_inputs, resolve_assumptions
 from bot.valuator.assumptions import Assumptions as SourcedAssumptions
@@ -121,6 +123,8 @@ class _LatestFinancials:
     interest_expense: float | None
     net_debt: float | None
     shares_diluted: float | None
+    total_debt: float | None
+    total_equity: float | None
 
 
 def _load_company(conn: duckdb.DuckDBPyConnection, ticker: str) -> _CompanyRow:
@@ -141,14 +145,14 @@ def _load_latest_financials(
 ) -> _LatestFinancials:
     row = conn.execute(
         "SELECT revenue, ebit, net_income, interest_expense, total_debt, cash, "
-        "shares_diluted FROM financials_annual "
+        "shares_diluted, total_equity FROM financials_annual "
         "WHERE ticker = ? AND is_restated = FALSE "
         "ORDER BY fiscal_year DESC LIMIT 1",
         [ticker],
     ).fetchone()
     if row is None:
         raise LookupError(f"no financials_annual rows for {ticker!r}")
-    revenue, ebit, net_income, interest_expense, total_debt, cash, shares = row
+    revenue, ebit, net_income, interest_expense, total_debt, cash, shares, total_equity = row
     net_debt = None
     if total_debt is not None or cash is not None:
         net_debt = (total_debt or 0.0) - (cash or 0.0)
@@ -159,6 +163,8 @@ def _load_latest_financials(
         interest_expense=interest_expense,
         net_debt=net_debt,
         shares_diluted=shares,
+        total_debt=total_debt,
+        total_equity=total_equity,
     )
 
 
@@ -201,7 +207,7 @@ class _SectorMultiples:
 def _load_sector_multiples(
     conn: duckdb.DuckDBPyConnection, company: _CompanyRow
 ) -> _SectorMultiples:
-    region: str | None = None
+    geographic_region: str | None = None
     erp: float | None = None
     if company.country is not None:
         country_row = conn.execute(
@@ -210,7 +216,13 @@ def _load_sector_multiples(
             [company.country],
         ).fetchone()
         if country_row is not None:
-            region, erp = country_row[0], country_row[1]
+            geographic_region, erp = country_row[0], country_row[1]
+    # damodaran_country.region is a geographic grouping (e.g. "North America"),
+    # not the damodaran_industry.region dataset key (e.g. "US") — the two
+    # taxonomies share the name but not the values, so a raw join between them
+    # never matches. Translate through the same reference mapping the assumptions
+    # module uses.
+    region = dataset_region(company.country, geographic_region)
     if company.industry_damodaran is None or region is None:
         return _SectorMultiples(
             region=region, pe=None, ev_sales=None, op_margin=None, beta_levered=None, erp=erp
@@ -303,11 +315,26 @@ def load_valuation_input(
 
 
 def _story_reasons(
-    story_type: StoryType,
+    auto_story_type: StoryType,
     revenue_history: tuple[float, ...],
     age_years: int | None,
+    *,
+    overridden: bool,
 ) -> tuple[str, ...]:
-    """Human-readable explanation of the auto-assigned story type (spec §7.1)."""
+    """Human-readable reasons for the story type shown in report §2.
+
+    ``auto_story_type`` is always the classifier's verdict, not the effective story
+    type — when ``overridden`` is set the two differ, and the reason line says so.
+
+    When the type was manually overridden the auto-classification's reasons no
+    longer explain it, so they are replaced by the override notice — otherwise the
+    report states one type in its heading and justifies a different one below it.
+    """
+    if overridden:
+        return (
+            f"manually overridden in the assumptions file; the classifier would "
+            f"have said {auto_story_type.value}",
+        )
     reasons: list[str] = []
     if len(revenue_history) >= 2 and revenue_history[0] > 0.0:
         periods = len(revenue_history) - 1
@@ -317,7 +344,7 @@ def _story_reasons(
         reasons.append("too little revenue history for a reliable growth signal")
     if age_years is not None:
         reasons.append(f"company age {age_years} years")
-    reasons.append(f"classified as {story_type.value}")
+    reasons.append(f"classified as {auto_story_type.value}")
     return tuple(reasons)
 
 
@@ -385,7 +412,7 @@ def analyze(
     conn: duckdb.DuckDBPyConnection,
     override_path: Path | None = None,
     *,
-    is_cyclical_sector: bool = False,
+    is_cyclical_sector: bool | None = None,
     age_years: int | None = None,
     company: ValuationInput | None = None,
 ) -> Analysis:
@@ -398,6 +425,9 @@ def analyze(
         override_path: Optional ``config/assumptions/<TICKER>.yaml`` (spec §7.6).
         is_cyclical_sector: Whether the company's sector is structurally cyclical
             (feeds the story-type classifier's cyclical signal, spec §7.1).
+            ``None`` (the default) derives the flag from the company's
+            ``industry_damodaran`` label via :func:`bot.reference.sectors.is_cyclical`;
+            pass ``True``/``False`` to force it regardless of the sector.
         age_years: Company age in years, if known (a high-growth signal).
         company: Pre-loaded DB rows for ``ticker`` (see
             :func:`load_valuation_input`). When supplied, every per-ticker read
@@ -437,7 +467,14 @@ def analyze(
         age_years=age_years,
         interest_coverage=interest_coverage,
     )
-    auto_story = classify(classification, SectorContext(is_cyclical=is_cyclical_sector))
+    # Derived from the company's Damodaran industry unless the caller forces it,
+    # so StoryType.CYCLICAL is reachable from the CLI and the screener (§7.1).
+    cyclical = (
+        is_cyclical(company_row.industry_damodaran)
+        if is_cyclical_sector is None
+        else is_cyclical_sector
+    )
+    auto_story = classify(classification, SectorContext(is_cyclical=cyclical))
 
     gdp_nominal = _DEFAULT_GDP_NOMINAL
     assumptions = resolve_assumptions(
@@ -464,16 +501,36 @@ def analyze(
     dcf_result = dcf(financials, dcf_assumptions)
     tornado_entries = tuple(tornado(financials, dcf_assumptions))
     axis_a, axis_b = _two_widest_axes(tornado_entries)
-    grid = grid_2d(financials, dcf_assumptions, axis_a, axis_b)
+    grid = grid_2d(
+        financials, dcf_assumptions, axis_a, axis_b, reference_price=current_price
+    )
+
+    # The company's own capital structure, not the sector's (which drives WACC).
+    company_debt_weight: float | None = None
+    if latest.total_debt is not None and latest.total_equity is not None:
+        invested = latest.total_debt + latest.total_equity
+        if invested > 0.0:
+            company_debt_weight = latest.total_debt / invested
+
+    # The company's *realised* operating margin, from its own income statement.
+    # Deliberately not ``assumptions.operating_margin``: absent a manual override
+    # that value is read from the same ``damodaran_industry`` row as
+    # ``sector.op_margin``, so the story-margin flag would compare the sector
+    # median against itself — the same vacuous comparison the ERP gap had.
+    company_operating_margin: float | None = None
+    if latest.revenue is not None and latest.revenue != 0.0 and latest.ebit is not None:
+        company_operating_margin = latest.ebit / latest.revenue
 
     context = NarrativeContext(
         story_type=story_type,
-        company_operating_margin=assumptions.operating_margin.value,
+        company_operating_margin=company_operating_margin,
         sector_operating_margin=sector.op_margin,
         sector_beta=sector.beta_levered,
         operating_leverage=_operating_leverage(revenue_history, ebit_history),
-        erp_weighted=sector.erp,
-        erp_listing=sector.erp,
+        company_debt_weight=company_debt_weight,
+        # erp_weighted / erp_listing deliberately unset: a revenue-weighted ERP
+        # needs revenue by geography, which no ingest path supplies. Passing the
+        # sector ERP as both made the gap identically zero — a fake calculation.
     )
     flags = narrative_flags(financials, dcf_assumptions, dcf_result, context)
 
@@ -497,7 +554,13 @@ def analyze(
         country=company_row.country,
         currency=company_row.currency,
         story_type=story_type,
-        story_reasons=_story_reasons(auto_story, revenue_history, age_years),
+        story_reasons=_story_reasons(
+            auto_story,
+            revenue_history,
+            age_years,
+            overridden=assumptions.story_type is not None
+            and assumptions.story_type != auto_story.value,
+        ),
         assumptions=assumptions,
         financials=financials,
         dcf_result=dcf_result,

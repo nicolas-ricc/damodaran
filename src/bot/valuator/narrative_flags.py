@@ -6,7 +6,9 @@ for that agreement — they do **not** enter the screener ranking (spec §7.5); 
 are signals for a human to read and decide.
 
 Each flag is a pure function that returns a :class:`NarrativeFlag` with a
-:class:`FlagColor` in ``{green, yellow, red}`` and a human-readable ``reason``.
+:class:`FlagColor` in ``{green, yellow, red, unknown}`` and a human-readable
+``reason``. ``unknown`` means the check could not run for lack of data — it is
+deliberately distinct from ``green`` so an un-run check never reads as a pass.
 The five flags (spec §7.5):
 
 1. **Story-margin consistency** — a ``high-growth`` story whose operating margin
@@ -71,6 +73,9 @@ class FlagColor(StrEnum):
     GREEN = "green"
     YELLOW = "yellow"
     RED = "red"
+    #: The check could not run for lack of data. Deliberately distinct from
+    #: GREEN: an un-run check must never read as a pass (spec §7.5).
+    UNKNOWN = "unknown"
 
 
 @dataclass(frozen=True)
@@ -92,12 +97,16 @@ class NarrativeFlag:
 class NarrativeContext:
     """Flag-specific inputs not carried by the pure DCF types (spec §7.5).
 
-    Every field is optional: a flag whose inputs are missing returns green with a
-    reason saying so, rather than inventing a verdict from absent data.
+    Every field is optional: a flag whose inputs are missing returns
+    :attr:`FlagColor.UNKNOWN` with a reason saying so, rather than inventing a
+    verdict from absent data.
 
     Attributes:
         story_type: Damodaran story type (spec §7.1), e.g. ``"high-growth"``.
-        company_operating_margin: The company's own steady-state EBIT/revenue.
+        company_operating_margin: The company's *realised* EBIT/revenue from its
+            own latest income statement. Never the modelled steady-state margin:
+            that is itself drawn from the sector row, so passing it would compare
+            ``sector_operating_margin`` against itself.
         sector_operating_margin: Sector-median operating margin (Damodaran).
         sector_beta: Sector levered beta used in the CAPM cost of equity.
         operating_leverage: Elasticity of EBIT to revenue (%ΔEBIT / %ΔRevenue).
@@ -106,6 +115,9 @@ class NarrativeContext:
         erp_weighted: Revenue-weighted equity risk premium across the countries
             the company operates in.
         erp_listing: Equity risk premium of the company's listing country.
+        company_debt_weight: The company's own debt / (debt + equity) from its
+            latest balance sheet. Distinct from ``Assumptions.debt_weight``,
+            which is derived from the *sector's* D/E and drives the WACC.
     """
 
     story_type: str | None = None
@@ -116,6 +128,7 @@ class NarrativeContext:
     foreign_revenue_share: float | None = None
     erp_weighted: float | None = None
     erp_listing: float | None = None
+    company_debt_weight: float | None = None
 
 
 def story_margin_flag(
@@ -129,7 +142,8 @@ def story_margin_flag(
     A ``high-growth`` story usually projects margins *improving toward* the
     sector; starting *above* it leaves little room for the story to play out, so
     the flag turns yellow. Any other story type, or a margin at/below sector, is
-    green.
+    green. Without both margins the check cannot run and returns ``unknown`` — an
+    un-run check must never read as a pass (spec §7.5).
     """
     name = "story_margin"
     if context.story_type != _HIGH_GROWTH_STORY:
@@ -143,8 +157,11 @@ def story_margin_flag(
     if company is None or sector is None:
         return NarrativeFlag(
             name=name,
-            color=FlagColor.GREEN,
-            reason="company or sector operating margin unavailable",
+            color=FlagColor.UNKNOWN,
+            reason=(
+                "not evaluated: the company's realised operating margin or the "
+                "sector median is unavailable"
+            ),
         )
     if company > sector:
         return NarrativeFlag(
@@ -231,17 +248,24 @@ def beta_business_risk_flag(
     swings hard with revenue) combined with high financial leverage (a debt-heavy
     capital structure) means the equity is riskier than the beta implies. When
     all three hold the flag turns yellow.
+
+    Financial leverage here is the *company's own* debt / (debt + equity), not
+    ``Assumptions.debt_weight`` — that is derived from the sector's D/E and
+    drives the WACC, not a proxy for this company's actual capital structure.
     """
     name = "beta_business_risk"
     beta = context.sector_beta
     operating_leverage = context.operating_leverage
-    if beta is None or operating_leverage is None:
+    financial_leverage = context.company_debt_weight
+    if beta is None or operating_leverage is None or financial_leverage is None:
         return NarrativeFlag(
             name=name,
-            color=FlagColor.GREEN,
-            reason="sector beta or operating leverage unavailable",
+            color=FlagColor.UNKNOWN,
+            reason=(
+                "not evaluated: sector beta, operating leverage or company "
+                "leverage unavailable"
+            ),
         )
-    financial_leverage = assumptions.debt_weight
     if (
         beta < _DEFENSIVE_BETA
         and operating_leverage > _HIGH_OPERATING_LEVERAGE
@@ -320,8 +344,11 @@ def country_exposure_flag(
     if foreign is None or erp_weighted is None or erp_listing is None:
         return NarrativeFlag(
             name=name,
-            color=FlagColor.GREEN,
-            reason="foreign revenue share or ERP figures unavailable",
+            color=FlagColor.UNKNOWN,
+            reason=(
+                "not evaluated: needs revenue by geography and a revenue-weighted "
+                "ERP; no ingest path supplies either"
+            ),
         )
     gap = erp_weighted - erp_listing
     if foreign > _FOREIGN_REVENUE_MAJORITY and gap > _ERP_GAP_THRESHOLD:

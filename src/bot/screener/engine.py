@@ -25,6 +25,8 @@ from datetime import date
 
 import duckdb
 
+from bot.reference.regions import dataset_region
+from bot.reference.sectors import is_financial_services as industry_is_financial_services
 from bot.screener.benchmarks import load_industry_benchmarks
 from bot.screener.config import ScreenerConfig
 from bot.screener.ranking import (
@@ -279,7 +281,13 @@ def _load_latest_prices(
 
 
 def _resolve_region(conn: duckdb.DuckDBPyConnection, country: str | None) -> str:
-    """Map a company's country to its Damodaran region, defaulting to US."""
+    """The Damodaran *dataset* region for a company's country (spec §5.1).
+
+    The country table stores a geographic grouping ("Western Europe"), while
+    ``damodaran_industry.region`` is tagged with the dataset the rows came from
+    ("US"). Returning the former made every sector-relative rule skip, because the
+    benchmark query matched nothing.
+    """
     if country is None:
         return DEFAULT_REGION
     row = conn.execute(
@@ -287,7 +295,8 @@ def _resolve_region(conn: duckdb.DuckDBPyConnection, country: str | None) -> str
         "AND region IS NOT NULL ORDER BY year DESC LIMIT 1",
         [country],
     ).fetchone()
-    return str(row[0]) if row is not None and row[0] is not None else DEFAULT_REGION
+    geographic = str(row[0]) if row is not None and row[0] is not None else None
+    return dataset_region(country, geographic)
 
 
 def _resolve_tax_rate(conn: duckdb.DuckDBPyConnection, country: str | None) -> float:
@@ -455,6 +464,7 @@ def build_company_data(
         region=_resolve_region(conn, company.country),
         market_cap=_market_cap_usd(conn, market_cap, currency, as_of),
         years_of_financials=len(annual),
+        is_financial_services=industry_is_financial_services(company.industry_damodaran),
         net_debt=net_debt,
         ebitda=ebitda,
         ebit=ebit,

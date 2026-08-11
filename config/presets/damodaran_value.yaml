@@ -66,7 +66,6 @@ trap_detection:
     - name: share_count_not_diluting
       params:
         max_annual_growth: 0.05    # share count growth <= 5%/yr without M&A
-    - name: auditor_changes_and_late_filings  # SEC governance red flags
 
 # --- Ranking score weights (spec §6.5) ------------------------------------- #
 ranking:

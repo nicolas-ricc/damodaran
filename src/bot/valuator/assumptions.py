@@ -18,6 +18,14 @@ Resolution order (highest-priority source wins, spec §7.3/§7.6)::
 
 This module is a pure function of ``(ticker, conn, override_path)`` plus a
 nominal-GDP scalar: it reads, it does not write, and it holds no global state.
+
+The DCF's WACC is *computed* from its components (``cost_of_equity``,
+``pretax_cost_of_debt``, the weights and the tax rate) by ``dcf._wacc``; there is
+deliberately no resolved ``wacc`` assumption. Damodaran publishes a sector WACC and
+an earlier version of this module carried it, but the DCF ignored it, so the report
+printed two disagreeing numbers. The sector WACC still has one legitimate consumer:
+the §6.4 ROIC-vs-WACC trap detector, which reads it from ``damodaran_industry``
+directly.
 """
 
 from __future__ import annotations
@@ -31,8 +39,12 @@ from typing import Any, TypeVar
 import duckdb
 import yaml
 
+from bot.reference.regions import dataset_region
+from bot.utils.logging import get_logger
 from bot.valuator.dcf import Assumptions as DCFAssumptions
 from bot.valuator.story_types import StoryType
+
+log = get_logger(__name__)
 
 T = TypeVar("T")
 
@@ -52,15 +64,27 @@ _DEFAULT_GDP_NOMINAL = 0.04
 # still produces a NOPAT rather than collapsing.
 _DEFAULT_TAX_RATE = 0.25
 
+# How far an explicitly overridden equity_weight + debt_weight may drift from 1.0
+# before the pair is rejected. Only float representation error is tolerated: the
+# two weights partition invested capital, so anything else is a user error.
+_WEIGHT_PARTITION_TOLERANCE = 1e-9
+
 
 class AssumptionSource(StrEnum):
     """Provenance of a resolved assumption (spec §7.3)."""
 
     MANUAL = "manual"
-    ANALYST_CONSENSUS = "analyst_consensus"
     SECTOR_DEFAULT_DAMODARAN = "sector_default_damodaran"
+    #: The sector median came from a *different* Damodaran dataset region than the
+    #: company's own, because the mapped region has no ingested rows. Disclosed so
+    #: the report shows the substitution rather than passing it off as the
+    #: company's own region.
+    SECTOR_DEFAULT_DAMODARAN_CROSS_REGION = "sector_default_damodaran_cross_region"
     RULE_BASED = "rule_based"
     HISTORICAL_AVERAGE = "historical_average"
+    #: No layer produced a value. The report shows the gap instead of a number,
+    #: and must not attribute the gap to a source it never came from.
+    UNRESOLVED = "unresolved"
 
 
 @dataclass(frozen=True)
@@ -84,10 +108,14 @@ class Assumptions:
         revenue_growth: Year-by-year revenue-growth path (years 1..N).
         operating_margin: Steady-state EBIT / revenue ratio.
         sales_to_capital: Incremental sales per unit of reinvested capital.
-        wacc: Weighted-average cost of capital.
         terminal_growth: Perpetual growth ``g`` past the horizon.
         probability_of_bankruptcy: Probability the firm fails (0 outside
             distressed stories).
+        distress_value_per_share: Per-share value recovered in bankruptcy,
+            paired with ``probability_of_bankruptcy`` to blend a going-concern
+            and liquidation value (0 outside distressed stories). Never
+            derived automatically — §7.3's rating/Altman-Z derivation is not
+            implemented — so it comes from a manual override or stays 0.0.
         cost_of_equity / pretax_cost_of_debt / equity_weight / debt_weight:
             The WACC components, kept so a downstream DCF can rebuild WACC from
             its parts and report the weights actually used.
@@ -100,9 +128,9 @@ class Assumptions:
     revenue_growth: Sourced[tuple[float, ...] | None]
     operating_margin: Sourced[float | None]
     sales_to_capital: Sourced[float | None]
-    wacc: Sourced[float | None]
     terminal_growth: Sourced[float | None]
     probability_of_bankruptcy: Sourced[float]
+    distress_value_per_share: Sourced[float]
     cost_of_equity: Sourced[float | None]
     pretax_cost_of_debt: Sourced[float | None]
     equity_weight: Sourced[float | None]
@@ -132,6 +160,7 @@ class Assumptions:
             equity_weight=_require(self.equity_weight, "equity_weight"),
             debt_weight=_require(self.debt_weight, "debt_weight"),
             probability_of_bankruptcy=self.probability_of_bankruptcy.value,
+            distress_value_per_share=self.distress_value_per_share.value,
         )
 
 
@@ -164,6 +193,27 @@ class _SectorRow:
 
 
 @dataclass(frozen=True)
+class _SectorDefaults:
+    """The sector row a company's defaults come from, plus where it came from.
+
+    The row and the cross-region flag are one fact, not two: every value drawn
+    from ``row`` carries a provenance that depends on ``cross_region``, so the
+    label is computed here rather than re-derived at each resolver from a
+    boolean threaded alongside the row through every signature.
+    """
+
+    row: _SectorRow | None
+    cross_region: bool = False
+
+    @property
+    def source(self) -> AssumptionSource:
+        """The provenance label a value drawn from this row carries."""
+        if self.cross_region:
+            return AssumptionSource.SECTOR_DEFAULT_DAMODARAN_CROSS_REGION
+        return AssumptionSource.SECTOR_DEFAULT_DAMODARAN
+
+
+@dataclass(frozen=True)
 class _CountryRow:
     region: str | None
     risk_free_rate: float | None
@@ -188,12 +238,18 @@ class AssumptionInputs:
             industry/region, or ``None``.
         historical_growth_path: The historical-average revenue-growth path, or
             ``None`` when there is too little history.
+        sector_is_cross_region: Whether ``sector`` came from a different dataset
+            region than the company's own (see
+            :func:`_load_sector_with_fallback`). Every assumption drawn from that
+            row is then labelled
+            :attr:`AssumptionSource.SECTOR_DEFAULT_DAMODARAN_CROSS_REGION`.
     """
 
     company: _Company
     country: _CountryRow | None
     sector: _SectorRow | None
     historical_growth_path: tuple[float, ...] | None
+    sector_is_cross_region: bool = False
 
 
 def load_assumption_inputs(
@@ -209,14 +265,15 @@ def load_assumption_inputs(
     """
     company = _load_company(conn, ticker)
     country = _load_country(conn, company.country)
-    region = country.region if country is not None else None
-    sector = _load_sector(conn, company.industry_damodaran, region)
+    region = dataset_region(company.country, country.region if country is not None else None)
+    sector, cross_region = _load_sector_with_fallback(conn, company.industry_damodaran, region)
     historical_growth_path = _historical_growth_path(conn, ticker)
     return AssumptionInputs(
         company=company,
         country=country,
         sector=sector,
         historical_growth_path=historical_growth_path,
+        sector_is_cross_region=cross_region,
     )
 
 
@@ -267,6 +324,37 @@ def _load_sector(
     )
 
 
+def _load_sector_with_fallback(
+    conn: duckdb.DuckDBPyConnection, industry: str | None, region: str
+) -> tuple[_SectorRow | None, bool]:
+    """Load the sector row, substituting another region when the mapped one is absent.
+
+    Returns ``(row, cross_region)``. Only the US dataset is ingested today, so a
+    non-US company's mapped region has no rows; rather than resolving nothing, the
+    most recent row for that industry in *any* region is used and the caller labels
+    every assumption drawn from it ``sector_default_damodaran_cross_region`` so the
+    report shows the substitution instead of hiding it.
+    """
+    exact = _load_sector(conn, industry, region)
+    if exact is not None or industry is None:
+        return exact, False
+    row = conn.execute(
+        "SELECT wacc, cost_of_equity, cost_of_debt, op_margin, sales_to_capital, "
+        "tax_rate, debt_to_equity, region FROM damodaran_industry "
+        "WHERE industry = ? ORDER BY year DESC LIMIT 1",
+        [industry],
+    ).fetchone()
+    if row is None:
+        return None, False
+    log.warning(
+        "assumptions.sector.cross_region_substitution",
+        industry=industry,
+        requested_region=region,
+        used_region=row[7],
+    )
+    return _SectorRow(*row[:7]), True
+
+
 def _historical_growth_path(
     conn: duckdb.DuckDBPyConnection, ticker: str
 ) -> tuple[float, ...] | None:
@@ -300,6 +388,28 @@ def _historical_growth_path(
 # --------------------------------------------------------------------------- #
 
 
+#: Every key a `config/assumptions/<TICKER>.yaml` may carry (spec §7.6). Anything
+#: else is a typo: silently ignoring it would let a user believe an override
+#: applied.
+_OVERRIDE_KEYS: frozenset[str] = frozenset(
+    {
+        "revenue_growth",
+        "operating_margin",
+        "sales_to_capital",
+        "terminal_growth",
+        "cost_of_equity",
+        "pretax_cost_of_debt",
+        "equity_weight",
+        "debt_weight",
+        "tax_rate",
+        "probability_of_bankruptcy",
+        "distress_value_per_share",
+        "story_type",
+        "notes",
+    }
+)
+
+
 def _load_override(override_path: Path | None) -> dict[str, Any]:
     if override_path is None or not override_path.exists():
         return {}
@@ -308,6 +418,13 @@ def _load_override(override_path: Path | None) -> dict[str, Any]:
         return {}
     if not isinstance(loaded, dict):
         raise ValueError(f"override file {override_path} must contain a YAML mapping")
+    unknown = sorted(set(loaded) - _OVERRIDE_KEYS)
+    if unknown:
+        valid = ", ".join(sorted(_OVERRIDE_KEYS))
+        raise ValueError(
+            f"{override_path}: unknown override key(s): {', '.join(unknown)}. "
+            f"Valid keys: {valid}"
+        )
     return loaded
 
 
@@ -370,7 +487,9 @@ def resolve_assumptions(
     if db_inputs is None:
         db_inputs = load_assumption_inputs(conn, ticker)
     country = db_inputs.country
-    sector = db_inputs.sector
+    sector = _SectorDefaults(
+        row=db_inputs.sector, cross_region=db_inputs.sector_is_cross_region
+    )
     override = _load_override(override_path)
 
     revenue_growth = _resolve_revenue_growth(
@@ -389,18 +508,18 @@ def resolve_assumptions(
         override, sector, key="pretax_cost_of_debt", attr="cost_of_debt"
     )
     equity_weight, debt_weight = _resolve_weights(override, sector)
-    wacc = _resolve_sector_scalar(override, sector, key="wacc", attr="wacc")
     terminal_growth = _resolve_terminal_growth(override, country, gdp_nominal)
     probability_of_bankruptcy = _resolve_probability_of_bankruptcy(override)
+    distress_value_per_share = _resolve_distress_value_per_share(override)
     tax_rate = _resolve_tax_rate(override, sector, country)
 
     return Assumptions(
         revenue_growth=revenue_growth,
         operating_margin=operating_margin,
         sales_to_capital=sales_to_capital,
-        wacc=wacc,
         terminal_growth=terminal_growth,
         probability_of_bankruptcy=probability_of_bankruptcy,
+        distress_value_per_share=distress_value_per_share,
         cost_of_equity=cost_of_equity,
         pretax_cost_of_debt=pretax_cost_of_debt,
         equity_weight=equity_weight,
@@ -428,6 +547,13 @@ def _resolve_revenue_growth(
     override: dict[str, Any],
     gdp_nominal: float,
 ) -> Sourced[tuple[float, ...] | None]:
+    """Resolve the revenue-growth path.
+
+    Spec §7.3 wants analyst consensus for years 1-5 with convergence to nominal GDP by
+    year 10. Neither is implemented: the path is the historical average repeated over a
+    5-year horizon, sourced as HISTORICAL_AVERAGE. There is no ANALYST_CONSENSUS source
+    because nothing can emit it — FMP's analyst-estimates endpoint is not wired.
+    """
     manual = _override_path_field(override, "revenue_growth")
     if manual is not None:
         return manual
@@ -440,7 +566,7 @@ def _resolve_revenue_growth(
 
 def _resolve_sector_scalar(
     override: dict[str, Any],
-    sector: _SectorRow | None,
+    sector: _SectorDefaults,
     *,
     key: str,
     attr: str,
@@ -448,25 +574,65 @@ def _resolve_sector_scalar(
     manual = _override_scalar(override, key)
     if manual is not None:
         return manual
-    value = getattr(sector, attr) if sector is not None else None
-    return Sourced(value=value, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN)
+    value = getattr(sector.row, attr) if sector.row is not None else None
+    if value is None:
+        return Sourced(value=None, source=AssumptionSource.UNRESOLVED)
+    return Sourced(value=value, source=sector.source)
 
 
 def _resolve_weights(
-    override: dict[str, Any], sector: _SectorRow | None
+    override: dict[str, Any], sector: _SectorDefaults
 ) -> tuple[Sourced[float | None], Sourced[float | None]]:
+    """Resolve the equity/debt split of the capital structure.
+
+    The two weights partition invested capital, so either one determines the
+    other: a manual override of just one is honoured and the complement is
+    derived (both reported as MANUAL). With no override, the split comes from
+    the sector's D/E.
+
+    Raises:
+        ValueError: If *both* weights are overridden and they do not sum to 1.0.
+            Accepting a non-partition would feed the WACC a capital structure
+            that does not exist, under a ``manual`` provenance label.
+    """
     manual_equity = _override_scalar(override, "equity_weight")
     manual_debt = _override_scalar(override, "debt_weight")
-    if manual_equity is not None and manual_debt is not None:
-        return manual_equity, manual_debt
-    if sector is not None and sector.debt_to_equity is not None:
-        d_to_e = sector.debt_to_equity
+    manual_src = AssumptionSource.MANUAL
+    if (
+        manual_equity is not None
+        and manual_equity.value is not None
+        and manual_debt is not None
+        and manual_debt.value is not None
+        and abs(manual_equity.value + manual_debt.value - 1.0) > _WEIGHT_PARTITION_TOLERANCE
+    ):
+        raise ValueError(
+            "equity_weight and debt_weight must sum to 1.0 (they partition invested "
+            f"capital); got equity_weight={manual_equity.value!r} + "
+            f"debt_weight={manual_debt.value!r} = "
+            f"{manual_equity.value + manual_debt.value!r}"
+        )
+    if manual_equity is not None and manual_equity.value is not None:
+        equity = manual_equity.value
+        debt = (
+            manual_debt.value
+            if manual_debt is not None and manual_debt.value is not None
+            else 1.0 - equity
+        )
+        return Sourced(value=equity, source=manual_src), Sourced(value=debt, source=manual_src)
+    if manual_debt is not None and manual_debt.value is not None:
+        debt = manual_debt.value
+        return (
+            Sourced(value=1.0 - debt, source=manual_src),
+            Sourced(value=debt, source=manual_src),
+        )
+    if sector.row is not None and sector.row.debt_to_equity is not None:
+        d_to_e = sector.row.debt_to_equity
         debt_weight = d_to_e / (1.0 + d_to_e)
+        src = sector.source
         equity_weight = 1.0 - debt_weight
-        src = AssumptionSource.SECTOR_DEFAULT_DAMODARAN
         return Sourced(value=equity_weight, source=src), Sourced(value=debt_weight, source=src)
-    src = AssumptionSource.SECTOR_DEFAULT_DAMODARAN
-    return Sourced(value=None, source=src), Sourced(value=None, source=src)
+    unresolved = AssumptionSource.UNRESOLVED
+    return Sourced(value=None, source=unresolved), Sourced(value=None, source=unresolved)
 
 
 def _resolve_terminal_growth(
@@ -483,7 +649,9 @@ def _resolve_terminal_growth(
 
 
 def _resolve_tax_rate(
-    override: dict[str, Any], sector: _SectorRow | None, country: _CountryRow | None
+    override: dict[str, Any],
+    sector: _SectorDefaults,
+    country: _CountryRow | None,
 ) -> Sourced[float | None]:
     """Marginal tax rate: manual → sector → country → rule-based default (§7.2).
 
@@ -496,8 +664,8 @@ def _resolve_tax_rate(
     manual = _override_scalar(override, "tax_rate")
     if manual is not None:
         return manual
-    if sector is not None and sector.tax_rate is not None:
-        return Sourced(value=sector.tax_rate, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN)
+    if sector.row is not None and sector.row.tax_rate is not None:
+        return Sourced(value=sector.row.tax_rate, source=sector.source)
     if country is not None and country.tax_rate is not None:
         return Sourced(value=country.tax_rate, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN)
     return Sourced(value=_DEFAULT_TAX_RATE, source=AssumptionSource.RULE_BASED)
@@ -508,4 +676,17 @@ def _resolve_probability_of_bankruptcy(override: dict[str, Any]) -> Sourced[floa
     if manual is not None and manual.value is not None:
         return Sourced(value=manual.value, source=AssumptionSource.MANUAL)
     # Default 0 outside distressed stories (spec §7.3).
+    return Sourced(value=0.0, source=AssumptionSource.RULE_BASED)
+
+
+def _resolve_distress_value_per_share(override: dict[str, Any]) -> Sourced[float]:
+    """Per-share liquidation value, paired with ``probability_of_bankruptcy``.
+
+    Spec §7.3's rating/Altman-Z derivation for distressed companies is not
+    implemented, so this is never populated automatically: it comes from a
+    manual override or stays at the neutral 0.0 default.
+    """
+    manual = _override_scalar(override, "distress_value_per_share")
+    if manual is not None and manual.value is not None:
+        return Sourced(value=manual.value, source=AssumptionSource.MANUAL)
     return Sourced(value=0.0, source=AssumptionSource.RULE_BASED)

@@ -43,6 +43,11 @@ class Financials:
         adjustments: Net non-operating equity adjustments (spec §7.2): subtract
             minority interest, add the value of cross-holdings, etc. Added to
             equity value, so credits are positive and charges negative.
+
+    ``adjustments`` (minority interests, cross-holdings) is a supported input of the
+    equity bridge that the analysis pipeline does not populate: no ingest path supplies
+    either figure, so it defaults to 0.0. It is kept because the bridge is arithmetically
+    correct with it and a manual override can supply it.
     """
 
     revenue: float
@@ -79,6 +84,11 @@ class Assumptions:
             going-concern per-share value and ``distress_value_per_share``.
         distress_value_per_share: Per-share value recovered in bankruptcy
             (e.g. liquidation proceeds to equity). Defaults to zero.
+
+    ``distress_value_per_share`` pairs with ``probability_of_bankruptcy`` to blend a
+    going-concern value with a liquidation value. Neither is populated automatically —
+    §7.3's rating/Altman-Z derivation for distressed companies is not implemented — so
+    both come from a manual override or stay at 0.0.
     """
 
     revenue_growth: tuple[float, ...]

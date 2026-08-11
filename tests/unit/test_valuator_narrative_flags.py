@@ -1,7 +1,7 @@
 """Unit tests for the five quantitative narrative flags (issue #15 / M4.5).
 
 Spec §7.5: five proxies for story↔numbers consistency, each returning a
-``{green, yellow, red}`` verdict with a reason. Each flag is a pure function over
+``{green, yellow, red, unknown}`` verdict with a reason. Each flag is a pure function over
 the DCF inputs/output plus a :class:`NarrativeContext` of the extra,
 flag-specific data. These tests cover every color outcome of every flag and the
 aggregator.
@@ -115,14 +115,49 @@ def test_story_margin_green_for_other_story_types() -> None:
     assert flag.color is FlagColor.GREEN
 
 
-def test_story_margin_green_when_inputs_missing() -> None:
+def test_story_margin_unknown_when_inputs_missing() -> None:
+    # A check that could not run must never read as a pass (spec §7.5).
     fin = _financials()
     asm = _assumptions()
     flag = story_margin_flag(
         fin, asm, _result(fin, asm), _ctx(story_type="high-growth")
     )
-    assert flag.color is FlagColor.GREEN
-    assert "unavailable" in flag.reason
+    assert flag.color is FlagColor.UNKNOWN
+    assert flag.reason.startswith("not evaluated:")
+
+
+def test_story_margin_unknown_when_only_sector_margin_is_missing() -> None:
+    # The realised company margin alone cannot decide the check.
+    fin = _financials()
+    asm = _assumptions()
+    flag = story_margin_flag(
+        fin,
+        asm,
+        _result(fin, asm),
+        _ctx(story_type="high-growth", company_operating_margin=0.30),
+    )
+    assert flag.color is FlagColor.UNKNOWN
+
+
+def test_story_margin_still_reaches_yellow_with_a_real_company_margin() -> None:
+    # Turning the missing-data branch to UNKNOWN must not amputate the logic: a
+    # genuinely divergent realised margin still lands on the yellow verdict.
+    fin = _financials()
+    asm = _assumptions()
+    flag = story_margin_flag(
+        fin,
+        asm,
+        _result(fin, asm),
+        _ctx(
+            story_type="high-growth",
+            company_operating_margin=0.412,
+            sector_operating_margin=0.183,
+        ),
+    )
+    assert flag.color is FlagColor.YELLOW
+    assert "41.2%" in flag.reason
+    assert "18.3%" in flag.reason
+    assert "at/below sector" not in flag.reason
 
 
 # --------------------------------------------------------------------------- #
@@ -193,12 +228,14 @@ def test_growth_reinvestment_green_when_comfortably_funded() -> None:
 
 def test_beta_business_risk_yellow_when_defensive_beta_high_leverage() -> None:
     fin = _financials()
-    asm = _assumptions(equity_weight=0.5, debt_weight=0.5)
+    # Assumptions.debt_weight is the *sector's* WACC weight — deliberately left
+    # low here to prove the flag reads context.company_debt_weight instead.
+    asm = _assumptions(equity_weight=0.9, debt_weight=0.1)
     flag = beta_business_risk_flag(
         fin,
         asm,
         _result(fin, asm),
-        _ctx(sector_beta=0.8, operating_leverage=2.0),
+        _ctx(sector_beta=0.8, operating_leverage=2.0, company_debt_weight=0.5),
     )
     assert flag.color is FlagColor.YELLOW
     assert flag.name == "beta_business_risk"
@@ -211,7 +248,7 @@ def test_beta_business_risk_green_when_beta_high() -> None:
         fin,
         asm,
         _result(fin, asm),
-        _ctx(sector_beta=1.2, operating_leverage=2.0),
+        _ctx(sector_beta=1.2, operating_leverage=2.0, company_debt_weight=0.5),
     )
     assert flag.color is FlagColor.GREEN
 
@@ -223,19 +260,37 @@ def test_beta_business_risk_green_when_low_leverage() -> None:
         fin,
         asm,
         _result(fin, asm),
-        _ctx(sector_beta=0.8, operating_leverage=1.0),
+        _ctx(sector_beta=0.8, operating_leverage=1.0, company_debt_weight=0.1),
     )
     assert flag.color is FlagColor.GREEN
 
 
-def test_beta_business_risk_green_when_inputs_missing() -> None:
+def test_beta_business_risk_uses_the_company_leverage() -> None:
+    # The company is debt-heavy (55%) while its sector's D/E implies a light
+    # structure. The flag must read the company's own leverage.
+    fin = _financials()
+    asm = _assumptions(debt_weight=0.10)
+    flag = beta_business_risk_flag(
+        fin,
+        asm,
+        _result(fin, asm),
+        _ctx(sector_beta=0.8, operating_leverage=2.0, company_debt_weight=0.55),
+    )
+    assert flag.color is FlagColor.YELLOW
+    assert "55%" in flag.reason
+
+
+def test_beta_business_risk_unknown_without_company_leverage() -> None:
+    # It used to read assumptions.debt_weight (the sector's WACC weight) as a
+    # stand-in for the company's leverage, so it never went UNKNOWN even when
+    # the company's own balance sheet was unavailable. Now it must.
     fin = _financials()
     asm = _assumptions()
     flag = beta_business_risk_flag(
-        fin, asm, _result(fin, asm), _ctx(sector_beta=0.8)
+        fin, asm, _result(fin, asm), _ctx(sector_beta=0.8, operating_leverage=2.0)
     )
-    assert flag.color is FlagColor.GREEN
-    assert "unavailable" in flag.reason
+    assert flag.color is FlagColor.UNKNOWN
+    assert "not evaluated" in flag.reason
 
 
 # --------------------------------------------------------------------------- #
@@ -312,14 +367,40 @@ def test_country_exposure_green_when_erp_gap_narrow() -> None:
     assert flag.color is FlagColor.GREEN
 
 
-def test_country_exposure_green_when_inputs_missing() -> None:
+def test_country_exposure_is_unknown_not_green_without_data() -> None:
+    # It used to return GREEN with "figures unavailable", which reads as "checked
+    # and fine". A check that did not run must not look like a pass.
     fin = _financials()
     asm = _assumptions()
     flag = country_exposure_flag(
         fin, asm, _result(fin, asm), _ctx(foreign_revenue_share=0.70)
     )
+    assert flag.color is FlagColor.UNKNOWN
+    assert "not evaluated" in flag.reason
+
+
+def test_country_exposure_red_when_the_data_is_present() -> None:
+    fin = _financials()
+    asm = _assumptions()
+    flag = country_exposure_flag(
+        fin,
+        asm,
+        _result(fin, asm),
+        _ctx(foreign_revenue_share=0.70, erp_weighted=0.09, erp_listing=0.045),
+    )
+    assert flag.color is FlagColor.RED
+
+
+def test_country_exposure_green_when_the_gap_is_small() -> None:
+    fin = _financials()
+    asm = _assumptions()
+    flag = country_exposure_flag(
+        fin,
+        asm,
+        _result(fin, asm),
+        _ctx(foreign_revenue_share=0.70, erp_weighted=0.046, erp_listing=0.045),
+    )
     assert flag.color is FlagColor.GREEN
-    assert "unavailable" in flag.reason
 
 
 # --------------------------------------------------------------------------- #

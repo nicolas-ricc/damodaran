@@ -1,8 +1,10 @@
 """Unit tests for assumptions resolution with source tracking (issue #12 / M4.2).
 
 Spec §7.3: the six critical DCF assumptions, each carrying its provenance
-(``source ∈ {manual, analyst_consensus, sector_default_damodaran, rule_based,
-historical_average}``). The resolution order is:
+(``source ∈ {manual, sector_default_damodaran,
+sector_default_damodaran_cross_region, rule_based, historical_average,
+unresolved}``). ``analyst_consensus`` was removed: nothing ever emitted it.
+The resolution order is:
 
 1. Manual override from ``config/assumptions/<TICKER>.yaml`` if present
 2. Analyst consensus (FMP, M2 — for the M1 universe, fall back to historical)
@@ -144,7 +146,10 @@ def test_returns_assumptions_with_sourced_fields(conn: duckdb.DuckDBPyConnection
         result.revenue_growth,
         result.operating_margin,
         result.sales_to_capital,
-        result.wacc,
+        result.cost_of_equity,
+        result.pretax_cost_of_debt,
+        result.equity_weight,
+        result.debt_weight,
         result.terminal_growth,
         result.probability_of_bankruptcy,
     ):
@@ -166,11 +171,15 @@ def test_sales_to_capital_uses_sector_default(conn: duckdb.DuckDBPyConnection) -
     assert result.sales_to_capital.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
 
 
-def test_wacc_uses_sector_default(conn: duckdb.DuckDBPyConnection) -> None:
+def test_wacc_components_use_sector_default(conn: duckdb.DuckDBPyConnection) -> None:
+    # There is no resolved Assumptions.wacc (see module docstring): the DCF
+    # computes WACC from these four sourced components instead.
     _seed_full_sector(conn)
     result = resolve_assumptions("ACME", conn)
-    assert result.wacc.value == pytest.approx(0.09)
-    assert result.wacc.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
+    assert result.cost_of_equity.value == pytest.approx(0.10)
+    assert result.cost_of_equity.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
+    assert result.pretax_cost_of_debt.value == pytest.approx(0.04)
+    assert result.pretax_cost_of_debt.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
 
 
 def test_probability_of_bankruptcy_defaults_to_zero_rule_based(
@@ -257,7 +266,6 @@ def test_manual_override_wins_for_every_field(
                 "revenue_growth: [0.20, 0.18, 0.15, 0.12, 0.10]",
                 "operating_margin: 0.30",
                 "sales_to_capital: 3.0",
-                "wacc: 0.08",
                 "terminal_growth: 0.025",
                 "probability_of_bankruptcy: 0.10",
                 "notes: 'consensus looked biased'",
@@ -270,8 +278,6 @@ def test_manual_override_wins_for_every_field(
     assert result.operating_margin.source is AssumptionSource.MANUAL
     assert result.sales_to_capital.value == pytest.approx(3.0)
     assert result.sales_to_capital.source is AssumptionSource.MANUAL
-    assert result.wacc.value == pytest.approx(0.08)
-    assert result.wacc.source is AssumptionSource.MANUAL
     assert result.terminal_growth.value == pytest.approx(0.025)
     assert result.terminal_growth.source is AssumptionSource.MANUAL
     assert result.probability_of_bankruptcy.value == pytest.approx(0.10)
@@ -363,7 +369,9 @@ def test_missing_sector_row_leaves_field_unresolved(
     _seed_country(conn)
     result = resolve_assumptions("ACME", conn, gdp_nominal=GDP_NOMINAL_US)
     assert result.operating_margin.value is None
+    assert result.operating_margin.source is AssumptionSource.UNRESOLVED
     assert result.sales_to_capital.value is None
+    assert result.sales_to_capital.source is AssumptionSource.UNRESOLVED
     # Country-derived rule-based terminal growth still resolves.
     assert result.terminal_growth.value == pytest.approx(0.03)
 
@@ -407,3 +415,237 @@ def test_tax_rate_rule_based_default_when_no_data(conn: duckdb.DuckDBPyConnectio
     result = resolve_assumptions("ACME", conn)
     assert result.tax_rate.value == pytest.approx(0.25)
     assert result.tax_rate.source is AssumptionSource.RULE_BASED
+
+
+# --------------------------------------------------------------------------- #
+# Dataset-region resolution (spec §5.1)                                        #
+# --------------------------------------------------------------------------- #
+
+
+def test_sector_joins_on_the_dataset_region_not_the_geographic_grouping(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """The published country sheet stores "North America", the industry rows "US".
+
+    Joining the two verbatim never matched, so every company resolved no sector row
+    and to_dcf_assumptions() raised.
+    """
+    _seed_company(conn)
+    _seed_industry(conn, region="US")
+    _seed_country(conn, region="North America")
+    result = resolve_assumptions("ACME", conn)
+    assert result.operating_margin.value == pytest.approx(0.18)
+    assert result.operating_margin.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
+
+
+def test_cross_region_substitution_is_disclosed(conn: duckdb.DuckDBPyConnection) -> None:
+    """A German company maps to "Europe", which has no ingested rows today.
+
+    The US row is substituted rather than resolving nothing, and every value drawn
+    from it is labelled so the report shows the substitution.
+    """
+    _seed_company(conn, ticker="DEU", country="Germany")
+    _seed_industry(conn, region="US")
+    _seed_country(conn, country="Germany", region="Western Europe")
+    result = resolve_assumptions("DEU", conn)
+    assert result.operating_margin.value == pytest.approx(0.18)
+    cross = AssumptionSource.SECTOR_DEFAULT_DAMODARAN_CROSS_REGION
+    assert result.operating_margin.source is cross
+    assert result.equity_weight.source is cross
+    assert result.tax_rate.source is cross
+
+
+def test_no_sector_row_at_all_is_not_reported_as_cross_region(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_company(conn, industry_damodaran="Nonexistent Industry")
+    _seed_industry(conn, region="US")
+    _seed_country(conn, region="North America")
+    result = resolve_assumptions("ACME", conn)
+    assert result.operating_margin.value is None
+    # Unresolved, not a fabricated sector default and not mislabelled cross-region.
+    assert result.operating_margin.source is AssumptionSource.UNRESOLVED
+
+
+def test_assumptions_has_no_redundant_wacc_field() -> None:
+    from dataclasses import fields
+
+    from bot.valuator.assumptions import Assumptions
+
+    # Deleted: to_dcf_assumptions() ignored it and the DCF recomputes WACC from
+    # its components, so the field only ever produced a contradictory report.
+    assert "wacc" not in {f.name for f in fields(Assumptions)}
+
+
+def test_unresolved_assumption_reports_unresolved_not_a_sector_default(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    # A company whose industry has no Damodaran row: the assumption has no value,
+    # so claiming it came from the sector defaults is a lie the report would print.
+    _seed_company(conn, ticker="OBSCURE", industry_damodaran="Obscure")
+    result = resolve_assumptions("OBSCURE", conn)
+    assert result.operating_margin.value is None
+    assert result.operating_margin.source is AssumptionSource.UNRESOLVED
+
+
+def test_resolved_assumption_still_reports_the_sector(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_company(conn, ticker="SEMI", industry_damodaran="Software")
+    _seed_industry(conn, op_margin=0.22)
+    result = resolve_assumptions("SEMI", conn)
+    assert result.operating_margin.value == pytest.approx(0.22)
+    assert result.operating_margin.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
+
+
+def test_partial_weight_override_is_honoured(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    # Setting only equity_weight used to be discarded silently. The complement is
+    # implied: weights partition capital.
+    _seed_company(conn, ticker="LEV", industry_damodaran="Software")
+    _seed_industry(conn, debt_to_equity=0.25)
+    override = tmp_path / "LEV.yaml"
+    override.write_text("equity_weight: 0.7\n")
+    result = resolve_assumptions("LEV", conn, override_path=override)
+    assert result.equity_weight.value == pytest.approx(0.7)
+    assert result.debt_weight.value == pytest.approx(0.3)
+    assert result.equity_weight.source is AssumptionSource.MANUAL
+    assert result.debt_weight.source is AssumptionSource.MANUAL
+
+
+def test_both_weights_overridden_must_partition(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    # 0.7 + 0.4 used to resolve verbatim and flow into _wacc, producing a wrong
+    # intrinsic value under a MANUAL provenance label.
+    _seed_company(conn, ticker="BAD", industry_damodaran="Software")
+    _seed_industry(conn, debt_to_equity=0.25)
+    override = tmp_path / "BAD.yaml"
+    override.write_text("equity_weight: 0.7\ndebt_weight: 0.4\n")
+    with pytest.raises(ValueError, match=r"must sum to 1\.0"):
+        resolve_assumptions("BAD", conn, override_path=override)
+
+
+def test_both_weights_overridden_are_accepted_when_they_partition(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_company(conn, ticker="OK", industry_damodaran="Software")
+    _seed_industry(conn, debt_to_equity=0.25)
+    override = tmp_path / "OK.yaml"
+    override.write_text("equity_weight: 0.65\ndebt_weight: 0.35\n")
+    result = resolve_assumptions("OK", conn, override_path=override)
+    assert result.equity_weight.value == pytest.approx(0.65)
+    assert result.debt_weight.value == pytest.approx(0.35)
+    assert result.equity_weight.source is AssumptionSource.MANUAL
+
+
+def test_weights_always_partition(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_company(conn, ticker="W", industry_damodaran="Software")
+    _seed_industry(conn, debt_to_equity=0.25)
+    result = resolve_assumptions("W", conn)
+    assert result.equity_weight.value is not None and result.debt_weight.value is not None
+    assert result.equity_weight.value + result.debt_weight.value == pytest.approx(1.0)
+
+
+def test_unknown_override_key_is_rejected(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    # A typo used to be ignored, so the user believed an override applied that did not.
+    _seed_company(conn, ticker="TYPO", industry_damodaran="Software")
+    override = tmp_path / "TYPO.yaml"
+    override.write_text("terminal_grow: 0.02\n")
+    with pytest.raises(ValueError, match="unknown override key"):
+        resolve_assumptions("TYPO", conn, override_path=override)
+
+
+def test_unknown_override_key_error_lists_the_valid_ones(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_company(conn, ticker="TYPO2", industry_damodaran="Software")
+    override = tmp_path / "TYPO2.yaml"
+    override.write_text("wacc: 0.09\n")
+    with pytest.raises(ValueError, match="terminal_growth"):
+        resolve_assumptions("TYPO2", conn, override_path=override)
+
+
+def test_every_documented_override_key_is_accepted(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_company(conn, ticker="ALL", industry_damodaran="Software")
+    override = tmp_path / "ALL.yaml"
+    override.write_text(
+        "revenue_growth: [0.1, 0.09, 0.08, 0.07, 0.06]\n"
+        "operating_margin: 0.2\n"
+        "sales_to_capital: 2.0\n"
+        "terminal_growth: 0.02\n"
+        "cost_of_equity: 0.09\n"
+        "pretax_cost_of_debt: 0.05\n"
+        "equity_weight: 0.8\n"
+        "debt_weight: 0.2\n"
+        "tax_rate: 0.25\n"
+        "probability_of_bankruptcy: 0.05\n"
+        "distress_value_per_share: 3.5\n"
+        "story_type: high-growth\n"
+        "notes: manual review\n"
+    )
+    result = resolve_assumptions("ALL", conn, override_path=override)
+    assert result.story_type == "high-growth"
+    assert result.notes == "manual review"
+    assert result.distress_value_per_share.value == pytest.approx(3.5)
+    assert result.distress_value_per_share.source is AssumptionSource.MANUAL
+
+
+def test_distress_value_per_share_override_reaches_the_dcf(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    """probability_of_bankruptcy and distress_value_per_share are a pair: the DCF
+    blends a going-concern value with a liquidation value using both. A
+    probability override with no reachable distress_value_per_share could only
+    ever blend toward zero, so both must flow through to_dcf_assumptions()."""
+    _seed_full_sector(conn)
+    _seed_financials(
+        conn,
+        rows=((2022, 100.0, 18.0), (2023, 110.0, 20.0), (2024, 121.0, 22.0)),
+    )
+    baseline = resolve_assumptions("ACME", conn, gdp_nominal=GDP_NOMINAL_US)
+    assert baseline.distress_value_per_share.value == pytest.approx(0.0)
+    assert baseline.distress_value_per_share.source is AssumptionSource.RULE_BASED
+    baseline_dcf = baseline.to_dcf_assumptions()
+    assert baseline_dcf.probability_of_bankruptcy == pytest.approx(0.0)
+    assert baseline_dcf.distress_value_per_share == pytest.approx(0.0)
+
+    override = tmp_path / "ACME.yaml"
+    override.write_text(
+        "probability_of_bankruptcy: 0.5\ndistress_value_per_share: 3.5\n"
+    )
+    distressed = resolve_assumptions(
+        "ACME", conn, override_path=override, gdp_nominal=GDP_NOMINAL_US
+    )
+    assert distressed.probability_of_bankruptcy.value == pytest.approx(0.5)
+    assert distressed.distress_value_per_share.value == pytest.approx(3.5)
+    distressed_dcf = distressed.to_dcf_assumptions()
+    assert distressed_dcf.probability_of_bankruptcy == pytest.approx(0.5)
+    assert distressed_dcf.distress_value_per_share == pytest.approx(3.5)
+
+    from bot.valuator.dcf import Financials, dcf
+
+    financials = Financials(revenue=121.0, net_debt=50.0, shares_diluted=10.0)
+    baseline_value = dcf(financials, baseline_dcf).intrinsic_value
+    distressed_value = dcf(financials, distressed_dcf).intrinsic_value
+    # Wiring is real, not cosmetic: blending in a 50% bankruptcy probability at a
+    # distress value far below the going-concern value moves the intrinsic value.
+    assert distressed_value != pytest.approx(baseline_value)
+
+
+def test_assumption_source_has_no_unreachable_member() -> None:
+    from bot.valuator.assumptions import AssumptionSource
+
+    # ANALYST_CONSENSUS was never emitted by any resolver: revenue growth comes
+    # from the historical average. Deleted so the enum describes what can happen.
+    assert {s.value for s in AssumptionSource} == {
+        "manual",
+        "sector_default_damodaran",
+        "sector_default_damodaran_cross_region",
+        "rule_based",
+        "historical_average",
+        "unresolved",
+    }
