@@ -315,13 +315,16 @@ def load_valuation_input(
 
 
 def _story_reasons(
-    story_type: StoryType,
+    auto_story_type: StoryType,
     revenue_history: tuple[float, ...],
     age_years: int | None,
     *,
     overridden: bool,
 ) -> tuple[str, ...]:
     """Human-readable reasons for the story type shown in report §2.
+
+    ``auto_story_type`` is always the classifier's verdict, not the effective story
+    type — when ``overridden`` is set the two differ, and the reason line says so.
 
     When the type was manually overridden the auto-classification's reasons no
     longer explain it, so they are replaced by the override notice — otherwise the
@@ -330,7 +333,7 @@ def _story_reasons(
     if overridden:
         return (
             f"manually overridden in the assumptions file; the classifier would "
-            f"have said {story_type.value}",
+            f"have said {auto_story_type.value}",
         )
     reasons: list[str] = []
     if len(revenue_history) >= 2 and revenue_history[0] > 0.0:
@@ -341,7 +344,7 @@ def _story_reasons(
         reasons.append("too little revenue history for a reliable growth signal")
     if age_years is not None:
         reasons.append(f"company age {age_years} years")
-    reasons.append(f"classified as {story_type.value}")
+    reasons.append(f"classified as {auto_story_type.value}")
     return tuple(reasons)
 
 
