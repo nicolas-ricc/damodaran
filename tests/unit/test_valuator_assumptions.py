@@ -557,12 +557,57 @@ def test_every_documented_override_key_is_accepted(
         "debt_weight: 0.2\n"
         "tax_rate: 0.25\n"
         "probability_of_bankruptcy: 0.05\n"
+        "distress_value_per_share: 3.5\n"
         "story_type: high-growth\n"
         "notes: manual review\n"
     )
     result = resolve_assumptions("ALL", conn, override_path=override)
     assert result.story_type == "high-growth"
     assert result.notes == "manual review"
+    assert result.distress_value_per_share.value == pytest.approx(3.5)
+    assert result.distress_value_per_share.source is AssumptionSource.MANUAL
+
+
+def test_distress_value_per_share_override_reaches_the_dcf(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    """probability_of_bankruptcy and distress_value_per_share are a pair: the DCF
+    blends a going-concern value with a liquidation value using both. A
+    probability override with no reachable distress_value_per_share could only
+    ever blend toward zero, so both must flow through to_dcf_assumptions()."""
+    _seed_full_sector(conn)
+    _seed_financials(
+        conn,
+        rows=((2022, 100.0, 18.0), (2023, 110.0, 20.0), (2024, 121.0, 22.0)),
+    )
+    baseline = resolve_assumptions("ACME", conn, gdp_nominal=GDP_NOMINAL_US)
+    assert baseline.distress_value_per_share.value == pytest.approx(0.0)
+    assert baseline.distress_value_per_share.source is AssumptionSource.RULE_BASED
+    baseline_dcf = baseline.to_dcf_assumptions()
+    assert baseline_dcf.probability_of_bankruptcy == pytest.approx(0.0)
+    assert baseline_dcf.distress_value_per_share == pytest.approx(0.0)
+
+    override = tmp_path / "ACME.yaml"
+    override.write_text(
+        "probability_of_bankruptcy: 0.5\ndistress_value_per_share: 3.5\n"
+    )
+    distressed = resolve_assumptions(
+        "ACME", conn, override_path=override, gdp_nominal=GDP_NOMINAL_US
+    )
+    assert distressed.probability_of_bankruptcy.value == pytest.approx(0.5)
+    assert distressed.distress_value_per_share.value == pytest.approx(3.5)
+    distressed_dcf = distressed.to_dcf_assumptions()
+    assert distressed_dcf.probability_of_bankruptcy == pytest.approx(0.5)
+    assert distressed_dcf.distress_value_per_share == pytest.approx(3.5)
+
+    from bot.valuator.dcf import Financials, dcf
+
+    financials = Financials(revenue=121.0, net_debt=50.0, shares_diluted=10.0)
+    baseline_value = dcf(financials, baseline_dcf).intrinsic_value
+    distressed_value = dcf(financials, distressed_dcf).intrinsic_value
+    # Wiring is real, not cosmetic: blending in a 50% bankruptcy probability at a
+    # distress value far below the going-concern value moves the intrinsic value.
+    assert distressed_value != pytest.approx(baseline_value)
 
 
 def test_assumption_source_has_no_unreachable_member() -> None:

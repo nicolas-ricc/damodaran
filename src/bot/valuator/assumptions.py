@@ -106,6 +106,11 @@ class Assumptions:
         terminal_growth: Perpetual growth ``g`` past the horizon.
         probability_of_bankruptcy: Probability the firm fails (0 outside
             distressed stories).
+        distress_value_per_share: Per-share value recovered in bankruptcy,
+            paired with ``probability_of_bankruptcy`` to blend a going-concern
+            and liquidation value (0 outside distressed stories). Never
+            derived automatically — §7.3's rating/Altman-Z derivation is not
+            implemented — so it comes from a manual override or stays 0.0.
         cost_of_equity / pretax_cost_of_debt / equity_weight / debt_weight:
             The WACC components, kept so a downstream DCF can rebuild WACC from
             its parts and report the weights actually used.
@@ -120,6 +125,7 @@ class Assumptions:
     sales_to_capital: Sourced[float | None]
     terminal_growth: Sourced[float | None]
     probability_of_bankruptcy: Sourced[float]
+    distress_value_per_share: Sourced[float]
     cost_of_equity: Sourced[float | None]
     pretax_cost_of_debt: Sourced[float | None]
     equity_weight: Sourced[float | None]
@@ -149,6 +155,7 @@ class Assumptions:
             equity_weight=_require(self.equity_weight, "equity_weight"),
             debt_weight=_require(self.debt_weight, "debt_weight"),
             probability_of_bankruptcy=self.probability_of_bankruptcy.value,
+            distress_value_per_share=self.distress_value_per_share.value,
         )
 
 
@@ -476,6 +483,7 @@ def resolve_assumptions(
     equity_weight, debt_weight = _resolve_weights(override, sector, cross_region=cross_region)
     terminal_growth = _resolve_terminal_growth(override, country, gdp_nominal)
     probability_of_bankruptcy = _resolve_probability_of_bankruptcy(override)
+    distress_value_per_share = _resolve_distress_value_per_share(override)
     tax_rate = _resolve_tax_rate(override, sector, country, cross_region=cross_region)
 
     return Assumptions(
@@ -484,6 +492,7 @@ def resolve_assumptions(
         sales_to_capital=sales_to_capital,
         terminal_growth=terminal_growth,
         probability_of_bankruptcy=probability_of_bankruptcy,
+        distress_value_per_share=distress_value_per_share,
         cost_of_equity=cost_of_equity,
         pretax_cost_of_debt=pretax_cost_of_debt,
         equity_weight=equity_weight,
@@ -632,4 +641,17 @@ def _resolve_probability_of_bankruptcy(override: dict[str, Any]) -> Sourced[floa
     if manual is not None and manual.value is not None:
         return Sourced(value=manual.value, source=AssumptionSource.MANUAL)
     # Default 0 outside distressed stories (spec §7.3).
+    return Sourced(value=0.0, source=AssumptionSource.RULE_BASED)
+
+
+def _resolve_distress_value_per_share(override: dict[str, Any]) -> Sourced[float]:
+    """Per-share liquidation value, paired with ``probability_of_bankruptcy``.
+
+    Spec §7.3's rating/Altman-Z derivation for distressed companies is not
+    implemented, so this is never populated automatically: it comes from a
+    manual override or stays at the neutral 0.0 default.
+    """
+    manual = _override_scalar(override, "distress_value_per_share")
+    if manual is not None and manual.value is not None:
+        return Sourced(value=manual.value, source=AssumptionSource.MANUAL)
     return Sourced(value=0.0, source=AssumptionSource.RULE_BASED)
