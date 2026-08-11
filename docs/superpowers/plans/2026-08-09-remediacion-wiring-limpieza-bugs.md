@@ -38,11 +38,11 @@
 - Modify: `CONTEXT.md:31` — corregir el servicio externo de M5.
 
 **Fase 1 — conectar (wiring)**
-- Create: `config/industry_mapping.csv` — mapa proveedor→Damodaran (~95 industries destino).
+- Create: `src/bot/ingest/industry_mapping.csv` — mapa proveedor→Damodaran (~95 industries destino), empaquetado en la wheel. Única copia: no hay gemela en `config/`.
 - Create: `src/bot/ingest/industry_mapping.py` — carga + normalización + lookup. Responsabilidad única: resolver un string de industria de proveedor a la taxonomía Damodaran.
 - Create: `src/bot/reference/sectors.py` — sets canónicos derivados de la taxonomía Damodaran (financieras, cíclicas). Sin I/O, sin DB.
 - Modify: `src/bot/config.py` — `industry_mapping_path`.
-- Modify: `src/bot/ingest/fmp.py` (`_company_row`), `src/bot/ingest/sec_edgar.py` (`parse_company_facts`) — poblar `industry_damodaran`.
+- Modify: `src/bot/ingest/fmp.py` (`_company_row`) — poblar `industry_damodaran`. *(Corrección post-ejecución: esta línea nombraba también `src/bot/ingest/sec_edgar.py` (`parse_company_facts`). Es falso y siempre lo fue — el `Produces` de Task 1.2 acota el wiring a FMP, y el payload de company-facts de EDGAR no trae etiqueta de industria alguna: cero apariciones de `sic`/`industry` en el módulo. El camino SIC→Damodaran, que sí requeriría una llamada extra a `submissions`, está trackeado en el issue **#58**.)*
 - Modify: `src/bot/screener/engine.py` (`build_company_data`) — poblar `is_financial_services`.
 - Modify: `src/bot/ingest/damodaran.py` — column maps ampliados, escalares pre-header, hoja `Country Tax Rates`, registro de datasets adicionales.
 - Modify: `src/bot/storage/schema.sql` — `fx_rate_to_usd`, `market_cap_usd`, `close_usd`.
@@ -257,7 +257,7 @@ Es la tarea keystone de la fase: hoy `companies.industry_damodaran` **nunca se e
 
 **Files:**
 - Create: `src/bot/ingest/industry_mapping.py`
-- Create: `config/industry_mapping.csv`
+- Create: `src/bot/ingest/industry_mapping.csv`
 - Create: `tests/unit/test_industry_mapping.py`
 - Modify: `src/bot/config.py` (agregar `industry_mapping_path` después de `presets_dir`)
 
@@ -585,11 +585,13 @@ class IndustryMapping:
 
 
 def default_mapping_path() -> Path:
-    """Path of the mapping CSV shipped with the repo (``config/industry_mapping.csv``)."""
-    packaged = Path(str(resources.files("bot.ingest").joinpath("industry_mapping.csv")))
-    if packaged.exists():
-        return packaged
-    return Path("config/industry_mapping.csv")
+    """Path of the mapping CSV packaged with ``bot.ingest``.
+
+    Returns ``bot/ingest/industry_mapping.csv``, the copy installed alongside the
+    code. There is deliberately **no** repo-relative fallback: a second committed
+    copy would drift, and which one won would depend on the process CWD.
+    """
+    return Path(str(resources.files("bot.ingest").joinpath("industry_mapping.csv")))
 
 
 def load_industry_mapping(path: Path | None = None) -> IndustryMapping:
@@ -644,7 +646,7 @@ def load_industry_mapping(path: Path | None = None) -> IndustryMapping:
 
 - [ ] **Step 4: Escribir el CSV de mapeo**
 
-Create `config/industry_mapping.csv`. Cubre la taxonomía FMP/Yahoo que el bot va a ver en la práctica; lo no mapeado degrada a `None` (reglas sector-relativas hacen skip), que es el comportamiento de hoy pero ahora explícito.
+Create `src/bot/ingest/industry_mapping.csv`. Cubre la taxonomía FMP/Yahoo que el bot va a ver en la práctica; lo no mapeado degrada a `None` (reglas sector-relativas hacen skip), que es el comportamiento de hoy pero ahora explícito.
 
 ```csv
 provider,provider_industry,damodaran_industry
@@ -802,23 +804,21 @@ En `pyproject.toml`, dentro de `[tool.hatch.build.targets.wheel.force-include]`,
 "src/bot/ingest/industry_mapping.csv" = "bot/ingest/industry_mapping.csv"
 ```
 
-Copiá el CSV a la ubicación empaquetada (la de `config/` es la editable por el usuario; la empaquetada es el default que viaja con la wheel):
-
-```bash
-cp config/industry_mapping.csv src/bot/ingest/industry_mapping.csv
-```
+El CSV vive **sólo** en la ubicación empaquetada. No hay copia gemela en `config/`: dos ficheros byte-idénticos cuyo ganador depende del CWD del proceso es el defecto, no la feature. El usuario que quiera su propio mapa apunta `BOT_INDUSTRY_MAPPING_PATH` al suyo.
 
 En `src/bot/config.py`, agregá el campo inmediatamente después de `presets_dir`:
 
 ```python
-    industry_mapping_path: Path = Field(
-        default=Path("./config/industry_mapping.csv"),
+    industry_mapping_path: Path | None = Field(
+        default=None,
         description=(
-            "CSV mapping provider industry labels to the Damodaran taxonomy "
-            "(spec §4.3.1). Falls back to the copy shipped with the package."
+            "Optional CSV mapping provider industry labels to the Damodaran taxonomy "
+            "(spec §4.3.1). Unset uses the mapping shipped with the package."
         ),
     )
 ```
+
+`None` — no un path por defecto — porque "sin configurar" y "configurado apuntando al default" son estados distintos y sólo el primero es verdad de fábrica. Va acompañado de un `field_validator(mode="before")` que trata `BOT_INDUSTRY_MAPPING_PATH=` (vacío o whitespace) como *unset*: sin él pydantic-settings lo coacciona a `Path(".")`, que existe, y la resolución le entrega un **directorio** al lector de CSV.
 
 - [ ] **Step 6: Correr los tests y verificar que pasan**
 
@@ -843,7 +843,7 @@ Expected: `568 passed` (558 + 10 nuevos), clean, clean.
 
 ```bash
 git add src/bot/ingest/industry_mapping.py src/bot/ingest/industry_mapping.csv \
-        config/industry_mapping.csv tests/unit/test_industry_mapping.py \
+        tests/unit/test_industry_mapping.py \
         src/bot/config.py pyproject.toml
 git commit -m "feat(ingest): provider→Damodaran industry mapping (§4.3.1)
 
@@ -1431,6 +1431,17 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
   - `parse_preheader_scalar(path: Path, sheet_name: str, label: str) -> float | None`
   - `DEFAULT_INDUSTRY_COLUMN_MAP` gana `debt_weight_raw: "D/(D+E)"`.
 
+> **Parcialmente ampliado post-ejecución.** `debt_weight_raw` deja el column map con una clave que
+> **no** es columna de `damodaran_industry` (`derive_industry_columns` la consume y la saca), y nada
+> impedía que una clave así se colara sin consumidor y terminara en un `INSERT` contra una columna
+> inexistente. La branch cierra esa trampa con un test invariante en
+> `tests/unit/test_damodaran_datasets.py`: todo destino de todo column map registrado tiene que
+> existir en la tabla, con `{"debt_weight_raw"}` exento inline y por escrito.
+>
+> Lo que **no** se hizo, deliberadamente: partir el map en
+> `INDUSTRY_PARSE_ARTEFACT_COLUMNS` / `WACC_COLUMN_MAP`. No cierra nada que el test invariante no
+> cierre ya, y forzaría editar un test de parser que hoy pasa. Trackeado en el issue **#67**.
+
 - [ ] **Step 1: Escribir el test de regresión que prueba el bloqueo**
 
 Create `tests/unit/test_damodaran_derived.py`:
@@ -1819,7 +1830,21 @@ Todos los tests lo ocultan sembrando ambas tablas con `region='US'`.
   - `COUNTRY_REGION_OVERRIDES: dict[str, str]` — Japan/China/India, que tienen su propio dataset.
   - `dataset_region(country: str | None, geographic_region: str | None) -> str` — resolución con default `"US"`.
   - `AssumptionSource.SECTOR_DEFAULT_DAMODARAN_CROSS_REGION` — nuevo miembro; el sector se resolvió sustituyendo otra región.
-  - `_to_normalized_rows(..., stop_at_repeated_header: bool = True)`.
+  - `_to_normalized_rows(..., stop_at_repeated_header: bool = True)`. ~~Parámetro~~ — ver la desviación de abajo: el truncado quedó incondicional y el parámetro no existe.
+
+> **Desviación registrada (post-ejecución, commit `099366d`).** Este plan prescribe
+> `stop_at_repeated_header: bool = True` textualmente — acá, en la firma del Step 3, en su docstring y
+> en la rama del loop. **La branch lo eliminó**: `_to_normalized_rows` trunca siempre en el header
+> repetido, sin flag. Los tres párrafos de Step 3 que lo mencionan se leen, entonces, como el
+> comportamiento incondicional que describen.
+>
+> Por qué: ningún caller pasó nunca el parámetro — los dos públicos (`parse_industry_xls`,
+> `parse_country_erps`) toman el default —, así que la rama `continue` que el flag habilitaba era
+> código inalcanzable, y era *exactamente el bug de `ERPs by country`* que esta tarea existe para
+> arreglar: un `False` reintroduce las 21 filas con ERP equivocado. Un parámetro cuyo único valor
+> alternativo restaura un defecto conocido no es una costura, es una trampa. Eliminarlo no puede
+> cambiar el parseo de ninguna hoja: verificado contra los fixtures reales, `wacc_sample.xls` da 96
+> filas con flag y sin flag.
 
 - [ ] **Step 1: Escribir el test del truncado**
 
@@ -2637,7 +2662,38 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 1.6: Normalización a USD en el ingest
+### Task 1.6: Normalización a USD en el ingest — ⛔ DIFERIDA, NO IMPLEMENTADA (issue #66)
+
+> **Esta tarea no se ejecutó en esta branch.** Sus checkboxes quedan sin tildar a propósito: describen
+> trabajo pendiente, no trabajo hecho. `screener.engine._market_cap_usd` sigue convirtiendo en el punto
+> de consumo; `prices_daily` **no** gana `close_usd` / `market_cap_usd` / `fx_rate_to_usd`, ni
+> `financials_annual` / `financials_quarterly` ganan `fx_rate_to_usd`. Trackeado en el issue **#66**.
+>
+> Por qué se difiere, en orden de peso:
+>
+> 1. **Es el único workstream que cambia el esquema**, y mete el **primer `ALTER TABLE` de la historia
+>    del repo** — hoy `apply_schema` es un `conn.execute(<archivo entero>)` sin transacción ni
+>    aislamiento de fallos, así que una migración malformada no rompe la migración: rompe *toda*
+>    invocación del CLI. Un patrón así merece su propia PR y su propia revisión.
+> 2. **Cambia el comportamiento del screener en vivo.** Una fila de precio con `currency` NULL pasa hoy
+>    de largo; con las columnas USD queda con `market_cap_usd` NULL y **falla `MinMarketCap`**. Los
+>    shortlists se encogen en silencio, y auditar los fixtures de `min_market_cap` de toda la suite es
+>    parte del costo.
+> 3. **No produce ningún valor observable en el universo actual.** Es US-only: cada columna `*_usd`
+>    sale numéricamente idéntica a su gemela local, con `fx_rate_to_usd = 1.0`. Es esquema nuevo por
+>    columnas que hoy no dicen nada distinto de las que ya están.
+> 4. Además necesita romper el ciclo de import `bot.ingest.fmp` ↔ `bot.utils.fx`, reordenar
+>    `refresh --all` para que FX preceda a precios, y un backfill para las filas que el importador
+>    incremental de precios no reescribe nunca — backfill cuya especificación tiene defectos sin
+>    resolver (no cubre `USD` porque `upsert_fx_rates` jamás guarda una fila para el numerario, y
+>    escribe una sola columna cuando el contrato es que las tres son NULL juntas).
+>
+> **Corrección factual al párrafo de abajo, que se deja como está para no reescribir la historia:** la
+> premisa de que el único consumidor en producción de `utils/fx.py` es `engine._market_cap_usd` es
+> **falsa**. `src/bot/portfolio/sync.py:26` importa `get_fx_rate` y lo usa en `:237` (`_fx_lookup`)
+> para valuar las posiciones del portfolio. Son **dos** consumidores en producción. Lo que sí es cierto
+> es el enunciado más chico: `to_usd` no tiene callers fuera de los tests. Cualquier revival de esta
+> tarea tiene que nombrar `portfolio/sync.py` en su radio de impacto.
 
 `src/bot/utils/fx.py` está impecablemente testeado (nearest-prior con feriados, nunca mira al futuro, `LookupError` explícito) y hoy **su único consumidor en producción es `engine._market_cap_usd`**, que convierte en el punto de consumo. La decisión tomada es convertir en el ingest con columnas USD explícitas, conservando el valor local.
 
@@ -3280,9 +3336,25 @@ Barrido final. Tres casos, con tratamiento distinto según si tienen fuente de d
 |---|---|---|
 | `ClassificationFinancials.debt_to_equity` | declarado, `_is_distressed` no lo lee | **borrar** |
 | `AssumptionSource.ANALYST_CONSENSUS` | miembro del enum que nada emite nunca | **borrar** + issue |
-| `Financials.adjustments`, `DCFAssumptions.distress_value_per_share` | nunca seteados por el pipeline, pero son inputs puros con tests propios | **conservar**, documentar |
+| `Financials.adjustments` | nunca seteado por el pipeline, pero es input puro con tests propios | **conservar**, documentar |
+| `DCFAssumptions.distress_value_per_share` | ídem al escribir el plan; **cableado** en ejecución — ver abajo | **conservar y cablear** |
 
-Los dos últimos no son código muerto en el mismo sentido: son perillas del modelo puro, testeadas, que el pipeline todavía no alimenta. Borrarlas sacaría capacidad del DCF. Se documentan como no-cableadas.
+`Financials.adjustments` no es código muerto en el mismo sentido: es una perilla del modelo puro, testeada, que el pipeline todavía no alimenta. Borrarla sacaría capacidad del DCF. Se documenta como no-cableada.
+
+> **Refinamiento deliberado (post-ejecución, commit `52e6ed3`).** Este plan clasificó
+> `distress_value_per_share` como "conservar, documentar", junto a `Financials.adjustments`. La branch
+> lo **cableó**: `resolve_assumptions` lo resuelve y `to_dcf_assumptions()` lo reenvía, igual que
+> `probability_of_bankruptcy`, su socio en la mezcla de distress de `dcf.py:242`.
+>
+> Por qué la reclasificación: las dos perillas dejaron de ser el mismo caso cuando Task 3.3
+> allow-listeó `distress_value_per_share` en `_OVERRIDE_KEYS`. A partir de ahí un override
+> correctamente tipado **valida** y después no lo lee nadie — que es exactamente el no-op silencioso
+> que Task 3.3 existe para matar, sólo que movido de una clave desconocida a una conocida. Documentar
+> ese estado como "no cableado" habría dejado en pie, dentro de la misma PR, el defecto que la PR
+> declara cerrado. `Financials.adjustments` no tiene el problema: no está en `_OVERRIDE_KEYS`.
+>
+> El camino por defecto no cambia: sin override el valor es `0.0`, el mismo que `DCFAssumptions` ya
+> traía por defecto.
 
 **Files:**
 - Modify: `src/bot/valuator/story_types.py`, `src/bot/valuator/assumptions.py`, `src/bot/valuator/dcf.py`
@@ -3858,7 +3930,7 @@ Tres defectos en `assumptions.py`, todos del mismo tipo: el módulo afirma cosas
 
 **Interfaces:**
 - Consumes: nada nuevo.
-- Produces: `Sourced.source` es `None`-safe vía un miembro nuevo `AssumptionSource.UNRESOLVED = "unresolved"`. `_load_override` levanta `ValueError` en claves desconocidas. `_resolve_weights` acepta un override parcial.
+- Produces: `Sourced.source` es `None`-safe vía un miembro nuevo `AssumptionSource.UNRESOLVED = "unresolved"`. `_load_override` levanta `ValueError` en claves desconocidas. `_resolve_weights` acepta un override parcial, y levanta `ValueError` cuando vienen los dos pesos y no particionan el capital (refinamiento registrado más abajo, en el punto 3 de la implementación).
 
 - [ ] **Step 1: Escribir el test que falla**
 
@@ -4028,6 +4100,26 @@ def _resolve_weights(
     unresolved = AssumptionSource.UNRESOLVED
     return Sourced(value=None, source=unresolved), Sourced(value=None, source=unresolved)
 ```
+
+> **Refinamiento deliberado (post-ejecución, commit `e0825ed`).** El snippet de arriba, cuando vienen
+> los dos pesos, honra `manual_debt.value` **sin validarlo**: `equity_weight: 0.7` + `debt_weight: 0.4`
+> se acepta tal cual. La branch en cambio **levanta `ValueError`** cuando los dos pesos vienen y no
+> particionan el capital (fuera de una tolerancia mínima).
+>
+> Por qué: `dcf._wacc` (`dcf.py:150-156`) es un `We·Ke + Wd·Kd(1-t)` pelado, **sin normalizar**. Con el
+> comportamiento textual del plan, ese `0.7 + 0.4` se propaga a la tasa de descuento y de ahí a *todos*
+> los números del reporte — margin of safety, valor intrínseco, la grilla entera — bajo una etiqueta
+> `MANUAL` que afirma que el usuario pidió eso. Es un promedio ponderado de nada, con procedencia
+> honesta estampada encima, en la misma tarea cuyo título es "procedencia honesta".
+>
+> El snippet además se contradice con el docstring que él mismo trae dos líneas más arriba: *"the two
+> weights partition invested capital, so either one determines the other"*. Si particionan, `0.7 + 0.4`
+> es una entrada imposible, no una preferencia del usuario.
+>
+> El costo de regresión es cero medido: `config/assumptions/` no existe en el repo, así que el
+> `ValueError` nuevo no rompe a ningún usuario actual. El override **parcial** — el defecto que esta
+> tarea arregla — sigue funcionando exactamente como acá se especifica: uno solo, el complemento
+> derivado, ambos `MANUAL`.
 
 4. Validación de claves en `_load_override`:
 
