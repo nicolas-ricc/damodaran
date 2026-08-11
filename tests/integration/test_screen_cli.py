@@ -174,7 +174,10 @@ def test_candidates_written_with_run_id(screened: tuple[Path, Path]) -> None:
     assert run_ids[0][0]  # non-empty run_id
     assert sub is not None
     score, value_s, quality_s, growth_s, mos_s, passed_gates = sub
-    assert score is not None and 0.0 <= score <= 100.0
+    # The composite has no 0-100 ceiling by design: the margin-of-safety term is
+    # an absolute, unbounded intrinsic/price ratio, so a deeply undervalued
+    # candidate scores above 100. Only the floor is guaranteed.
+    assert score is not None and score >= 0.0
     for sub_score in (value_s, quality_s, growth_s, mos_s):
         assert sub_score is not None
     assert "min_market_cap" in list(passed_gates)
@@ -202,8 +205,8 @@ def test_markdown_and_csv_reports_match(screened: tuple[Path, Path]) -> None:
         "pe", "ev_ebitda", "pbv", "roe", "roic", "fcf_yield",
     }
     assert rows[0]["ticker"] in {"WINA", "WINB", "WINC"}
-    # Scores parse as floats (machine-readable).
-    assert 0.0 <= float(rows[0]["score"]) <= 100.0
+    # Scores parse as floats (machine-readable); no upper ceiling (see above).
+    assert float(rows[0]["score"]) >= 0.0
 
 
 def test_valuator_reranks_vs_placeholder(tmp_path: Path) -> None:
@@ -322,3 +325,22 @@ def test_config_path_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> No
     result = runner.invoke(app, ["screen", "--config", str(preset)])
     assert result.exit_code == 0, result.stdout
     assert (reports_dir).glob("*/screen/damodaran_value.md")
+
+
+def test_composite_can_exceed_100_for_a_deeply_undervalued_candidate() -> None:
+    from bot.screener.ranking import Candidate, RankingWeights, rank
+
+    scored = rank(
+        [
+            Candidate(
+                ticker="CHEAP",
+                value_metric=1.0,
+                quality_metric=1.0,
+                growth_metric=1.0,
+                margin_of_safety=3.0,
+            )
+        ],
+        RankingWeights(),
+    )
+    # 100 * (0.4 + 0.3 + 0.2 + 0.1*3.0) = 120
+    assert scored[0].score == pytest.approx(120.0)

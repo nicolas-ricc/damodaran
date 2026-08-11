@@ -318,8 +318,20 @@ def _story_reasons(
     story_type: StoryType,
     revenue_history: tuple[float, ...],
     age_years: int | None,
+    *,
+    overridden: bool,
 ) -> tuple[str, ...]:
-    """Human-readable explanation of the auto-assigned story type (spec §7.1)."""
+    """Human-readable reasons for the story type shown in report §2.
+
+    When the type was manually overridden the auto-classification's reasons no
+    longer explain it, so they are replaced by the override notice — otherwise the
+    report states one type in its heading and justifies a different one below it.
+    """
+    if overridden:
+        return (
+            f"manually overridden in the assumptions file; the classifier would "
+            f"have said {story_type.value}",
+        )
     reasons: list[str] = []
     if len(revenue_history) >= 2 and revenue_history[0] > 0.0:
         periods = len(revenue_history) - 1
@@ -530,7 +542,13 @@ def analyze(
         country=company_row.country,
         currency=company_row.currency,
         story_type=story_type,
-        story_reasons=_story_reasons(auto_story, revenue_history, age_years),
+        story_reasons=_story_reasons(
+            auto_story,
+            revenue_history,
+            age_years,
+            overridden=assumptions.story_type is not None
+            and assumptions.story_type != auto_story.value,
+        ),
         assumptions=assumptions,
         financials=financials,
         dcf_result=dcf_result,

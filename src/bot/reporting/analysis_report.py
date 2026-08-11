@@ -40,6 +40,18 @@ def _fmt_money(value: Any) -> str:
     return f"{sign}{magnitude:,.2f}"
 
 
+def _fmt_per_share(value: float | None) -> str:
+    """Format a per-share figure at full magnitude.
+
+    Distinct from :func:`_fmt_money`, whose B/M/K scaling is right for
+    enterprise-scale aggregates and wrong for a share price: a per-share intrinsic
+    value of 1500 must not render as "1.50K".
+    """
+    if value is None:
+        return _DASH
+    return f"{value:.2f}"
+
+
 def _fmt_pct(value: Any) -> str:
     if value is None:
         return _DASH
@@ -76,6 +88,7 @@ def _environment() -> Environment:
         keep_trailing_newline=True,
     )
     env.filters["money"] = _fmt_money
+    env.filters["per_share"] = _fmt_per_share
     env.filters["pct"] = _fmt_pct
     env.filters["ratio"] = _fmt_ratio
     env.filters["num"] = _fmt_num
@@ -104,7 +117,7 @@ def _grid_table(analysis: Analysis) -> list[str]:
         if has_price:
             cells = " | ".join(_fmt_ratio(cell.margin_of_safety) for cell in row)
         else:
-            cells = " | ".join(_fmt_money(cell.intrinsic_value) for cell in row)
+            cells = " | ".join(_fmt_per_share(cell.intrinsic_value) for cell in row)
         lines.append(f"| {row_label} | {cells} |")
     return lines
 

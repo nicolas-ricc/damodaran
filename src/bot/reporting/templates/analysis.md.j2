@@ -4,9 +4,9 @@ _Generated {{ generated_at }} · currency {{ a.currency or "n/a" }} · country {
 
 ## 1. Executive summary
 
-- **Intrinsic value (per share):** {{ a.dcf_result.intrinsic_value | money }}
+- **Intrinsic value (per share):** {{ a.dcf_result.intrinsic_value | per_share }}
 {% if a.current_price is not none -%}
-- **Current price:** {{ a.current_price | money }}
+- **Current price:** {{ a.current_price | per_share }}
 - **Margin of safety:** {{ a.margin_of_safety | ratio }} ({{ verdict }})
 {% else -%}
 - **Current price:** not available — margin of safety cannot be computed.
@@ -60,7 +60,7 @@ _Generated {{ generated_at }} · currency {{ a.currency or "n/a" }} · country {
 | Assumption | Intrinsic @ -20% | Intrinsic @ +20% | Impact |
 |---|---|---|---|
 {% for t in a.tornado -%}
-| {{ t.axis }} | {{ t.intrinsic_low | money }} | {{ t.intrinsic_high | money }} | {{ t.impact | money }} |
+| {{ t.axis }} | {{ t.intrinsic_low | per_share }} | {{ t.intrinsic_high | per_share }} | {{ t.impact | per_share }} |
 {% endfor %}
 ### 2-D grid — {{ a.grid.axis_a }} (rows) × {{ a.grid.axis_b }} (cols), margin of safety (intrinsic ÷ price)
 {% if a.grid.reference_price is none %}

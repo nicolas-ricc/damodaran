@@ -6,6 +6,9 @@ bundled Jinja2 template, with every §7.7 section present.
 
 from __future__ import annotations
 
+import dataclasses
+from pathlib import Path
+
 import duckdb
 import pytest
 
@@ -63,11 +66,44 @@ def _seed(conn: duckdb.DuckDBPyConnection) -> None:
 
 
 @pytest.fixture
+def conn() -> duckdb.DuckDBPyConnection:
+    c = connect(":memory:")
+    apply_schema(c)
+    return c
+
+
+@pytest.fixture
 def analysis() -> Analysis:
     conn = connect(":memory:")
     apply_schema(conn)
     _seed(conn)
     return analyze("AAPL", conn)
+
+
+def _seeded_analysis(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    override_path: Path | None = None,
+    intrinsic_per_share: float | None = None,
+) -> Analysis:
+    """Seed a fresh in-memory DB and run ``analyze`` on it (issue #16 helper).
+
+    ``override_path`` is passed straight through to :func:`analyze` so a manual
+    override can be exercised. ``intrinsic_per_share`` overrides the resulting
+    ``dcf_result.intrinsic_value`` after the fact — the fixture data has no lever
+    to force a specific DCF output, and the per-share formatting tests only care
+    about the rendered magnitude, not a realistic valuation.
+    """
+    _seed(conn)
+    analysis = analyze("AAPL", conn, override_path=override_path)
+    if intrinsic_per_share is not None:
+        analysis = dataclasses.replace(
+            analysis,
+            dcf_result=dataclasses.replace(
+                analysis.dcf_result, intrinsic_value=intrinsic_per_share
+            ),
+        )
+    return analysis
 
 
 def test_render_has_all_sections(analysis: Analysis) -> None:
@@ -128,3 +164,36 @@ def test_report_shows_the_sourced_wacc_components(analysis: Analysis) -> None:
     md = render_analysis(analysis)
     for label in ("Cost of equity", "Pre-tax cost of debt", "Equity weight", "Debt weight"):
         assert label in md, label
+
+
+def test_manual_story_type_does_not_contradict_its_reasons(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    override = tmp_path / "X.yaml"
+    override.write_text("story_type: distressed\n")
+    analysis = _seeded_analysis(conn, override_path=override)
+    assert analysis.story_type == "distressed"
+    md = render_analysis(analysis)
+    # The reasons used to describe the auto-classification, contradicting the
+    # heading two lines above.
+    assert "manually overridden" in md
+    for other in ("mature-stable", "high-growth", "cyclical", "mature-decline"):
+        assert f"classified as {other}" not in md
+
+
+def test_per_share_values_are_not_scaled_to_thousands() -> None:
+    from bot.reporting.analysis_report import _fmt_per_share
+
+    # A per-share price of 1500 is 1500, not "1.50K".
+    assert _fmt_per_share(1500.0) == "1500.00"
+    assert _fmt_per_share(12.3456) == "12.35"
+    assert _fmt_per_share(None) == "—"
+
+
+def test_report_renders_per_share_values_unscaled(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    analysis = _seeded_analysis(conn, intrinsic_per_share=1500.0)
+    md = render_analysis(analysis)
+    assert "1500.00" in md
+    assert "1.50K" not in md
