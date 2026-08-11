@@ -407,3 +407,52 @@ def test_tax_rate_rule_based_default_when_no_data(conn: duckdb.DuckDBPyConnectio
     result = resolve_assumptions("ACME", conn)
     assert result.tax_rate.value == pytest.approx(0.25)
     assert result.tax_rate.source is AssumptionSource.RULE_BASED
+
+
+# --------------------------------------------------------------------------- #
+# Dataset-region resolution (spec §5.1)                                        #
+# --------------------------------------------------------------------------- #
+
+
+def test_sector_joins_on_the_dataset_region_not_the_geographic_grouping(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """The published country sheet stores "North America", the industry rows "US".
+
+    Joining the two verbatim never matched, so every company resolved no sector row
+    and to_dcf_assumptions() raised.
+    """
+    _seed_company(conn)
+    _seed_industry(conn, region="US")
+    _seed_country(conn, region="North America")
+    result = resolve_assumptions("ACME", conn)
+    assert result.operating_margin.value == pytest.approx(0.18)
+    assert result.operating_margin.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
+
+
+def test_cross_region_substitution_is_disclosed(conn: duckdb.DuckDBPyConnection) -> None:
+    """A German company maps to "Europe", which has no ingested rows today.
+
+    The US row is substituted rather than resolving nothing, and every value drawn
+    from it is labelled so the report shows the substitution.
+    """
+    _seed_company(conn, ticker="DEU", country="Germany")
+    _seed_industry(conn, region="US")
+    _seed_country(conn, country="Germany", region="Western Europe")
+    result = resolve_assumptions("DEU", conn)
+    assert result.operating_margin.value == pytest.approx(0.18)
+    cross = AssumptionSource.SECTOR_DEFAULT_DAMODARAN_CROSS_REGION
+    assert result.operating_margin.source is cross
+    assert result.equity_weight.source is cross
+    assert result.tax_rate.source is cross
+
+
+def test_no_sector_row_at_all_is_not_reported_as_cross_region(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_company(conn, industry_damodaran="Nonexistent Industry")
+    _seed_industry(conn, region="US")
+    _seed_country(conn, region="North America")
+    result = resolve_assumptions("ACME", conn)
+    assert result.operating_margin.value is None
+    assert result.operating_margin.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN

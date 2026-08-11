@@ -106,20 +106,15 @@ def test_dcf_assumptions_resolve_after_the_real_import() -> None:
     / equity_weight, so `bot analyze` failed for every real company.
     """
     from bot.ingest.damodaran import import_damodaran_from_files
-    from bot.valuator.assumptions import resolve_assumptions
+    from bot.valuator.assumptions import AssumptionSource, resolve_assumptions
 
     conn = duckdb.connect(":memory:")
     apply_schema(conn)
-    # The industry rows must be tagged with the same region vocabulary the country
-    # sheet publishes ("North America" for the United States): assumptions.py joins
-    # damodaran_industry.region to damodaran_country.region. Tagging them "US" (the
-    # CLI's --region default) finds no sector row at all — a separate wiring defect,
-    # listed as out-of-scope item 12 of this plan.
     import_damodaran_from_files(
         conn,
         industry_path=_WACC_FIXTURE,
         country_path=_CTRY_FIXTURE,
-        region="North America",
+        region="US",
         year=2026,
     )
     conn.execute(
@@ -140,3 +135,6 @@ def test_dcf_assumptions_resolve_after_the_real_import() -> None:
     weights = assumptions.equity_weight.value + assumptions.debt_weight.value
     assert weights == pytest.approx(1.0), "equity + debt weights must be a partition"
     assert math.isfinite(assumptions.debt_weight.value)
+    # The join now matches, so a US company resolves from the US dataset itself
+    # rather than through a cross-region substitution.
+    assert assumptions.equity_weight.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN

@@ -31,8 +31,12 @@ from typing import Any, TypeVar
 import duckdb
 import yaml
 
+from bot.reference.regions import dataset_region
+from bot.utils.logging import get_logger
 from bot.valuator.dcf import Assumptions as DCFAssumptions
 from bot.valuator.story_types import StoryType
+
+log = get_logger(__name__)
 
 T = TypeVar("T")
 
@@ -59,6 +63,11 @@ class AssumptionSource(StrEnum):
     MANUAL = "manual"
     ANALYST_CONSENSUS = "analyst_consensus"
     SECTOR_DEFAULT_DAMODARAN = "sector_default_damodaran"
+    #: The sector median came from a *different* Damodaran dataset region than the
+    #: company's own, because the mapped region has no ingested rows. Disclosed so
+    #: the report shows the substitution rather than passing it off as the
+    #: company's own region.
+    SECTOR_DEFAULT_DAMODARAN_CROSS_REGION = "sector_default_damodaran_cross_region"
     RULE_BASED = "rule_based"
     HISTORICAL_AVERAGE = "historical_average"
 
@@ -188,12 +197,18 @@ class AssumptionInputs:
             industry/region, or ``None``.
         historical_growth_path: The historical-average revenue-growth path, or
             ``None`` when there is too little history.
+        sector_is_cross_region: Whether ``sector`` came from a different dataset
+            region than the company's own (see
+            :func:`_load_sector_with_fallback`). Every assumption drawn from that
+            row is then labelled
+            :attr:`AssumptionSource.SECTOR_DEFAULT_DAMODARAN_CROSS_REGION`.
     """
 
     company: _Company
     country: _CountryRow | None
     sector: _SectorRow | None
     historical_growth_path: tuple[float, ...] | None
+    sector_is_cross_region: bool = False
 
 
 def load_assumption_inputs(
@@ -209,14 +224,15 @@ def load_assumption_inputs(
     """
     company = _load_company(conn, ticker)
     country = _load_country(conn, company.country)
-    region = country.region if country is not None else None
-    sector = _load_sector(conn, company.industry_damodaran, region)
+    region = dataset_region(company.country, country.region if country is not None else None)
+    sector, cross_region = _load_sector_with_fallback(conn, company.industry_damodaran, region)
     historical_growth_path = _historical_growth_path(conn, ticker)
     return AssumptionInputs(
         company=company,
         country=country,
         sector=sector,
         historical_growth_path=historical_growth_path,
+        sector_is_cross_region=cross_region,
     )
 
 
@@ -265,6 +281,37 @@ def _load_sector(
         tax_rate=row[5],
         debt_to_equity=row[6],
     )
+
+
+def _load_sector_with_fallback(
+    conn: duckdb.DuckDBPyConnection, industry: str | None, region: str
+) -> tuple[_SectorRow | None, bool]:
+    """Load the sector row, substituting another region when the mapped one is absent.
+
+    Returns ``(row, cross_region)``. Only the US dataset is ingested today, so a
+    non-US company's mapped region has no rows; rather than resolving nothing, the
+    most recent row for that industry in *any* region is used and the caller labels
+    every assumption drawn from it ``sector_default_damodaran_cross_region`` so the
+    report shows the substitution instead of hiding it.
+    """
+    exact = _load_sector(conn, industry, region)
+    if exact is not None or industry is None:
+        return exact, False
+    row = conn.execute(
+        "SELECT wacc, cost_of_equity, cost_of_debt, op_margin, sales_to_capital, "
+        "tax_rate, debt_to_equity, region FROM damodaran_industry "
+        "WHERE industry = ? ORDER BY year DESC LIMIT 1",
+        [industry],
+    ).fetchone()
+    if row is None:
+        return None, False
+    log.warning(
+        "assumptions.sector.cross_region_substitution",
+        industry=industry,
+        requested_region=region,
+        used_region=row[7],
+    )
+    return _SectorRow(*row[:7]), True
 
 
 def _historical_growth_path(
@@ -373,26 +420,29 @@ def resolve_assumptions(
     sector = db_inputs.sector
     override = _load_override(override_path)
 
+    cross_region = db_inputs.sector_is_cross_region
     revenue_growth = _resolve_revenue_growth(
         db_inputs.historical_growth_path, override, gdp_nominal
     )
     operating_margin = _resolve_sector_scalar(
-        override, sector, key="operating_margin", attr="op_margin"
+        override, sector, key="operating_margin", attr="op_margin", cross_region=cross_region
     )
     sales_to_capital = _resolve_sector_scalar(
-        override, sector, key="sales_to_capital", attr="sales_to_capital"
+        override, sector, key="sales_to_capital", attr="sales_to_capital", cross_region=cross_region
     )
     cost_of_equity = _resolve_sector_scalar(
-        override, sector, key="cost_of_equity", attr="cost_of_equity"
+        override, sector, key="cost_of_equity", attr="cost_of_equity", cross_region=cross_region
     )
     pretax_cost_of_debt = _resolve_sector_scalar(
-        override, sector, key="pretax_cost_of_debt", attr="cost_of_debt"
+        override, sector, key="pretax_cost_of_debt", attr="cost_of_debt", cross_region=cross_region
     )
-    equity_weight, debt_weight = _resolve_weights(override, sector)
-    wacc = _resolve_sector_scalar(override, sector, key="wacc", attr="wacc")
+    equity_weight, debt_weight = _resolve_weights(override, sector, cross_region=cross_region)
+    wacc = _resolve_sector_scalar(
+        override, sector, key="wacc", attr="wacc", cross_region=cross_region
+    )
     terminal_growth = _resolve_terminal_growth(override, country, gdp_nominal)
     probability_of_bankruptcy = _resolve_probability_of_bankruptcy(override)
-    tax_rate = _resolve_tax_rate(override, sector, country)
+    tax_rate = _resolve_tax_rate(override, sector, country, cross_region=cross_region)
 
     return Assumptions(
         revenue_growth=revenue_growth,
@@ -438,34 +488,41 @@ def _resolve_revenue_growth(
     return Sourced(value=(gdp_nominal,) * _HORIZON, source=AssumptionSource.RULE_BASED)
 
 
+def _sector_source(cross_region: bool) -> AssumptionSource:
+    """Which sector-default source label a value drawn from ``sector`` carries."""
+    if cross_region:
+        return AssumptionSource.SECTOR_DEFAULT_DAMODARAN_CROSS_REGION
+    return AssumptionSource.SECTOR_DEFAULT_DAMODARAN
+
+
 def _resolve_sector_scalar(
     override: dict[str, Any],
     sector: _SectorRow | None,
     *,
     key: str,
     attr: str,
+    cross_region: bool = False,
 ) -> Sourced[float | None]:
     manual = _override_scalar(override, key)
     if manual is not None:
         return manual
     value = getattr(sector, attr) if sector is not None else None
-    return Sourced(value=value, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN)
+    return Sourced(value=value, source=_sector_source(cross_region))
 
 
 def _resolve_weights(
-    override: dict[str, Any], sector: _SectorRow | None
+    override: dict[str, Any], sector: _SectorRow | None, *, cross_region: bool = False
 ) -> tuple[Sourced[float | None], Sourced[float | None]]:
     manual_equity = _override_scalar(override, "equity_weight")
     manual_debt = _override_scalar(override, "debt_weight")
     if manual_equity is not None and manual_debt is not None:
         return manual_equity, manual_debt
+    src = _sector_source(cross_region)
     if sector is not None and sector.debt_to_equity is not None:
         d_to_e = sector.debt_to_equity
         debt_weight = d_to_e / (1.0 + d_to_e)
         equity_weight = 1.0 - debt_weight
-        src = AssumptionSource.SECTOR_DEFAULT_DAMODARAN
         return Sourced(value=equity_weight, source=src), Sourced(value=debt_weight, source=src)
-    src = AssumptionSource.SECTOR_DEFAULT_DAMODARAN
     return Sourced(value=None, source=src), Sourced(value=None, source=src)
 
 
@@ -483,7 +540,11 @@ def _resolve_terminal_growth(
 
 
 def _resolve_tax_rate(
-    override: dict[str, Any], sector: _SectorRow | None, country: _CountryRow | None
+    override: dict[str, Any],
+    sector: _SectorRow | None,
+    country: _CountryRow | None,
+    *,
+    cross_region: bool = False,
 ) -> Sourced[float | None]:
     """Marginal tax rate: manual → sector → country → rule-based default (§7.2).
 
@@ -497,7 +558,7 @@ def _resolve_tax_rate(
     if manual is not None:
         return manual
     if sector is not None and sector.tax_rate is not None:
-        return Sourced(value=sector.tax_rate, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN)
+        return Sourced(value=sector.tax_rate, source=_sector_source(cross_region))
     if country is not None and country.tax_rate is not None:
         return Sourced(value=country.tax_rate, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN)
     return Sourced(value=_DEFAULT_TAX_RATE, source=AssumptionSource.RULE_BASED)

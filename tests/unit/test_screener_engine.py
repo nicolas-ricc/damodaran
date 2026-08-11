@@ -92,11 +92,22 @@ def test_resolve_region_defaults_when_country_missing(
 
 
 def test_resolve_region_maps_country(conn: duckdb.DuckDBPyConnection) -> None:
+    # damodaran_country.region holds the published file's geographic grouping, not
+    # a dataset region: the resolver must translate "Western Europe" -> "Europe".
     conn.execute(
         "INSERT INTO damodaran_country (country, year, region) VALUES (?, ?, ?)",
-        ["Germany", 2026, "Europe"],
+        ["Germany", 2026, "Western Europe"],
     )
     assert _resolve_region(conn, "Germany") == "Europe"
+
+
+def test_resolve_region_ignores_a_numeric_grouping(conn: duckdb.DuckDBPyConnection) -> None:
+    # A PRS score bleeding into the region column must not become a region.
+    conn.execute(
+        "INSERT INTO damodaran_country (country, year, region) VALUES (?, ?, ?)",
+        ["Algeria", 2026, "67.0"],
+    )
+    assert _resolve_region(conn, "Algeria") == DEFAULT_REGION
 
 
 def test_resolve_tax_rate_defaults_when_country_missing(
@@ -163,7 +174,7 @@ def test_build_company_data_roic_uses_country_tax_rate(
     )
     conn.execute(
         "INSERT INTO damodaran_country (country, year, region, tax_rate) VALUES (?, ?, ?, ?)",
-        ["Germany", 2026, "Europe", 0.30],
+        ["Germany", 2026, "Western Europe", 0.30],
     )
     conn.execute(
         "INSERT INTO financials_annual "

@@ -217,19 +217,32 @@ def _to_normalized_rows(
     records: list[dict[str, Any]],
     column_map: dict[str, str],
     constants: dict[str, Any],
+    *,
+    stop_at_repeated_header: bool = True,
 ) -> list[dict[str, Any]]:
     """Apply *column_map*, attach *constants*, drop blank-PK rows.
 
-    The first key in *column_map* is treated as the primary-key field; any
-    row whose PK value is blank/None is dropped.  Rows where the PK value
-    equals the xls header string for the PK column are also dropped — these
-    are repeated sub-headers that Damodaran embeds mid-sheet.
+    The first key in *column_map* is the primary-key field; rows with a blank PK
+    are dropped.
+
+    A row whose PK cell repeats the PK column's header string marks the start of a
+    **different table** on the same sheet, not a cosmetic sub-header. Damodaran's
+    ``ERPs by country`` sheet is the case that matters: below the Moody's-rated
+    table it publishes a second table of unrated countries scored by PRS, whose
+    columns do not line up (its column B is a risk score where the first table has
+    the region, and its ERP sits where the first table has the default spread).
+    Continuing past that boundary stored a wrong equity risk premium for 21
+    countries. So parsing stops there, and how many rows were discarded is logged
+    rather than passed over in silence.
+
+    Set ``stop_at_repeated_header=False`` for a sheet where a repeated header is
+    genuinely cosmetic and real data follows.
     """
     pk_field = next(iter(column_map))
     pk_xls_col = column_map[pk_field]  # e.g. "Country" or "Industry Name"
     out: list[dict[str, Any]] = []
 
-    for record in records:
+    for index, record in enumerate(records):
         normalized: dict[str, Any] = dict(constants)
         for db_col, xls_col in column_map.items():
             if xls_col not in record:
@@ -244,9 +257,18 @@ def _to_normalized_rows(
         pk_val = normalized.get(pk_field)
         if pk_val is None or (isinstance(pk_val, str) and pk_val == ""):
             continue
-        # Drop repeated sub-headers embedded mid-sheet (e.g. a row where
-        # the country cell literally contains "Country").
+        # A repeated header cell (e.g. a row whose country cell literally reads
+        # "Country") is the start of a second, differently-shaped table.
         if isinstance(pk_val, str) and pk_val == pk_xls_col:
+            if stop_at_repeated_header:
+                discarded = len(records) - index - 1
+                log.info(
+                    "damodaran.second_table.truncated",
+                    pk_field=pk_field,
+                    kept=len(out),
+                    discarded=discarded,
+                )
+                break
             continue
         out.append(normalized)
 
