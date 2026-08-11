@@ -63,9 +63,6 @@ class CompanyData:
     """Most recent fiscal-year net income (spec §6.4, Sloan accruals numerator)."""
     operating_cashflow: float | None = None
     """Most recent fiscal-year operating cashflow (spec §6.4, Sloan accruals)."""
-    had_recent_ma: bool = False
-    """Whether a material acquisition justifies recent share issuance (spec §6.4):
-    dilution funded by M&A is not, on its own, a trap signal."""
 
 
 @dataclass(frozen=True)

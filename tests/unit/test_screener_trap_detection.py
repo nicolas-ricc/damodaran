@@ -272,15 +272,6 @@ def test_share_count_not_diluting_fail_heavy_issuance() -> None:
     assert result.passed is False
 
 
-def test_share_count_not_diluting_pass_when_ma_justified() -> None:
-    # Same heavy issuance but funded by a material acquisition -> not a trap.
-    result = ShareCountNotDiluting().evaluate(
-        _company(share_count_history=(100.0, 110.0, 121.0), had_recent_ma=True),
-        _benchmarks(),
-    )
-    assert result.passed is True
-
-
 def test_share_count_not_diluting_pass_within_tolerance() -> None:
     # ~3%/yr is below the 5% default.
     result = ShareCountNotDiluting().evaluate(
@@ -302,6 +293,21 @@ def test_share_count_not_diluting_nonpositive_fails() -> None:
         _company(share_count_history=(0.0, 110.0)), _benchmarks()
     )
     assert result.passed is False
+
+
+def test_share_count_dilution_cap_is_unconditional() -> None:
+    from dataclasses import fields
+
+    from bot.screener.types import CompanyData
+
+    # The M&A escape hatch was deleted: nothing populated had_recent_ma, so the
+    # branch was unreachable and the cap was always unconditional.
+    assert "had_recent_ma" not in {f.name for f in fields(CompanyData)}
+    result = ShareCountNotDiluting().evaluate(
+        _company(share_count_history=(100.0, 110.0, 121.0)), _benchmarks()
+    )
+    assert result.passed is False
+    assert "M&A" not in result.reason
 
 
 def test_share_count_not_diluting_configurable() -> None:

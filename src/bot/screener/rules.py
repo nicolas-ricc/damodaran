@@ -669,13 +669,15 @@ class SloanAccrualsBelow(Rule):
 
 @register
 class ShareCountNotDiluting(Rule):
-    """Trap detector: share count not growing too fast without M&A (spec §6.4).
+    """Trap detector: share count not growing too fast (spec §6.4).
 
     Persistent share issuance dilutes existing holders; above ``max_annual_growth``
-    (default ``0.05`` = 5% per year, on average) it is a trap signal — *unless* a
-    material acquisition justifies it (``company.had_recent_ma``), since
-    stock-funded M&A is a different story. Fewer than two points, or a
-    non-positive base, fails the gate.
+    (default ``0.05`` = 5% per year, on average) it is a trap signal. Fewer than
+    two points, or a non-positive base, fails the gate.
+
+    The cap is unconditional. Spec §6.4 qualifies it with "sin M&A justificado",
+    but no data source distinguishes stock-funded M&A from ordinary issuance, so
+    the qualification is not implemented rather than faked.
     """
 
     name = "share_count_not_diluting"
@@ -708,18 +710,10 @@ class ShareCountNotDiluting(Rule):
                     f"<= maximum {self.max_annual_growth:.3f}"
                 ),
             )
-        if company.had_recent_ma:
-            return RuleResult(
-                passed=True,
-                reason=(
-                    f"avg share-count growth {avg_growth:.3f} exceeds "
-                    f"{self.max_annual_growth:.3f} but justified by recent M&A"
-                ),
-            )
         return RuleResult(
             passed=False,
             reason=(
                 f"avg share-count growth {avg_growth:.3f} > maximum "
-                f"{self.max_annual_growth:.3f} without M&A justification"
+                f"{self.max_annual_growth:.3f}"
             ),
         )
