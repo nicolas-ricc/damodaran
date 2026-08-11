@@ -193,6 +193,27 @@ class _SectorRow:
 
 
 @dataclass(frozen=True)
+class _SectorDefaults:
+    """The sector row a company's defaults come from, plus where it came from.
+
+    The row and the cross-region flag are one fact, not two: every value drawn
+    from ``row`` carries a provenance that depends on ``cross_region``, so the
+    label is computed here rather than re-derived at each resolver from a
+    boolean threaded alongside the row through every signature.
+    """
+
+    row: _SectorRow | None
+    cross_region: bool = False
+
+    @property
+    def source(self) -> AssumptionSource:
+        """The provenance label a value drawn from this row carries."""
+        if self.cross_region:
+            return AssumptionSource.SECTOR_DEFAULT_DAMODARAN_CROSS_REGION
+        return AssumptionSource.SECTOR_DEFAULT_DAMODARAN
+
+
+@dataclass(frozen=True)
 class _CountryRow:
     region: str | None
     risk_free_rate: float | None
@@ -466,30 +487,31 @@ def resolve_assumptions(
     if db_inputs is None:
         db_inputs = load_assumption_inputs(conn, ticker)
     country = db_inputs.country
-    sector = db_inputs.sector
+    sector = _SectorDefaults(
+        row=db_inputs.sector, cross_region=db_inputs.sector_is_cross_region
+    )
     override = _load_override(override_path)
 
-    cross_region = db_inputs.sector_is_cross_region
     revenue_growth = _resolve_revenue_growth(
         db_inputs.historical_growth_path, override, gdp_nominal
     )
     operating_margin = _resolve_sector_scalar(
-        override, sector, key="operating_margin", attr="op_margin", cross_region=cross_region
+        override, sector, key="operating_margin", attr="op_margin"
     )
     sales_to_capital = _resolve_sector_scalar(
-        override, sector, key="sales_to_capital", attr="sales_to_capital", cross_region=cross_region
+        override, sector, key="sales_to_capital", attr="sales_to_capital"
     )
     cost_of_equity = _resolve_sector_scalar(
-        override, sector, key="cost_of_equity", attr="cost_of_equity", cross_region=cross_region
+        override, sector, key="cost_of_equity", attr="cost_of_equity"
     )
     pretax_cost_of_debt = _resolve_sector_scalar(
-        override, sector, key="pretax_cost_of_debt", attr="cost_of_debt", cross_region=cross_region
+        override, sector, key="pretax_cost_of_debt", attr="cost_of_debt"
     )
-    equity_weight, debt_weight = _resolve_weights(override, sector, cross_region=cross_region)
+    equity_weight, debt_weight = _resolve_weights(override, sector)
     terminal_growth = _resolve_terminal_growth(override, country, gdp_nominal)
     probability_of_bankruptcy = _resolve_probability_of_bankruptcy(override)
     distress_value_per_share = _resolve_distress_value_per_share(override)
-    tax_rate = _resolve_tax_rate(override, sector, country, cross_region=cross_region)
+    tax_rate = _resolve_tax_rate(override, sector, country)
 
     return Assumptions(
         revenue_growth=revenue_growth,
@@ -542,32 +564,24 @@ def _resolve_revenue_growth(
     return Sourced(value=(gdp_nominal,) * _HORIZON, source=AssumptionSource.RULE_BASED)
 
 
-def _sector_source(cross_region: bool) -> AssumptionSource:
-    """Which sector-default source label a value drawn from ``sector`` carries."""
-    if cross_region:
-        return AssumptionSource.SECTOR_DEFAULT_DAMODARAN_CROSS_REGION
-    return AssumptionSource.SECTOR_DEFAULT_DAMODARAN
-
-
 def _resolve_sector_scalar(
     override: dict[str, Any],
-    sector: _SectorRow | None,
+    sector: _SectorDefaults,
     *,
     key: str,
     attr: str,
-    cross_region: bool = False,
 ) -> Sourced[float | None]:
     manual = _override_scalar(override, key)
     if manual is not None:
         return manual
-    value = getattr(sector, attr) if sector is not None else None
+    value = getattr(sector.row, attr) if sector.row is not None else None
     if value is None:
         return Sourced(value=None, source=AssumptionSource.UNRESOLVED)
-    return Sourced(value=value, source=_sector_source(cross_region))
+    return Sourced(value=value, source=sector.source)
 
 
 def _resolve_weights(
-    override: dict[str, Any], sector: _SectorRow | None, *, cross_region: bool = False
+    override: dict[str, Any], sector: _SectorDefaults
 ) -> tuple[Sourced[float | None], Sourced[float | None]]:
     """Resolve the equity/debt split of the capital structure.
 
@@ -611,10 +625,10 @@ def _resolve_weights(
             Sourced(value=1.0 - debt, source=manual_src),
             Sourced(value=debt, source=manual_src),
         )
-    if sector is not None and sector.debt_to_equity is not None:
-        d_to_e = sector.debt_to_equity
+    if sector.row is not None and sector.row.debt_to_equity is not None:
+        d_to_e = sector.row.debt_to_equity
         debt_weight = d_to_e / (1.0 + d_to_e)
-        src = _sector_source(cross_region)
+        src = sector.source
         equity_weight = 1.0 - debt_weight
         return Sourced(value=equity_weight, source=src), Sourced(value=debt_weight, source=src)
     unresolved = AssumptionSource.UNRESOLVED
@@ -636,10 +650,8 @@ def _resolve_terminal_growth(
 
 def _resolve_tax_rate(
     override: dict[str, Any],
-    sector: _SectorRow | None,
+    sector: _SectorDefaults,
     country: _CountryRow | None,
-    *,
-    cross_region: bool = False,
 ) -> Sourced[float | None]:
     """Marginal tax rate: manual → sector → country → rule-based default (§7.2).
 
@@ -652,8 +664,8 @@ def _resolve_tax_rate(
     manual = _override_scalar(override, "tax_rate")
     if manual is not None:
         return manual
-    if sector is not None and sector.tax_rate is not None:
-        return Sourced(value=sector.tax_rate, source=_sector_source(cross_region))
+    if sector.row is not None and sector.row.tax_rate is not None:
+        return Sourced(value=sector.row.tax_rate, source=sector.source)
     if country is not None and country.tax_rate is not None:
         return Sourced(value=country.tax_rate, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN)
     return Sourced(value=_DEFAULT_TAX_RATE, source=AssumptionSource.RULE_BASED)
