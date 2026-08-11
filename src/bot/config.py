@@ -3,7 +3,7 @@
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -46,14 +46,26 @@ class Settings(BaseSettings):
         default=Path("./config/presets"),
         description="Directory holding screener preset YAMLs (resolved by `bot screen --preset`).",
     )
-    industry_mapping_path: Path = Field(
-        default=Path("./config/industry_mapping.csv"),
+    industry_mapping_path: Path | None = Field(
+        default=None,
         description=(
-            "CSV mapping provider industry labels to the Damodaran taxonomy "
-            "(spec §4.3.1). Falls back to the copy shipped with the package."
+            "Optional CSV mapping provider industry labels to the Damodaran taxonomy "
+            "(spec §4.3.1). Unset uses the mapping shipped with the package."
         ),
     )
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")
+
+    @field_validator("industry_mapping_path", mode="before")
+    @classmethod
+    def _blank_path_is_unset(cls, value: object) -> object:
+        """Treat ``BOT_INDUSTRY_MAPPING_PATH=`` as "not configured".
+
+        Without this, an empty or whitespace env var coerces to ``Path(".")``,
+        which exists, so path resolution hands the CSV loader a *directory*.
+        """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
 
 def load_settings() -> Settings:

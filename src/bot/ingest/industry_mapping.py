@@ -7,8 +7,9 @@ critical assumptions from it (``valuator/assumptions.py``). Providers use their 
 taxonomy — FMP emits Yahoo-style labels like ``"Semiconductors"`` — which never match
 Damodaran's ``"Semiconductor"``. This module is the single translation point.
 
-The mapping is a user-editable CSV so a new provider label can be mapped without a
-code change. Resolution is deliberately forgiving on formatting (case, whitespace,
+The mapping is a CSV — one copy, shipped inside the package — so a new provider
+label can be mapped without a code change; ``BOT_INDUSTRY_MAPPING_PATH`` points the
+ingest at a user-maintained file instead. Resolution is deliberately forgiving on formatting (case, whitespace,
 dash variants) because providers are inconsistent about it, but strict on the target:
 a ``damodaran_industry`` that is not in the published taxonomy fails at load time
 rather than silently producing a company whose benchmarks never resolve.
@@ -183,14 +184,12 @@ def default_mapping_path() -> Path:
     """Path of the mapping CSV packaged with ``bot.ingest``.
 
     Returns ``bot/ingest/industry_mapping.csv`` — the copy installed alongside the
-    code, so the mapping resolves from an installed wheel with no repo checkout.
-    Only when that packaged file is missing does it fall back to the repo-relative
-    ``config/industry_mapping.csv`` (the byte-identical user-editable copy).
+    code (``pyproject.toml`` force-include), so the mapping resolves from an
+    installed wheel with no repo checkout and independently of the process CWD.
+    There is deliberately no repo-relative fallback: a second committed copy would
+    drift, and which one won would depend on where the process was started.
     """
-    packaged = Path(str(resources.files("bot.ingest").joinpath("industry_mapping.csv")))
-    if packaged.exists():
-        return packaged
-    return Path("config/industry_mapping.csv")
+    return Path(str(resources.files("bot.ingest").joinpath("industry_mapping.csv")))
 
 
 def resolve_mapping_path(configured: Path | None) -> Path:

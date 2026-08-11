@@ -162,11 +162,17 @@ def test_default_mapping_path_returns_the_packaged_csv() -> None:
     assert default_mapping_path().parent.name == "ingest"
 
 
-def test_packaged_and_config_mapping_csvs_are_identical() -> None:
-    # config/industry_mapping.csv is the user-editable copy; it must not drift
-    # from the packaged one that ships in the wheel.
-    config_copy = Path("config/industry_mapping.csv")
-    assert config_copy.read_bytes() == default_mapping_path().read_bytes()
+def test_default_mapping_path_is_cwd_independent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # There used to be a repo-relative fallback to a second, byte-identical copy,
+    # so which file was authoritative depended on the process CWD. This is the
+    # fence that stops one being reintroduced.
+    monkeypatch.chdir(tmp_path)
+    resolved = default_mapping_path()
+    assert resolved.is_absolute()
+    assert "config" not in resolved.parts
+    assert load_industry_mapping(resolved).resolve("fmp", "Semiconductors") == "Semiconductor"
 
 
 def test_resolve_mapping_path_uses_the_configured_file(tmp_path: Path) -> None:
@@ -207,3 +213,35 @@ def test_settings_mapping_path_takes_effect(
     # A label only the configured CSV knows about — the packaged one does not.
     assert mapping.resolve("fmp", "Widget Forges") == "Steel"
     assert load_industry_mapping(default_mapping_path()).resolve("fmp", "Widget Forges") is None
+
+
+def test_settings_leaves_the_mapping_path_unset_by_default(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unset means "use the packaged CSV" — there is no committed second copy."""
+    from bot.config import Settings
+
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.delenv("BOT_INDUSTRY_MAPPING_PATH", raising=False)
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]  # values come from the env
+
+    assert settings.industry_mapping_path is None
+    assert resolve_mapping_path(settings.industry_mapping_path) == default_mapping_path()
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_blank_mapping_path_env_var_reads_as_unset(
+    blank: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # BOT_INDUSTRY_MAPPING_PATH="" used to coerce to Path("."), which exists, so
+    # resolve_mapping_path handed load_industry_mapping a *directory* and the
+    # open() blew up. A blank value means "not configured".
+    from bot.config import Settings
+
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.setenv("BOT_INDUSTRY_MAPPING_PATH", blank)
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]  # values come from the env
+
+    assert settings.industry_mapping_path is None
+    assert load_industry_mapping(resolve_mapping_path(settings.industry_mapping_path)) is not None
+    assert resolve_mapping_path(settings.industry_mapping_path).is_file()
