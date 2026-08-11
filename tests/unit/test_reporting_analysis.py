@@ -149,6 +149,16 @@ def test_render_no_overrides_section_when_absent(analysis: Analysis) -> None:
     assert "Manual overrides" not in md or "No manual overrides" in md
 
 
+def test_markdown_report_keeps_flag_colours_as_plain_words(analysis: Analysis) -> None:
+    # cli.py writes the .md next to the .html as its own user-facing deliverable,
+    # so the HTML class hook the report's flag cells carry must be opt-in: the
+    # default render stays plain Markdown, spans and all other markup out.
+    md = render_analysis(analysis)
+    assert "<span" not in md
+    for flag in analysis.narrative_flags:
+        assert f"| {flag.color} |" in md
+
+
 def test_report_shows_exactly_one_wacc(analysis: Analysis) -> None:
     # There used to be two: a sector-resolved Assumptions.wacc in §3 and the
     # DCF-computed one in §1, which disagree. Only the computed one is real.

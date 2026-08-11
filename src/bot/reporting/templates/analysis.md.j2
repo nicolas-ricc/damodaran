@@ -62,7 +62,7 @@ _Generated {{ generated_at }} · currency {{ a.currency or "n/a" }} · country {
 {% for t in a.tornado -%}
 | {{ t.axis }} | {{ t.intrinsic_low | per_share }} | {{ t.intrinsic_high | per_share }} | {{ t.impact | per_share }} |
 {% endfor %}
-### 2-D grid — {{ a.grid.axis_a }} (rows) × {{ a.grid.axis_b }} (cols), {% if a.grid.reference_price is none %}intrinsic value (no price available){% else %}margin of safety (intrinsic ÷ price){% endif %}
+### 2-D grid — {{ a.grid.axis_a }} (rows) × {{ a.grid.axis_b }} (cols), {% if a.grid.reference_price is none %}{{ grid_label_intrinsic }}{% else %}{{ grid_label_mos }}{% endif %}
 {% if a.grid.reference_price is none %}
 _No current price available — the grid below shows intrinsic values only._
 {% endif %}
@@ -74,7 +74,7 @@ _No current price available — the grid below shows intrinsic values only._
 | Flag | Colour | Reason |
 |---|---|---|
 {% for f in a.narrative_flags -%}
-| {{ f.name }} | {{ f.color }} | {{ f.reason }} |
+| {{ f.name }} | {{ flag_color(f.color) }} | {{ f.reason }} |
 {% endfor %}
 ## 7. Manual overrides
 

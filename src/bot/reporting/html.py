@@ -23,7 +23,6 @@ and returns a string; writing the file to disk is the CLI's job.
 from __future__ import annotations
 
 import base64
-import re
 from collections.abc import Sequence
 from datetime import date
 from io import BytesIO
@@ -38,7 +37,11 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 
-from bot.reporting.analysis_report import render_analysis
+from bot.reporting.analysis_report import (
+    _GRID_LABEL_INTRINSIC,
+    _GRID_LABEL_MOS,
+    render_analysis,
+)
 from bot.valuator.analysis import Analysis
 from bot.valuator.sensitivity import Grid2D, TornadoEntry
 
@@ -70,12 +73,6 @@ code, pre { font-family: ui-monospace, "SFMono-Regular", Menlo, monospace; }
 .flag-red { color: #cf222e; font-weight: 600; }
 .flag-unknown { color: #6e7781; font-style: italic; font-weight: 400; }
 """.strip()
-
-#: Narrative-flag colour words as they appear verbatim in the §7.5 table cells
-#: (:class:`~bot.valuator.narrative_flags.FlagColor` values). Kept as a literal
-#: tuple rather than importing the enum, so this module stays free of a
-#: dependency it only needs for four string labels.
-_FLAG_COLOR_WORDS = ("green", "yellow", "red", "unknown")
 
 
 def tornado_chart_png(tornado: Sequence[TornadoEntry]) -> bytes:
@@ -203,9 +200,7 @@ def sensitivity_heatmap_html(grid: Grid2D) -> str:
             hovertemplate=hovertemplate,
         )
     )
-    title_suffix = (
-        "margin of safety (intrinsic ÷ price)" if has_price else "intrinsic value (no price available)"
-    )
+    title_suffix = _GRID_LABEL_MOS if has_price else _GRID_LABEL_INTRINSIC
     figure.update_layout(
         title=(
             f"Sensitivity heatmap — {grid.axis_a.value} (rows) x {grid.axis_b.value} (cols), "
@@ -222,21 +217,6 @@ def sensitivity_heatmap_html(grid: Grid2D) -> str:
             div_id="sensitivity-heatmap",
         )
     )
-
-
-def _style_narrative_flag_colors(body: str) -> str:
-    """Wrap the §6 flag-colour table cells in a ``<span>`` styled by colour.
-
-    :func:`render_analysis` prints the flag colour as a plain word (the
-    :class:`~bot.valuator.narrative_flags.FlagColor` value) in a Markdown table
-    cell; Markdown-to-HTML conversion carries it through as bare text with no
-    class to hook a colour onto. Rewriting the exact ``<td>word</td>`` cells here
-    is what lets ``unknown`` render distinctly grey instead of silently
-    inheriting no styling at all — the same flat look ``green`` gets, which
-    would defeat the point of a colour that must not read as a pass.
-    """
-    pattern = re.compile(rf"<td>({'|'.join(_FLAG_COLOR_WORDS)})</td>")
-    return pattern.sub(lambda m: f'<td><span class="flag-{m.group(1)}">{m.group(1)}</span></td>', body)
 
 
 def _pct_delta(multiplier: float) -> str:
@@ -259,9 +239,8 @@ def render_analysis_html(analysis: Analysis, *, generated_on: date | None = None
     Returns:
         A complete, self-contained HTML document as a string.
     """
-    report_md = render_analysis(analysis, generated_on=generated_on)
+    report_md = render_analysis(analysis, generated_on=generated_on, html_flag_colors=True)
     body = md_lib.markdown(report_md, extensions=list(_MD_EXTENSIONS), output_format="html")
-    body = _style_narrative_flag_colors(body)
 
     chart_img = (
         f'<img class="tornado" alt="Tornado sensitivity chart for {analysis.ticker}" '

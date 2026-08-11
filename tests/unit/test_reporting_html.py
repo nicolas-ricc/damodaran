@@ -193,6 +193,17 @@ def test_reason_text_containing_a_bare_color_word_is_not_rewritten(
     assert '<td><span class="flag-green">green</span></td>' in html
 
 
+def test_flag_colours_are_not_produced_by_rewriting_rendered_html() -> None:
+    # The flag colours are emitted with their class hook at generation time, so
+    # nothing re-parses the rendered document to find them. Pinning the absence
+    # stops the regex pass reappearing: it matched any <td> whose whole content
+    # was a colour word, flag cell or not.
+    import bot.reporting.html as html_mod
+
+    assert not hasattr(html_mod, "_style_narrative_flag_colors")
+    assert not hasattr(html_mod, "_FLAG_COLOR_WORDS")
+
+
 def test_flag_color_css_rules_are_present(analysis: Analysis) -> None:
     # The emitted flag-* classes must actually be styled, not dangling.
     html = render_analysis_html(analysis)
@@ -243,6 +254,17 @@ def test_heatmap_hover_shows_margin_of_safety_and_intrinsic_value(analysis: Anal
     for row in analysis.grid.cells:
         for cell in row:
             assert str(round(cell.intrinsic_value, 4)) in fragment
+
+
+def test_heatmap_without_a_price_is_titled_by_intrinsic_value(analysis: Analysis) -> None:
+    # Without a reference price every margin of safety is None, so the heatmap
+    # falls back to intrinsic values — and must say so, in the same words the
+    # Markdown grid heading uses.
+    fragment = sensitivity_heatmap_html(
+        dataclasses.replace(analysis.grid, reference_price=None)
+    )
+    assert "intrinsic value (no price available)" in fragment
+    assert "margin of safety (intrinsic ÷ price)" not in fragment
 
 
 def test_full_report_embeds_the_self_contained_heatmap(analysis: Analysis) -> None:
