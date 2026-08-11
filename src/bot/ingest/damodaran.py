@@ -36,6 +36,9 @@ DEFAULT_INDUSTRY_COLUMN_MAP: dict[str, str] = {
     "tax_rate": "Tax Rate",
     # "Cost of Capital" is labelled "WACC" in the DB schema
     "wacc": "Cost of Capital",
+    # Parsing artefact, not a DB column: the published file carries D/(D+E) and
+    # `derive_industry_columns` turns it into debt_to_equity + beta_unlevered.
+    "debt_weight_raw": "D/(D+E)",
 }
 
 DEFAULT_COUNTRY_COLUMN_MAP: dict[str, str] = {
@@ -251,6 +254,104 @@ def _to_normalized_rows(
 
 
 # ---------------------------------------------------------------------------
+# Derived columns and out-of-table scalars
+# ---------------------------------------------------------------------------
+
+#: Label of the pre-header cell of wacc.xls carrying the long-term government bond
+#: rate. It is an input to Damodaran's sheet, not a column, so it needs its own
+#: extraction path.
+RISK_FREE_RATE_LABEL = "Long Term Treasury bond rate ="
+
+#: Sheet of ctryprem.xls carrying per-country corporate tax rates. The main
+#: "ERPs by country" sheet has no tax column.
+COUNTRY_TAX_SHEET = "Country Tax Rates"
+
+
+def derive_industry_columns(row: dict[str, Any]) -> dict[str, Any]:
+    """Return ``row`` with the industry columns the published file only implies.
+
+    ``wacc.xls`` publishes ``D/(D+E)``, not debt-to-equity, and no unlevered beta.
+    Both are what the valuator actually needs: ``debt_to_equity`` is the only input
+    from which ``_resolve_weights`` can build the equity/debt split, without which
+    every assumption bundle fails to project onto the DCF.
+
+    - ``debt_to_equity = w / (1 - w)`` where ``w = D/(D+E)``. ``w == 1`` (zero
+      equity) leaves it ``None``: the ratio is undefined, and a non-finite double
+      must never reach the DB.
+    - ``beta_unlevered = beta_levered / (1 + (1 - tax_rate) * D/E)`` (Hamada).
+
+    Pure: the input is not mutated. The ``debt_weight_raw`` parsing artefact is
+    dropped from the result.
+    """
+    out = dict(row)
+    weight = out.pop("debt_weight_raw", None)
+
+    debt_to_equity: float | None = None
+    if isinstance(weight, (int, float)) and 0.0 <= float(weight) < 1.0:
+        w = float(weight)
+        debt_to_equity = w / (1.0 - w)
+    if weight is not None:
+        # The source column was present: record the outcome explicitly, ``None``
+        # included, so the column is written (as NULL) rather than silently absent.
+        out["debt_to_equity"] = debt_to_equity
+
+    beta_levered = out.get("beta_levered")
+    if debt_to_equity is not None and isinstance(beta_levered, (int, float)):
+        tax_rate = out.get("tax_rate")
+        t = float(tax_rate) if isinstance(tax_rate, (int, float)) else 0.0
+        out["beta_unlevered"] = float(beta_levered) / (1.0 + (1.0 - t) * debt_to_equity)
+
+    return out
+
+
+def parse_country_tax_rates(path: Path) -> dict[str, float]:
+    """Country → corporate tax rate from the ``Country Tax Rates`` sheet.
+
+    The sheet's header sits on row 0 with ``Country`` / ``Tax Rate`` in the first two
+    columns (a second, unrelated country/year block sits further right and is
+    ignored). Rows whose rate is not a fraction in ``[0, 1]`` are skipped rather
+    than trusted.
+    """
+    rows, _sheet = _load_rows(path, COUNTRY_TAX_SHEET)
+    out: dict[str, float] = {}
+    for raw in rows[1:]:
+        if len(raw) < 2:
+            continue
+        country = raw[0]
+        rate = _coerce_value(raw[1])
+        if not isinstance(country, str) or not country.strip():
+            continue
+        if not isinstance(rate, (int, float)):
+            continue
+        value = float(rate)
+        if not 0.0 <= value <= 1.0:
+            continue
+        out[country.strip()] = value
+    return out
+
+
+def parse_preheader_scalar(path: Path, sheet_name: str, label: str) -> float | None:
+    """Scalar input stored in a pre-header cell, found by its adjacent label.
+
+    Damodaran's sheets carry inputs (the risk-free rate, the mature-market ERP)
+    above the data header as ``label``/``value`` cell pairs rather than as columns.
+    Scans for a cell whose text starts with ``label`` and returns the first numeric
+    cell to its right on the same row. ``None`` when the label is absent.
+    """
+    rows, _sheet = _load_rows(path, sheet_name)
+    needle = label.strip().lower()
+    for raw in rows:
+        for index, cell in enumerate(raw):
+            if not isinstance(cell, str) or not cell.strip().lower().startswith(needle):
+                continue
+            for candidate in raw[index + 1 :]:
+                value = _coerce_value(candidate)
+                if isinstance(value, (int, float)):
+                    return float(value)
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -406,6 +507,31 @@ def _import_files_into_run(
         year=year,
         column_map=DEFAULT_COUNTRY_COLUMN_MAP,
     )
+
+    # Columns the published files only imply (D/(D+E) -> D/E, Hamada beta).
+    industry_rows = [derive_industry_columns(row) for row in industry_rows]
+
+    # Two country columns live outside the main sheet: the tax rate on its own
+    # sheet, the risk-free rate in a pre-header input cell. Both degrade to a
+    # warning if a future release moves or drops them (spec §13.2).
+    try:
+        tax_rates = parse_country_tax_rates(country_path)
+    except (KeyError, ValueError) as exc:
+        log.warning("damodaran.country_tax_sheet.unavailable", error=str(exc))
+        tax_rates = {}
+    try:
+        risk_free_rate = parse_preheader_scalar(
+            industry_path, "Industry Averages", RISK_FREE_RATE_LABEL
+        )
+    except (KeyError, ValueError) as exc:
+        log.warning("damodaran.risk_free_rate.unavailable", error=str(exc))
+        risk_free_rate = None
+    for row in country_rows:
+        country = row.get("country")
+        if isinstance(country, str) and country in tax_rates:
+            row["tax_rate"] = tax_rates[country]
+        if risk_free_rate is not None:
+            row["risk_free_rate"] = risk_free_rate
 
     # Detect empty-row situation before touching the DB.
     empty_sides: list[str] = []

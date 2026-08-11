@@ -30,6 +30,9 @@ def test_parse_industry_xls_returns_rows():
     assert sample["year"] == 2026
     numeric_keys = {"wacc", "cost_of_equity", "beta_levered"}
     assert any(sample.get(k) is not None for k in numeric_keys)
+    # D/(D+E) is mapped as a parsing artefact so derive_industry_columns can turn it
+    # into debt_to_equity; without it every equity/debt weight resolves to None.
+    assert any(isinstance(r.get("debt_weight_raw"), float) for r in rows)
 
 
 @pytest.mark.skipif(
