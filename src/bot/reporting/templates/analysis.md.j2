@@ -12,7 +12,7 @@ _Generated {{ generated_at }} · currency {{ a.currency or "n/a" }} · country {
 - **Current price:** not available — margin of safety cannot be computed.
 {% endif -%}
 - **Story type:** {{ a.story_type }}
-- **WACC:** {{ a.dcf_result.wacc | pct }} (equity {{ a.dcf_result.equity_weight | pct }} / debt {{ a.dcf_result.debt_weight | pct }})
+- **WACC (computed from the components in §3):** {{ a.dcf_result.wacc | pct }} (equity {{ a.dcf_result.equity_weight | pct }} / debt {{ a.dcf_result.debt_weight | pct }})
 - **Terminal value share of EV:** {{ a.dcf_result.terminal_value_share | pct }}
 
 > A single intrinsic value is a point in a cloud — read the sensitivity section
@@ -32,7 +32,10 @@ _Generated {{ generated_at }} · currency {{ a.currency or "n/a" }} · country {
 | Revenue growth (yr 1) | {{ a.assumptions.revenue_growth.value[0] | pct }} | {{ a.assumptions.revenue_growth.source }} |
 | Operating margin | {{ a.assumptions.operating_margin.value | pct }} | {{ a.assumptions.operating_margin.source }} |
 | Sales-to-capital | {{ a.assumptions.sales_to_capital.value | num }} | {{ a.assumptions.sales_to_capital.source }} |
-| WACC | {{ a.assumptions.wacc.value | pct }} | {{ a.assumptions.wacc.source }} |
+| Cost of equity | {{ a.assumptions.cost_of_equity.value | pct }} | {{ a.assumptions.cost_of_equity.source }} |
+| Pre-tax cost of debt | {{ a.assumptions.pretax_cost_of_debt.value | pct }} | {{ a.assumptions.pretax_cost_of_debt.source }} |
+| Equity weight | {{ a.assumptions.equity_weight.value | pct }} | {{ a.assumptions.equity_weight.source }} |
+| Debt weight | {{ a.assumptions.debt_weight.value | pct }} | {{ a.assumptions.debt_weight.source }} |
 | Terminal growth | {{ a.assumptions.terminal_growth.value | pct }} | {{ a.assumptions.terminal_growth.source }} |
 | Tax rate | {{ a.assumptions.tax_rate.value | pct }} | {{ a.assumptions.tax_rate.source }} |
 | Probability of bankruptcy | {{ a.assumptions.probability_of_bankruptcy.value | pct }} | {{ a.assumptions.probability_of_bankruptcy.source }} |

@@ -144,7 +144,10 @@ def test_returns_assumptions_with_sourced_fields(conn: duckdb.DuckDBPyConnection
         result.revenue_growth,
         result.operating_margin,
         result.sales_to_capital,
-        result.wacc,
+        result.cost_of_equity,
+        result.pretax_cost_of_debt,
+        result.equity_weight,
+        result.debt_weight,
         result.terminal_growth,
         result.probability_of_bankruptcy,
     ):
@@ -166,11 +169,15 @@ def test_sales_to_capital_uses_sector_default(conn: duckdb.DuckDBPyConnection) -
     assert result.sales_to_capital.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
 
 
-def test_wacc_uses_sector_default(conn: duckdb.DuckDBPyConnection) -> None:
+def test_wacc_components_use_sector_default(conn: duckdb.DuckDBPyConnection) -> None:
+    # There is no resolved Assumptions.wacc (see module docstring): the DCF
+    # computes WACC from these four sourced components instead.
     _seed_full_sector(conn)
     result = resolve_assumptions("ACME", conn)
-    assert result.wacc.value == pytest.approx(0.09)
-    assert result.wacc.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
+    assert result.cost_of_equity.value == pytest.approx(0.10)
+    assert result.cost_of_equity.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
+    assert result.pretax_cost_of_debt.value == pytest.approx(0.04)
+    assert result.pretax_cost_of_debt.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
 
 
 def test_probability_of_bankruptcy_defaults_to_zero_rule_based(
@@ -257,7 +264,6 @@ def test_manual_override_wins_for_every_field(
                 "revenue_growth: [0.20, 0.18, 0.15, 0.12, 0.10]",
                 "operating_margin: 0.30",
                 "sales_to_capital: 3.0",
-                "wacc: 0.08",
                 "terminal_growth: 0.025",
                 "probability_of_bankruptcy: 0.10",
                 "notes: 'consensus looked biased'",
@@ -270,8 +276,6 @@ def test_manual_override_wins_for_every_field(
     assert result.operating_margin.source is AssumptionSource.MANUAL
     assert result.sales_to_capital.value == pytest.approx(3.0)
     assert result.sales_to_capital.source is AssumptionSource.MANUAL
-    assert result.wacc.value == pytest.approx(0.08)
-    assert result.wacc.source is AssumptionSource.MANUAL
     assert result.terminal_growth.value == pytest.approx(0.025)
     assert result.terminal_growth.source is AssumptionSource.MANUAL
     assert result.probability_of_bankruptcy.value == pytest.approx(0.10)
@@ -456,3 +460,13 @@ def test_no_sector_row_at_all_is_not_reported_as_cross_region(
     result = resolve_assumptions("ACME", conn)
     assert result.operating_margin.value is None
     assert result.operating_margin.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
+
+
+def test_assumptions_has_no_redundant_wacc_field() -> None:
+    from dataclasses import fields
+
+    from bot.valuator.assumptions import Assumptions
+
+    # Deleted: to_dcf_assumptions() ignored it and the DCF recomputes WACC from
+    # its components, so the field only ever produced a contradictory report.
+    assert "wacc" not in {f.name for f in fields(Assumptions)}

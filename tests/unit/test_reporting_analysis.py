@@ -111,3 +111,20 @@ def test_render_no_overrides_section_when_absent(analysis: Analysis) -> None:
     md = render_analysis(analysis)
     # The base case has no manual overrides applied.
     assert "Manual overrides" not in md or "No manual overrides" in md
+
+
+def test_report_shows_exactly_one_wacc(analysis: Analysis) -> None:
+    # There used to be two: a sector-resolved Assumptions.wacc in §3 and the
+    # DCF-computed one in §1, which disagree. Only the computed one is real.
+    md = render_analysis(analysis)
+    assert md.count("| WACC ") == 0, "no assumptions-table WACC row"
+    computed = f"{analysis.dcf_result.wacc:.1%}"
+    assert computed in md
+
+
+def test_report_shows_the_sourced_wacc_components(analysis: Analysis) -> None:
+    # The components are what actually carry provenance, so they are what §7.3
+    # traceability needs in the table.
+    md = render_analysis(analysis)
+    for label in ("Cost of equity", "Pre-tax cost of debt", "Equity weight", "Debt weight"):
+        assert label in md, label

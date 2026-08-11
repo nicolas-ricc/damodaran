@@ -18,6 +18,14 @@ Resolution order (highest-priority source wins, spec §7.3/§7.6)::
 
 This module is a pure function of ``(ticker, conn, override_path)`` plus a
 nominal-GDP scalar: it reads, it does not write, and it holds no global state.
+
+The DCF's WACC is *computed* from its components (``cost_of_equity``,
+``pretax_cost_of_debt``, the weights and the tax rate) by ``dcf._wacc``; there is
+deliberately no resolved ``wacc`` assumption. Damodaran publishes a sector WACC and
+an earlier version of this module carried it, but the DCF ignored it, so the report
+printed two disagreeing numbers. The sector WACC still has one legitimate consumer:
+the §6.4 ROIC-vs-WACC trap detector, which reads it from ``damodaran_industry``
+directly.
 """
 
 from __future__ import annotations
@@ -93,7 +101,6 @@ class Assumptions:
         revenue_growth: Year-by-year revenue-growth path (years 1..N).
         operating_margin: Steady-state EBIT / revenue ratio.
         sales_to_capital: Incremental sales per unit of reinvested capital.
-        wacc: Weighted-average cost of capital.
         terminal_growth: Perpetual growth ``g`` past the horizon.
         probability_of_bankruptcy: Probability the firm fails (0 outside
             distressed stories).
@@ -109,7 +116,6 @@ class Assumptions:
     revenue_growth: Sourced[tuple[float, ...] | None]
     operating_margin: Sourced[float | None]
     sales_to_capital: Sourced[float | None]
-    wacc: Sourced[float | None]
     terminal_growth: Sourced[float | None]
     probability_of_bankruptcy: Sourced[float]
     cost_of_equity: Sourced[float | None]
@@ -437,9 +443,6 @@ def resolve_assumptions(
         override, sector, key="pretax_cost_of_debt", attr="cost_of_debt", cross_region=cross_region
     )
     equity_weight, debt_weight = _resolve_weights(override, sector, cross_region=cross_region)
-    wacc = _resolve_sector_scalar(
-        override, sector, key="wacc", attr="wacc", cross_region=cross_region
-    )
     terminal_growth = _resolve_terminal_growth(override, country, gdp_nominal)
     probability_of_bankruptcy = _resolve_probability_of_bankruptcy(override)
     tax_rate = _resolve_tax_rate(override, sector, country, cross_region=cross_region)
@@ -448,7 +451,6 @@ def resolve_assumptions(
         revenue_growth=revenue_growth,
         operating_margin=operating_margin,
         sales_to_capital=sales_to_capital,
-        wacc=wacc,
         terminal_growth=terminal_growth,
         probability_of_bankruptcy=probability_of_bankruptcy,
         cost_of_equity=cost_of_equity,
