@@ -10,13 +10,22 @@ Personal investment bot. Local CLI tool. Single user. Greenfield project.
 - **Quality gates**: eliminatory filters in the screener (Capa B) that disqualify a company outright.
 - **Value indicators**: filters checking cheapness relative to sector medians (Damodaran datasets).
 - **Trap detection**: filters that flag companies that *look* cheap but are cheap for a reason.
+- **Sector benchmark**: the Damodaran medians for one `(industry, region, year)`, against which a company's cheapness and quality are judged.
+- **Coverage gate**: the eliminatory filter that removes a company with no usable sector benchmark from the universe. See [ADR 0006](docs/adr/0006-unmeasurable-companies-leave-the-universe.md).
+- **Measured company**: one that has every input its screening and ranking require. Only measured companies enter the ranking percentiles.
 - **Capas A/B/C**: see spec §3 — data / mechanical screener / interpretive analysis.
+- **Listing currency**: the currency a share trades in on its exchange. Belongs to the price feed.
+  _Avoid_: currency, local currency, trading currency.
+- **Reporting currency**: the currency a company publishes its financial statements in. Belongs to the financial statements.
+  _Avoid_: currency, reported currency, functional currency.
+- **Valuation currency**: the currency a company is valued in — its reporting currency. Cash flows and discount rate are always expressed in it. See [ADR 0005](docs/adr/0005-currency-handling-and-valuation-currency.md).
 
 ## Source of truth
 
 - **Spec**: `docs/superpowers/specs/2026-05-25-investment-bot-design.md`
 - **ADRs**: `docs/adr/`
 - **Active plan**: `docs/superpowers/plans/2026-05-25-m1-skeleton-damodaran-sec-edgar.md`
+- **Open audit**: `docs/superpowers/notes/2026-08-14-grilling-pipeline-seams.md` — pipeline seam-by-seam audit; seams 1-2 closed (ADR 0005, 0006), seam 3 onward pending.
 
 ## External services
 
