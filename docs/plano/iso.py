@@ -104,20 +104,20 @@ def rhombus(cx, cy, z, s):
             iso(cx + s, cy, z), iso(cx, cy + s, z)]
 
 
-def slab(i, L):
+def slab(i, capa):
     ox, oy, z = origin(i)
     body = prism(ox, oy, z, W, H, T, "face-top", "face-left", "face-right")
     if i < len(LAYERS) - 1:
         body += poly(rhombus(ox + CX, oy + CY, z + 0.4, FLOW_W[i] * 0.72), "aperture")
-    return (f'<g class="slab" data-layer="{L["id"]}" data-role="{L["role"]}" '
-            f'tabindex="0" role="button" aria-label="{ARIA[L["id"]]}. '
+    return (f'<g class="slab" data-layer="{capa["id"]}" data-role="{capa["role"]}" '
+            f'tabindex="0" role="button" aria-label="{ARIA[capa["id"]]}. '
             f'Abre el plano de esta capa.">{body}</g>')
 
 
-def blocks(i, L, near=None):
+def blocks(i, capa, near=None):
     """near=None todos; False solo los lejanos; True solo los cercanos."""
     ox, oy, z = origin(i)
-    if L["id"] == "capa-b":
+    if capa["id"] == "capa-b":
         if near is True:
             return ""
         out = []
@@ -131,13 +131,13 @@ def blocks(i, L, near=None):
                         f"blk-right r-{role}") + "</g>")
         return "".join(out)
     out = []
-    for b in sorted(BLOCKS[L["id"]], key=lambda b: b[1] + b[2]):
-        bid, bx, by, bw, bh, bz, label, role, _, _ = b
+    for b in sorted(BLOCKS[capa["id"]], key=lambda b: b[1] + b[2]):
+        bid, bx, by, bw, bh, bz, label, role = b[:8]
         cerca = (bx + bw / 2) + (by + bh / 2) > CX + CY
         if near is not None and cerca != near:
             continue
         out.append(
-            f'<g class="blk" data-node="{bid}" data-layer="{L["id"]}" '
+            f'<g class="blk" data-node="{bid}" data-layer="{capa["id"]}" '
             f'data-role="{role}" tabindex="0" role="button" '
             f'aria-label="{label}. Abre su ficha.">'
             + prism(ox + bx, oy + by, z + bz, bw, bh, bz,
@@ -146,10 +146,10 @@ def blocks(i, L, near=None):
     return "".join(out)
 
 
-def block_labels(i, L):
+def block_labels(i, capa):
     ox, oy, z = origin(i)
-    if L["id"] == "capa-b":
-        bx, by, bw, bh, bz, _, _ = ZIG[-1]
+    if capa["id"] == "capa-b":
+        bx, by, bw, bh, bz = ZIG[-1][:5]
         px, py = iso(ox + bx + bw / 2, oy + by + bh / 2, z + 4 * bz)
         tx, ty = px + 108, py - 44
         return (f'<g class="callout">'
@@ -159,7 +159,7 @@ def block_labels(i, L):
                 f'<text class="lbl-sub" x="{tx:.1f}" y="{ty + 14:.1f}">16 reglas</text>'
                 "</g>")
     out = []
-    for bid, bx, by, bw, bh, bz, label, role, dx, dy in BLOCKS[L["id"]]:
+    for _bid, bx, by, bw, bh, bz, label, _role, dx, dy in BLOCKS[capa["id"]]:
         px, py = iso(ox + bx + bw / 2, oy + by + bh / 2, z + bz)
         out.append(f'<text class="lbl-blk" x="{px + dx:.1f}" y="{py + dy + 4:.1f}" '
                    f'text-anchor="middle">{label}</text>')
@@ -184,19 +184,19 @@ def flow(i):
     return f'<g class="flow">{cuerpo}</g>', lab
 
 
-def layer_label(i, L):
+def layer_label(i, capa):
     ox, oy, z = origin(i)
     corner = iso(ox, oy + H, z)
     tx, ty = corner[0] - 30, corner[1] - 10
-    return (f'<g class="lyr-lbl" data-layer="{L["id"]}" data-role="{L["role"]}" '
-            f'tabindex="0" role="button" aria-label="{ARIA[L["id"]]}. '
+    return (f'<g class="lyr-lbl" data-layer="{capa["id"]}" data-role="{capa["role"]}" '
+            f'tabindex="0" role="button" aria-label="{ARIA[capa["id"]]}. '
             f'Abre el plano de esta capa.">'
             f'<path class="leader" d="M{tx + 8:.1f},{ty - 5:.1f} '
             f'L{corner[0] - 5:.1f},{corner[1] - 3:.1f}"/>'
             f'<text class="lbl-lyr" x="{tx:.1f}" y="{ty:.1f}" text-anchor="end">'
-            f'{L["title"]}</text>'
+            f'{capa["title"]}</text>'
             f'<text class="lbl-sub" x="{tx:.1f}" y="{ty + 16:.1f}" text-anchor="end">'
-            f'{L["sub"]}</text></g>')
+            f'{capa["sub"]}</text></g>')
 
 
 def loops():
@@ -207,7 +207,7 @@ def loops():
     out = []
     specs = [("mos", 3, 2, "el margen de seguridad vuelve al ranking"),
              ("filing", 4, 3, "un filing nuevo vuelve a disparar el análisis")]
-    for k, (lid, src, dst, label) in enumerate(specs):
+    for k, (_lid, src, dst, label) in enumerate(specs):
         p0, p1 = borde(src), borde(dst)
         bx = max(p0[0], p1[0]) + 78 + k * 46
         d = (f"M{p0[0] + 6:.1f},{p0[1]:.1f} C{bx:.1f},{p0[1]:.1f} "
@@ -223,27 +223,27 @@ def loops():
 def build():
     formas, rotulos = [], []
     for i in range(len(LAYERS) - 1, -1, -1):
-        L = LAYERS[i]
-        formas.append(f'<g class="layer" data-layer="{L["id"]}">')
-        formas.append(slab(i, L))
+        capa = LAYERS[i]
+        formas.append(f'<g class="layer" data-layer="{capa["id"]}">')
+        formas.append(slab(i, capa))
         if i > 0:
-            formas.append(blocks(i, L, near=False))
+            formas.append(blocks(i, capa, near=False))
             cuerpo, lab = flow(i - 1)
             formas.append(cuerpo)
             rotulos.append(lab)
-            formas.append(blocks(i, L, near=True))
+            formas.append(blocks(i, capa, near=True))
         else:
-            formas.append(blocks(i, L))
+            formas.append(blocks(i, capa))
         formas.append("</g>")
     loop_partes = loops()
     formas.extend(p for p in loop_partes if p.startswith('<g class="loop"'))
     rotulos.extend(p for p in loop_partes if p.startswith('<text'))
-    for i, L in enumerate(LAYERS):
-        rotulos.append(layer_label(i, L))
-        rotulos.append(block_labels(i, L))
+    for i, capa in enumerate(LAYERS):
+        rotulos.append(layer_label(i, capa))
+        rotulos.append(block_labels(i, capa))
     return "".join(formas), "".join(rotulos)
 
 
 if __name__ == "__main__":
-    s, l = build()
-    print(f"<!--S-->{s}<!--L-->{l}")
+    formas, rotulos = build()
+    print(f"<!--S-->{formas}<!--L-->{rotulos}")

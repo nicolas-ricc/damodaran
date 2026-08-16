@@ -9,10 +9,10 @@ from html import escape as esc
 import codemap
 
 
-def wrap(s, n):
+def wrap(texto, n):
     """Corta por palabras, nunca por la mitad de una."""
     out, cur = [], ""
-    for w in s.split():
+    for w in texto.split():
         if not cur:
             cur = w
         elif len(cur) + 1 + len(w) <= n:
@@ -25,9 +25,9 @@ def wrap(s, n):
     return out
 
 
-def txt(x, y, s, cls="t-b", anchor="start"):
+def txt(x, y, texto, cls="t-b", anchor="start"):
     return (f'<text class="{cls}" x="{x}" y="{y}" text-anchor="{anchor}">'
-            f'{esc(s)}</text>')
+            f'{esc(texto)}</text>')
 
 
 def hot(node, role, x, y, w, h, svg, aria):
@@ -92,39 +92,39 @@ TRAPS = [
 
 def plan_b():
     o = []
-    CX, XS, CW = 490, [56, 278, 500, 722], 208
+    centro, xs, ancho = 490, [56, 278, 500, 722], 208
     o.append('<rect class="box-fill dimmable" x="52" y="34" width="876" height="46" rx="2"/>')
     o.append(txt(66, 56, "Universo medido", "t-h"))
     o.append(txt(66, 72, "solo empresas con benchmark sectorial utilizable", "t-s"))
-    o.append(vflow(CX, 80, 100))
+    o.append(vflow(centro, 80, 100))
 
     o.append(band(46, 104, 888, 190, "Quality gates", "las 7 son eliminatorias", "elimina"))
     for i, (nid, t, sb) in enumerate(GATES[:4]):
-        o.append(chip(nid, "elimina", XS[i], 140, CW, 62, t, sb))
+        o.append(chip(nid, "elimina", xs[i], 140, ancho, 62, t, sb))
     for i, (nid, t, sb) in enumerate(GATES[4:]):
-        o.append(chip(nid, "elimina", XS[i], 214, CW, 62, t, sb))
+        o.append(chip(nid, "elimina", xs[i], 214, ancho, 62, t, sb))
     o.append(arrow(56, 262, 20, 282))
     o.append(txt(14, 300, "sin escala", "t-s role-elimina", "end"))
     o.append(txt(14, 314, "ni estructura sana", "t-s role-elimina", "end"))
-    o.append(vflow(CX, 294, 318))
+    o.append(vflow(centro, 294, 318))
 
     o.append(band(46, 322, 888, 150, "Value indicators",
                   "alcanza con que pase una", "selecciona"))
     for i, (nid, t, sb) in enumerate(VALUES):
-        o.append(chip(nid, "selecciona", XS[i], 356, CW, 80, t, sb))
+        o.append(chip(nid, "selecciona", xs[i], 356, ancho, 80, t, sb))
     o.append(arrow(56, 420, 20, 440))
     o.append(txt(14, 458, "caras contra", "t-s role-selecciona", "end"))
     o.append(txt(14, 472, "su propio sector", "t-s role-selecciona", "end"))
-    o.append(vflow(CX, 472, 496))
+    o.append(vflow(centro, 472, 496))
 
     o.append(band(46, 500, 888, 200, "Trap detection", "por qué está barata", "elimina"))
     for i, (nid, t, sb) in enumerate(TRAPS[:4]):
-        o.append(chip(nid, "elimina", XS[i], 534, CW, 72, t, sb))
-    o.append(chip(TRAPS[4][0], "elimina", XS[0], 618, CW, 72, TRAPS[4][1], TRAPS[4][2]))
+        o.append(chip(nid, "elimina", xs[i], 534, ancho, 72, t, sb))
+    o.append(chip(TRAPS[4][0], "elimina", xs[0], 618, ancho, 72, TRAPS[4][1], TRAPS[4][2]))
     o.append(arrow(56, 670, 20, 690))
     o.append(txt(14, 708, "baratas por", "t-s role-elimina", "end"))
     o.append(txt(14, 722, "una buena razón", "t-s role-elimina", "end"))
-    o.append(vflow(CX, 700, 724))
+    o.append(vflow(centro, 700, 724))
 
     o.append(band(46, 728, 888, 168, "Ranking", "ordena, no descarta", "selecciona"))
     cur = 62
@@ -142,7 +142,7 @@ def plan_b():
                  "del universo ya filtrado, no contra umbrales fijos.", "t-n"))
     o.append(txt(62, 862, "El margen de seguridad es la excepción: entra como cociente crudo "
                  "y llega desde la Capa C. Por eso el bucle.", "t-n"))
-    o.append(vflow(CX, 896, 920))
+    o.append(vflow(centro, 896, 920))
 
     o.append('<rect class="box-fill dimmable" x="370" y="924" width="240" height="52" rx="2"/>')
     o.append(txt(384, 948, "Shortlist", "t-h"))
@@ -507,7 +507,7 @@ def _abajo(n):
 
 
 def _arriba(n):
-    x, y, w, h = NODOS[n][:4]
+    x, y, w, _h = NODOS[n][:4]
     return (x + w / 2, y)
 
 

@@ -76,3 +76,8 @@ addopts = "-v --strict-markers"
 markers = [
     "integration: tests that hit external services (use VCR cassettes)",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+# El generador del plano usa tipografía deliberada (× de multiplicar, − de restar)
+# en el texto que dibuja. No son typos: son los glifos correctos.
+"docs/plano/*.py" = ["RUF001", "RUF002", "RUF003"]

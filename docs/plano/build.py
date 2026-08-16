@@ -16,8 +16,8 @@ AQUI = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(AQUI))
 
 import codemap  # noqa: E402
-import iso      # noqa: E402
-import views    # noqa: E402
+import iso  # noqa: E402
+import views  # noqa: E402
 
 TEXT_RE = re.compile(r'<text\b[^>]*>.*?</text>', re.S)
 
