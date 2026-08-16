@@ -16,3 +16,7 @@ logs/
 
 # VCR — record locally, ignore re-records
 tests/fixtures/cassettes/**/*.yaml.tmp
+
+# Plano — salida generada; se reconstruye con: python3 docs/plano/build.py
+docs/plano/plano.html
+docs/plano/codemap.json

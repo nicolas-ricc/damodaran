@@ -1,0 +1,125 @@
+<div class="wrap"><div class="sheet">
+
+<h1>Cómo el bot elige</h1>
+<p class="deck">Un universo de 50.000 empresas, cuatro capas, veinte o treinta nombres</p>
+
+<p class="lede">Este plano tiene tres niveles. Arriba, el sistema entero visto en axonometría: cinco planos apilados, con el caudal bajando por el centro y angostándose donde se descarta. Después, cada capa abierta con todas sus reglas. Y en el fondo, la ficha de cada pieza, con la lógica de Damodaran de un lado y cómo está construida del otro.</p>
+<p class="lede">Se puede recorrer entero o tocar directamente la parte que te interese.</p>
+
+<div class="principios">
+  <div class="principio">
+    <svg viewBox="0 0 190 78" role="img" aria-label="Dos líneas: el precio oscila, el valor avanza suave.">
+      <path class="axis" d="M8 70h174"/>
+      <path class="spark" stroke="var(--ink-faint)" d="M10 52 L28 30 L44 58 L60 22 L78 46 L96 18 L114 44 L132 20 L150 38 L172 14"/>
+      <path class="spark" stroke="var(--p-valua)" d="M10 46 C50 42 110 34 172 26"/>
+      <text class="t-s" x="176" y="16" text-anchor="end">precio</text>
+      <text class="t-s" x="176" y="42" text-anchor="end" fill="var(--p-valua-t)">valor</text>
+    </svg>
+    <h3>Precio no es valor</h3>
+    <p>El precio es lo que el mercado pide hoy. El valor es lo que el negocio va a producir. Que se junten a veces no significa que sean lo mismo, y toda la ganancia del método vive en esa brecha.</p>
+  </div>
+
+  <div class="principio">
+    <svg viewBox="0 0 190 78" role="img" aria-label="Dos barras: el ROIC por debajo del costo del capital.">
+      <path class="axis" d="M8 70h174"/>
+      <rect x="30" y="40" width="52" height="30" fill="var(--p-elimina)" opacity=".34" stroke="var(--p-elimina)" stroke-width="1.4"/>
+      <rect x="106" y="22" width="52" height="48" fill="var(--ink-faint)" opacity=".26" stroke="var(--ink-faint)" stroke-width="1.4"/>
+      <text class="t-s" x="56" y="34" text-anchor="middle" fill="var(--p-elimina-t)">ROIC</text>
+      <text class="t-s" x="132" y="16" text-anchor="middle">WACC</text>
+    </svg>
+    <h3>Crecer no siempre crea valor</h3>
+    <p>Si el retorno sobre el capital invertido no supera lo que ese capital cuesta, cada peso reinvertido vale menos que un peso. Ahí crecer destruye valor, y cuanto más rápido, peor.</p>
+  </div>
+
+  <div class="principio">
+    <svg viewBox="0 0 190 78" role="img" aria-label="Una distribución sectorial con una empresa marcada por debajo de la mediana.">
+      <path class="axis" d="M8 70h174"/>
+      <path d="M12 70 C46 70 44 24 95 24 C146 24 144 70 178 70 Z" fill="var(--p-selecciona)" opacity=".18"/>
+      <path class="spark" stroke="var(--p-selecciona)" d="M12 70 C46 70 44 24 95 24 C146 24 144 70 178 70"/>
+      <path class="thin" stroke-dasharray="3 3" d="M95 24V70"/>
+      <circle cx="56" cy="70" r="5" fill="var(--p-selecciona)"/>
+      <text class="t-s" x="95" y="16" text-anchor="middle">mediana del sector</text>
+    </svg>
+    <h3>Barato es siempre relativo</h3>
+    <p>Un múltiplo no significa nada solo. La comparación útil no es contra el mercado ni contra la propia historia, sino contra los pares que enfrentan la misma economía.</p>
+  </div>
+
+  <div class="principio">
+    <svg viewBox="0 0 190 78" role="img" aria-label="Un punto único frente a una nube de resultados posibles.">
+      <path class="axis" d="M8 70h174"/>
+      <circle cx="44" cy="40" r="5" fill="var(--ink)"/>
+      <text class="t-s" x="44" y="24" text-anchor="middle">un número</text>
+      <g fill="var(--p-valua)" opacity=".5">
+        <circle cx="112" cy="30" r="3"/><circle cx="128" cy="42" r="3"/><circle cx="142" cy="26" r="3"/>
+        <circle cx="120" cy="54" r="3"/><circle cx="150" cy="46" r="3"/><circle cx="134" cy="36" r="3"/>
+        <circle cx="106" cy="46" r="3"/><circle cx="158" cy="34" r="3"/><circle cx="144" cy="56" r="3"/>
+      </g>
+      <text class="t-s" x="132" y="18" text-anchor="middle" fill="var(--p-valua-t)">una nube</text>
+    </svg>
+    <h3>Un valor sin su dispersión miente</h3>
+    <p>El resultado de un DCF hereda la incertidumbre de sus supuestos. Reportar «vale 42,17» finge una precisión que no existe, y por eso la sensitivity es obligatoria.</p>
+  </div>
+</div>
+
+<nav class="nav" aria-label="Niveles del plano">
+  <button class="crumb" data-goto="sistema" aria-current="true">El sistema</button>
+  <span class="crumb-sep" aria-hidden="true">·</span>
+  <button class="crumb" data-goto="fuentes">Fuentes</button>
+  <button class="crumb" data-goto="capa-a">Capa A</button>
+  <button class="crumb" data-goto="capa-b">Capa B</button>
+  <button class="crumb" data-goto="capa-c">Capa C</button>
+  <button class="crumb" data-goto="salida">Salida</button>
+  <span class="crumb-sep" aria-hidden="true">·</span>
+  <button class="crumb" data-goto="codigo">El código</button>
+</nav>
+
+<section class="view" id="v-sistema">
+  <div class="view-head">
+    <h2>El sistema entero</h2>
+    <p class="sub">cinco planos, dos bucles y un caudal que se angosta</p>
+    <p>El caudal baja por el centro: sale por debajo de cada losa y aterriza sobre la siguiente. Se angosta al atravesar el zigurat de la Capa B, que es la única capa que descarta. Los dos trazos punteados del costado derecho son los bucles que vuelven hacia arriba.</p>
+    <p class="hint">Tocá una capa para abrirla, o una pieza para ver su ficha.</p>
+  </div>
+  <figure style="margin:0">
+    <div class="scroll">__ISO__</div>
+    <figcaption>La Capa B se estrecha porque descarta. La Capa C no se estrecha porque profundiza: pocas empresas, mucho detalle en cada una. Esa diferencia de forma es la diferencia de trabajo.</figcaption>
+  </figure>
+</section>
+
+__VIEWS__
+
+<section class="closing">
+  <h2>Lo que el plano no puede dibujar</h2>
+  <p>Un DCF vale lo que valen sus supuestos, y el que más pesa es el crecimiento de los primeros años. El método pide ahí un consenso de analistas, que tiende a ser optimista; el programa todavía usa el promedio histórico de la propia empresa, que tiene el sesgo contrario y es igual de discutible. La sensitivity y las banderas narrativas mitigan eso; no lo eliminan.</p>
+  <p>El screener tampoco juzga narrativa. Lo más cerca que llega es por proxies sectoriales. El hueco real lo cubre leer el 10-K, o una Capa D con un modelo de lenguaje que hoy está fuera de alcance. Y ningún filtro cuantitativo es robusto a fraude contable: los chequeos de accruals y de caja ayudan, no blindan.</p>
+  <p>El bot no opera. Sugiere candidatos para que un humano investigue.</p>
+
+  <details class="a11y">
+    <summary>Descripción del plano en texto</summary>
+    <ol>
+      <li><strong>Fuentes.</strong> Cuatro proveedores: Damodaran (NYU Stern) para benchmarks sectoriales, SEC EDGAR para fundamentals de Estados Unidos, Financial Modeling Prep para el resto del mundo y precios, e Interactive Brokers vía TWS para la cartera real.</li>
+      <li><strong>Capa A.</strong> Los adapters descargan, normalizan y escriben en DuckDB, un archivo único de quince tablas. El refresco es incremental: nunca se vuelve a pedir un dato vigente.</li>
+      <li><strong>Capa B.</strong> Un embudo de cuatro etapas y dieciséis reglas sobre el universo medido. Quality gates y trap detection eliminan; value indicators y ranking seleccionan. Sale una shortlist de veinte a treinta.</li>
+      <li><strong>Capa C.</strong> Cada candidato pasa por cinco estaciones: story type, los seis supuestos, el DCF de dos etapas, la sensitivity y las cinco banderas narrativas. El resultado es un margen de seguridad.</li>
+      <li><strong>Primer bucle.</strong> Ese margen de seguridad vuelve al ranking de la Capa B, donde pesa el diez por ciento del score.</li>
+      <li><strong>Salida.</strong> El monitor de cartera lee las tres capas más el snapshot diario del broker, detecta doce tipos de evento y escribe una carpeta de reportes por día.</li>
+      <li><strong>Segundo bucle.</strong> Cuando el monitor ve un filing nuevo sobre una posición, vuelve a disparar el análisis de la Capa C.</li>
+      <li><strong>El código.</strong> Una séptima vista muestra el grafo de dependencias real entre paquetes, derivado de parsear los import, con las tres aristas que incomodan (dos van contra la dirección esperada y una es entre adapters) y los nueve patrones de diseño que se repiten.</li>
+    </ol>
+  </details>
+</section>
+
+</div></div>
+
+<dialog class="ficha" id="ficha" aria-labelledby="ficha-titulo">
+  <div class="ficha-inner">
+    <div class="ficha-top">
+      <div>
+        <p class="ficha-role" id="ficha-rol"></p>
+        <h2 id="ficha-titulo" tabindex="-1"></h2>
+      </div>
+      <button class="ficha-close" id="ficha-close" type="button" autofocus>cerrar</button>
+    </div>
+    <div id="ficha-body"></div>
+  </div>
+</dialog>
