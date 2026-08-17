@@ -60,7 +60,7 @@ _Generated {{ generated_at }} · currency {{ a.currency or "n/a" }} · country {
 | Assumption | Intrinsic @ -20% | Intrinsic @ +20% | Impact |
 |---|---|---|---|
 {% for t in a.tornado -%}
-| {{ t.axis }} | {{ t.intrinsic_low | per_share }} | {{ t.intrinsic_high | per_share }} | {{ t.impact | per_share }} |
+| {{ t.axis | axis_label }} | {{ t.intrinsic_low | per_share }} | {{ t.intrinsic_high | per_share }} | {{ t.impact | per_share }} |
 {% endfor %}
 ### 2-D grid — {{ a.grid.axis_a }} (rows) × {{ a.grid.axis_b }} (cols), {% if a.grid.reference_price is none %}{{ grid_label_intrinsic }}{% else %}{{ grid_label_mos }}{% endif %}
 {% if a.grid.reference_price is none %}

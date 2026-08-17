@@ -213,6 +213,19 @@ def test_report_shows_varying_margin_path_as_a_range(
     assert "13.0% → 18.5%" in md
 
 
+def test_tornado_path_axes_are_labelled_year_one(analysis: Analysis) -> None:
+    # The tornado's revenue_growth / operating_margin rows swing year 1 only
+    # (bot.valuator.sensitivity._axis_endpoint_value); a non-uniform,
+    # story-branched path is not flat across years, so the report must not
+    # imply the whole path moved by labelling the row as if it were.
+    md = render_analysis(analysis)
+    assert "revenue_growth (yr 1)" in md
+    assert "operating_margin (yr 1)" in md
+    # Scalar axes are unaffected.
+    assert "tax_rate (yr 1)" not in md
+    assert "| tax_rate |" in md
+
+
 def test_per_share_values_are_not_scaled_to_thousands() -> None:
     from bot.reporting.analysis_report import _fmt_per_share
 
