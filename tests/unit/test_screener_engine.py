@@ -894,3 +894,28 @@ def test_run_screen_default_valuator_byte_identical_to_per_ticker(
     per_ticker = run_screen(conn, _value_preset(), top=3, valuator=per_ticker_valuator)
 
     assert batched.shortlist == per_ticker.shortlist
+
+
+def test_run_screen_honours_assumptions_dir_override(
+    conn: duckdb.DuckDBPyConnection, tmp_path: object
+) -> None:
+    """`assumptions_dir` threads to the second-pass DCF and changes the MoS."""
+    from pathlib import Path
+
+    assert isinstance(tmp_path, Path)
+    _seed_valuable_sector(conn)
+    _seed_company(conn, "AAA")
+
+    baseline = run_screen(conn, _value_preset(), top=1)
+    baseline_mos = baseline.shortlist[0].margin_of_safety
+
+    assumptions_dir = tmp_path / "assumptions"
+    assumptions_dir.mkdir()
+    (assumptions_dir / "AAA.yaml").write_text("operating_margin: 0.05\n")
+
+    overridden = run_screen(conn, _value_preset(), top=1, assumptions_dir=assumptions_dir)
+    overridden_mos = overridden.shortlist[0].margin_of_safety
+
+    assert baseline_mos is not None
+    assert overridden_mos is not None
+    assert overridden_mos != baseline_mos

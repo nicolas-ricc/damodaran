@@ -160,3 +160,65 @@ def test_analyze_applies_override(tmp_path: Path, monkeypatch) -> None:
     md = next(reports_dir.glob("*/analysis/AAPL.md")).read_text()
     assert "Services mix lifts steady-state margin." in md
     assert "manual" in md
+
+
+def test_analyze_picks_up_config_assumptions_by_convention(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Without ``--override``, `analyze` looks for `<assumptions_dir>/<TICKER>.yaml`."""
+    db_path = tmp_path / "bot.duckdb"
+    reports_dir = tmp_path / "reports"
+    assumptions_dir = tmp_path / "assumptions"
+    assumptions_dir.mkdir()
+    (assumptions_dir / "AAPL.yaml").write_text("notes: convention override\n")
+
+    monkeypatch.setenv("BOT_DB_PATH", str(db_path))
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(reports_dir))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.setenv("BOT_ASSUMPTIONS_DIR", str(assumptions_dir))
+
+    conn = connect(db_path)
+    apply_schema(conn)
+    _seed(conn)
+    conn.close()
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["analyze", "AAPL"])
+    assert result.exit_code == 0, result.stdout
+
+    md = next(reports_dir.glob("*/analysis/AAPL.md")).read_text()
+    assert "convention override" in md
+
+
+def test_analyze_explicit_override_wins_over_convention(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """An explicit ``--override`` beats the conventional `<assumptions_dir>` file."""
+    db_path = tmp_path / "bot.duckdb"
+    reports_dir = tmp_path / "reports"
+    assumptions_dir = tmp_path / "assumptions"
+    assumptions_dir.mkdir()
+    (assumptions_dir / "AAPL.yaml").write_text("notes: convention override\n")
+
+    explicit_override = tmp_path / "explicit.yaml"
+    explicit_override.write_text("notes: explicit override\n")
+
+    monkeypatch.setenv("BOT_DB_PATH", str(db_path))
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(reports_dir))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.setenv("BOT_ASSUMPTIONS_DIR", str(assumptions_dir))
+
+    conn = connect(db_path)
+    apply_schema(conn)
+    _seed(conn)
+    conn.close()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app, ["analyze", "AAPL", "--override", str(explicit_override)]
+    )
+    assert result.exit_code == 0, result.stdout
+
+    md = next(reports_dir.glob("*/analysis/AAPL.md")).read_text()
+    assert "explicit override" in md
+    assert "convention override" not in md

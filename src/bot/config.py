@@ -46,6 +46,10 @@ class Settings(BaseSettings):
         default=Path("./config/presets"),
         description="Directory holding screener preset YAMLs (resolved by `bot screen --preset`).",
     )
+    assumptions_dir: Path = Field(
+        default=Path("./config/assumptions"),
+        description="Directorio de overrides por convención: <TICKER>.yaml (spec §7.6).",
+    )
     industry_mapping_path: Path | None = Field(
         default=None,
         description=(

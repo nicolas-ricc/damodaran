@@ -22,6 +22,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 
 import duckdb
 
@@ -85,7 +86,9 @@ type BatchValuator = Callable[[duckdb.DuckDBPyConnection, tuple[str, ...]], dict
 
 
 def _batch_dcf_margins(
-    conn: duckdb.DuckDBPyConnection, tickers: tuple[str, ...]
+    conn: duckdb.DuckDBPyConnection,
+    tickers: tuple[str, ...],
+    assumptions_dir: Path | None = None,
 ) -> dict[str, float | None]:
     """Real DCF margin of safety for every shortlisted ticker (the F7 N+1 fix).
 
@@ -98,12 +101,22 @@ def _batch_dcf_margins(
     company that cannot be valued (unknown ticker, missing data, or assumptions
     too incomplete for the DCF) yields ``None`` so the caller falls back to the
     neutral :data:`~bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY`.
+
+    When ``assumptions_dir`` is given, each ticker with a matching
+    ``<assumptions_dir>/<TICKER>.yaml`` is valued with that file as its override
+    (spec §7.6), so the screener's second pass agrees with ``bot analyze`` for
+    the same ticker.
     """
     margins: dict[str, float | None] = {}
     for ticker in tickers:
+        override_path = None
+        if assumptions_dir is not None:
+            candidate_path = assumptions_dir / f"{ticker}.yaml"
+            if candidate_path.exists():
+                override_path = candidate_path
         try:
             inputs = load_valuation_input(conn, ticker)
-            analysis = analyze(ticker, conn, company=inputs)
+            analysis = analyze(ticker, conn, override_path=override_path, company=inputs)
         except (LookupError, ValueError, ZeroDivisionError):
             margins[ticker] = None
             continue
@@ -626,6 +639,7 @@ def run_screen(
     *,
     top: int | None = None,
     valuator: Valuator | None = _dcf_margin_of_safety,
+    assumptions_dir: Path | None = None,
 ) -> ScreenResult:
     """Screen the DB universe with ``config`` and return the ranked shortlist.
 
@@ -646,6 +660,12 @@ def run_screen(
             defaults to the DCF pipeline. ``None`` skips valuation entirely and
             keeps the first-pass placeholder ranking (e.g. for a fast dry run). A
             candidate the valuator cannot value keeps the neutral placeholder.
+        assumptions_dir: Optional ``config/assumptions`` directory (spec §7.6);
+            threaded to the default batched DCF valuator so a shortlisted ticker
+            with a matching ``<TICKER>.yaml`` is valued with the same manual
+            override ``bot analyze`` would pick up by convention. Ignored when
+            ``valuator`` is not the default (an injected per-ticker valuator owns
+            its own overrides, if any).
 
     Returns:
         The re-ranked shortlist whose ``margin_of_safety`` reflects the real DCF
@@ -734,7 +754,7 @@ def run_screen(
     # ``valuator`` keeps the legacy one-call-per-candidate seam.
     shortlist_tickers = tuple(s.ticker for s in first_pass)
     if valuator is _dcf_margin_of_safety:
-        raw_margins = _batch_dcf_margins(conn, shortlist_tickers)
+        raw_margins = _batch_dcf_margins(conn, shortlist_tickers, assumptions_dir)
     elif valuator is None:
         raw_margins = {ticker: None for ticker in shortlist_tickers}
     else:

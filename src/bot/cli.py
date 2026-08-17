@@ -317,6 +317,11 @@ def analyze(
     conn, settings = _open_db()
     ticker = ticker.upper()
 
+    if override is None:
+        conventional = settings.assumptions_dir / f"{ticker}.yaml"
+        if conventional.exists():
+            override = conventional
+
     try:
         analysis = run_analysis(ticker, conn, override_path=override)
     except LookupError as exc:
@@ -377,7 +382,7 @@ def screen(
         raise typer.Exit(code=2)
     screener_config = load_screener_config(config_path)
 
-    result = run_screen(conn, screener_config, top=top)
+    result = run_screen(conn, screener_config, top=top, assumptions_dir=settings.assumptions_dir)
     run_id = persist_candidates(conn, result)
 
     today = date.today()
