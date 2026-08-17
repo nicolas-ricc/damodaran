@@ -148,12 +148,16 @@ class ScreenResult:
 
     ``shortlist`` is the ranked survivors, best first, truncated to ``top`` when a
     cap was requested. ``screened`` is the count of companies actually evaluated
-    (the universe minus those with too little data to assemble a snapshot).
+    (the universe minus those excluded by the ADR 0006 coverage gate below).
     """
 
     preset: str
     shortlist: tuple[ScreenedCompany, ...]
     screened: int
+    no_coverage: tuple[str, ...] = ()
+    """Tickers excluded from the universe for lack of a usable sector benchmark
+    (ADR 0006): no ``industry_damodaran``, no matching Damodaran industry row, or
+    a matched row whose ``wacc`` is NULL."""
 
 
 # --------------------------------------------------------------------------- #
@@ -507,7 +511,11 @@ _EMPTY_BENCHMARKS = IndustryBenchmarks(industry="", region="", year=0)
 
 
 def _quality_metric(company: CompanyData, benchmarks: IndustryBenchmarks) -> float:
-    """ROIC-over-sector-WACC spread blended with ROE (spec §6.5, higher better)."""
+    """ROIC-over-sector-WACC spread blended with ROE (spec §6.5, higher better).
+
+    Post-coverage-gate (ADR 0006), every surviving company has a real ROIC and a
+    real sector WACC — the ``None`` defaults below are dead code for survivors and
+    only matter for companies the gate will eliminate anyway."""
     spread = 0.0
     if company.roic is not None and benchmarks.wacc is not None:
         spread = company.roic - benchmarks.wacc
@@ -563,10 +571,11 @@ def evaluate_company(
 
     for detector in trap_detection:
         result = detector.evaluate(company, bench)
-        if result.passed or result.skipped:
-            if result.passed:
-                passed_gates.append(detector.name)
+        if result.passed:
+            passed_gates.append(detector.name)
         else:
+            # ADR 0006: a trap detector that cannot be evaluated (skip) is also
+            # eliminatory — without a verdict there is no candidate.
             failed_gates.append(detector.name)
             passed = False
 
@@ -640,6 +649,7 @@ def run_screen(
 
     pending: list[_Pending] = []
     candidates: list[Candidate] = []
+    no_coverage: list[str] = []
     screened = 0
     for row in _load_companies(conn):
         annual = all_annual.get(row.ticker, [])
@@ -653,7 +663,6 @@ def run_screen(
             currency=price.currency if price else None,
             as_of=price.as_of if price else None,
         )
-        screened += 1
         region = company.region or DEFAULT_REGION
         cache_key = (company.industry, region)
         # `in` check (not `.get()`) so a genuinely absent (None) benchmark is
@@ -663,6 +672,13 @@ def run_screen(
         else:
             benchmarks = load_industry_benchmarks(conn, industry=company.industry, region=region)
             benchmark_cache[cache_key] = benchmarks
+        # ADR 0006 coverage gate: no usable sector benchmark, no candidate. A
+        # company leaves the universe here, before evaluation, rather than being
+        # scored as if its unmeasured ROIC matched its sector's WACC.
+        if benchmarks is None or benchmarks.wacc is None:
+            no_coverage.append(row.ticker)
+            continue
+        screened += 1
         verdict = evaluate_company(
             company,
             benchmarks,
@@ -710,7 +726,12 @@ def run_screen(
     scored = rescore_with_margins(first_pass, margins, weights)
     by_ticker = {p.company.ticker: p for p in pending}
     shortlist = _project(scored, by_ticker)
-    return ScreenResult(preset=config.name, shortlist=shortlist, screened=screened)
+    return ScreenResult(
+        preset=config.name,
+        shortlist=shortlist,
+        screened=screened,
+        no_coverage=tuple(sorted(no_coverage)),
+    )
 
 
 def _project(

@@ -449,6 +449,93 @@ def test_load_industry_benchmarks_reused(conn: duckdb.DuckDBPyConnection) -> Non
 
 
 # --------------------------------------------------------------------------- #
+# ADR 0006 — the coverage gate: no usable sector benchmark, no candidate      #
+# --------------------------------------------------------------------------- #
+
+
+def _adr0006_preset() -> ScreenerConfig:
+    from pathlib import Path
+
+    return load_screener_config(
+        Path(__file__).resolve().parents[2] / "config" / "presets" / "damodaran_value.yaml"
+    )
+
+
+def test_company_without_industry_mapping_leaves_the_universe(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    # NULL industry_damodaran: no sector to look a benchmark up under at all.
+    conn.execute(
+        "INSERT INTO companies (ticker, name, country, industry, industry_damodaran, source) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ["NOMAP", "No Map Corp", "United States", "Some Provider Label", None, "fmp"],
+    )
+    result = run_screen(conn, _adr0006_preset(), valuator=None)
+    assert result.screened == 0
+    assert result.no_coverage == ("NOMAP",)
+
+
+def test_company_whose_industry_has_no_benchmark_row_leaves_the_universe(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    # industry_damodaran resolves, but no damodaran_industry row exists for it.
+    conn.execute(
+        "INSERT INTO companies (ticker, name, country, industry, industry_damodaran, source) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        [
+            "NOBENCH",
+            "No Bench Corp",
+            "United States",
+            "Software (System)",
+            "Software (System)",
+            "fmp",
+        ],
+    )
+    result = run_screen(conn, _adr0006_preset(), valuator=None)
+    assert result.screened == 0
+    assert result.no_coverage == ("NOBENCH",)
+
+
+def test_company_whose_benchmark_has_null_wacc_leaves_the_universe(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    # damodaran_industry row exists but its wacc is NULL — the residual case.
+    conn.execute(
+        "INSERT INTO companies (ticker, name, country, industry, industry_damodaran, source) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ["NULLWACC", "Null Wacc Corp", "United States", "Software", "Software", "fmp"],
+    )
+    conn.execute(
+        "INSERT INTO damodaran_country (country, year, region) VALUES (?, ?, ?)",
+        ["United States", 2026, "US"],
+    )
+    conn.execute(
+        "INSERT INTO damodaran_industry (industry, region, year, wacc, pe) VALUES (?, ?, ?, ?, ?)",
+        ["Software", "US", 2026, None, 20.0],
+    )
+    result = run_screen(conn, _adr0006_preset(), valuator=None)
+    assert result.screened == 0
+    assert result.no_coverage == ("NULLWACC",)
+
+
+def test_trap_detector_skip_is_eliminatory() -> None:
+    from bot.screener.rules import ROICAboveSectorWACC
+
+    company = CompanyData(ticker="X", name="X", market_cap=1e10, roic=0.10)
+    benchmarks_without_wacc = IndustryBenchmarks(industry="Software", region="US", year=2026)
+    verdict = evaluate_company(
+        company,
+        benchmarks_without_wacc,
+        quality_gates=[],
+        value_indicators=[],
+        trap_detection=[ROICAboveSectorWACC()],
+    )
+    # The skip must no longer absolve the company — no verdict, no candidate.
+    assert verdict.passed is False
+    assert "roic_above_sector_wacc" in verdict.failed_gates
+
+
+# --------------------------------------------------------------------------- #
 # M4.7 — valuator wiring into the ranking                                      #
 # --------------------------------------------------------------------------- #
 
