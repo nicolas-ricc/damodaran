@@ -6,6 +6,7 @@ Reutiliza las tipografías, los filtros y la geometría axonométrica del plano
 hermano; lo único propio es la paleta, que acá codifica ESTADO y no rol.
 """
 import pathlib
+import subprocess
 import sys
 
 AQUI = pathlib.Path(__file__).resolve().parent
@@ -188,6 +189,9 @@ svg text{fill:var(--ink);font-family:'Shantell',system-ui,sans-serif}
 .brechas b{font-family:'Shantell',system-ui,sans-serif;font-weight:700;font-size:1rem;
  display:block;margin-bottom:.3rem}
 .brechas span{font-size:.93rem;color:var(--ink-soft)}
+.viejo{border:1.5px solid var(--e-muerto);border-radius:2px;padding:14px 16px;
+ margin:0 0 1.6rem;max-width:70ch;font-size:.95rem;color:var(--ink-soft)}
+.viejo b{font-family:'Shantell',system-ui,sans-serif;color:var(--e-muerto-t)}
 .cierre{margin-top:2.6rem;border-top:1.5px dashed var(--sheet-edge);padding-top:1.4rem;
  font-style:italic;color:var(--ink-soft);max-width:68ch}
 """
@@ -195,6 +199,34 @@ svg text{fill:var(--ink);font-family:'Shantell',system-ui,sans-serif}
 HEAD = """<meta charset="utf-8">
 <title>Qué está hecho</title>
 <style>__CSS__</style>"""
+
+
+def desfasaje():
+    """Commits que tocaron src/ desde la auditoría.
+
+    Se filtra por src/ a propósito: un commit de documentación no invalida una
+    auditoría del código, y contarlo solo enseñaría a ignorar el aviso.
+    """
+    try:
+        r = subprocess.run(
+            ['git', 'rev-list', '--count', f'{estado.AUDITADO_EN}..HEAD', '--', 'src'],
+            capture_output=True, text=True, cwd=AQUI, timeout=10)
+        if r.returncode != 0:
+            return None
+        return int(r.stdout.strip())
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def aviso_desfasaje():
+    n = desfasaje()
+    if not n:
+        return ""
+    plural = "commit" if n == 1 else "commits"
+    return (f'<p class="viejo"><b>Esta foto quedó atrás.</b> Se tomó sobre '
+            f'<code>{estado.AUDITADO_EN}</code> y desde entonces entraron {n} {plural}. '
+            f'Cada estado de esta página vale hasta donde el código no se haya movido: '
+            f'volvé a auditar antes de tomar una decisión con esto.</p>')
 
 
 def marcador():
@@ -270,7 +302,20 @@ def main():
                    'empezó ni uno. La calidad interna es alta; lo que falta es superficie de '
                    'operación. La segunda: el proyecto se auditó a sí mismo hace dos días, '
                    'encontró los dos problemas más graves y escribió dos ADR excelentes. '
-                   'Después no implementó ninguna de las dos.</p></section>')
+                   'Después no implementó ninguna de las dos.</p>'
+                   '<h2 style="margin-top:2.4rem">Cómo se usa esto</h2>'
+                   '<p>Esta página es el hermano de «Cómo el bot elige», que explica cómo '
+                   'está pensado el sistema. Las dos son herramientas de trabajo. Antes de '
+                   'empezar una etapa, esta dice qué hay de verdad en la zona que vas a '
+                   'tocar, y conviene mirar primero la columna de los muertos: casi siempre '
+                   'es más barato cablear algo que ya está escrito que agregar una pieza al '
+                   'lado.</p>'
+                   '<p>Al terminar una etapa, las dos se actualizan. Aquella se regenera del '
+                   'código y falla cuando deja de describirlo. Esta no puede: que un detector '
+                   '<em>pueda</em> dispararse o que un supuesto tenga de dónde salir no lo '
+                   'contesta ningún grep, así que hay que volver a auditar contra el código. '
+                   'Una foto de estado vieja es peor que ninguna, porque se le cree.</p>'
+                   '</section>')
 
     js = """
 const VISTAS = __VISTAS__;
@@ -292,6 +337,7 @@ document.querySelectorAll('.crumb').forEach(b =>
         '<p class="deck">El mismo bot, pintado por estado real en vez de por diseño</p>'
         f'<p class="sello">auditado sobre {estado.AUDITADO_EN} · {estado.AUDITADO_EL} · '
         f'{total} componentes</p>'
+        + aviso_desfasaje() +
         '<p class="lede">Este es el plano hermano de «Cómo el bot elige». Aquel explica '
         'cómo está pensado el sistema; este dice cuánto de eso existe. Cinco auditorías '
         'independientes recorrieron el código, y la regla fue siempre la misma: manda el '
@@ -311,6 +357,10 @@ document.querySelectorAll('.crumb').forEach(b =>
     print(f'{dest.name} · {round(len(out)/1024)} KB · {total} componentes · '
           f'hecho {c["hecho"]} · a medias {c["a-medias"]} · '
           f'muerto {c["muerto"]} · falta {c["falta"]}')
+    n = desfasaje()
+    if n:
+        print(f'  AVISO: la auditoría es de {estado.AUDITADO_EN} y {n} commits '
+              f'tocaron src/ después. Re-auditá y actualizá estado.py antes de publicar.')
 
 
 if __name__ == '__main__':

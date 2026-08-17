@@ -26,6 +26,28 @@ Personal investment bot. Local CLI tool. Single user. Greenfield project.
 - **ADRs**: `docs/adr/`
 - **Active plan**: `docs/superpowers/plans/2026-05-25-m1-skeleton-damodaran-sec-edgar.md`
 - **Open audit**: `docs/superpowers/notes/2026-08-14-grilling-pipeline-seams.md` — pipeline seam-by-seam audit; seams 1-2 closed (ADR 0005, 0006), seam 3 onward pending.
+- **The two plans**: `docs/plano/` — `plano.html` explains how the system is meant to work; `estado.html` says how much of it exists today. Read `estado.html` before starting a stage and update both when finishing one. See `docs/plano/README.md`.
+
+## Working with the plans
+
+The two plans are working tools, not decoration. They carry one claim each and
+they age differently:
+
+- **Before a stage**, `estado.html` shows what is actually there in the area you
+  are about to touch. Pay attention to the `muerto` state: finished, typed,
+  sometimes tested code that nothing calls. Wiring one is usually cheaper than
+  writing a new thing beside it.
+- **While working**, `plano.html` shows where a piece belongs, what pattern its
+  neighbourhood uses, and the three live architectural tensions. If a change
+  adds a fourth, it becomes visible.
+- **After a stage**, both get updated. `build.py` fails loudly when the
+  architecture plan stops matching the code, so that one is self-policing. The
+  status plan is not: it is hand-curated from an audit and goes stale in
+  silence, so it needs a real re-audit against the code (not against the spec).
+  `build_estado.py` warns when `src/` moved after the recorded audit commit.
+- **If a stage implements an ADR, say so in the ADR.** ADR 0005 and 0006 both
+  read "Accepted" while their decisions remain unimplemented, so anyone reading
+  `docs/adr/` believes the code complies. Do not add a third.
 
 ## External services
 
