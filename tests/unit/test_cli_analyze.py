@@ -16,23 +16,23 @@ from bot.cli import app
 from bot.storage.db import apply_schema, connect
 
 
-def _seed(conn: duckdb.DuckDBPyConnection) -> None:
+def _seed(conn: duckdb.DuckDBPyConnection, ticker: str = "AAPL") -> None:
     conn.execute(
         "INSERT INTO companies "
         "(ticker, name, country, currency, industry_damodaran, source) "
         "VALUES (?, ?, ?, ?, ?, ?)",
-        ["AAPL", "Apple Inc", "United States", "USD", "Computers/Peripherals", "sec_edgar"],
+        [ticker, f"{ticker} Inc", "United States", "USD", "Computers/Peripherals", "sec_edgar"],
     )
     conn.execute(
         "INSERT INTO damodaran_country (country, year, erp, risk_free_rate, tax_rate, region) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
+        "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
         ["United States", 2026, 0.045, 0.04, 0.21, "US"],
     )
     conn.execute(
         "INSERT INTO damodaran_industry "
         "(industry, region, year, wacc, cost_of_equity, cost_of_debt, beta_levered, "
         "debt_to_equity, op_margin, sales_to_capital, pe, ev_sales) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
         ["Computers/Peripherals", "US", 2026, 0.085, 0.09, 0.045, 1.05, 0.20, 0.28,
          2.5, 22.0, 5.0],
     )
@@ -42,13 +42,13 @@ def _seed(conn: duckdb.DuckDBPyConnection) -> None:
             "(ticker, fiscal_year, revenue, ebit, net_income, total_debt, cash, "
             "shares_diluted, is_restated, source) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ["AAPL", year, revenue, revenue * 0.30, 100_000.0, 110_000.0, 60_000.0,
+            [ticker, year, revenue, revenue * 0.30, 100_000.0, 110_000.0, 60_000.0,
              15_500.0, False, "sec_edgar"],
         )
     conn.execute(
         "INSERT INTO prices_daily (ticker, date, close, currency, source) "
         "VALUES (?, ?, ?, ?, ?)",
-        ["AAPL", "2026-05-29", 150.0, "USD", "fmp"],
+        [ticker, "2026-05-29", 150.0, "USD", "fmp"],
     )
 
 
@@ -188,6 +188,100 @@ def test_analyze_picks_up_config_assumptions_by_convention(
 
     md = next(reports_dir.glob("*/analysis/AAPL.md")).read_text()
     assert "convention override" in md
+
+
+def test_analyze_accepts_multiple_tickers(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "bot.duckdb"
+    reports_dir = tmp_path / "reports"
+    monkeypatch.setenv("BOT_DB_PATH", str(db_path))
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(reports_dir))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+
+    conn = connect(db_path)
+    apply_schema(conn)
+    _seed(conn, "AAPL")
+    _seed(conn, "MSFT")
+    conn.close()
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["analyze", "AAPL", "MSFT"])
+    assert result.exit_code == 0, result.stdout
+
+    out_dir = next((reports_dir).glob("*/analysis"))
+    assert (out_dir / "AAPL.md").exists()
+    assert (out_dir / "MSFT.md").exists()
+
+
+def test_analyze_from_screen_uses_the_latest_run(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "bot.duckdb"
+    reports_dir = tmp_path / "reports"
+    monkeypatch.setenv("BOT_DB_PATH", str(db_path))
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(reports_dir))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+
+    conn = connect(db_path)
+    apply_schema(conn)
+    _seed(conn, "AAPL")
+    _seed(conn, "MSFT")
+
+    # Older run: shortlist would be wrong if picked.
+    conn.execute(
+        "INSERT INTO screener_candidates (run_id, preset, ticker, rank, passed, created_at) "
+        "VALUES (?, ?, ?, ?, TRUE, TIMESTAMP '2026-01-01 00:00:00')",
+        ["old-run", "damodaran_value", "AAPL", 1],
+    )
+    # Latest run: MSFT ranked ahead of AAPL.
+    conn.execute(
+        "INSERT INTO screener_candidates (run_id, preset, ticker, rank, passed, created_at) "
+        "VALUES (?, ?, ?, ?, TRUE, TIMESTAMP '2026-06-01 00:00:00')",
+        ["new-run", "damodaran_value", "MSFT", 1],
+    )
+    conn.execute(
+        "INSERT INTO screener_candidates (run_id, preset, ticker, rank, passed, created_at) "
+        "VALUES (?, ?, ?, ?, TRUE, TIMESTAMP '2026-06-01 00:00:01')",
+        ["new-run", "damodaran_value", "AAPL", 2],
+    )
+    conn.close()
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["analyze", "--from-screen"])
+    assert result.exit_code == 0, result.stdout
+    assert result.output.index("MSFT") < result.output.index("AAPL")
+
+
+def test_analyze_from_screen_without_runs_fails_clearly(tmp_path: Path, monkeypatch) -> None:
+    db_path = tmp_path / "bot.duckdb"
+    monkeypatch.setenv("BOT_DB_PATH", str(db_path))
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(tmp_path / "reports"))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+
+    conn = connect(db_path)
+    apply_schema(conn)
+    conn.close()
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["analyze", "--from-screen"])
+    assert result.exit_code == 2
+    assert "bot screen" in result.output
+
+
+def test_analyze_explicit_override_with_many_tickers_is_rejected(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "bot.duckdb"
+    monkeypatch.setenv("BOT_DB_PATH", str(db_path))
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(tmp_path / "reports"))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+
+    conn = connect(db_path)
+    apply_schema(conn)
+    _seed(conn, "AAPL")
+    _seed(conn, "MSFT")
+    conn.close()
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["analyze", "AAPL", "MSFT", "--override", "x.yaml"])
+    assert result.exit_code == 2
 
 
 def test_analyze_explicit_override_wins_over_convention(
