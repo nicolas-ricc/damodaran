@@ -121,8 +121,8 @@ def test_default_universe_ships_and_is_sizeable() -> None:
     tickers = load_universe(default_universe_path())
     assert len(tickers) >= 400
     assert "AAPL" in tickers
-    # Contains international FMP-suffixed symbols, not just US.
-    assert any("." in t for t in tickers)
+    # US-only S&P 500 constituents in FMP format (hyphens, not dots).
+    assert not any("." in t for t in tickers)
     assert len(set(tickers)) == len(tickers)  # de-duplicated
 
 
