@@ -112,6 +112,15 @@ def refresh(
         )
         raise typer.Exit(code=2)
 
+    if damodaran and region.upper() != "US":
+        typer.echo(
+            f"--region {region}: esta versión es US-only. Las URLs de Damodaran "
+            "apuntan al dataset de EE.UU.; pedir otra región guardaría datos de "
+            "EE.UU. etiquetados con esa región. Usá --region US.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
     conn, settings = _open_db()
     exit_code = 0
     if damodaran:
