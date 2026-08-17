@@ -266,14 +266,32 @@ def _collect_filings(ticker: str, us_gaap: dict[str, Any]) -> list[dict[str, Any
 
 
 def upsert_company(conn: duckdb.DuckDBPyConnection, company: dict[str, Any]) -> None:
-    """Replace the company row by ticker. Assumes called within a transaction."""
-    cols = sorted(company.keys())
+    """Merge-replace the company row by ticker. Assumes called within a transaction.
+
+    Un DELETE + INSERT crudo con solo las columnas del proveedor borraba lo que
+    ese proveedor no trae: la fila de SEC no carga industria, así que un
+    ``bot show --fetch`` sacaba del universo del screener a un ticker mapeado
+    por FMP. Las columnas que la fila nueva no trae (o trae en ``None``)
+    conservan el valor ya almacenado.
+    """
+    existing_row = conn.execute(
+        "SELECT * FROM companies WHERE ticker = ?", [company["ticker"]]
+    ).fetchone()
+    merged = dict(company)
+    if existing_row is not None:
+        columns = [d[0] for d in conn.description]
+        existing = dict(zip(columns, existing_row, strict=True))
+        for col, value in existing.items():
+            if merged.get(col) is None and value is not None:
+                merged[col] = value
+    merged.pop("last_updated_at", None)  # dejar que el DEFAULT la re-estampe
+    cols = sorted(merged.keys())
     placeholders = ", ".join(["?"] * len(cols))
     col_list = ", ".join(cols)
     conn.execute("DELETE FROM companies WHERE ticker = ?", [company["ticker"]])
     conn.execute(
         f"INSERT INTO companies ({col_list}) VALUES ({placeholders})",
-        [company[c] for c in cols],
+        [merged[c] for c in cols],
     )
 
 
