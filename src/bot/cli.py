@@ -29,7 +29,7 @@ from bot.reporting.show import format_company_summary
 from bot.screener.config import load_screener_config
 from bot.screener.engine import run_screen
 from bot.screener.persist import persist_candidates
-from bot.storage.db import apply_schema, connect
+from bot.storage.db import apply_schema, connect, schema_table_count
 from bot.utils.logging import configure_logging, get_logger
 from bot.valuator.analysis import analyze as run_analysis
 
@@ -520,6 +520,9 @@ def doctor() -> None:
     typer.echo(f"FMP API key:      {'set' if settings.fmp_api_key else 'MISSING'}")
     typer.echo(f"Log level:        {settings.log_level}")
 
+    if not settings.fmp_api_key.strip():
+        issues.append("FMP API key vacía — refresh --fmp no puede funcionar (BOT_FMP_API_KEY).")
+
     try:
         conn = connect(settings.db_path)
         apply_schema(conn)
@@ -527,8 +530,11 @@ def doctor() -> None:
             "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'main'"
         ).fetchone()
         tables = row[0] if row is not None else 0
-        if tables < 8:
-            issues.append(f"DB has only {tables} tables — schema may be incomplete.")
+        expected_tables = schema_table_count()
+        if tables < expected_tables:
+            issues.append(
+                f"DB has {tables} tables, schema defines {expected_tables} — schema incomplete."
+            )
         else:
             typer.echo(f"DB tables:        {tables} (OK)")
         conn.close()
