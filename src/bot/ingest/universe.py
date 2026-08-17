@@ -580,6 +580,8 @@ def _should_skip(ticker: str, local_latest: date, probe: LatestFilingProbe) -> b
     """
     try:
         remote_latest = probe(ticker)
+    except FmpRateLimitError:
+        raise
     except Exception as exc:
         log.warning("universe.refresh.probe_failed", ticker=ticker, error=str(exc))
         return False
