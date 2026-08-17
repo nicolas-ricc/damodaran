@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS companies (
     isin            VARCHAR,
     currency        VARCHAR,
     status          VARCHAR DEFAULT 'active',
+    ipo_date        DATE,
     source          VARCHAR NOT NULL,
     last_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

@@ -9,6 +9,8 @@ before production use.
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from bot.ingest.fmp import CompanyInfo, FmpClient
@@ -46,6 +48,7 @@ def test_lookup_company_us() -> None:
         sector="Technology",
         industry="Consumer Electronics",
         is_actively_trading=True,
+        ipo_date=date(1980, 12, 12),
     )
 
 

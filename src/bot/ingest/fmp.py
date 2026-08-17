@@ -52,6 +52,7 @@ class CompanyInfo:
     sector: str | None
     industry: str | None
     is_actively_trading: bool
+    ipo_date: date | None = None
 
 
 class FmpRateLimitError(RuntimeError):
@@ -124,6 +125,7 @@ class FmpClient:
             sector=_str_or_none(profile.get("sector")),
             industry=_str_or_none(profile.get("industry")),
             is_actively_trading=bool(profile.get("isActivelyTrading", False)),
+            ipo_date=_date_or_none(profile.get("ipoDate")),
         )
         log.info("fmp.lookup_company.found", ticker=info.ticker, country=info.country)
         return info
@@ -263,6 +265,16 @@ def _str_or_none(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _date_or_none(value: Any) -> date | None:
+    """Coerce an FMP date-ish string (e.g. ``ipoDate``) to a ``date``, or None."""
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
 
 
 def _float_or_none(value: Any) -> float | None:
@@ -742,6 +754,7 @@ def _company_row(
             "source": "fmp",
             "status": "active",
             "industry_damodaran": None,
+            "ipo_date": None,
         }
     damodaran_industry = mapping.resolve("fmp", info.industry)
     if damodaran_industry is None and info.industry is not None:
@@ -760,6 +773,7 @@ def _company_row(
         "currency": info.currency or currency,
         "status": "active" if info.is_actively_trading else "inactive",
         "source": "fmp",
+        "ipo_date": info.ipo_date,
     }
 
 
