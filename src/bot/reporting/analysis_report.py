@@ -82,6 +82,24 @@ def _fmt_pct(value: Any) -> str:
     return f"{float(value):.1%}"
 
 
+def _fmt_margin_path(value: Any) -> str:
+    """Render an operating-margin path (spec §7.1): a point, or a range if it moves.
+
+    A story-type-branched margin path (high-growth's ramp, or any other path
+    that is not flat) shows both ends so the report discloses the projection
+    instead of showing a single misleadingly-precise number; a flat path
+    (unchanged sector/cyclical behaviour) collapses to that one number.
+    """
+    if value is None:
+        return _DASH
+    path = tuple(value)
+    if not path:
+        return _DASH
+    if min(path) == max(path):
+        return _fmt_pct(path[0])
+    return f"{path[0]:.1%} → {path[-1]:.1%}"
+
+
 def _fmt_ratio(value: Any) -> str:
     if value is None:
         return _DASH
@@ -114,6 +132,7 @@ def _environment() -> Environment:
     env.filters["money"] = _fmt_money
     env.filters["per_share"] = _fmt_per_share
     env.filters["pct"] = _fmt_pct
+    env.filters["margin_path"] = _fmt_margin_path
     env.filters["ratio"] = _fmt_ratio
     env.filters["num"] = _fmt_num
     env.filters["mult"] = _fmt_mult

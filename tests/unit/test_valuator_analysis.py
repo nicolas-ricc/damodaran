@@ -336,7 +336,7 @@ def test_analyze_manual_override_applied(
     )
     analysis = analyze("AAPL", seeded_conn, override_path=override)
     assert analysis.story_type == "high-growth"
-    assert analysis.assumptions.operating_margin.value == pytest.approx(0.35)
+    assert analysis.assumptions.operating_margin.value == pytest.approx((0.35,) * 5)
     assert analysis.assumptions.operating_margin.source == AssumptionSource.MANUAL
     assert analysis.override_notes == "Services mix lifts steady-state margin."
 
