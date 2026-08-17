@@ -88,6 +88,11 @@ def refresh(
         "--download-dir",
         help="Where to cache downloaded Damodaran files.",
     ),
+    limit: int | None = typer.Option(
+        None,
+        "--limit",
+        help="Procesar a lo sumo N tickers de --fmp/--prices (para el tier gratis de FMP).",
+    ),
 ) -> None:
     """Refresh data from external sources.
 
@@ -115,9 +120,9 @@ def refresh(
             _refresh_damodaran(conn, region=region, year=year, download_dir=download_dir),
         )
     if fmp:
-        exit_code = max(exit_code, _refresh_fmp_universe(conn, settings, universe))
+        exit_code = max(exit_code, _refresh_fmp_universe(conn, settings, universe, limit))
     if prices:
-        exit_code = max(exit_code, _refresh_prices(conn, settings, universe))
+        exit_code = max(exit_code, _refresh_prices(conn, settings, universe, limit))
     if fx:
         exit_code = max(exit_code, _refresh_fx(conn, settings))
     raise typer.Exit(code=exit_code)
@@ -145,7 +150,10 @@ def _refresh_damodaran(
 
 
 def _refresh_fmp_universe(
-    conn: duckdb.DuckDBPyConnection, settings: Settings, universe: Path | None
+    conn: duckdb.DuckDBPyConnection,
+    settings: Settings,
+    universe: Path | None,
+    limit: int | None = None,
 ) -> int:
     """Run a bulk FMP universe refresh and map its outcome to an exit code.
 
@@ -155,6 +163,8 @@ def _refresh_fmp_universe(
     """
     path = universe or default_universe_path()
     tickers = load_universe(path)
+    if limit is not None:
+        tickers = tickers[:limit]
     if not tickers:
         typer.echo(f"Universe file {path} has no tickers.", err=True)
         return 2
@@ -173,11 +183,16 @@ def _refresh_fmp_universe(
 
 
 def _refresh_prices(
-    conn: duckdb.DuckDBPyConnection, settings: Settings, universe: Path | None
+    conn: duckdb.DuckDBPyConnection,
+    settings: Settings,
+    universe: Path | None,
+    limit: int | None = None,
 ) -> int:
     """Refresh EOD prices for the universe. Returns the exit code (0 ok, 2 data error)."""
     path = universe or default_universe_path()
     tickers = load_universe(path)
+    if limit is not None:
+        tickers = tickers[:limit]
     if not tickers:
         typer.echo(f"Universe file {path} has no tickers.", err=True)
         return 2
@@ -210,6 +225,11 @@ def _report_universe_refresh(result: UniverseRefreshResult) -> None:
         typer.echo("Failures:", err=True)
         for outcome in result.failures:
             typer.echo(f"  {outcome.ticker}: {outcome.error_message}", err=True)
+    if result.deferred:
+        typer.echo(
+            f"NOTE — {result.deferred} tickers deferred (FMP daily quota); "
+            "volvé a correr el mismo comando mañana para continuar.",
+        )
 
 
 @app.command()

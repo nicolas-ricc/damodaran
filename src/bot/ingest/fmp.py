@@ -54,6 +54,15 @@ class CompanyInfo:
     is_actively_trading: bool
 
 
+class FmpRateLimitError(RuntimeError):
+    """FMP devolvió HTTP 429: se agotó la cuota diaria del API key.
+
+    No es una falla del ticker ni un error de datos: la corrida debe cortar y
+    el resto del universo queda diferido para la próxima corrida (el refresh es
+    incremental, así que retomarlo es gratis).
+    """
+
+
 class FmpClient:
     """Thin HTTP client for Financial Modeling Prep public endpoints.
 
@@ -87,6 +96,10 @@ class FmpClient:
         query: dict[str, Any] = dict(params or {})
         query["apikey"] = self._api_key
         r = self._client.get(path, params=query)
+        if r.status_code == 429:
+            raise FmpRateLimitError(
+                "FMP rate limit (HTTP 429): cuota diaria agotada; reintentá mañana"
+            )
         r.raise_for_status()
         return r.json()
 

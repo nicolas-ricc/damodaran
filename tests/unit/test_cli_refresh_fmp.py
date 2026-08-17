@@ -25,21 +25,23 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BOT_FMP_API_KEY", "test-fmp-key")
 
 
-def _result(*, total: int, failed: int, status: str) -> UniverseRefreshResult:
+def _result(*, total: int, failed: int, status: str, deferred: int = 0) -> UniverseRefreshResult:
     now = datetime.now()
+    imported = total - failed - deferred
     return UniverseRefreshResult(
         run_id="run-1",
         started_at=now,
         finished_at=now,
         status=status,
         total=total,
-        imported=total - failed,
+        imported=imported,
         skipped=0,
         failed=failed,
         outcomes=[
             TickerOutcome(ticker=f"BAD{i}", status="failed", error_message="boom")
             for i in range(failed)
-        ],
+        ]
+        + [TickerOutcome(ticker=f"DEF{i}", status="deferred") for i in range(deferred)],
     )
 
 
@@ -133,6 +135,26 @@ def test_refresh_fmp_empty_universe_errors(
     assert result.exit_code == 2
     combined = result.stdout + (result.stderr or "")
     assert "no tickers" in combined.lower()
+
+
+def test_refresh_fmp_deferred_exits_0_and_mentions_deferred(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _env(tmp_path, monkeypatch)
+    uni = tmp_path / "mini.csv"
+    uni.write_text("ticker\n" + "\n".join(f"T{i}" for i in range(5)) + "\n")
+
+    def fake_refresh(
+        conn: object, *, api_key: str, tickers: list[str], mapping_path: Path | None
+    ) -> UniverseRefreshResult:
+        return _result(total=5, failed=0, status="success", deferred=3)
+
+    with patch("bot.cli.refresh_universe_from_fmp", side_effect=fake_refresh):
+        runner = CliRunner()
+        result = runner.invoke(app, ["refresh", "--fmp", "--universe", str(uni)])
+    assert result.exit_code == 0
+    combined = result.stdout + (result.stderr or "")
+    assert "deferred" in combined.lower()
 
 
 def test_refresh_no_flags_mentions_fmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
