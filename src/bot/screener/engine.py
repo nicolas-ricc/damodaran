@@ -143,6 +143,19 @@ class ScreenedCompany:
 
 
 @dataclass(frozen=True)
+class RejectedCompany:
+    """A company that did not survive the screen, and why (spec §6, ADR 0006).
+
+    Covers both eliminatory paths: a ``verdict.failed_gates`` from
+    :func:`evaluate_company`, or the single ``("coverage_gate",)`` marker for a
+    company the ADR 0006 coverage gate excluded before evaluation ever ran.
+    """
+
+    ticker: str
+    failed_gates: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class ScreenResult:
     """The outcome of one screen run over a universe (spec §6.1).
 
@@ -158,6 +171,11 @@ class ScreenResult:
     """Tickers excluded from the universe for lack of a usable sector benchmark
     (ADR 0006): no ``industry_damodaran``, no matching Damodaran industry row, or
     a matched row whose ``wacc`` is NULL."""
+    rejected: tuple[RejectedCompany, ...] = ()
+    """Every company that did not make the shortlist, with why: coverage-gate
+    exclusions carry ``("coverage_gate",)``; verdict failures carry the real
+    ``failed_gates`` from :func:`evaluate_company` (spec §6, so
+    ``screener_candidates.failed_gates`` can answer "why did X fall")."""
 
 
 # --------------------------------------------------------------------------- #
@@ -650,6 +668,7 @@ def run_screen(
     pending: list[_Pending] = []
     candidates: list[Candidate] = []
     no_coverage: list[str] = []
+    rejected: list[RejectedCompany] = []
     screened = 0
     for row in _load_companies(conn):
         annual = all_annual.get(row.ticker, [])
@@ -677,6 +696,7 @@ def run_screen(
         # scored as if its unmeasured ROIC matched its sector's WACC.
         if benchmarks is None or benchmarks.wacc is None:
             no_coverage.append(row.ticker)
+            rejected.append(RejectedCompany(row.ticker, ("coverage_gate",)))
             continue
         screened += 1
         verdict = evaluate_company(
@@ -687,6 +707,7 @@ def run_screen(
             trap_detection=trap_detection,
         )
         if not verdict.passed:
+            rejected.append(RejectedCompany(row.ticker, verdict.failed_gates))
             continue
         pending.append(_Pending(company=company, verdict=verdict))
         candidates.append(
@@ -731,6 +752,7 @@ def run_screen(
         shortlist=shortlist,
         screened=screened,
         no_coverage=tuple(sorted(no_coverage)),
+        rejected=tuple(rejected),
     )
 
 

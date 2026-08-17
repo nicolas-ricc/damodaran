@@ -145,8 +145,13 @@ def test_shortlist_top_n_composition(screened: tuple[Path, Path]) -> None:
     db_path, _reports_dir = screened
     conn = connect(db_path)
     rows = conn.execute(
-        "SELECT ticker, rank FROM screener_candidates ORDER BY rank"
+        "SELECT ticker, rank FROM screener_candidates WHERE passed = TRUE ORDER BY rank"
     ).fetchall()
+    rejected = dict(
+        conn.execute(
+            "SELECT ticker, failed_gates FROM screener_candidates WHERE passed = FALSE"
+        ).fetchall()
+    )
     conn.close()
 
     tickers = [r[0] for r in rows]
@@ -158,6 +163,9 @@ def test_shortlist_top_n_composition(screened: tuple[Path, Path]) -> None:
         assert failure not in tickers
     # Ranks are 1..5 contiguous.
     assert [r[1] for r in rows] == [1, 2, 3, 4, 5]
+    # The eliminated companies are persisted too, with why they fell.
+    assert set(rejected) >= {"EXPN", "BANK", "YUNG", "DECL"}
+    assert list(rejected["BANK"])
 
 
 def test_candidates_written_with_run_id(screened: tuple[Path, Path]) -> None:
@@ -166,7 +174,7 @@ def test_candidates_written_with_run_id(screened: tuple[Path, Path]) -> None:
     run_ids = conn.execute("SELECT DISTINCT run_id FROM screener_candidates").fetchall()
     sub = conn.execute(
         "SELECT score, value_score, quality_score, growth_score, mos_score, "
-        "passed_gates FROM screener_candidates WHERE rank = 1"
+        "passed_gates FROM screener_candidates WHERE passed = TRUE AND rank = 1"
     ).fetchone()
     conn.close()
 
@@ -290,7 +298,7 @@ def test_screen_cli_persists_real_mos(tmp_path: Path) -> None:
     persist_candidates(conn, result)
     persisted = dict(
         conn.execute(
-            "SELECT ticker, mos_score FROM screener_candidates"
+            "SELECT ticker, mos_score FROM screener_candidates WHERE passed = TRUE"
         ).fetchall()
     )
     conn.close()

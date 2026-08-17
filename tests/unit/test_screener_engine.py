@@ -16,6 +16,7 @@ from bot.screener.config import ScreenerConfig, load_screener_config
 from bot.screener.engine import (
     DEFAULT_REGION,
     DEFAULT_TAX_RATE,
+    RejectedCompany,
     _CompanyRow,
     _load_companies,
     _resolve_region,
@@ -600,6 +601,36 @@ def _seed_company(conn: duckdb.DuckDBPyConnection, ticker: str) -> None:
         "VALUES (?, ?, ?, ?, ?, ?)",
         [ticker, "2026-05-29", 10.0, 5_000_000_000.0, "USD", "fmp"],
     )
+
+
+def test_screen_result_carries_rejected_companies_with_their_failed_gates(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_sector(conn)
+    _seed_company(conn, "TST")
+    _seed_company(conn, "TINY")
+    # TINY shares TST's otherwise-passing shape but trips the min_market_cap gate.
+    conn.execute("UPDATE prices_daily SET market_cap = 1000.0 WHERE ticker = 'TINY'")
+
+    result = run_screen(conn, _value_preset(), valuator=None)
+
+    rejected = {r.ticker: r.failed_gates for r in result.rejected}
+    assert "TINY" in rejected
+    assert any("market_cap" in g for g in rejected["TINY"])
+    assert isinstance(next(iter(result.rejected)), RejectedCompany)
+
+
+def test_no_coverage_companies_appear_as_rejected_by_the_coverage_gate(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    conn.execute(
+        "INSERT INTO companies (ticker, name, country, industry, industry_damodaran, source) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ["NOMAP", "No Map Corp", "United States", "Some Provider Label", None, "fmp"],
+    )
+    result = run_screen(conn, _adr0006_preset(), valuator=None)
+    rejected = {r.ticker: r.failed_gates for r in result.rejected}
+    assert rejected["NOMAP"] == ("coverage_gate",)
 
 
 def test_run_screen_uses_valuator_mos(conn: duckdb.DuckDBPyConnection) -> None:
