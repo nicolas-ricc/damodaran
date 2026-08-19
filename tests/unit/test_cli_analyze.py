@@ -265,6 +265,35 @@ def test_analyze_from_screen_without_runs_fails_clearly(tmp_path: Path, monkeypa
     assert "bot screen" in result.output
 
 
+def test_analyze_from_screen_with_empty_shortlist_says_so(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The latest run persisted but shortlisted nothing (all rows failed).
+
+    This must be reported differently from "no screen was ever persisted" —
+    the run happened, it just did not pass anything.
+    """
+    db_path = tmp_path / "bot.duckdb"
+    monkeypatch.setenv("BOT_DB_PATH", str(db_path))
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(tmp_path / "reports"))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+
+    conn = connect(db_path)
+    apply_schema(conn)
+    conn.execute(
+        "INSERT INTO screener_candidates (run_id, preset, ticker, rank, passed, created_at) "
+        "VALUES (?, ?, ?, ?, FALSE, TIMESTAMP '2026-06-01 00:00:00')",
+        ["new-run", "damodaran_value", "AAPL", 1],
+    )
+    conn.close()
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["analyze", "--from-screen"])
+    assert result.exit_code == 2
+    assert "No hay ningún screen persistido" not in result.output
+    assert "no dejó ningún candidato" in result.output
+
+
 def test_analyze_explicit_override_with_many_tickers_is_rejected(
     tmp_path: Path, monkeypatch
 ) -> None:

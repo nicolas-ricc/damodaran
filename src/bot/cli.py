@@ -345,15 +345,24 @@ def analyze(
     conn, settings = _open_db()
 
     if from_screen:
+        latest_run = conn.execute(
+            "SELECT run_id FROM screener_candidates ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        if latest_run is None:
+            typer.echo(
+                "No hay ningún screen persistido — corré `bot screen` primero.",
+                err=True,
+            )
+            raise typer.Exit(code=2)
         rows = conn.execute(
             "SELECT ticker FROM screener_candidates "
-            "WHERE passed AND run_id = ("
-            "  SELECT run_id FROM screener_candidates ORDER BY created_at DESC LIMIT 1"
-            ") ORDER BY rank"
+            "WHERE passed AND run_id = ? ORDER BY rank",
+            [latest_run[0]],
         ).fetchall()
         if not rows:
             typer.echo(
-                "No hay ningún screen persistido — corré `bot screen` primero.",
+                "El último screen no dejó ningún candidato — probá cargar más datos "
+                "y volver a correr `bot screen`.",
                 err=True,
             )
             raise typer.Exit(code=2)

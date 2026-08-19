@@ -351,6 +351,33 @@ def test_story_type_is_none_without_override_or_auto(
     assert result.story_type is None
 
 
+def test_invalid_manual_story_type_warns_and_stays_non_branching(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    """An unknown ``story_type`` typo (e.g. ``hi-growth``) must not silently
+    disable branching without a signal: it should log a warning naming the
+    invalid value and the valid ones, while still surfacing the bogus label
+    in the report and behaving as non-branching (no story-pattern resolution).
+    """
+    from structlog.testing import capture_logs
+
+    _seed_full_sector(conn)
+    override = _write_override(tmp_path, "story_type: hi-growth\n")
+    with capture_logs() as events:
+        result = resolve_assumptions("ACME", conn, override_path=override)
+
+    assert result.story_type == "hi-growth"
+    warnings = [e for e in events if e.get("event") == "assumptions.story_type.invalid"]
+    assert len(warnings) == 1
+    assert warnings[0]["log_level"] == "warning"
+    assert warnings[0]["story_type"] == "hi-growth"
+    assert set(warnings[0]["valid_story_types"]) == {s.value for s in StoryType}
+
+    # Non-branching: no story pattern is applied to revenue growth or margin.
+    assert result.revenue_growth.source != AssumptionSource.STORY_PATTERN
+    assert result.operating_margin.source != AssumptionSource.STORY_PATTERN
+
+
 # --------------------------------------------------------------------------- #
 # Story type drives the projection (spec §7.1)                                 #
 # --------------------------------------------------------------------------- #

@@ -534,6 +534,12 @@ def resolve_assumptions(
     override = _load_override(override_path)
 
     story_label = _resolve_story_type(override, auto_story_type)
+    if story_label is not None and story_label not in _STORY_TYPE_VALUES:
+        log.warning(
+            "assumptions.story_type.invalid",
+            story_type=story_label,
+            valid_story_types=sorted(_STORY_TYPE_VALUES),
+        )
     story_type = StoryType(story_label) if story_label in _STORY_TYPE_VALUES else None
 
     revenue_growth = _resolve_revenue_growth(
