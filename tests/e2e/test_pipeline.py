@@ -216,7 +216,7 @@ def _seed_company_via_fmp_importer(
     )
     client = _FakeFmpClient(profile, statements)
     result = import_company_from_fmp(conn, ticker=ticker, api_key="unused", client=client)
-    assert result.is_success(), result.error
+    assert result.is_success(), result.error_message
 
     conn.execute(
         "INSERT INTO prices_daily (ticker, date, close, market_cap, currency, source) "
