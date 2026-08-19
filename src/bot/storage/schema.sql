@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS companies (
     isin            VARCHAR,
     currency        VARCHAR,
     status          VARCHAR DEFAULT 'active',
+    ipo_date        DATE,
     source          VARCHAR NOT NULL,
     last_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -270,7 +271,7 @@ CREATE TABLE IF NOT EXISTS screener_candidates (
     run_id          VARCHAR NOT NULL,
     preset          VARCHAR NOT NULL,
     ticker          VARCHAR NOT NULL,
-    rank            INTEGER NOT NULL,
+    rank            INTEGER,
     score           DOUBLE,
     value_score     DOUBLE,
     quality_score   DOUBLE,
@@ -278,6 +279,7 @@ CREATE TABLE IF NOT EXISTS screener_candidates (
     mos_score       DOUBLE,
     passed_gates    VARCHAR[],
     failed_gates    VARCHAR[],
+    passed          BOOLEAN NOT NULL DEFAULT TRUE,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (run_id, ticker)
 );

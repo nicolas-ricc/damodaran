@@ -22,6 +22,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 
 import duckdb
 
@@ -85,7 +86,9 @@ type BatchValuator = Callable[[duckdb.DuckDBPyConnection, tuple[str, ...]], dict
 
 
 def _batch_dcf_margins(
-    conn: duckdb.DuckDBPyConnection, tickers: tuple[str, ...]
+    conn: duckdb.DuckDBPyConnection,
+    tickers: tuple[str, ...],
+    assumptions_dir: Path | None = None,
 ) -> dict[str, float | None]:
     """Real DCF margin of safety for every shortlisted ticker (the F7 N+1 fix).
 
@@ -98,12 +101,22 @@ def _batch_dcf_margins(
     company that cannot be valued (unknown ticker, missing data, or assumptions
     too incomplete for the DCF) yields ``None`` so the caller falls back to the
     neutral :data:`~bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY`.
+
+    When ``assumptions_dir`` is given, each ticker with a matching
+    ``<assumptions_dir>/<TICKER>.yaml`` is valued with that file as its override
+    (spec §7.6), so the screener's second pass agrees with ``bot analyze`` for
+    the same ticker.
     """
     margins: dict[str, float | None] = {}
     for ticker in tickers:
+        override_path = None
+        if assumptions_dir is not None:
+            candidate_path = assumptions_dir / f"{ticker}.yaml"
+            if candidate_path.exists():
+                override_path = candidate_path
         try:
             inputs = load_valuation_input(conn, ticker)
-            analysis = analyze(ticker, conn, company=inputs)
+            analysis = analyze(ticker, conn, override_path=override_path, company=inputs)
         except (LookupError, ValueError, ZeroDivisionError):
             margins[ticker] = None
             continue
@@ -143,17 +156,39 @@ class ScreenedCompany:
 
 
 @dataclass(frozen=True)
+class RejectedCompany:
+    """A company that did not survive the screen, and why (spec §6, ADR 0006).
+
+    Covers both eliminatory paths: a ``verdict.failed_gates`` from
+    :func:`evaluate_company`, or the single ``("coverage_gate",)`` marker for a
+    company the ADR 0006 coverage gate excluded before evaluation ever ran.
+    """
+
+    ticker: str
+    failed_gates: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class ScreenResult:
     """The outcome of one screen run over a universe (spec §6.1).
 
     ``shortlist`` is the ranked survivors, best first, truncated to ``top`` when a
     cap was requested. ``screened`` is the count of companies actually evaluated
-    (the universe minus those with too little data to assemble a snapshot).
+    (the universe minus those excluded by the ADR 0006 coverage gate below).
     """
 
     preset: str
     shortlist: tuple[ScreenedCompany, ...]
     screened: int
+    no_coverage: tuple[str, ...] = ()
+    """Tickers excluded from the universe for lack of a usable sector benchmark
+    (ADR 0006): no ``industry_damodaran``, no matching Damodaran industry row, or
+    a matched row whose ``wacc`` is NULL."""
+    rejected: tuple[RejectedCompany, ...] = ()
+    """Every company that did not make the shortlist, with why: coverage-gate
+    exclusions carry ``("coverage_gate",)``; verdict failures carry the real
+    ``failed_gates`` from :func:`evaluate_company` (spec §6, so
+    ``screener_candidates.failed_gates`` can answer "why did X fall")."""
 
 
 # --------------------------------------------------------------------------- #
@@ -507,7 +542,11 @@ _EMPTY_BENCHMARKS = IndustryBenchmarks(industry="", region="", year=0)
 
 
 def _quality_metric(company: CompanyData, benchmarks: IndustryBenchmarks) -> float:
-    """ROIC-over-sector-WACC spread blended with ROE (spec §6.5, higher better)."""
+    """ROIC-over-sector-WACC spread blended with ROE (spec §6.5, higher better).
+
+    Post-coverage-gate (ADR 0006), every surviving company has a real ROIC and a
+    real sector WACC — the ``None`` defaults below are dead code for survivors and
+    only matter for companies the gate will eliminate anyway."""
     spread = 0.0
     if company.roic is not None and benchmarks.wacc is not None:
         spread = company.roic - benchmarks.wacc
@@ -563,10 +602,11 @@ def evaluate_company(
 
     for detector in trap_detection:
         result = detector.evaluate(company, bench)
-        if result.passed or result.skipped:
-            if result.passed:
-                passed_gates.append(detector.name)
+        if result.passed:
+            passed_gates.append(detector.name)
         else:
+            # ADR 0006: a trap detector that cannot be evaluated (skip) is also
+            # eliminatory — without a verdict there is no candidate.
             failed_gates.append(detector.name)
             passed = False
 
@@ -599,6 +639,7 @@ def run_screen(
     *,
     top: int | None = None,
     valuator: Valuator | None = _dcf_margin_of_safety,
+    assumptions_dir: Path | None = None,
 ) -> ScreenResult:
     """Screen the DB universe with ``config`` and return the ranked shortlist.
 
@@ -619,6 +660,12 @@ def run_screen(
             defaults to the DCF pipeline. ``None`` skips valuation entirely and
             keeps the first-pass placeholder ranking (e.g. for a fast dry run). A
             candidate the valuator cannot value keeps the neutral placeholder.
+        assumptions_dir: Optional ``config/assumptions`` directory (spec §7.6);
+            threaded to the default batched DCF valuator so a shortlisted ticker
+            with a matching ``<TICKER>.yaml`` is valued with the same manual
+            override ``bot analyze`` would pick up by convention. Ignored when
+            ``valuator`` is not the default (an injected per-ticker valuator owns
+            its own overrides, if any).
 
     Returns:
         The re-ranked shortlist whose ``margin_of_safety`` reflects the real DCF
@@ -640,6 +687,8 @@ def run_screen(
 
     pending: list[_Pending] = []
     candidates: list[Candidate] = []
+    no_coverage: list[str] = []
+    rejected: list[RejectedCompany] = []
     screened = 0
     for row in _load_companies(conn):
         annual = all_annual.get(row.ticker, [])
@@ -653,7 +702,6 @@ def run_screen(
             currency=price.currency if price else None,
             as_of=price.as_of if price else None,
         )
-        screened += 1
         region = company.region or DEFAULT_REGION
         cache_key = (company.industry, region)
         # `in` check (not `.get()`) so a genuinely absent (None) benchmark is
@@ -663,6 +711,14 @@ def run_screen(
         else:
             benchmarks = load_industry_benchmarks(conn, industry=company.industry, region=region)
             benchmark_cache[cache_key] = benchmarks
+        # ADR 0006 coverage gate: no usable sector benchmark, no candidate. A
+        # company leaves the universe here, before evaluation, rather than being
+        # scored as if its unmeasured ROIC matched its sector's WACC.
+        if benchmarks is None or benchmarks.wacc is None:
+            no_coverage.append(row.ticker)
+            rejected.append(RejectedCompany(row.ticker, ("coverage_gate",)))
+            continue
+        screened += 1
         verdict = evaluate_company(
             company,
             benchmarks,
@@ -671,6 +727,7 @@ def run_screen(
             trap_detection=trap_detection,
         )
         if not verdict.passed:
+            rejected.append(RejectedCompany(row.ticker, verdict.failed_gates))
             continue
         pending.append(_Pending(company=company, verdict=verdict))
         candidates.append(
@@ -697,7 +754,7 @@ def run_screen(
     # ``valuator`` keeps the legacy one-call-per-candidate seam.
     shortlist_tickers = tuple(s.ticker for s in first_pass)
     if valuator is _dcf_margin_of_safety:
-        raw_margins = _batch_dcf_margins(conn, shortlist_tickers)
+        raw_margins = _batch_dcf_margins(conn, shortlist_tickers, assumptions_dir)
     elif valuator is None:
         raw_margins = {ticker: None for ticker in shortlist_tickers}
     else:
@@ -710,7 +767,13 @@ def run_screen(
     scored = rescore_with_margins(first_pass, margins, weights)
     by_ticker = {p.company.ticker: p for p in pending}
     shortlist = _project(scored, by_ticker)
-    return ScreenResult(preset=config.name, shortlist=shortlist, screened=screened)
+    return ScreenResult(
+        preset=config.name,
+        shortlist=shortlist,
+        screened=screened,
+        no_coverage=tuple(sorted(no_coverage)),
+        rejected=tuple(rejected),
+    )
 
 
 def _project(

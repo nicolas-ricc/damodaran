@@ -2,7 +2,11 @@
 
 ## Status
 
-Accepted (2026-08-11).
+Accepted (2026-08-11). Not implemented. Under the current US-only scope (S&P 500
+universe, listing currency = reporting currency = USD) its consequences do not
+manifest — there is no mismatch to resolve when every company trades and
+reports in the same currency. It becomes blocking again once M2 (the global
+universe) reopens.
 
 ## Context
 

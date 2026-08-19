@@ -200,3 +200,14 @@ def test_refresh_without_flags_shows_help(tmp_path, monkeypatch):
     # The error message goes to stderr; CliRunner mixes_stderr=False by default? Check both.
     combined = (result.stdout + (result.stderr or "")).lower()
     assert "specify" in combined or "flag" in combined or "damodaran" in combined
+
+
+def test_refresh_damodaran_rejects_non_us_region(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "test.duckdb"))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(tmp_path / "reports"))
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["refresh", "--damodaran", "--region", "Europe"])
+    assert result.exit_code == 2
+    assert "US" in result.output

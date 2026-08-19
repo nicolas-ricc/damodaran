@@ -30,7 +30,7 @@ _Generated {{ generated_at }} · currency {{ a.currency or "n/a" }} · country {
 | Assumption | Value | Source |
 |---|---|---|
 | Revenue growth (yr 1) | {{ a.assumptions.revenue_growth.value[0] | pct }} | {{ a.assumptions.revenue_growth.source }} |
-| Operating margin | {{ a.assumptions.operating_margin.value | pct }} | {{ a.assumptions.operating_margin.source }} |
+| Operating margin | {{ a.assumptions.operating_margin.value | margin_path }} | {{ a.assumptions.operating_margin.source }} |
 | Sales-to-capital | {{ a.assumptions.sales_to_capital.value | num }} | {{ a.assumptions.sales_to_capital.source }} |
 | Cost of equity | {{ a.assumptions.cost_of_equity.value | pct }} | {{ a.assumptions.cost_of_equity.source }} |
 | Pre-tax cost of debt | {{ a.assumptions.pretax_cost_of_debt.value | pct }} | {{ a.assumptions.pretax_cost_of_debt.source }} |
@@ -60,7 +60,7 @@ _Generated {{ generated_at }} · currency {{ a.currency or "n/a" }} · country {
 | Assumption | Intrinsic @ -20% | Intrinsic @ +20% | Impact |
 |---|---|---|---|
 {% for t in a.tornado -%}
-| {{ t.axis }} | {{ t.intrinsic_low | per_share }} | {{ t.intrinsic_high | per_share }} | {{ t.impact | per_share }} |
+| {{ t.axis | axis_label }} | {{ t.intrinsic_low | per_share }} | {{ t.intrinsic_high | per_share }} | {{ t.impact | per_share }} |
 {% endfor %}
 ### 2-D grid — {{ a.grid.axis_a }} (rows) × {{ a.grid.axis_b }} (cols), {% if a.grid.reference_price is none %}{{ grid_label_intrinsic }}{% else %}{{ grid_label_mos }}{% endif %}
 {% if a.grid.reference_price is none %}

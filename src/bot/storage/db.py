@@ -25,3 +25,9 @@ def apply_schema(conn: duckdb.DuckDBPyConnection) -> None:
     """Apply the DDL in schema.sql. Idempotent."""
     sql = resources.files("bot.storage").joinpath("schema.sql").read_text()
     conn.execute(sql)
+
+
+def schema_table_count() -> int:
+    """Cantidad de tablas que define ``schema.sql`` (para chequeos de salud)."""
+    sql = resources.files("bot.storage").joinpath("schema.sql").read_text()
+    return sql.count("CREATE TABLE IF NOT EXISTS")

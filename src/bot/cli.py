@@ -29,7 +29,7 @@ from bot.reporting.show import format_company_summary
 from bot.screener.config import load_screener_config
 from bot.screener.engine import run_screen
 from bot.screener.persist import persist_candidates
-from bot.storage.db import apply_schema, connect
+from bot.storage.db import apply_schema, connect, schema_table_count
 from bot.utils.logging import configure_logging, get_logger
 from bot.valuator.analysis import analyze as run_analysis
 
@@ -88,6 +88,11 @@ def refresh(
         "--download-dir",
         help="Where to cache downloaded Damodaran files.",
     ),
+    limit: int | None = typer.Option(
+        None,
+        "--limit",
+        help="Procesar a lo sumo N tickers de --fmp/--prices (para el tier gratis de FMP).",
+    ),
 ) -> None:
     """Refresh data from external sources.
 
@@ -107,6 +112,15 @@ def refresh(
         )
         raise typer.Exit(code=2)
 
+    if damodaran and region.upper() != "US":
+        typer.echo(
+            f"--region {region}: esta versión es US-only. Las URLs de Damodaran "
+            "apuntan al dataset de EE.UU.; pedir otra región guardaría datos de "
+            "EE.UU. etiquetados con esa región. Usá --region US.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
     conn, settings = _open_db()
     exit_code = 0
     if damodaran:
@@ -115,9 +129,9 @@ def refresh(
             _refresh_damodaran(conn, region=region, year=year, download_dir=download_dir),
         )
     if fmp:
-        exit_code = max(exit_code, _refresh_fmp_universe(conn, settings, universe))
+        exit_code = max(exit_code, _refresh_fmp_universe(conn, settings, universe, limit))
     if prices:
-        exit_code = max(exit_code, _refresh_prices(conn, settings, universe))
+        exit_code = max(exit_code, _refresh_prices(conn, settings, universe, limit))
     if fx:
         exit_code = max(exit_code, _refresh_fx(conn, settings))
     raise typer.Exit(code=exit_code)
@@ -145,7 +159,10 @@ def _refresh_damodaran(
 
 
 def _refresh_fmp_universe(
-    conn: duckdb.DuckDBPyConnection, settings: Settings, universe: Path | None
+    conn: duckdb.DuckDBPyConnection,
+    settings: Settings,
+    universe: Path | None,
+    limit: int | None = None,
 ) -> int:
     """Run a bulk FMP universe refresh and map its outcome to an exit code.
 
@@ -155,6 +172,8 @@ def _refresh_fmp_universe(
     """
     path = universe or default_universe_path()
     tickers = load_universe(path)
+    if limit is not None:
+        tickers = tickers[:limit]
     if not tickers:
         typer.echo(f"Universe file {path} has no tickers.", err=True)
         return 2
@@ -173,11 +192,16 @@ def _refresh_fmp_universe(
 
 
 def _refresh_prices(
-    conn: duckdb.DuckDBPyConnection, settings: Settings, universe: Path | None
+    conn: duckdb.DuckDBPyConnection,
+    settings: Settings,
+    universe: Path | None,
+    limit: int | None = None,
 ) -> int:
     """Refresh EOD prices for the universe. Returns the exit code (0 ok, 2 data error)."""
     path = universe or default_universe_path()
     tickers = load_universe(path)
+    if limit is not None:
+        tickers = tickers[:limit]
     if not tickers:
         typer.echo(f"Universe file {path} has no tickers.", err=True)
         return 2
@@ -210,6 +234,11 @@ def _report_universe_refresh(result: UniverseRefreshResult) -> None:
         typer.echo("Failures:", err=True)
         for outcome in result.failures:
             typer.echo(f"  {outcome.ticker}: {outcome.error_message}", err=True)
+    if result.deferred:
+        typer.echo(
+            f"NOTE — {result.deferred} tickers deferred (FMP daily quota); "
+            "volvé a correr el mismo comando mañana para continuar.",
+        )
 
 
 @app.command()
@@ -269,33 +298,109 @@ def show(
 
 @app.command()
 def analyze(
-    ticker: str = typer.Argument(..., help="Company ticker (e.g. AAPL)."),
+    tickers: list[str] = typer.Argument(  # noqa: B008
+        None, help="One or more tickers (e.g. AAPL MSFT). Omit with --from-screen."
+    ),
+    from_screen: bool = typer.Option(
+        False,
+        "--from-screen",
+        help="Analyze the shortlist from the latest persisted screen run.",
+    ),
     override: Path | None = typer.Option(  # noqa: B008
         None,
         "--override",
-        help="Path to config/assumptions/<TICKER>.yaml with manual overrides.",
+        help="Path to config/assumptions/<TICKER>.yaml with manual overrides "
+        "(only valid with exactly one ticker).",
     ),
 ) -> None:
     """Run a Damodaran-style DCF analysis and write the §7.7 reports.
 
-    Produces ``<reports_dir>/YYYY-MM-DD/analysis/<TICKER>.md`` with the executive
-    summary, story type, assumptions (with source), year-by-year DCF, sensitivity
-    (tornado + 2-D grid), narrative flags, manual overrides, and the sanity check
-    versus sector multiples. A self-contained ``<TICKER>.html`` (M6.1) is written
-    alongside it: the same report rendered to HTML with a base64-inlined
-    Matplotlib tornado chart, openable in a browser with no external assets.
+    Accepts one or more tickers (``bot analyze AAPL MSFT``), or ``--from-screen``
+    to analyze the shortlist of the latest persisted ``bot screen`` run (ordered
+    by rank). Produces ``<reports_dir>/YYYY-MM-DD/analysis/<TICKER>.md`` for each
+    ticker, with the executive summary, story type, assumptions (with source),
+    year-by-year DCF, sensitivity (tornado + 2-D grid), narrative flags, manual
+    overrides, and the sanity check versus sector multiples. A self-contained
+    ``<TICKER>.html`` (M6.1) is written alongside it: the same report rendered to
+    HTML with a base64-inlined Matplotlib tornado chart, openable in a browser
+    with no external assets.
+
+    A per-ticker failure (unknown ticker, missing data) is printed and does not
+    abort the rest of the batch; the command exits with the worst per-ticker
+    code.
     """
+    tickers = tickers or []
+    if from_screen and tickers:
+        typer.echo("--from-screen no admite tickers explícitos.", err=True)
+        raise typer.Exit(code=2)
+    if not from_screen and not tickers:
+        typer.echo("Especificá uno o más tickers, o usá --from-screen.", err=True)
+        raise typer.Exit(code=2)
+    if override is not None and len(tickers) != 1:
+        typer.echo(
+            "--override solo es válido con exactamente un ticker.", err=True
+        )
+        raise typer.Exit(code=2)
+
     conn, settings = _open_db()
+
+    if from_screen:
+        latest_run = conn.execute(
+            "SELECT run_id FROM screener_candidates ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        if latest_run is None:
+            typer.echo(
+                "No hay ningún screen persistido — corré `bot screen` primero.",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+        rows = conn.execute(
+            "SELECT ticker FROM screener_candidates "
+            "WHERE passed AND run_id = ? ORDER BY rank",
+            [latest_run[0]],
+        ).fetchall()
+        if not rows:
+            typer.echo(
+                "El último screen no dejó ningún candidato — probá cargar más datos "
+                "y volver a correr `bot screen`.",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+        tickers = [str(r[0]) for r in rows]
+
+    exit_code = 0
+    for ticker in tickers:
+        exit_code = max(exit_code, _analyze_one(conn, settings, ticker, override))
+    raise typer.Exit(code=exit_code)
+
+
+def _analyze_one(
+    conn: duckdb.DuckDBPyConnection,
+    settings: Settings,
+    ticker: str,
+    override: Path | None,
+) -> int:
+    """Analyze one ticker and write its §7.7 reports. Returns its exit code.
+
+    ``0`` on success, ``2`` for an unknown ticker (``LookupError``), ``1`` when
+    the ticker can't be valued (``ValueError``). Errors are printed, not raised,
+    so a batch of tickers keeps going after one fails.
+    """
     ticker = ticker.upper()
+
+    if override is None:
+        conventional = settings.assumptions_dir / f"{ticker}.yaml"
+        if conventional.exists():
+            override = conventional
 
     try:
         analysis = run_analysis(ticker, conn, override_path=override)
     except LookupError as exc:
         typer.echo(f"{ticker}: {exc}", err=True)
-        raise typer.Exit(code=2) from exc
+        return 2
     except ValueError as exc:
         typer.echo(f"{ticker}: cannot value — {exc}", err=True)
-        raise typer.Exit(code=1) from exc
+        return 1
 
     today = date.today()
     report_md = render_analysis(analysis, generated_on=today)
@@ -315,6 +420,7 @@ def analyze(
             f"vs price {analysis.current_price:,.2f} → "
             f"margin of safety {analysis.margin_of_safety:.2f}x"
         )
+    return 0
 
 
 @app.command()
@@ -348,7 +454,7 @@ def screen(
         raise typer.Exit(code=2)
     screener_config = load_screener_config(config_path)
 
-    result = run_screen(conn, screener_config, top=top)
+    result = run_screen(conn, screener_config, top=top, assumptions_dir=settings.assumptions_dir)
     run_id = persist_candidates(conn, result)
 
     today = date.today()
@@ -423,6 +529,9 @@ def doctor() -> None:
     typer.echo(f"FMP API key:      {'set' if settings.fmp_api_key else 'MISSING'}")
     typer.echo(f"Log level:        {settings.log_level}")
 
+    if not settings.fmp_api_key.strip():
+        issues.append("FMP API key vacía — refresh --fmp no puede funcionar (BOT_FMP_API_KEY).")
+
     try:
         conn = connect(settings.db_path)
         apply_schema(conn)
@@ -430,8 +539,11 @@ def doctor() -> None:
             "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'main'"
         ).fetchone()
         tables = row[0] if row is not None else 0
-        if tables < 8:
-            issues.append(f"DB has only {tables} tables — schema may be incomplete.")
+        expected_tables = schema_table_count()
+        if tables < expected_tables:
+            issues.append(
+                f"DB has {tables} tables, schema defines {expected_tables} — schema incomplete."
+            )
         else:
             typer.echo(f"DB tables:        {tables} (OK)")
         conn.close()

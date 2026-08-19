@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import duckdb
 
-from bot.screener.engine import ScreenedCompany, ScreenResult
+from bot.screener.engine import RejectedCompany, ScreenedCompany, ScreenResult
 from bot.screener.persist import persist_candidates
 from bot.storage.db import apply_schema
 
@@ -72,3 +72,32 @@ def test_persist_empty_shortlist() -> None:
     run_id = persist_candidates(conn, result)
     assert run_id
     assert conn.execute("SELECT COUNT(*) FROM screener_candidates").fetchone() == (0,)
+
+
+def test_persist_writes_survivor_rows_with_passed_true() -> None:
+    conn = duckdb.connect(":memory:")
+    apply_schema(conn)
+    result = ScreenResult(preset="p", shortlist=(_company("AAA", 1.0),), screened=1)
+    run_id = persist_candidates(conn, result)
+    row = conn.execute(
+        "SELECT passed, rank FROM screener_candidates WHERE run_id = ? AND ticker = 'AAA'",
+        [run_id],
+    ).fetchone()
+    assert row == (True, 1)
+
+
+def test_persist_writes_rejected_rows_with_passed_false() -> None:
+    conn = duckdb.connect(":memory:")
+    apply_schema(conn)
+    result = ScreenResult(
+        preset="p",
+        shortlist=(),
+        screened=1,
+        rejected=(RejectedCompany("BAD", ("min_market_cap",)),),
+    )
+    run_id = persist_candidates(conn, result)
+    row = conn.execute(
+        "SELECT passed, rank, failed_gates FROM screener_candidates WHERE run_id = ? AND ticker = 'BAD'",
+        [run_id],
+    ).fetchone()
+    assert row == (False, None, ["min_market_cap"])

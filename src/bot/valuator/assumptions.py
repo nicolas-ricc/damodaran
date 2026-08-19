@@ -69,6 +69,10 @@ _DEFAULT_TAX_RATE = 0.25
 # two weights partition invested capital, so anything else is a user error.
 _WEIGHT_PARTITION_TOLERANCE = 1e-9
 
+# Every value StoryType can take, for validating a resolved story-type label
+# (manual override or classifier verdict) before branching on it.
+_STORY_TYPE_VALUES = {s.value for s in StoryType}
+
 
 class AssumptionSource(StrEnum):
     """Provenance of a resolved assumption (spec §7.3)."""
@@ -82,6 +86,10 @@ class AssumptionSource(StrEnum):
     SECTOR_DEFAULT_DAMODARAN_CROSS_REGION = "sector_default_damodaran_cross_region"
     RULE_BASED = "rule_based"
     HISTORICAL_AVERAGE = "historical_average"
+    #: The value sails from the archetype's projection pattern (spec §7.1): a path
+    #: derived from the company's and the sector's data, not a scalar copied
+    #: verbatim. Emitted by the story-type-branched growth and margin resolvers.
+    STORY_PATTERN = "story_pattern"
     #: No layer produced a value. The report shows the gap instead of a number,
     #: and must not attribute the gap to a source it never came from.
     UNRESOLVED = "unresolved"
@@ -106,7 +114,9 @@ class Assumptions:
 
     Attributes:
         revenue_growth: Year-by-year revenue-growth path (years 1..N).
-        operating_margin: Steady-state EBIT / revenue ratio.
+        operating_margin: Year-by-year operating-margin path (years 1..N). Flat
+            across the horizon for most archetypes, but a high-growth story ramps
+            it and a cyclical story flattens it to the cycle average (spec §7.1).
         sales_to_capital: Incremental sales per unit of reinvested capital.
         terminal_growth: Perpetual growth ``g`` past the horizon.
         probability_of_bankruptcy: Probability the firm fails (0 outside
@@ -126,7 +136,7 @@ class Assumptions:
     """
 
     revenue_growth: Sourced[tuple[float, ...] | None]
-    operating_margin: Sourced[float | None]
+    operating_margin: Sourced[tuple[float, ...] | None]
     sales_to_capital: Sourced[float | None]
     terminal_growth: Sourced[float | None]
     probability_of_bankruptcy: Sourced[float]
@@ -148,10 +158,12 @@ class Assumptions:
                 DCF.
         """
         growth = _require(self.revenue_growth, "revenue_growth")
-        margin = _require(self.operating_margin, "operating_margin")
+        margin_path = _require(self.operating_margin, "operating_margin")
+        if len(margin_path) < len(growth):
+            margin_path = margin_path + (margin_path[-1],) * (len(growth) - len(margin_path))
         return DCFAssumptions(
             revenue_growth=growth,
-            operating_margin=(margin,) * len(growth),
+            operating_margin=margin_path[: len(growth)],
             tax_rate=_require(self.tax_rate, "tax_rate"),
             sales_to_capital=_require(self.sales_to_capital, "sales_to_capital"),
             terminal_growth=_require(self.terminal_growth, "terminal_growth"),
@@ -243,6 +255,12 @@ class AssumptionInputs:
             :func:`_load_sector_with_fallback`). Every assumption drawn from that
             row is then labelled
             :attr:`AssumptionSource.SECTOR_DEFAULT_DAMODARAN_CROSS_REGION`.
+        company_operating_margin: The company's own most-recent EBIT / revenue
+            ratio, used as the starting point of the high-growth margin ramp
+            (spec §7.1). ``None`` when there is no usable financials history.
+        operating_margin_history: The company's own EBIT / revenue ratio for
+            every year of financials history, used to average a cyclical
+            story's own cycle (spec §7.1). Empty when there is no history.
     """
 
     company: _Company
@@ -250,6 +268,8 @@ class AssumptionInputs:
     sector: _SectorRow | None
     historical_growth_path: tuple[float, ...] | None
     sector_is_cross_region: bool = False
+    company_operating_margin: float | None = None
+    operating_margin_history: tuple[float, ...] = ()
 
 
 def load_assumption_inputs(
@@ -268,12 +288,33 @@ def load_assumption_inputs(
     region = dataset_region(company.country, country.region if country is not None else None)
     sector, cross_region = _load_sector_with_fallback(conn, company.industry_damodaran, region)
     historical_growth_path = _historical_growth_path(conn, ticker)
+    margins = _operating_margin_history(conn, ticker)
     return AssumptionInputs(
         company=company,
         country=country,
         sector=sector,
         historical_growth_path=historical_growth_path,
         sector_is_cross_region=cross_region,
+        company_operating_margin=margins[-1] if margins else None,
+        operating_margin_history=margins,
+    )
+
+
+def _operating_margin_history(
+    conn: duckdb.DuckDBPyConnection, ticker: str
+) -> tuple[float, ...]:
+    """The company's own EBIT / revenue ratio for every year of history.
+
+    Feeds the high-growth margin ramp's starting point (most recent year) and
+    the cyclical margin's cycle average (spec §7.1).
+    """
+    rows = conn.execute(
+        "SELECT ebit, revenue FROM financials_annual "
+        "WHERE ticker = ? AND is_restated = FALSE ORDER BY fiscal_year",
+        [ticker],
+    ).fetchall()
+    return tuple(
+        float(e) / float(r) for e, r in rows if e is not None and r is not None and r != 0.0
     )
 
 
@@ -492,11 +533,24 @@ def resolve_assumptions(
     )
     override = _load_override(override_path)
 
+    story_label = _resolve_story_type(override, auto_story_type)
+    if story_label is not None and story_label not in _STORY_TYPE_VALUES:
+        log.warning(
+            "assumptions.story_type.invalid",
+            story_type=story_label,
+            valid_story_types=sorted(_STORY_TYPE_VALUES),
+        )
+    story_type = StoryType(story_label) if story_label in _STORY_TYPE_VALUES else None
+
     revenue_growth = _resolve_revenue_growth(
-        db_inputs.historical_growth_path, override, gdp_nominal
+        db_inputs.historical_growth_path, override, gdp_nominal, story_type=story_type
     )
-    operating_margin = _resolve_sector_scalar(
-        override, sector, key="operating_margin", attr="op_margin"
+    operating_margin = _resolve_operating_margin(
+        override,
+        sector,
+        story_type=story_type,
+        company_margin=db_inputs.company_operating_margin,
+        margin_history=db_inputs.operating_margin_history,
     )
     sales_to_capital = _resolve_sector_scalar(
         override, sector, key="sales_to_capital", attr="sales_to_capital"
@@ -525,7 +579,7 @@ def resolve_assumptions(
         equity_weight=equity_weight,
         debt_weight=debt_weight,
         tax_rate=tax_rate,
-        story_type=_resolve_story_type(override, auto_story_type),
+        story_type=story_label,
         notes=override.get("notes"),
     )
 
@@ -542,10 +596,20 @@ def _resolve_story_type(
     return None
 
 
+def _linear_path(start: float, end: float, n: int = _HORIZON) -> tuple[float, ...]:
+    """Interpolate linearly and inclusively from ``start`` to ``end`` over ``n`` steps."""
+    if n == 1:
+        return (end,)
+    step = (end - start) / (n - 1)
+    return tuple(start + step * i for i in range(n))
+
+
 def _resolve_revenue_growth(
     historical: tuple[float, ...] | None,
     override: dict[str, Any],
     gdp_nominal: float,
+    *,
+    story_type: StoryType | None = None,
 ) -> Sourced[tuple[float, ...] | None]:
     """Resolve the revenue-growth path.
 
@@ -553,10 +617,19 @@ def _resolve_revenue_growth(
     year 10. Neither is implemented: the path is the historical average repeated over a
     5-year horizon, sourced as HISTORICAL_AVERAGE. There is no ANALYST_CONSENSUS source
     because nothing can emit it — FMP's analyst-estimates endpoint is not wired.
+
+    A high-growth story is the one archetype that does branch here (spec §7.1): fast
+    growth fades toward the economy, so the path linearly fades from the historical
+    average down to nominal GDP over the explicit horizon instead of staying flat.
     """
     manual = _override_path_field(override, "revenue_growth")
     if manual is not None:
         return manual
+    if story_type is StoryType.HIGH_GROWTH and historical is not None:
+        return Sourced(
+            value=_linear_path(historical[0], gdp_nominal),
+            source=AssumptionSource.STORY_PATTERN,
+        )
     # M1 universe: no analyst-consensus feed → historical average.
     if historical is not None:
         return Sourced(value=historical, source=AssumptionSource.HISTORICAL_AVERAGE)
@@ -578,6 +651,46 @@ def _resolve_sector_scalar(
     if value is None:
         return Sourced(value=None, source=AssumptionSource.UNRESOLVED)
     return Sourced(value=value, source=sector.source)
+
+
+def _resolve_operating_margin(
+    override: dict[str, Any],
+    sector: _SectorDefaults,
+    *,
+    story_type: StoryType | None,
+    company_margin: float | None,
+    margin_history: tuple[float, ...],
+) -> Sourced[tuple[float, ...] | None]:
+    """Operating-margin path, branched by archetype (spec §7.1).
+
+    high-growth: linear ramp from the company's own current margin to the
+    sector median — margin improvement is half of a high-growth story.
+    cyclical: the cycle's own average margin, not the current year's, so a
+    trough or peak year does not get projected forward as steady state.
+    Every other archetype keeps the previous behaviour: a flat sector median.
+    A manual override (scalar or list) always wins.
+    """
+    manual = _override_path_field(override, "operating_margin")
+    if manual is not None:
+        return manual
+    sector_margin = sector.row.op_margin if sector.row is not None else None
+    if (
+        story_type is StoryType.HIGH_GROWTH
+        and company_margin is not None
+        and sector_margin is not None
+    ):
+        return Sourced(
+            value=_linear_path(company_margin, sector_margin),
+            source=AssumptionSource.STORY_PATTERN,
+        )
+    if story_type is StoryType.CYCLICAL and len(margin_history) >= 4:
+        cycle_avg = sum(margin_history) / len(margin_history)
+        return Sourced(
+            value=(cycle_avg,) * _HORIZON, source=AssumptionSource.HISTORICAL_AVERAGE
+        )
+    if sector_margin is None:
+        return Sourced(value=None, source=AssumptionSource.UNRESOLVED)
+    return Sourced(value=(sector_margin,) * _HORIZON, source=sector.source)
 
 
 def _resolve_weights(

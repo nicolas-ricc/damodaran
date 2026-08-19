@@ -18,6 +18,7 @@ override_path).
 
 from __future__ import annotations
 
+import itertools
 from pathlib import Path
 
 import duckdb
@@ -160,7 +161,7 @@ def test_returns_assumptions_with_sourced_fields(conn: duckdb.DuckDBPyConnection
 def test_operating_margin_uses_sector_default(conn: duckdb.DuckDBPyConnection) -> None:
     _seed_full_sector(conn)
     result = resolve_assumptions("ACME", conn)
-    assert result.operating_margin.value == pytest.approx(0.18)
+    assert result.operating_margin.value == pytest.approx((0.18,) * 5)
     assert result.operating_margin.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
 
 
@@ -274,7 +275,7 @@ def test_manual_override_wins_for_every_field(
     )
     result = resolve_assumptions("ACME", conn, override_path=override)
 
-    assert result.operating_margin.value == pytest.approx(0.30)
+    assert result.operating_margin.value == pytest.approx((0.30,) * 5)
     assert result.operating_margin.source is AssumptionSource.MANUAL
     assert result.sales_to_capital.value == pytest.approx(3.0)
     assert result.sales_to_capital.source is AssumptionSource.MANUAL
@@ -294,7 +295,7 @@ def test_manual_override_is_partial_other_fields_keep_defaults(
     override = _write_override(tmp_path, "operating_margin: 0.40\n")
     result = resolve_assumptions("ACME", conn, override_path=override)
 
-    assert result.operating_margin.value == pytest.approx(0.40)
+    assert result.operating_margin.value == pytest.approx((0.40,) * 5)
     assert result.operating_margin.source is AssumptionSource.MANUAL
     # Untouched field keeps the sector default.
     assert result.sales_to_capital.value == pytest.approx(2.5)
@@ -348,6 +349,127 @@ def test_story_type_is_none_without_override_or_auto(
     _seed_full_sector(conn)
     result = resolve_assumptions("ACME", conn)
     assert result.story_type is None
+
+
+def test_invalid_manual_story_type_warns_and_stays_non_branching(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    """An unknown ``story_type`` typo (e.g. ``hi-growth``) must not silently
+    disable branching without a signal: it should log a warning naming the
+    invalid value and the valid ones, while still surfacing the bogus label
+    in the report and behaving as non-branching (no story-pattern resolution).
+    """
+    from structlog.testing import capture_logs
+
+    _seed_full_sector(conn)
+    override = _write_override(tmp_path, "story_type: hi-growth\n")
+    with capture_logs() as events:
+        result = resolve_assumptions("ACME", conn, override_path=override)
+
+    assert result.story_type == "hi-growth"
+    warnings = [e for e in events if e.get("event") == "assumptions.story_type.invalid"]
+    assert len(warnings) == 1
+    assert warnings[0]["log_level"] == "warning"
+    assert warnings[0]["story_type"] == "hi-growth"
+    assert set(warnings[0]["valid_story_types"]) == {s.value for s in StoryType}
+
+    # Non-branching: no story pattern is applied to revenue growth or margin.
+    assert result.revenue_growth.source != AssumptionSource.STORY_PATTERN
+    assert result.operating_margin.source != AssumptionSource.STORY_PATTERN
+
+
+# --------------------------------------------------------------------------- #
+# Story type drives the projection (spec §7.1)                                 #
+# --------------------------------------------------------------------------- #
+
+
+def test_high_growth_revenue_path_fades_from_history_to_gdp(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_company(conn)
+    # 100 -> 130 -> 169: two YoY growths of 30% each → historical average 30%.
+    _seed_financials(
+        conn,
+        rows=((2022, 100.0, 18.0), (2023, 130.0, 20.0), (2024, 169.0, 22.0)),
+    )
+    a = resolve_assumptions("ACME", conn, gdp_nominal=0.04, auto_story_type=StoryType.HIGH_GROWTH)
+    path = a.revenue_growth.value
+    assert path is not None
+    assert a.revenue_growth.source == AssumptionSource.STORY_PATTERN
+    assert path[0] == pytest.approx(0.30, abs=0.01)
+    assert path[-1] == pytest.approx(0.04, abs=1e-9)
+    assert all(x >= y for x, y in itertools.pairwise(path))  # monotone descending
+
+
+def test_high_growth_margin_ramps_from_company_to_sector(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_company(conn)
+    _seed_industry(conn, op_margin=0.20)
+    _seed_country(conn)
+    # Company's own margin is a flat 8% every year -> the latest is 0.08.
+    _seed_financials(
+        conn,
+        rows=((2022, 100.0, 8.0), (2023, 110.0, 8.8), (2024, 121.0, 9.68)),
+    )
+    a = resolve_assumptions("ACME", conn, auto_story_type=StoryType.HIGH_GROWTH)
+    path = a.operating_margin.value
+    assert path is not None
+    assert a.operating_margin.source == AssumptionSource.STORY_PATTERN
+    assert path[0] == pytest.approx(0.08, abs=1e-9)
+    assert path[-1] == pytest.approx(0.20, abs=1e-9)
+
+
+def test_cyclical_margin_averages_the_cycle_not_the_current_year(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_company(conn)
+    _seed_industry(conn)
+    _seed_country(conn)
+    # Margin history [0.02, 0.18, 0.04, 0.16] -> average 0.10; current year is 0.16.
+    _seed_financials(
+        conn,
+        rows=(
+            (2021, 100.0, 2.0),
+            (2022, 100.0, 18.0),
+            (2023, 100.0, 4.0),
+            (2024, 100.0, 16.0),
+        ),
+    )
+    a = resolve_assumptions("ACME", conn, auto_story_type=StoryType.CYCLICAL)
+    assert a.operating_margin.value == (pytest.approx(0.10),) * 5
+    assert a.operating_margin.source == AssumptionSource.HISTORICAL_AVERAGE
+
+
+def test_mature_stable_keeps_sector_margin_and_historical_growth(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_full_sector(conn)
+    _seed_financials(
+        conn,
+        rows=((2022, 100.0, 18.0), (2023, 110.0, 20.0), (2024, 121.0, 22.0)),
+    )
+    a = resolve_assumptions("ACME", conn, auto_story_type=StoryType.MATURE_STABLE)
+    assert a.operating_margin.source == AssumptionSource.SECTOR_DEFAULT_DAMODARAN
+    assert a.revenue_growth.source == AssumptionSource.HISTORICAL_AVERAGE
+
+
+def test_manual_override_beats_the_story_pattern(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)
+    _seed_financials(
+        conn,
+        rows=((2022, 100.0, 8.0), (2023, 110.0, 8.8), (2024, 121.0, 9.68)),
+    )
+    override = _write_override(
+        tmp_path, "operating_margin: 0.25\nstory_type: high-growth\n"
+    )
+    a = resolve_assumptions(
+        "ACME", conn, override_path=override, auto_story_type=StoryType.HIGH_GROWTH
+    )
+    assert a.operating_margin.value == (0.25,) * 5
+    assert a.operating_margin.source == AssumptionSource.MANUAL
 
 
 # --------------------------------------------------------------------------- #
@@ -434,7 +556,7 @@ def test_sector_joins_on_the_dataset_region_not_the_geographic_grouping(
     _seed_industry(conn, region="US")
     _seed_country(conn, region="North America")
     result = resolve_assumptions("ACME", conn)
-    assert result.operating_margin.value == pytest.approx(0.18)
+    assert result.operating_margin.value == pytest.approx((0.18,) * 5)
     assert result.operating_margin.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
 
 
@@ -448,7 +570,7 @@ def test_cross_region_substitution_is_disclosed(conn: duckdb.DuckDBPyConnection)
     _seed_industry(conn, region="US")
     _seed_country(conn, country="Germany", region="Western Europe")
     result = resolve_assumptions("DEU", conn)
-    assert result.operating_margin.value == pytest.approx(0.18)
+    assert result.operating_margin.value == pytest.approx((0.18,) * 5)
     cross = AssumptionSource.SECTOR_DEFAULT_DAMODARAN_CROSS_REGION
     assert result.operating_margin.source is cross
     assert result.equity_weight.source is cross
@@ -492,7 +614,7 @@ def test_resolved_assumption_still_reports_the_sector(conn: duckdb.DuckDBPyConne
     _seed_company(conn, ticker="SEMI", industry_damodaran="Software")
     _seed_industry(conn, op_margin=0.22)
     result = resolve_assumptions("SEMI", conn)
-    assert result.operating_margin.value == pytest.approx(0.22)
+    assert result.operating_margin.value == pytest.approx((0.22,) * 5)
     assert result.operating_margin.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
 
 
@@ -647,5 +769,6 @@ def test_assumption_source_has_no_unreachable_member() -> None:
         "sector_default_damodaran_cross_region",
         "rule_based",
         "historical_average",
+        "story_pattern",
         "unresolved",
     }

@@ -35,7 +35,12 @@ from pathlib import Path
 import duckdb
 
 from bot.ingest.base import IngestResult, _log_refresh
-from bot.ingest.fmp import FmpClient, import_company_from_fmp, import_prices_from_fmp
+from bot.ingest.fmp import (
+    FmpClient,
+    FmpRateLimitError,
+    import_company_from_fmp,
+    import_prices_from_fmp,
+)
 from bot.ingest.industry_mapping import load_industry_mapping, resolve_mapping_path
 from bot.utils.fx import import_fx_rates
 from bot.utils.logging import get_logger
@@ -64,6 +69,7 @@ class TickerOutcome:
     ticker: str
     # "imported": fetched + upserted. "skipped": unchanged since last run.
     # "failed": the per-ticker import raised or returned an error result.
+    # "deferred": not attempted (or the run was interrupted) by an FMP rate limit.
     status: str
     rows_affected: int = 0
     error_message: str | None = None
@@ -84,9 +90,15 @@ class UniverseRefreshResult:
     outcomes: list[TickerOutcome] = field(default_factory=list)
 
     @property
+    def deferred(self) -> int:
+        """Tickers no intentados porque la cuota diaria de FMP se agotó."""
+        return sum(1 for o in self.outcomes if o.status == "deferred")
+
+    @property
     def failure_rate(self) -> float:
-        """Fraction of the universe whose import failed (0.0 when empty)."""
-        return self.failed / self.total if self.total else 0.0
+        """Fracción de lo *intentado* que falló (0.0 cuando no se intentó nada)."""
+        attempted = self.total - self.deferred
+        return self.failed / attempted if attempted else 0.0
 
     @property
     def failures(self) -> list[TickerOutcome]:
@@ -301,16 +313,30 @@ def _run_bulk_refresh(
     run_id = str(uuid.uuid4())
     total = len(items)
     outcomes: list[TickerOutcome] = []
-    imported = skipped = failed = 0
+    imported = skipped = failed = deferred = 0
+    rate_limited = False
 
     log.info(f"{label}.refresh.start", run_id=run_id, total=total)
     for index, item in enumerate(items, start=1):
-        outcome = process(item)
+        if rate_limited:
+            outcomes.append(TickerOutcome(ticker=item.upper(), status="deferred"))
+            deferred += 1
+            continue
+        try:
+            outcome = process(item)
+        except FmpRateLimitError as exc:
+            log.warning(f"{label}.refresh.rate_limited", item=item, error=str(exc))
+            rate_limited = True
+            outcomes.append(TickerOutcome(ticker=item.upper(), status="deferred"))
+            deferred += 1
+            continue
         outcomes.append(outcome)
         if outcome.status == "imported":
             imported += 1
         elif outcome.status == "skipped":
             skipped += 1
+        elif outcome.status == "deferred":
+            deferred += 1
         else:
             failed += 1
 
@@ -323,10 +349,12 @@ def _run_bulk_refresh(
                 imported=imported,
                 skipped=skipped,
                 failed=failed,
+                deferred=deferred,
             )
 
     finished = datetime.now()
-    failure_rate = failed / total if total else 0.0
+    attempted = total - deferred
+    failure_rate = failed / attempted if attempted else 0.0
     status = _resolve_status(failure_rate)
     result = UniverseRefreshResult(
         run_id=run_id,
@@ -357,6 +385,7 @@ def _run_bulk_refresh(
         imported=imported,
         skipped=skipped,
         failed=failed,
+        deferred=deferred,
     )
 
     _log_bulk_refresh(conn, result, source=source)
@@ -428,6 +457,8 @@ def _refresh_one_price(
             status="failed",
             error_message=result.error_message or "import returned non-success",
         )
+    except FmpRateLimitError:
+        raise
     except Exception as exc:
         log.warning("prices.refresh.ticker_failed", ticker=sym, error=str(exc))
         return TickerOutcome(ticker=sym, status="failed", error_message=str(exc))
@@ -503,6 +534,8 @@ def _refresh_one_currency(
             status="failed",
             error_message=result.error_message or "import returned non-success",
         )
+    except FmpRateLimitError:
+        raise
     except Exception as exc:
         log.warning("fx.refresh.currency_failed", currency=ccy, error=str(exc))
         return TickerOutcome(ticker=ccy, status="failed", error_message=str(exc))
@@ -532,6 +565,8 @@ def _refresh_one(
             status="failed",
             error_message=result.error_message or "import returned non-success",
         )
+    except FmpRateLimitError:
+        raise
     except Exception as exc:
         log.warning("universe.refresh.ticker_failed", ticker=sym, error=str(exc))
         return TickerOutcome(ticker=sym, status="failed", error_message=str(exc))
@@ -545,6 +580,8 @@ def _should_skip(ticker: str, local_latest: date, probe: LatestFilingProbe) -> b
     """
     try:
         remote_latest = probe(ticker)
+    except FmpRateLimitError:
+        raise
     except Exception as exc:
         log.warning("universe.refresh.probe_failed", ticker=ticker, error=str(exc))
         return False
@@ -561,6 +598,9 @@ def _log_bulk_refresh(
     if result.failures:
         sample = ", ".join(f.ticker for f in result.failures[:10])
         error_message = f"{result.failed}/{result.total} failed: {sample}"
+    if result.deferred:
+        deferred_note = f"rate limited: {result.deferred} deferred"
+        error_message = f"{error_message}; {deferred_note}" if error_message else deferred_note
     summary = IngestResult(
         source=source,
         started_at=result.started_at,

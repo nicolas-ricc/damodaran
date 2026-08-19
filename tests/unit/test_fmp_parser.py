@@ -11,9 +11,11 @@ and SYNTHETIC. No live calls; values are fabricated, not real filings.
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 import duckdb
+import pytest
 
 from bot.ingest.fmp import parse_fmp_fundamentals
 from bot.ingest.sec_edgar import (
@@ -374,6 +376,82 @@ def test_parse_output_upserts_into_db() -> None:
     assert q is not None
     assert q[0] == 4200000000
     conn.close()
+
+
+def test_lookup_company_parses_ipo_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FMP's ``ipoDate`` on the profile becomes ``CompanyInfo.ipo_date``."""
+    from bot.ingest.fmp import FmpClient
+
+    client = FmpClient(api_key="fake-key")
+    monkeypatch.setattr(
+        client,
+        "_get",
+        lambda path, params=None: [
+            {
+                "symbol": "AAPL",
+                "companyName": "Apple Inc.",
+                "exchange": "NASDAQ Global Select",
+                "exchangeShortName": "NASDAQ",
+                "country": "US",
+                "currency": "USD",
+                "sector": "Technology",
+                "industry": "Consumer Electronics",
+                "isActivelyTrading": True,
+                "ipoDate": "1980-12-12",
+            }
+        ],
+    )
+    info = client.lookup_company("AAPL")
+    assert info is not None
+    assert info.ipo_date == date(1980, 12, 12)
+
+
+def test_lookup_company_missing_ipo_date_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    from bot.ingest.fmp import FmpClient
+
+    client = FmpClient(api_key="fake-key")
+    monkeypatch.setattr(
+        client,
+        "_get",
+        lambda path, params=None: [
+            {
+                "symbol": "ZZZ",
+                "companyName": "No IPO Date Co",
+                "isActivelyTrading": True,
+            }
+        ],
+    )
+    info = client.lookup_company("ZZZ")
+    assert info is not None
+    assert info.ipo_date is None
+
+
+def test_company_row_includes_ipo_date() -> None:
+    from bot.ingest.fmp import CompanyInfo, _company_row
+    from bot.ingest.industry_mapping import IndustryMapping
+
+    info = CompanyInfo(
+        ticker="AAPL",
+        name="Apple Inc.",
+        exchange="NASDAQ",
+        exchange_short_name="NASDAQ",
+        country="US",
+        currency="USD",
+        sector="Technology",
+        industry="Consumer Electronics",
+        is_actively_trading=True,
+        ipo_date=date(1980, 12, 12),
+    )
+    row = _company_row("AAPL", info, "USD", mapping=IndustryMapping(_entries={}))
+    assert row["ipo_date"] == date(1980, 12, 12)
+
+
+def test_company_row_without_profile_has_none_ipo_date() -> None:
+    from bot.ingest.fmp import _company_row
+    from bot.ingest.industry_mapping import IndustryMapping
+
+    row = _company_row("GHOST", None, "USD", mapping=IndustryMapping(_entries={}))
+    assert row.get("ipo_date") is None
 
 
 def test_company_row_maps_industry_to_damodaran() -> None:
