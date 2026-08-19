@@ -6,6 +6,17 @@ CLI-only. Local. No real-time data, no execution.
 
 See `docs/superpowers/specs/2026-05-25-investment-bot-design.md` for the full design.
 
+## Quickstart (US-only, FMP tier gratis)
+
+1. `cp .env.example .env` and fill in your SEC User-Agent and FMP API key.
+2. `uv run bot doctor` — verify setup.
+3. `uv run bot refresh --damodaran` — US sector benchmarks from Damodaran (once yearly).
+4. `uv run bot refresh --fmp --limit 30 && uv run bot refresh --prices --limit 30` — load ~30
+   S&P 500 tickers per day (free tier: ~250 requests/day). Full universe loads over ~2 weeks
+   of daily refreshes; refresh is incremental and resumes automatically.
+5. `uv run bot screen --preset damodaran_value --top 10` — mechanical shortlist (§6).
+6. `uv run bot analyze --from-screen` — DCF and report (§7.7) for each candidate.
+
 ## Quickstart
 
 Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
