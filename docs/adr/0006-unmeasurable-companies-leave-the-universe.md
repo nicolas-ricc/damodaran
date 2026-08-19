@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted (2026-08-11).
+Accepted (2026-08-11). Implemented (2026-08-19, coverage gate en screener/engine.py + persistencia de rechazados).
 
 ## Context
 
