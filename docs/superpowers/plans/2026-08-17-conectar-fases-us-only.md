@@ -1395,6 +1395,30 @@ git commit -m "docs: ADR 0006 implemented, ADR 0005 scoped out under US-only, es
 
 ---
 
+## Desviaciones aceptadas (post-review, 2026-08-22)
+
+La revisión de la PR 68 encontró cuatro desvíos del plan. Los cuatro quedan
+**aceptados** — mejoran el comportamiento y ya tienen tests — y este es el
+registro para que el plan y el código vuelvan a coincidir:
+
+1. **`sensitivity.py` sí cambió** (la Tarea 8 decía "sin cambio"):
+   `_PATH_AXES` se hizo público y el tornado etiqueta ejes de path como
+   "(yr 1)". Motivo: con `operating_margin` convertido en path, la etiqueta
+   vieja mentía sobre qué perturba el tornado. Tests en
+   `tests/unit/test_valuator_sensitivity.py`.
+2. **Validación de `story_type` con warning** (`assumptions.story_type.invalid`
+   + `_STORY_TYPE_VALUES`): el plan solo pedía el guard silencioso. Un typo en
+   un override YAML ahora se ve en el log en vez de ignorarse. Test en
+   `tests/unit/test_valuator_assumptions.py`.
+3. **`.env.example` lleva `BOT_ASSUMPTIONS_DIR`** además de las cuatro líneas
+   del plan: documenta el default de la Tarea 9 en el único archivo que un
+   usuario nuevo copia.
+4. **`analyze --from-screen` distingue dos errores** ("no hay run" vs
+   "shortlist vacía"), ambos exit 2. El plan pedía un solo mensaje; dos
+   diagnósticos distintos merecen dos textos. El contrato (exit 2) no cambia.
+   El test E2E además siembra una tercera empresa para ejercitar la compuerta
+   de cobertura de la ADR 0006 — más cobertura, mismo spec.
+
 ## Self-Review
 
 - **Cobertura del objetivo:** refresh real (T1, T2, T4, T13) → screen honesto (T5, T6) → analyze conectado (T7, T8, T9) → cadena screen→analyze (T10) → verificación (T11, T12, T13) → docs (T14). Los muertos de la auditoría dentro del alcance quedan todos con tarea; los fuera de alcance están listados explícitamente arriba.
