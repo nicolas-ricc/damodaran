@@ -34,6 +34,7 @@ import itertools
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
+from statistics import fmean
 from typing import Any, TypeVar
 
 import duckdb
@@ -619,15 +620,15 @@ def _resolve_revenue_growth(
     because nothing can emit it — FMP's analyst-estimates endpoint is not wired.
 
     A high-growth story is the one archetype that does branch here (spec §7.1): fast
-    growth fades toward the economy, so the path linearly fades from the historical
-    average down to nominal GDP over the explicit horizon instead of staying flat.
+    growth fades toward the economy, so the path linearly fades from the mean of the
+    historical path down to nominal GDP over the explicit horizon instead of staying flat.
     """
     manual = _override_path_field(override, "revenue_growth")
     if manual is not None:
         return manual
     if story_type is StoryType.HIGH_GROWTH and historical is not None:
         return Sourced(
-            value=_linear_path(historical[0], gdp_nominal),
+            value=_linear_path(fmean(historical), gdp_nominal),
             source=AssumptionSource.STORY_PATTERN,
         )
     # M1 universe: no analyst-consensus feed → historical average.

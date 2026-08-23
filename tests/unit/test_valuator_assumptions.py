@@ -29,6 +29,7 @@ from bot.valuator.assumptions import (
     Assumptions,
     AssumptionSource,
     Sourced,
+    _resolve_revenue_growth,
     resolve_assumptions,
 )
 from bot.valuator.story_types import StoryType
@@ -772,3 +773,17 @@ def test_assumption_source_has_no_unreachable_member() -> None:
         "story_pattern",
         "unresolved",
     }
+
+
+def test_high_growth_fade_starts_at_the_historical_average_not_year_one() -> None:
+    # A year-varying history path: year-1 growth 50%, but the average is 18%.
+    # The spec says the fade runs "promedio histórico → PBI nominal"; pin that
+    # the start is the mean, not whatever happens to sit in historical[0].
+    historical = (0.50, 0.10, 0.10, 0.10, 0.10)
+    resolved = _resolve_revenue_growth(
+        historical, {}, 0.04, story_type=StoryType.HIGH_GROWTH
+    )
+    path = resolved.value
+    assert path is not None
+    assert path[0] == pytest.approx(0.18)  # fmean(historical), NOT 0.50
+    assert path[-1] == pytest.approx(0.04)
