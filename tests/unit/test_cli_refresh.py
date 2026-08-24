@@ -57,7 +57,7 @@ def test_refresh_runs_both_damodaran_and_fmp(tmp_path, monkeypatch):
     )
     with (
         patch("bot.cli.import_damodaran", return_value=dam) as mdam,
-        patch("bot.cli.refresh_universe_from_fmp", return_value=uni) as mfmp,
+        patch("bot.cli.refresh_universe", return_value=uni) as mfmp,
     ):
         runner = CliRunner()
         result = runner.invoke(app, ["refresh", "--damodaran", "--fmp"])
@@ -94,7 +94,7 @@ def test_refresh_worst_of_exit_code(tmp_path, monkeypatch):
     )
     with (
         patch("bot.cli.import_damodaran", return_value=dam),
-        patch("bot.cli.refresh_universe_from_fmp", return_value=uni),
+        patch("bot.cli.refresh_universe", return_value=uni),
     ):
         runner = CliRunner()
         result = runner.invoke(app, ["refresh", "--damodaran", "--fmp"])
@@ -172,7 +172,7 @@ def test_refresh_all_runs_every_source_in_order(tmp_path, monkeypatch):
     with (
         patch("bot.cli.import_damodaran", side_effect=lambda *a, **k: calls.append("dam") or dam),
         patch(
-            "bot.cli.refresh_universe_from_fmp",
+            "bot.cli.refresh_universe",
             side_effect=lambda *a, **k: calls.append("fmp") or _uni("u"),
         ),
         patch(

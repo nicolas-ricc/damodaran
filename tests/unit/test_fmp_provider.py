@@ -25,7 +25,9 @@ class _StubClient:
     ) -> list[dict[str, Any]]:
         return [{"date": "2026-01-02", "rate_to_usd": 1.08}]
 
-    def income_statement(self, ticker: str, *, period: str) -> list[dict[str, Any]]:
+    def income_statement(
+        self, ticker: str, *, period: str, limit: int | None = None
+    ) -> list[dict[str, Any]]:
         return []
 
     def balance_sheet(self, ticker: str, *, period: str) -> list[dict[str, Any]]:
@@ -79,3 +81,26 @@ def test_close_closes_the_underlying_client() -> None:
     p.close()
     assert stub.closed  # type: ignore[union-attr]
     assert p._client is None
+
+
+def test_lazily_opens_one_client_shared_across_many_calls(
+    monkeypatch: Any,
+) -> None:
+    """One FmpProvider must open a single FmpClient (one connection pool) for
+    its whole lifetime — not a fresh one per fundamentals/probe call — so a
+    bulk universe refresh over hundreds of tickers reuses one TLS session."""
+    instances: list[_StubClient] = []
+
+    def _make_client(api_key: str, timeout: float = 30.0) -> _StubClient:
+        stub = _StubClient()
+        instances.append(stub)
+        return stub
+
+    monkeypatch.setattr("bot.ingest.fmp.FmpClient", _make_client)
+
+    p = FmpProvider(api_key="test-key")
+    p.fundamentals("AAA")
+    p.latest_filing_date("AAA")
+    p.fundamentals("BBB")
+
+    assert len(instances) == 1, f"expected one shared client, got {len(instances)}"

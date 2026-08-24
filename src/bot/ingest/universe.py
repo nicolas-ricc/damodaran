@@ -1,15 +1,16 @@
 """Bulk universe ingest + incremental refresh (M2.6).
 
-This module orchestrates importing *thousands* of tickers from FMP in a single
-run. It is the engine behind ``bot refresh --fmp [--universe FILE]``.
+This module orchestrates importing *thousands* of tickers through a
+:class:`~bot.ingest.provider.MarketDataProvider` in a single run. It is the
+engine behind ``bot refresh --fmp [--universe FILE]``.
 
 Two ideas drive the design:
 
 * **Incremental, not full** (spec §4.4): fundamentals are invalidated *by event*
   (a new filing detected), never by a TTL. Before importing a ticker we read its
-  newest ``filings_log`` date and ask FMP for the company's latest filing date;
-  if it has not advanced since the last run we skip the import entirely. The
-  first run (empty ``filings_log``) imports everything.
+  newest ``filings_log`` date and ask the provider for the company's latest
+  filing date; if it has not advanced since the last run we skip the import
+  entirely. The first run (empty ``filings_log``) imports everything.
 * **Resilient, not fatal**: a single ticker failing (bad symbol, FMP hiccup)
   must not abort a 500-name run. Per-ticker errors are caught, recorded, and
   reported at the end. The run's overall status is derived from the *failure
@@ -24,7 +25,7 @@ from __future__ import annotations
 
 import csv
 import uuid
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime
@@ -34,14 +35,20 @@ from pathlib import Path
 
 import duckdb
 
-from bot.ingest.base import IngestResult, _log_refresh
-from bot.ingest.fmp import (
-    FmpClient,
-    FmpRateLimitError,
-    import_company_from_fmp,
-    import_prices_from_fmp,
+from bot.ingest.base import IngestResult, _log_refresh, refresh_run, transaction
+from bot.ingest.fmp import FmpClient, FmpRateLimitError, import_prices_from_fmp
+from bot.ingest.industry_mapping import (
+    IndustryMapping,
+    load_industry_mapping,
+    resolve_mapping_path,
 )
-from bot.ingest.industry_mapping import load_industry_mapping, resolve_mapping_path
+from bot.ingest.provider import CompanyInfo, MarketDataProvider, ProviderRateLimitError
+from bot.ingest.sec_edgar import (
+    upsert_company,
+    upsert_filings,
+    upsert_financials_annual,
+    upsert_financials_quarterly,
+)
 from bot.utils.fx import import_fx_rates
 from bot.utils.logging import get_logger
 
@@ -58,8 +65,6 @@ DEFAULT_PROGRESS_EVERY = 50
 
 # Importer signature: (conn, *, ticker, api_key) -> IngestResult.
 type Importer = Callable[..., IngestResult]
-# Latest-filing probe signature: (ticker) -> date | None.
-type LatestFilingProbe = Callable[[str], date | None]
 
 
 @dataclass(frozen=True)
@@ -168,47 +173,6 @@ def latest_local_filing_date(
     return date.fromisoformat(str(value)[:10])
 
 
-def make_fmp_latest_filing_probe(
-    api_key: str, client: FmpClient | None = None
-) -> LatestFilingProbe:
-    """Build a probe that returns a ticker's newest filing date from FMP.
-
-    Uses the lightweight annual income-statement endpoint (``limit=1``) and reads
-    its ``fillingDate`` (FMP's spelling). Returns ``None`` when FMP has nothing —
-    in which case the caller imports the ticker (better to try than to skip).
-
-    Pass ``client`` to reuse an open :class:`FmpClient` across probes (the bulk
-    refresh shares one for the whole run); otherwise each probe opens its own.
-    """
-
-    def probe(ticker: str) -> date | None:
-        if client is not None:
-            rows = client.income_statement(ticker, period="annual", limit=1)
-        else:
-            with FmpClient(api_key=api_key) as own:
-                rows = own.income_statement(ticker, period="annual", limit=1)
-        return _latest_filing_from_statements(rows)
-
-    return probe
-
-
-def _latest_filing_from_statements(rows: Iterable[dict[str, object]]) -> date | None:
-    latest: date | None = None
-    for entry in rows:
-        if not isinstance(entry, dict):
-            continue
-        filed_raw = entry.get("fillingDate") or entry.get("acceptedDate")
-        if not filed_raw:
-            continue
-        try:
-            filed = date.fromisoformat(str(filed_raw)[:10])
-        except ValueError:
-            continue
-        if latest is None or filed > latest:
-            latest = filed
-    return latest
-
-
 def _resolve_status(failure_rate: float) -> str:
     if failure_rate <= SUCCESS_MAX_FAILURE_RATE:
         return "success"
@@ -217,66 +181,169 @@ def _resolve_status(failure_rate: float) -> str:
     return "error"
 
 
-def refresh_universe_from_fmp(
+def _company_row(
+    ticker: str,
+    info: CompanyInfo | None,
+    currency: str | None,
+    *,
+    source: str,
+    mapping: IndustryMapping,
+) -> dict[str, object]:
+    """Build the ``companies`` row from the provider's profile (+ parsed currency
+    fallback).
+
+    ``source`` is the owning provider's short id (``provider.name``, e.g. ``"fmp"``)
+    so ``companies.source`` traces back to whichever adapter supplied the row.
+
+    The profile's ``currency`` is preferred; the parsed statement currency is the
+    fallback so a company row always carries a currency even if the profile omits
+    it.
+
+    ``industry`` keeps the provider's own label for traceability;
+    ``industry_damodaran`` carries the translated label the sector-relative rules
+    and the valuator key off (spec §4.3.1), or ``None`` when unmapped. An unmapped
+    label is logged as a warning: it leaves every sector assumption ``unresolved``
+    (so ``analyze`` raises) and ``is_financial_services`` ``False`` (so a bank
+    slips past the §6.2 exclusion), and the only fix is a mapping-CSV row.
+    """
+    sym = ticker.upper()
+    if info is None:
+        return {
+            "ticker": sym,
+            "name": sym,
+            "currency": currency,
+            "source": source,
+            "status": "active",
+            "industry_damodaran": None,
+            "ipo_date": None,
+        }
+    damodaran_industry = mapping.resolve(source, info.industry)
+    if damodaran_industry is None and info.industry is not None:
+        log.warning(
+            "ingest.industry_mapping.unmapped",
+            ticker=sym,
+            provider=source,
+            provider_industry=info.industry,
+        )
+    return {
+        "ticker": sym,
+        "name": info.name or sym,
+        "country": info.country,
+        "exchange": info.exchange_short_name or info.exchange,
+        "industry": info.industry,
+        "industry_damodaran": damodaran_industry,
+        "currency": info.currency or currency,
+        "status": "active" if info.is_actively_trading else "inactive",
+        "source": source,
+        "ipo_date": info.ipo_date,
+    }
+
+
+def import_company(
     conn: duckdb.DuckDBPyConnection,
     *,
-    api_key: str,
+    ticker: str,
+    provider: MarketDataProvider,
+    mapping: IndustryMapping | None = None,
+    mapping_path: Path | None = None,
+) -> IngestResult:
+    """Fetch + upsert one ticker's fundamentals through the provider port.
+
+    Mirrors :func:`bot.ingest.sec_edgar.import_company_from_sec`: it returns the
+    same :class:`IngestResult` contract and reuses the existing
+    ``upsert_company`` / ``upsert_financials_*`` helpers. All writes happen in a
+    single transaction; the run is recorded in ``refresh_log`` under
+    ``provider.name``.
+
+    Pass ``mapping`` to reuse an already-loaded :class:`IndustryMapping` across
+    many tickers; when omitted, ``mapping_path`` (i.e.
+    ``Settings.industry_mapping_path``) is loaded for this call alone, falling
+    back to the packaged CSV when that file does not exist.
+    """
+    sym = ticker.upper()
+    with refresh_run(
+        conn,
+        source=provider.name,
+        log=log,
+        error_event="ingest.import.failed",
+        log_fail_event="ingest.refresh_log_insert_failed",
+    ) as run:
+        run.details = {"ticker": sym}
+        bundle = provider.fundamentals(sym)
+        currency = (
+            bundle.annual.company.get("currency") or bundle.quarterly.company.get("currency")
+        )
+        resolved_mapping = (
+            mapping
+            if mapping is not None
+            else load_industry_mapping(resolve_mapping_path(mapping_path))
+        )
+        company = _company_row(
+            sym, bundle.info, currency, source=provider.name, mapping=resolved_mapping
+        )
+        with transaction(conn):
+            upsert_company(conn, company)
+            annual = upsert_financials_annual(conn, bundle.annual.annual)
+            quarterly = upsert_financials_quarterly(conn, bundle.quarterly.quarterly)
+            filings = upsert_filings(conn, bundle.filings)
+        run.rows_affected = 1 + annual + quarterly + filings
+        run.details = {
+            "ticker": sym,
+            "annual": annual,
+            "quarterly": quarterly,
+            "filings": filings,
+            "currency": currency,
+        }
+    assert run.result is not None  # refresh_run always sets it on exit
+    return run.result
+
+
+def refresh_universe(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    provider: MarketDataProvider,
     tickers: list[str],
     progress_every: int = DEFAULT_PROGRESS_EVERY,
-    importer: Importer = import_company_from_fmp,
-    latest_filing_probe: LatestFilingProbe | None = None,
     mapping_path: Path | None = None,
 ) -> UniverseRefreshResult:
-    """Bulk-import ``tickers`` from FMP, skipping those unchanged since last run.
+    """Bulk-import ``tickers`` through ``provider``, skipping unchanged ones.
 
     For each ticker:
 
-    1. Probe FMP for the ticker's latest filing date and compare it to the newest
-       ``filings_log`` date already stored. If the remote date has *not* advanced
-       (and we have a local date), the ticker is **skipped**. A probe that errors
-       is non-fatal — we fall through and attempt the full import.
-    2. Otherwise import the ticker via ``importer`` (the M2.3 single-ticker
-       importer by default). Any exception or error ``IngestResult`` is caught,
-       recorded as a **failed** outcome, and the run continues.
+    1. Probe the provider for the ticker's latest filing date and compare it to
+       the newest ``filings_log`` date already stored. If the remote date has
+       *not* advanced (and we have a local date), the ticker is **skipped**. A
+       probe that errors is non-fatal — we fall through and attempt the full
+       import.
+    2. Otherwise import the ticker via :func:`import_company`. Any exception or
+       error ``IngestResult`` is caught, recorded as a **failed** outcome, and
+       the run continues.
+
+    A :class:`~bot.ingest.provider.ProviderRateLimitError` (from either the
+    probe or the import) stops the run cleanly: the remaining tickers are
+    recorded as **deferred**, not failed.
 
     Progress is logged via structlog every ``progress_every`` tickers. The
     aggregate status is derived from the failure rate (``_resolve_status``) and a
-    summary row is written to ``refresh_log`` (source ``fmp_universe``). ``importer``
-    and ``latest_filing_probe`` are injectable to keep the orchestrator testable
-    without live HTTP.
+    summary row is written to ``refresh_log`` (source ``f"{provider.name}_universe"``).
 
     ``mapping_path`` is the industry-mapping CSV to load for the run — the CLI
     passes ``Settings.industry_mapping_path`` so a user-edited CSV actually takes
     effect; a non-existent path falls back to the packaged copy.
     """
-    # Share one FmpClient (one connection pool) across the probe and the default
-    # importer for the whole run, instead of a fresh client — and TLS handshake —
-    # per ticker. Only the real FMP path needs it: a fully-injected importer +
-    # probe (tests) makes no live calls.
-    needs_client = importer is import_company_from_fmp or latest_filing_probe is None
-    with _shared_fmp_client(api_key, needed=needs_client) as shared_client:
-        probe = latest_filing_probe or make_fmp_latest_filing_probe(api_key, client=shared_client)
-        active_importer = importer
-        if importer is import_company_from_fmp and shared_client is not None:
-            # Load the mapping once for the whole bulk run instead of once per
-            # ticker (the default importer would otherwise re-read + re-parse
-            # the CSV on every single call).
-            active_importer = partial(
-                import_company_from_fmp,
-                client=shared_client,
-                mapping=load_industry_mapping(resolve_mapping_path(mapping_path)),
-            )
-
-        return _run_bulk_refresh(
-            conn,
-            items=tickers,
-            process=lambda ticker: _refresh_one(
-                conn, ticker=ticker, api_key=api_key, importer=active_importer, probe=probe
-            ),
-            source="fmp_universe",
-            label="universe",
-            progress_every=progress_every,
-        )
+    # Load the mapping once for the whole bulk run instead of once per ticker
+    # (import_company would otherwise re-read + re-parse the CSV every call).
+    mapping = load_industry_mapping(resolve_mapping_path(mapping_path))
+    return _run_bulk_refresh(
+        conn,
+        items=tickers,
+        process=lambda ticker: _refresh_one(
+            conn, ticker=ticker, provider=provider, mapping=mapping
+        ),
+        source=f"{provider.name}_universe",
+        label="universe",
+        progress_every=progress_every,
+    )
 
 
 @contextmanager
@@ -324,7 +391,7 @@ def _run_bulk_refresh(
             continue
         try:
             outcome = process(item)
-        except FmpRateLimitError as exc:
+        except ProviderRateLimitError as exc:
             log.warning(f"{label}.refresh.rate_limited", item=item, error=str(exc))
             rate_limited = True
             outcomes.append(TickerOutcome(ticker=item.upper(), status="deferred"))
@@ -545,19 +612,18 @@ def _refresh_one(
     conn: duckdb.DuckDBPyConnection,
     *,
     ticker: str,
-    api_key: str,
-    importer: Importer,
-    probe: LatestFilingProbe,
+    provider: MarketDataProvider,
+    mapping: IndustryMapping,
 ) -> TickerOutcome:
     """Refresh a single ticker, never raising. Returns its outcome."""
     sym = ticker.upper()
     try:
         local_latest = latest_local_filing_date(conn, sym)
-        if local_latest is not None and _should_skip(sym, local_latest, probe):
+        if local_latest is not None and _should_skip(sym, local_latest, provider):
             log.info("universe.refresh.skip", ticker=sym, latest_filing=local_latest)
             return TickerOutcome(ticker=sym, status="skipped")
 
-        result = importer(conn, ticker=sym, api_key=api_key)
+        result = import_company(conn, ticker=sym, provider=provider, mapping=mapping)
         if result.is_success():
             return TickerOutcome(ticker=sym, status="imported", rows_affected=result.rows_affected)
         return TickerOutcome(
@@ -565,22 +631,22 @@ def _refresh_one(
             status="failed",
             error_message=result.error_message or "import returned non-success",
         )
-    except FmpRateLimitError:
+    except ProviderRateLimitError:
         raise
     except Exception as exc:
         log.warning("universe.refresh.ticker_failed", ticker=sym, error=str(exc))
         return TickerOutcome(ticker=sym, status="failed", error_message=str(exc))
 
 
-def _should_skip(ticker: str, local_latest: date, probe: LatestFilingProbe) -> bool:
+def _should_skip(ticker: str, local_latest: date, provider: MarketDataProvider) -> bool:
     """Return True when the remote latest filing date has not advanced.
 
     A probe error is swallowed (returns False) so a transient lookup failure
     triggers a full import rather than a silent skip of stale data.
     """
     try:
-        remote_latest = probe(ticker)
-    except FmpRateLimitError:
+        remote_latest = provider.latest_filing_date(ticker)
+    except ProviderRateLimitError:
         raise
     except Exception as exc:
         log.warning("universe.refresh.probe_failed", ticker=ticker, error=str(exc))

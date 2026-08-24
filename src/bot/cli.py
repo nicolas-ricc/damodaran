@@ -11,6 +11,7 @@ import typer
 from bot import __version__
 from bot.config import Settings, load_settings
 from bot.ingest.damodaran import import_damodaran
+from bot.ingest.fmp import FmpProvider
 from bot.ingest.ibkr import IbkrClient
 from bot.ingest.sec_edgar import import_company_from_sec
 from bot.ingest.universe import (
@@ -19,7 +20,7 @@ from bot.ingest.universe import (
     load_universe,
     refresh_fx_from_fmp,
     refresh_prices_from_fmp,
-    refresh_universe_from_fmp,
+    refresh_universe,
 )
 from bot.portfolio.command import run_portfolio
 from bot.reporting.analysis_report import render_analysis
@@ -179,12 +180,13 @@ def _refresh_fmp_universe(
         return 2
 
     typer.echo(f"Refreshing {len(tickers)} tickers from FMP (universe={path})...")
-    result = refresh_universe_from_fmp(
-        conn,
-        api_key=settings.fmp_api_key,
-        tickers=tickers,
-        mapping_path=settings.industry_mapping_path,
-    )
+    with FmpProvider(api_key=settings.fmp_api_key) as provider:
+        result = refresh_universe(
+            conn,
+            provider=provider,
+            tickers=tickers,
+            mapping_path=settings.industry_mapping_path,
+        )
     _report_universe_refresh(result)
 
     # > 5% failed (i.e. status is not 'success') is a data error.

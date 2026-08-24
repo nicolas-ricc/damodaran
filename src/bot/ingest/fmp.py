@@ -13,18 +13,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import date, datetime, timedelta
-from pathlib import Path
 from typing import Any
 
 import duckdb
 import httpx
 
 from bot.ingest.base import IngestResult, refresh_run, transaction
-from bot.ingest.industry_mapping import (
-    IndustryMapping,
-    load_industry_mapping,
-    resolve_mapping_path,
-)
 from bot.ingest.provider import (
     CompanyInfo,
     FundamentalsBundle,
@@ -32,13 +26,7 @@ from bot.ingest.provider import (
     PriceBar,
     ProviderRateLimitError,
 )
-from bot.ingest.sec_edgar import (
-    ParsedCompanyData,
-    upsert_company,
-    upsert_filings,
-    upsert_financials_annual,
-    upsert_financials_quarterly,
-)
+from bot.ingest.sec_edgar import ParsedCompanyData
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -335,8 +323,8 @@ def _as_date(value: Any) -> date:
 def _latest_filing_from_rows(rows: Iterable[dict[str, object]]) -> date | None:
     """Return the newest ``fillingDate``/``acceptedDate`` across FMP statement rows.
 
-    Adapter-internal copy of ``universe.py``'s ``_latest_filing_from_statements``
-    (same logic; it reads FMP statement rows, so it belongs behind this adapter).
+    Backs :meth:`FmpProvider.latest_filing_date` — adapter-internal since it reads
+    FMP's own statement JSON shape.
     """
     latest: date | None = None
     for entry in rows:
@@ -819,135 +807,3 @@ def _collect_fmp_filings(
             )
     return out
 
-
-def _company_row(
-    ticker: str,
-    info: CompanyInfo | None,
-    currency: str | None,
-    *,
-    mapping: IndustryMapping,
-) -> dict[str, Any]:
-    """Build the ``companies`` row from the FMP profile (+ parsed currency fallback).
-
-    Mirrors the ``company`` dict shape produced for SEC EDGAR. The profile's
-    ``currency`` is preferred; the parsed ``reportedCurrency`` is the fallback so
-    a company row always carries a currency even if the profile omits it.
-
-    ``industry`` keeps the provider's own label for traceability;
-    ``industry_damodaran`` carries the translated label the sector-relative rules
-    and the valuator key off (spec §4.3.1), or ``None`` when unmapped. An unmapped
-    label is logged as a warning: it leaves every sector assumption ``unresolved``
-    (so ``analyze`` raises) and ``is_financial_services`` ``False`` (so a bank
-    slips past the §6.2 exclusion), and the only fix is a mapping-CSV row.
-    """
-    sym = ticker.upper()
-    if info is None:
-        return {
-            "ticker": sym,
-            "name": sym,
-            "currency": currency,
-            "source": "fmp",
-            "status": "active",
-            "industry_damodaran": None,
-            "ipo_date": None,
-        }
-    damodaran_industry = mapping.resolve("fmp", info.industry)
-    if damodaran_industry is None and info.industry is not None:
-        log.warning(
-            "fmp.industry_mapping.unmapped",
-            ticker=sym,
-            provider_industry=info.industry,
-        )
-    return {
-        "ticker": sym,
-        "name": info.name or sym,
-        "country": info.country,
-        "exchange": info.exchange_short_name or info.exchange,
-        "industry": info.industry,
-        "industry_damodaran": damodaran_industry,
-        "currency": info.currency or currency,
-        "status": "active" if info.is_actively_trading else "inactive",
-        "source": "fmp",
-        "ipo_date": info.ipo_date,
-    }
-
-
-def import_company_from_fmp(
-    conn: duckdb.DuckDBPyConnection,
-    *,
-    ticker: str,
-    api_key: str,
-    client: FmpClient | None = None,
-    mapping: IndustryMapping | None = None,
-    mapping_path: Path | None = None,
-) -> IngestResult:
-    """Fetch + parse + upsert one ticker's fundamentals from FMP. Atomic on the DB side.
-
-    Mirrors :func:`bot.ingest.sec_edgar.import_company_from_sec`: it returns the
-    same :class:`IngestResult` contract and reuses the existing
-    ``upsert_company`` / ``upsert_financials_*`` helpers. The annual and
-    quarterly statements are fetched separately (FMP scopes period granularity
-    per request) and parsed by the pure M2.2 parser. Currency / country come from
-    the source profile — non-US tickers keep their local currency. All writes
-    happen in a single transaction; the run is recorded in ``refresh_log``.
-
-    Pass ``client`` to reuse an open :class:`FmpClient` (and its connection pool)
-    across many tickers — the bulk universe refresh shares one client for the
-    whole run. When omitted, a client is opened and closed for this call alone.
-
-    Pass ``mapping`` to reuse an already-loaded :class:`IndustryMapping` across
-    many tickers; when omitted, ``mapping_path`` (i.e.
-    ``Settings.industry_mapping_path``) is loaded for this call alone, falling
-    back to the packaged CSV when that file does not exist.
-    """
-    sym = ticker.upper()
-    with refresh_run(
-        conn,
-        source="fmp",
-        log=log,
-        error_event="fmp.import.failed",
-        log_fail_event="fmp.refresh_log_insert_failed",
-    ) as run:
-        run.details = {"ticker": sym}
-
-        fmp = client if client is not None else FmpClient(api_key=api_key)
-        try:
-            info = fmp.lookup_company(sym)
-            inc_a = fmp.income_statement(sym, period="annual")
-            bal_a = fmp.balance_sheet(sym, period="annual")
-            cf_a = fmp.cash_flow(sym, period="annual")
-            inc_q = fmp.income_statement(sym, period="quarter")
-            bal_q = fmp.balance_sheet(sym, period="quarter")
-            cf_q = fmp.cash_flow(sym, period="quarter")
-        finally:
-            if client is None:
-                fmp.close()
-
-        parsed_annual = parse_fmp_fundamentals(sym, inc_a, bal_a, cf_a)
-        parsed_quarterly = parse_fmp_fundamentals(sym, inc_q, bal_q, cf_q)
-
-        currency = parsed_annual.company.get("currency") or parsed_quarterly.company.get("currency")
-        resolved_mapping = (
-            mapping
-            if mapping is not None
-            else load_industry_mapping(resolve_mapping_path(mapping_path))
-        )
-        company = _company_row(sym, info, currency, mapping=resolved_mapping)
-        filing_rows = _collect_fmp_filings(sym, inc_a, inc_q)
-
-        with transaction(conn):
-            upsert_company(conn, company)
-            annual = upsert_financials_annual(conn, parsed_annual.annual)
-            quarterly = upsert_financials_quarterly(conn, parsed_quarterly.quarterly)
-            filings = upsert_filings(conn, filing_rows)
-
-        run.rows_affected = 1 + annual + quarterly + filings
-        run.details = {
-            "ticker": sym,
-            "annual": annual,
-            "quarterly": quarterly,
-            "filings": filings,
-            "currency": currency,
-        }
-    assert run.result is not None  # refresh_run always sets it on exit
-    return run.result

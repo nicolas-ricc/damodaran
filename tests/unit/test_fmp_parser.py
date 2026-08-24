@@ -427,8 +427,9 @@ def test_lookup_company_missing_ipo_date_is_none(monkeypatch: pytest.MonkeyPatch
 
 
 def test_company_row_includes_ipo_date() -> None:
-    from bot.ingest.fmp import CompanyInfo, _company_row
     from bot.ingest.industry_mapping import IndustryMapping
+    from bot.ingest.provider import CompanyInfo
+    from bot.ingest.universe import _company_row
 
     info = CompanyInfo(
         ticker="AAPL",
@@ -442,21 +443,22 @@ def test_company_row_includes_ipo_date() -> None:
         is_actively_trading=True,
         ipo_date=date(1980, 12, 12),
     )
-    row = _company_row("AAPL", info, "USD", mapping=IndustryMapping(_entries={}))
+    row = _company_row("AAPL", info, "USD", source="fmp", mapping=IndustryMapping(_entries={}))
     assert row["ipo_date"] == date(1980, 12, 12)
 
 
 def test_company_row_without_profile_has_none_ipo_date() -> None:
-    from bot.ingest.fmp import _company_row
     from bot.ingest.industry_mapping import IndustryMapping
+    from bot.ingest.universe import _company_row
 
-    row = _company_row("GHOST", None, "USD", mapping=IndustryMapping(_entries={}))
+    row = _company_row("GHOST", None, "USD", source="fmp", mapping=IndustryMapping(_entries={}))
     assert row.get("ipo_date") is None
 
 
 def test_company_row_maps_industry_to_damodaran() -> None:
-    from bot.ingest.fmp import CompanyInfo, _company_row
     from bot.ingest.industry_mapping import IndustryMapping, normalize_industry_label
+    from bot.ingest.provider import CompanyInfo
+    from bot.ingest.universe import _company_row
 
     mapping = IndustryMapping(
         _entries={("fmp", normalize_industry_label("Semiconductors")): "Semiconductor"}
@@ -472,14 +474,15 @@ def test_company_row_maps_industry_to_damodaran() -> None:
         industry="Semiconductors",
         is_actively_trading=True,
     )
-    row = _company_row("NVDA", info, "USD", mapping=mapping)
+    row = _company_row("NVDA", info, "USD", source="fmp", mapping=mapping)
     assert row["industry"] == "Semiconductors"
     assert row["industry_damodaran"] == "Semiconductor"
 
 
 def test_company_row_unmapped_industry_leaves_damodaran_none() -> None:
-    from bot.ingest.fmp import CompanyInfo, _company_row
     from bot.ingest.industry_mapping import IndustryMapping
+    from bot.ingest.provider import CompanyInfo
+    from bot.ingest.universe import _company_row
 
     info = CompanyInfo(
         ticker="WEIRD",
@@ -492,21 +495,21 @@ def test_company_row_unmapped_industry_leaves_damodaran_none() -> None:
         industry="Blockchain Widgets",
         is_actively_trading=True,
     )
-    row = _company_row("WEIRD", info, "USD", mapping=IndustryMapping(_entries={}))
+    row = _company_row("WEIRD", info, "USD", source="fmp", mapping=IndustryMapping(_entries={}))
     assert row["industry"] == "Blockchain Widgets"
     assert row["industry_damodaran"] is None
 
 
 def test_company_row_without_profile_has_no_damodaran_industry() -> None:
-    from bot.ingest.fmp import _company_row
     from bot.ingest.industry_mapping import IndustryMapping
+    from bot.ingest.universe import _company_row
 
-    row = _company_row("GHOST", None, "USD", mapping=IndustryMapping(_entries={}))
+    row = _company_row("GHOST", None, "USD", source="fmp", mapping=IndustryMapping(_entries={}))
     assert row.get("industry_damodaran") is None
 
 
 def _company_info(industry: str | None) -> Any:
-    from bot.ingest.fmp import CompanyInfo
+    from bot.ingest.provider import CompanyInfo
 
     return CompanyInfo(
         ticker="WEIRD",
@@ -525,11 +528,11 @@ def _unmapped_events(industry: str | None, mapping: Any) -> list[dict[str, Any]]
     """Run ``_company_row`` and return only its unmapped-industry warnings."""
     from structlog.testing import capture_logs
 
-    from bot.ingest.fmp import _company_row
+    from bot.ingest.universe import _company_row
 
     with capture_logs() as events:
-        _company_row("WEIRD", _company_info(industry), "USD", mapping=mapping)
-    return [e for e in events if e.get("event") == "fmp.industry_mapping.unmapped"]
+        _company_row("WEIRD", _company_info(industry), "USD", source="fmp", mapping=mapping)
+    return [e for e in events if e.get("event") == "ingest.industry_mapping.unmapped"]
 
 
 def test_company_row_warns_when_the_provider_industry_is_unmapped() -> None:

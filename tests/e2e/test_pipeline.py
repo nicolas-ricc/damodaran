@@ -22,8 +22,11 @@ from typer.testing import CliRunner
 
 from bot.cli import app
 from bot.ingest.damodaran import import_damodaran_from_files
-from bot.ingest.fmp import CompanyInfo, import_company_from_fmp
+from bot.ingest.fmp import _collect_fmp_filings, parse_fmp_fundamentals
+from bot.ingest.provider import CompanyInfo, FundamentalsBundle
+from bot.ingest.universe import import_company
 from bot.storage.db import apply_schema, connect
+from tests.fake_provider import FakeProvider
 
 FIXTURES = Path(__file__).parent.parent / "fixtures" / "damodaran"
 
@@ -35,34 +38,34 @@ _SECTOR = "Software (System & Application)"
 _YEAR = 2026
 
 
-class _FakeFmpClient:
-    """Duck-typed stand-in for :class:`bot.ingest.fmp.FmpClient` — no network.
+class _NamedFakeProvider(FakeProvider):
+    """A :class:`FakeProvider` whose ``name`` is ``"fmp"``.
 
-    ``import_company_from_fmp`` only ever calls ``lookup_company`` and the three
-    per-period statement getters on the object passed as ``client``; it never
-    constructs one itself when a client is supplied, so this fake never needs a
-    real API key or an HTTP transport.
+    ``import_company`` resolves the industry mapping keyed on the provider's
+    name (``industry_mapping.csv``'s ``provider`` column); this pipeline fixture
+    fabricates FMP-shaped statements, so it must resolve against the FMP rows.
     """
 
-    def __init__(
-        self,
-        profile: CompanyInfo | None,
-        annual: tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]],
-    ) -> None:
-        self._profile = profile
-        self._income_a, self._balance_a, self._cashflow_a = annual
+    @property
+    def name(self) -> str:
+        return "fmp"
 
-    def lookup_company(self, _ticker: str) -> CompanyInfo | None:
-        return self._profile
 
-    def income_statement(self, _ticker: str, *, period: str, limit: int = 10) -> list[dict[str, Any]]:
-        return self._income_a if period == "annual" else []
-
-    def balance_sheet(self, _ticker: str, *, period: str, limit: int = 10) -> list[dict[str, Any]]:
-        return self._balance_a if period == "annual" else []
-
-    def cash_flow(self, _ticker: str, *, period: str, limit: int = 10) -> list[dict[str, Any]]:
-        return self._cashflow_a if period == "annual" else []
+def _bundle_from_statements(
+    ticker: str,
+    profile: CompanyInfo | None,
+    annual: tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]],
+) -> FundamentalsBundle:
+    """Build a :class:`FundamentalsBundle` from fabricated FMP-shaped statement
+    JSON, exactly like :meth:`FmpProvider.fundamentals` would — but with no
+    quarterly statements (this fixture only fabricates annual data)."""
+    income_a, balance_a, cashflow_a = annual
+    return FundamentalsBundle(
+        info=profile,
+        annual=parse_fmp_fundamentals(ticker, income_a, balance_a, cashflow_a),
+        quarterly=parse_fmp_fundamentals(ticker, [], [], []),
+        filings=_collect_fmp_filings(ticker, income_a, []),
+    )
 
 
 def _fabricated_statements(
@@ -214,8 +217,9 @@ def _seed_company_via_fmp_importer(
         free_cashflow=500_000_000.0,
         shares=1_000_000_000.0,
     )
-    client = _FakeFmpClient(profile, statements)
-    result = import_company_from_fmp(conn, ticker=ticker, api_key="unused", client=client)
+    bundle = _bundle_from_statements(ticker, profile, statements)
+    provider = _NamedFakeProvider(bundles={ticker: bundle})
+    result = import_company(conn, ticker=ticker, provider=provider)
     assert result.is_success(), result.error_message
 
     conn.execute(
