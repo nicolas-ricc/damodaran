@@ -166,7 +166,7 @@ INVENTARIO = {
 ]),
 
 "proyecto": ("El proyecto", "hitos, decisiones y operación", [
- ("m1", "M1 · esqueleto, Damodaran y SEC", "hecho", "719 tests verdes", None),
+ ("m1", "M1 · esqueleto, Damodaran y SEC", "hecho", "739 tests verdes", None),
  ("m2", "M2 · universo global y FMP", "a-medias", "universe_default.csv",
   "El universo ya es real: 503 tickers del S&P 500 en vez de 451 sintéticos. Lo que sigue pendiente es la corrida real contra la red (no hay bot.duckdb cargado) y la expansión global — una sola región de Damodaran, ahora una decisión de alcance explícita (US-only, ver ADR 0006) y no un límite oculto."),
  ("m3", "M3 · screener", "hecho", "screener/", "La compuerta de cobertura (ADR 0006) ya está implementada."),

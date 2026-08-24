@@ -17,8 +17,8 @@ Two ideas drive the design:
   rate*, and the CLI maps that to an exit code.
 
 Everything here is pure in the adapter sense: functions accept a ``conn`` and an
-explicit ticker list / importer callable, hold no global state, and record the
-run in ``refresh_log``.
+explicit ticker list, fetch market data through a :class:`~bot.ingest.provider.MarketDataProvider`
+port instance, hold no global state, and record the run in ``refresh_log``.
 """
 
 from __future__ import annotations
