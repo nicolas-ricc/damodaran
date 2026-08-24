@@ -11,7 +11,6 @@ here (M2.1). Fundamentals ingestion lands in a later slice.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -25,6 +24,7 @@ from bot.ingest.industry_mapping import (
     load_industry_mapping,
     resolve_mapping_path,
 )
+from bot.ingest.provider import CompanyInfo, ProviderRateLimitError
 from bot.ingest.sec_edgar import (
     ParsedCompanyData,
     upsert_company,
@@ -39,23 +39,7 @@ log = get_logger(__name__)
 BASE_URL = "https://financialmodelingprep.com/api/v3"
 
 
-@dataclass(frozen=True)
-class CompanyInfo:
-    """Normalized basic company info from an FMP profile lookup."""
-
-    ticker: str
-    name: str
-    exchange: str | None
-    exchange_short_name: str | None
-    country: str | None
-    currency: str | None
-    sector: str | None
-    industry: str | None
-    is_actively_trading: bool
-    ipo_date: date | None = None
-
-
-class FmpRateLimitError(RuntimeError):
+class FmpRateLimitError(ProviderRateLimitError):
     """FMP devolvió HTTP 429: se agotó la cuota diaria del API key.
 
     No es una falla del ticker ni un error de datos: la corrida debe cortar y
