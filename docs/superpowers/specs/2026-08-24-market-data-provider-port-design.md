@@ -28,7 +28,7 @@ class MarketDataProvider(Protocol):
     @property
     def name(self) -> str: ...                # "fmp": refresh_log source prefix, company.source
     def lookup_company(self, ticker: str) -> CompanyInfo | None: ...
-    def fundamentals(self, ticker: str) -> ParsedCompanyData: ...
+    def fundamentals(self, ticker: str) -> FundamentalsBundle: ...
     def daily_prices(self, ticker: str, since: date | None) -> list[PriceBar]: ...
     def fx_rates(self, currency: str, since: date | None) -> list[FxRate]: ...
     def latest_filing_date(self, ticker: str) -> date | None: ...   # skip-probe
@@ -39,6 +39,11 @@ Canonical records live beside the Protocol in `provider.py`:
 
 - `CompanyInfo` and `ParsedCompanyData` **move** there from `fmp.py` (unchanged shape;
   `fmp.py` re-imports them). Adapters depend on canonical types, never the reverse.
+- New frozen dataclass `FundamentalsBundle`: `info: CompanyInfo | None`,
+  `annual: ParsedCompanyData`, `quarterly: ParsedCompanyData`,
+  `filings: list[dict[str, Any]]` (the `filings_log` row shape `upsert_filings`
+  already consumes). One `fundamentals()` call carries everything the importer
+  needs for one ticker.
 - New frozen dataclasses `PriceBar` (`date: date`, `close: float | None`,
   `volume: float | None`, `market_cap: float | None`) and `FxRate` (`date: date`,
   `currency: str`, `rate_to_usd: float`) replace the raw `list[dict]` row shapes that
