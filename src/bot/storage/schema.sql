@@ -57,8 +57,8 @@ CREATE TABLE IF NOT EXISTS currencies (
 -- (`currency`). `market_cap` is FMP's reported market capitalization for that
 -- day when available. Sourced from the market-data provider port's
 -- `daily_prices` endpoint. `refresh_prices` (bot.ingest.universe) is
--- incremental: it only fetches from max(date) already stored for the ticker,
--- so a second run with current data performs zero new INSERTs.
+-- incremental: it only fetches dates after max(date) already stored for the
+-- ticker, so a second run with current data performs zero new INSERTs.
 CREATE TABLE IF NOT EXISTS prices_daily (
     ticker          VARCHAR NOT NULL,
     date            DATE NOT NULL,

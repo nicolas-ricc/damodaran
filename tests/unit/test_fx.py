@@ -117,12 +117,13 @@ def test_upsert_empty_is_noop(conn) -> None:
 
 
 def test_import_fx_usd_is_success_with_zero_rows(conn) -> None:
-    # USD needs no rows (no fixture entry for it -> the fake returns []); the run
-    # still succeeds and is logged.
+    # USD needs no rows; the run still succeeds and is logged. The port is never
+    # asked for USD rates (there is nothing to fetch for the numeraire).
     provider = FakeProvider()
     result = import_fx_rates(conn, provider=provider, currency="USD")
     assert result.is_success()
     assert result.rows_affected == 0
+    assert provider.calls == []
     logged = conn.execute(
         "SELECT status FROM refresh_log WHERE source = 'fake_fx'"
     ).fetchone()

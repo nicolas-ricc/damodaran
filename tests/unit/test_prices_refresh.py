@@ -123,10 +123,11 @@ def test_price_refresh_empty_universe_is_success() -> None:
     assert result.status == "success"
 
 
-def test_price_refresh_derives_since_from_max_price_date() -> None:
-    """When ``since_date`` is omitted, each ticker's fetch starts at the latest
-    date already stored for it (via ``_max_price_date``, moved alongside
-    ``upsert_prices_daily``)."""
+def test_price_refresh_derives_since_from_max_price_date_plus_one_day() -> None:
+    """When ``since_date`` is omitted, each ticker's fetch starts the day *after*
+    the latest date already stored for it (via ``_max_price_date``, moved
+    alongside ``upsert_prices_daily``) — matching the pre-port incremental
+    semantics exactly."""
     conn = _db()
     _seed_company(conn, "ACME", "USD")
     conn.execute(
@@ -143,8 +144,64 @@ def test_price_refresh_derives_since_from_max_price_date() -> None:
 
     result = refresh_prices(conn, provider=_RecordingProvider(), tickers=["ACME"])
 
-    assert seen_since == [date(2026, 1, 5)]
+    assert seen_since == [date(2026, 1, 6)]
     assert result.imported == 1
+
+
+def test_price_refresh_since_date_wins_when_later_than_max_price_date() -> None:
+    """``since_date`` overrides the derived +1-day bound only when it is later."""
+    conn = _db()
+    _seed_company(conn, "ACME", "USD")
+    conn.execute(
+        "INSERT INTO prices_daily (ticker, date, close, source) "
+        "VALUES ('ACME', '2026-01-05', 100.0, 'fmp')"
+    )
+    seen_since: list[date | None] = []
+
+    class _RecordingProvider(FakeProvider):
+        def daily_prices(self, ticker: str, since: date | None) -> list[PriceBar]:
+            self.calls.append(("daily_prices", ticker.upper()))
+            seen_since.append(since)
+            return []
+
+    refresh_prices(
+        conn, provider=_RecordingProvider(), tickers=["ACME"], since_date=date(2026, 1, 10)
+    )
+    assert seen_since == [date(2026, 1, 10)]  # later than max+1 (2026-01-06) -> wins
+
+    seen_since.clear()
+    refresh_prices(
+        conn, provider=_RecordingProvider(), tickers=["ACME"], since_date=date(2026, 1, 1)
+    )
+    assert seen_since == [date(2026, 1, 6)]  # earlier than max+1 -> max+1 wins
+
+
+def test_price_refresh_drops_bars_at_or_before_the_last_stored_date() -> None:
+    """Defensive post-filter: even if the provider returns overlapping/duplicate
+    dates, only bars strictly after the last stored date are upserted."""
+    conn = _db()
+    _seed_company(conn, "ACME", "USD")
+    conn.execute(
+        "INSERT INTO prices_daily (ticker, date, close, source) "
+        "VALUES ('ACME', '2026-01-05', 100.0, 'fmp')"
+    )
+    provider = FakeProvider(
+        prices={
+            "ACME": [
+                PriceBar(date=date(2026, 1, 4), close=1.0, volume=None, market_cap=None),
+                PriceBar(date=date(2026, 1, 5), close=2.0, volume=None, market_cap=None),
+                PriceBar(date=date(2026, 1, 6), close=3.0, volume=None, market_cap=None),
+            ]
+        }
+    )
+
+    result = refresh_prices(conn, provider=provider, tickers=["ACME"])
+
+    assert result.outcomes[0].rows_affected == 1
+    rows = conn.execute(
+        "SELECT date, close FROM prices_daily WHERE ticker = 'ACME' ORDER BY date"
+    ).fetchall()
+    assert [(str(d), c) for d, c in rows] == [("2026-01-05", 100.0), ("2026-01-06", 3.0)]
 
 
 def test_price_refresh_uses_the_shared_provider_for_every_ticker() -> None:

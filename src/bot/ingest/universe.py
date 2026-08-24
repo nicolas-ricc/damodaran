@@ -27,7 +27,7 @@ import csv
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from importlib import resources
 from pathlib import Path
 
@@ -551,8 +551,19 @@ def _refresh_one_price(
         ) as run:
             run.details = {"ticker": sym}
 
-            since = since_date or _max_price_date(conn, sym)
+            last = _max_price_date(conn, sym)
+            # Incremental lower bound: fetch strictly after the newest stored date.
+            since = since_date
+            if last is not None:
+                next_day = last + timedelta(days=1)
+                since = next_day if since is None or next_day > since else since
+
             bars = provider.daily_prices(sym, since)
+
+            # Defensive: drop anything at or before the last stored date so a
+            # re-run that re-fetches an overlapping window still INSERTs nothing new.
+            if last is not None:
+                bars = [b for b in bars if b.date > last]
 
             with transaction(conn):
                 affected = upsert_prices_daily(

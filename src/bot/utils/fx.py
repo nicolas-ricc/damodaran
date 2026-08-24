@@ -143,9 +143,14 @@ def import_fx_rates(
     ) as run:
         run.details = {"currency": ccy}
 
-        rates = provider.fx_rates(ccy, start)
-        if end is not None:
-            rates = [r for r in rates if r.date <= end]
+        # USD is the numeraire: it needs no FX row, and no provider call either
+        # (mirrors get_fx_rate/to_usd, which never look it up in ``currencies``).
+        if ccy == USD:
+            rates = []
+        else:
+            rates = provider.fx_rates(ccy, start)
+            if end is not None:
+                rates = [r for r in rates if r.date <= end]
 
         with transaction(conn):
             affected = upsert_fx_rates(conn, currency=ccy, rates=rates, source=provider.name)
