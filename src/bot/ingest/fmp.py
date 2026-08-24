@@ -12,13 +12,11 @@ here (M2.1). Fundamentals ingestion lands in a later slice.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import date, datetime, timedelta
+from datetime import date
 from typing import Any
 
-import duckdb
 import httpx
 
-from bot.ingest.base import IngestResult, refresh_run, transaction
 from bot.ingest.provider import (
     CompanyInfo,
     FundamentalsBundle,
@@ -170,7 +168,7 @@ class FmpClient:
         ``market_cap`` (the last derived from FMP's ``marketCap`` field when
         present, else ``None``). ``start``/``end`` are passed as FMP's
         ``from``/``to`` query parameters to bound the fetched window — used by
-        :func:`import_prices_from_fmp` for incremental fetches.
+        :meth:`FmpProvider.daily_prices` for incremental fetches.
         """
         sym = ticker.upper()
         params: dict[str, Any] = {}
@@ -639,128 +637,6 @@ def _quarter_number(period: str) -> int | None:
             return None
         return q if 1 <= q <= 4 else None
     return None
-
-
-# ---------- Daily EOD prices ingest (M2.4) ----------
-
-
-def upsert_prices_daily(
-    conn: duckdb.DuckDBPyConnection,
-    *,
-    ticker: str,
-    rows: list[dict[str, Any]],
-    currency: str | None = None,
-    source: str = "fmp",
-) -> int:
-    """Insert/replace daily price rows for ``ticker``. Returns rows written.
-
-    Each row needs ``date`` (ISO string or ``datetime.date``); ``close``,
-    ``volume`` and ``market_cap`` are optional. Replaces on the
-    ``(ticker, date)`` primary key so re-running is idempotent. Assumes it is
-    called inside a single logical write.
-    """
-    if not rows:
-        return 0
-    sym = ticker.upper()
-    for r in rows:
-        d = r["date"]
-        d_iso = d.isoformat() if isinstance(d, date) else str(d)[:10]
-        conn.execute(
-            "DELETE FROM prices_daily WHERE ticker = ? AND date = ?",
-            [sym, d_iso],
-        )
-        conn.execute(
-            """
-            INSERT INTO prices_daily
-                (ticker, date, close, volume, market_cap, currency, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                sym,
-                d_iso,
-                _float_or_none(r.get("close")),
-                _float_or_none(r.get("volume")),
-                _float_or_none(r.get("market_cap")),
-                currency,
-                source,
-            ],
-        )
-    return len(rows)
-
-
-def _max_price_date(conn: duckdb.DuckDBPyConnection, ticker: str) -> date | None:
-    """Return the latest stored price date for ``ticker``, or None if absent."""
-    row = conn.execute(
-        "SELECT max(date) FROM prices_daily WHERE ticker = ?",
-        [ticker.upper()],
-    ).fetchone()
-    if row is None or row[0] is None:
-        return None
-    value = row[0]
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    return date.fromisoformat(str(value)[:10])
-
-
-def import_prices_from_fmp(
-    conn: duckdb.DuckDBPyConnection,
-    *,
-    api_key: str,
-    ticker: str,
-    since_date: date | None = None,
-    currency: str | None = None,
-    client: FmpClient | None = None,
-) -> IngestResult:
-    """Fetch daily EOD prices for ``ticker`` from FMP and upsert them. Atomic.
-
-    Incremental: the fetch window starts at the day *after* the latest date
-    already stored for ``ticker`` (or ``since_date`` if that is later), so a
-    second run with current data fetches nothing new and performs zero INSERTs.
-    Pass ``since_date`` to bound a first import (otherwise FMP's full history is
-    requested). Records the run in ``refresh_log``.
-
-    Pass ``client`` to reuse an open :class:`FmpClient` across many tickers (the
-    bulk price refresh shares one for the whole run); otherwise one is opened and
-    closed for this call alone.
-    """
-    sym = ticker.upper()
-    with refresh_run(
-        conn,
-        source="fmp_prices",
-        log=log,
-        error_event="fmp_prices.import.failed",
-        log_fail_event="fmp_prices.refresh_log_insert_failed",
-    ) as run:
-        run.details = {"ticker": sym}
-
-        last = _max_price_date(conn, sym)
-        # Incremental lower bound: fetch strictly after the newest stored date.
-        start = since_date
-        if last is not None:
-            next_day = last + timedelta(days=1)
-            start = next_day if start is None or next_day > start else start
-
-        fmp = client if client is not None else FmpClient(api_key=api_key)
-        try:
-            rows = fmp.historical_prices(sym, start=start)
-        finally:
-            if client is None:
-                fmp.close()
-
-        # Defensive: drop anything at or before the last stored date so a
-        # re-run that re-fetches an overlapping window still INSERTs nothing new.
-        if last is not None:
-            rows = [r for r in rows if str(r["date"])[:10] > last.isoformat()]
-
-        with transaction(conn):
-            affected = upsert_prices_daily(conn, ticker=sym, rows=rows, currency=currency)
-
-        run.rows_affected = affected
-        run.details = {"ticker": sym}
-    assert run.result is not None  # refresh_run always sets it on exit
-    return run.result
 
 
 # ---------- Fundamentals importer (M2.3) ----------

@@ -13,7 +13,7 @@ from datetime import date
 
 import pytest
 
-from bot.ingest.fmp import FmpClient
+from bot.ingest.fmp import FmpProvider
 from bot.storage.db import apply_schema, connect
 from bot.utils.fx import get_fx_rate, import_fx_rates, to_usd
 
@@ -40,9 +40,9 @@ def vcr_config() -> dict[str, object]:
 @pytest.mark.integration
 @pytest.mark.vcr
 def test_fetch_historical_fx_returns_rows() -> None:
-    with FmpClient(api_key=API_KEY) as client:
-        rows = client.historical_fx("EUR", start=date(2023, 12, 27), end=date(2023, 12, 29))
-    by_date = {r["date"]: r["rate_to_usd"] for r in rows}
+    with FmpProvider(api_key=API_KEY) as provider:
+        rates = provider.fx_rates("EUR", date(2023, 12, 27))
+    by_date = {r.date.isoformat(): r.rate_to_usd for r in rates}
     assert by_date["2023-12-29"] == pytest.approx(EXPECTED_EURUSD_2023_12_29, rel=1e-3)
 
 
@@ -52,13 +52,14 @@ def test_import_fx_rates_populates_currencies_table() -> None:
     conn = connect(":memory:")
     apply_schema(conn)
     try:
-        result = import_fx_rates(
-            conn,
-            api_key=API_KEY,
-            currency="EUR",
-            start=date(2023, 12, 27),
-            end=date(2023, 12, 29),
-        )
+        with FmpProvider(api_key=API_KEY) as provider:
+            result = import_fx_rates(
+                conn,
+                provider=provider,
+                currency="EUR",
+                start=date(2023, 12, 27),
+                end=date(2023, 12, 29),
+            )
         assert result.is_success()
         assert result.rows_affected >= 1
 

@@ -9,7 +9,7 @@ interactions:
       Accept:
       - application/json
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/historical-price-full/AAPL?from=2023-12-27&to=2023-12-29&apikey=SCRUBBED
+    uri: https://financialmodelingprep.com/api/v3/historical-price-full/AAPL?from=2023-12-27&apikey=SCRUBBED
   response:
     status:
       code: 200

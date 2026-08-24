@@ -6,9 +6,10 @@ from datetime import date
 
 import pytest
 
-from bot.ingest.fmp import FmpClient
+from bot.ingest.provider import FxRate
 from bot.storage.db import apply_schema, connect
 from bot.utils.fx import get_fx_rate, import_fx_rates, to_usd, upsert_fx_rates
+from tests.fake_provider import FakeProvider
 
 
 @pytest.fixture
@@ -23,10 +24,10 @@ def _seed(conn) -> None:
     upsert_fx_rates(
         conn,
         currency="EUR",
-        rows=[
-            {"date": "2023-12-28", "rate_to_usd": 1.1050},
-            {"date": "2023-12-29", "rate_to_usd": 1.1039},
-            {"date": "2024-01-02", "rate_to_usd": 1.0950},
+        rates=[
+            FxRate(date=date(2023, 12, 28), rate_to_usd=1.1050),
+            FxRate(date=date(2023, 12, 29), rate_to_usd=1.1039),
+            FxRate(date=date(2024, 1, 2), rate_to_usd=1.0950),
         ],
     )
 
@@ -88,8 +89,12 @@ def test_to_usd_passes_through_none_amount(conn) -> None:
 
 
 def test_upsert_is_idempotent_and_updates(conn) -> None:
-    upsert_fx_rates(conn, currency="EUR", rows=[{"date": "2024-01-02", "rate_to_usd": 1.0950}])
-    upsert_fx_rates(conn, currency="EUR", rows=[{"date": "2024-01-02", "rate_to_usd": 1.0951}])
+    upsert_fx_rates(
+        conn, currency="EUR", rates=[FxRate(date=date(2024, 1, 2), rate_to_usd=1.0950)]
+    )
+    upsert_fx_rates(
+        conn, currency="EUR", rates=[FxRate(date=date(2024, 1, 2), rate_to_usd=1.0951)]
+    )
     count = conn.execute("SELECT COUNT(*) FROM currencies WHERE currency = 'EUR'").fetchone()
     assert count == (1,)
     assert get_fx_rate(conn, "EUR", date(2024, 1, 2)) == pytest.approx(1.0951)
@@ -99,42 +104,70 @@ def test_upsert_returns_row_count(conn) -> None:
     n = upsert_fx_rates(
         conn,
         currency="EUR",
-        rows=[
-            {"date": "2024-01-02", "rate_to_usd": 1.0950},
-            {"date": "2024-01-03", "rate_to_usd": 1.0920},
+        rates=[
+            FxRate(date=date(2024, 1, 2), rate_to_usd=1.0950),
+            FxRate(date=date(2024, 1, 3), rate_to_usd=1.0920),
         ],
     )
     assert n == 2
 
 
 def test_upsert_empty_is_noop(conn) -> None:
-    assert upsert_fx_rates(conn, currency="EUR", rows=[]) == 0
-
-
-def test_historical_fx_usd_is_noop_no_request() -> None:
-    # USD is the numeraire; no HTTP request is made, so no cassette is needed.
-    with FmpClient(api_key="test-fmp-key") as client:
-        assert client.historical_fx("USD") == []
+    assert upsert_fx_rates(conn, currency="EUR", rates=[]) == 0
 
 
 def test_import_fx_usd_is_success_with_zero_rows(conn) -> None:
-    # USD needs no rows; the run still succeeds and is logged.
-    result = import_fx_rates(conn, api_key="test-fmp-key", currency="USD")
+    # USD needs no rows (no fixture entry for it -> the fake returns []); the run
+    # still succeeds and is logged.
+    provider = FakeProvider()
+    result = import_fx_rates(conn, provider=provider, currency="USD")
     assert result.is_success()
     assert result.rows_affected == 0
     logged = conn.execute(
-        "SELECT status FROM refresh_log WHERE source = 'fmp_fx'"
+        "SELECT status FROM refresh_log WHERE source = 'fake_fx'"
     ).fetchone()
     assert logged == ("success",)
 
 
-def test_import_fx_records_error_on_bad_key(conn) -> None:
-    # Empty key fails fast inside FmpClient construction; the run is recorded as
-    # an error in refresh_log and never raises out of import_fx_rates.
-    result = import_fx_rates(conn, api_key="", currency="EUR")
+def test_import_fx_rates_writes_rates_through_the_port(conn) -> None:
+    provider = FakeProvider(fx={"EUR": [FxRate(date=date(2026, 1, 2), rate_to_usd=1.08)]})
+    result = import_fx_rates(conn, provider=provider, currency="EUR")
+    assert result.is_success()
+    assert conn.execute(
+        "SELECT rate_to_usd FROM currencies WHERE currency='EUR'"
+    ).fetchone() == (1.08,)
+
+
+def test_import_fx_records_error_on_provider_failure(conn) -> None:
+    class _BoomingProvider(FakeProvider):
+        def fx_rates(self, currency, since):  # type: ignore[override]
+            raise ValueError("fmp down")
+
+    result = import_fx_rates(conn, provider=_BoomingProvider(), currency="EUR")
     assert result.status == "error"
     assert result.error_message is not None
     logged = conn.execute(
-        "SELECT status FROM refresh_log WHERE source = 'fmp_fx'"
+        "SELECT status FROM refresh_log WHERE source = 'fake_fx'"
     ).fetchone()
     assert logged == ("error",)
+
+
+def test_import_fx_end_trims_rows_client_side(conn) -> None:
+    """The port has no ``end`` — ``import_fx_rates`` trims the returned rows itself."""
+    provider = FakeProvider(
+        fx={
+            "EUR": [
+                FxRate(date=date(2023, 12, 28), rate_to_usd=1.1050),
+                FxRate(date=date(2023, 12, 29), rate_to_usd=1.1039),
+                FxRate(date=date(2024, 1, 2), rate_to_usd=1.0950),
+            ]
+        }
+    )
+    result = import_fx_rates(
+        conn, provider=provider, currency="EUR", start=date(2023, 12, 27), end=date(2023, 12, 29)
+    )
+    assert result.rows_affected == 2
+    rows = conn.execute(
+        "SELECT date FROM currencies WHERE currency = 'EUR' ORDER BY date"
+    ).fetchall()
+    assert [str(r[0]) for r in rows] == ["2023-12-28", "2023-12-29"]

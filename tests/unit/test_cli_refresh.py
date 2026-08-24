@@ -119,7 +119,7 @@ def test_refresh_prices_invokes_price_orchestrator(tmp_path, monkeypatch):
         failed=0,
         outcomes=[],
     )
-    with patch("bot.cli.refresh_prices_from_fmp", return_value=prices) as mprices:
+    with patch("bot.cli.refresh_prices", return_value=prices) as mprices:
         runner = CliRunner()
         result = runner.invoke(app, ["refresh", "--prices"])
 
@@ -146,7 +146,7 @@ def test_refresh_fx_invokes_fx_orchestrator(tmp_path, monkeypatch):
     monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
     monkeypatch.setenv("BOT_REPORTS_DIR", str(tmp_path / "reports"))
 
-    with patch("bot.cli.refresh_fx_from_fmp", return_value=_uni("fx")) as mfx:
+    with patch("bot.cli.refresh_fx", return_value=_uni("fx")) as mfx:
         runner = CliRunner()
         result = runner.invoke(app, ["refresh", "--fx"])
 
@@ -176,11 +176,11 @@ def test_refresh_all_runs_every_source_in_order(tmp_path, monkeypatch):
             side_effect=lambda *a, **k: calls.append("fmp") or _uni("u"),
         ),
         patch(
-            "bot.cli.refresh_prices_from_fmp",
+            "bot.cli.refresh_prices",
             side_effect=lambda *a, **k: calls.append("prices") or _uni("p"),
         ),
         patch(
-            "bot.cli.refresh_fx_from_fmp",
+            "bot.cli.refresh_fx",
             side_effect=lambda *a, **k: calls.append("fx") or _uni("f"),
         ),
     ):

@@ -18,8 +18,8 @@ from bot.ingest.universe import (
     UniverseRefreshResult,
     default_universe_path,
     load_universe,
-    refresh_fx_from_fmp,
-    refresh_prices_from_fmp,
+    refresh_fx,
+    refresh_prices,
     refresh_universe,
 )
 from bot.portfolio.command import run_portfolio
@@ -209,7 +209,8 @@ def _refresh_prices(
         return 2
 
     typer.echo(f"Refreshing prices for {len(tickers)} tickers from FMP...")
-    result = refresh_prices_from_fmp(conn, api_key=settings.fmp_api_key, tickers=tickers)
+    with FmpProvider(api_key=settings.fmp_api_key) as provider:
+        result = refresh_prices(conn, provider=provider, tickers=tickers)
     _report_universe_refresh(result)
 
     return 0 if result.status == "success" else 2
@@ -218,7 +219,8 @@ def _refresh_prices(
 def _refresh_fx(conn: duckdb.DuckDBPyConnection, settings: Settings) -> int:
     """Refresh FX rates for the universe's currencies. Returns the exit code."""
     typer.echo("Refreshing FX rates for the universe's currencies from FMP...")
-    result = refresh_fx_from_fmp(conn, api_key=settings.fmp_api_key)
+    with FmpProvider(api_key=settings.fmp_api_key) as provider:
+        result = refresh_fx(conn, provider=provider)
     _report_universe_refresh(result)
 
     return 0 if result.status == "success" else 2
