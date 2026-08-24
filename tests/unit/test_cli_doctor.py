@@ -30,6 +30,7 @@ def test_doctor_reports_at_least_eight_tables(tmp_path, monkeypatch):
 
 
 def test_doctor_fails_when_user_agent_missing(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "x.duckdb"))
     monkeypatch.delenv("BOT_SEC_USER_AGENT", raising=False)
 
