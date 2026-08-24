@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import date
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from bot.config import Settings, load_settings
 from bot.ingest.damodaran import import_damodaran
 from bot.ingest.fmp import FmpProvider
 from bot.ingest.ibkr import IbkrClient
+from bot.ingest.provider import MarketDataProvider
 from bot.ingest.sec_edgar import import_company_from_sec
 from bot.ingest.universe import (
     UniverseRefreshResult,
@@ -52,6 +54,15 @@ def _open_db() -> tuple[duckdb.DuckDBPyConnection, Settings]:
     conn = connect(settings.db_path)
     apply_schema(conn)
     return conn, settings
+
+
+def _make_provider(settings: Settings) -> MarketDataProvider:
+    """The composition root: the ONLY place a concrete data provider is named.
+
+    Swapping the data source = writing a new adapter in bot/ingest/ and
+    changing this return line (spec 2026-08-24).
+    """
+    return FmpProvider(api_key=settings.fmp_api_key)
 
 
 @app.command()
@@ -180,7 +191,7 @@ def _refresh_fmp_universe(
         return 2
 
     typer.echo(f"Refreshing {len(tickers)} tickers from FMP (universe={path})...")
-    with FmpProvider(api_key=settings.fmp_api_key) as provider:
+    with closing(_make_provider(settings)) as provider:
         result = refresh_universe(
             conn,
             provider=provider,
@@ -209,7 +220,7 @@ def _refresh_prices(
         return 2
 
     typer.echo(f"Refreshing prices for {len(tickers)} tickers from FMP...")
-    with FmpProvider(api_key=settings.fmp_api_key) as provider:
+    with closing(_make_provider(settings)) as provider:
         result = refresh_prices(conn, provider=provider, tickers=tickers)
     _report_universe_refresh(result)
 
@@ -219,7 +230,7 @@ def _refresh_prices(
 def _refresh_fx(conn: duckdb.DuckDBPyConnection, settings: Settings) -> int:
     """Refresh FX rates for the universe's currencies. Returns the exit code."""
     typer.echo("Refreshing FX rates for the universe's currencies from FMP...")
-    with FmpProvider(api_key=settings.fmp_api_key) as provider:
+    with closing(_make_provider(settings)) as provider:
         result = refresh_fx(conn, provider=provider)
     _report_universe_refresh(result)
 

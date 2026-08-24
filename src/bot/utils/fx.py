@@ -19,11 +19,10 @@ so a conversion only ever uses information available on or before the as-of date
 
 Source of FX data: any :class:`~bot.ingest.provider.MarketDataProvider` — today
 that is FMP's historical forex prices (pair ``{CURRENCY}USD``, daily close), via
-:meth:`bot.ingest.fmp.FmpProvider.fx_rates`. Because ``import_fx_rates`` only
-depends on the port, swapping in a different data source (ECB,
-openexchangerates.org, ...) means writing a new adapter, not touching this
-module or the lookup/conversion helpers, which only read from the ``currencies``
-table.
+the provider's ``fx_rates`` method. Because ``import_fx_rates`` only depends on
+the port, swapping in a different data source (ECB, openexchangerates.org, ...)
+means writing a new adapter, not touching this module or the lookup/conversion
+helpers, which only read from the ``currencies`` table.
 """
 
 from __future__ import annotations
