@@ -1,18 +1,22 @@
 """E2E (spec §12): refresh -> screen -> analyze sobre UNA base compartida, sin red.
 
 Siembra Damodaran desde los fixtures existentes (``tests/fixtures/damodaran/``,
-patrón de ``test_damodaran_import.py``) y tres empresas US vía el importer de FMP
-con un ``FmpClient`` fake (patrón de ``test_fmp_import.py``): GOODCO (sólida y
-barata — sobrevive el screen), TRAPCO (margen operativo colapsando > 200bps —
-cae por el detector de trampas) y NOCOVCO (industria sin fila Damodaran — cae
-por el gate de cobertura, ADR 0006). Después ejercita los comandos reales del
-CLI (``screen`` y ``analyze --from-screen``) contra esa DB compartida y verifica
-que la cadena completa — refresh, screen, analyze — deja rastro consistente:
-el shortlist, los artefactos §6.1/§7.7, y ``screener_candidates``/``refresh_log``.
+patrón de ``test_damodaran_import.py``) y tres empresas US a través de la
+orquestación real del refresh (``refresh_universe``/``refresh_prices``) contra un
+``FakeProvider`` — el mismo puerto que ``FmpProvider`` implementa en producción
+(patrón de ``test_fmp_import.py`` para la forma de los datos fabricados):
+GOODCO (sólida y barata — sobrevive el screen), TRAPCO (margen operativo
+colapsando > 200bps — cae por el detector de trampas) y NOCOVCO (industria sin
+fila Damodaran — cae por el gate de cobertura, ADR 0006). Después ejercita los
+comandos reales del CLI (``screen`` y ``analyze --from-screen``) contra esa DB
+compartida y verifica que la cadena completa — refresh, screen, analyze — deja
+rastro consistente: el shortlist, los artefactos §6.1/§7.7, y
+``screener_candidates``/``refresh_log``.
 """
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -23,8 +27,8 @@ from typer.testing import CliRunner
 from bot.cli import app
 from bot.ingest.damodaran import import_damodaran_from_files
 from bot.ingest.fmp import _collect_fmp_filings, parse_fmp_fundamentals
-from bot.ingest.provider import CompanyInfo, FundamentalsBundle
-from bot.ingest.universe import import_company
+from bot.ingest.provider import CompanyInfo, FundamentalsBundle, PriceBar
+from bot.ingest.universe import refresh_prices, refresh_universe
 from bot.storage.db import apply_schema, connect
 from tests.fake_provider import FakeProvider
 
@@ -180,53 +184,91 @@ def _seed_damodaran_from_fixtures(conn: duckdb.DuckDBPyConnection) -> None:
     )
 
 
-def _seed_company_via_fmp_importer(
-    conn: duckdb.DuckDBPyConnection,
-    *,
-    ticker: str,
-    industry: str | None,
-    op_margins: list[float],
-    market_cap: float,
-    close: float,
-) -> None:
-    years = list(range(_YEAR - 6, _YEAR))
-    profile = CompanyInfo(
-        ticker=ticker,
-        name=f"{ticker} Inc",
-        exchange="NASDAQ",
-        exchange_short_name="NASDAQ",
-        country="United States",  # matches damodaran_country.country from the fixtures
-        currency="USD",
-        sector="Technology",
-        industry=industry,
-        is_actively_trading=True,
-    )
-    statements = _fabricated_statements(
-        ticker,
-        years=years,
-        revenue_start=1_000_000_000.0,
-        revenue_growth=0.10,
-        op_margins=op_margins,
-        interest=20_000_000.0,
-        total_debt=0.0,
-        cash=0.0,
-        total_equity=2_000_000_000.0,
-        goodwill=200_000_000.0,
-        total_assets=3_000_000_000.0,
-        operating_cashflow=550_000_000.0,
-        free_cashflow=500_000_000.0,
-        shares=1_000_000_000.0,
-    )
-    bundle = _bundle_from_statements(ticker, profile, statements)
-    provider = _NamedFakeProvider(bundles={ticker: bundle})
-    result = import_company(conn, ticker=ticker, provider=provider)
-    assert result.is_success(), result.error_message
+# One fixture per ticker: (industry, op_margins, market_cap, close) — same
+# tickers, fiscal years and values the pipeline test seeded before the
+# provider port existed, just packaged as FundamentalsBundle/PriceBar for the
+# real refresh_universe/refresh_prices orchestration instead of a direct
+# importer call.
+_TICKER_FIXTURES: dict[str, dict[str, Any]] = {
+    # GOODCO: márgenes estables al 30% (ROIC bien por encima de la WACC
+    # sectorial ~9.3%, FCF yield 500M/5B = 10% > 8%).
+    "GOODCO": {
+        "industry": "Software",
+        "op_margins": [0.30, 0.30, 0.30, 0.30, 0.30, 0.30],
+        "market_cap": 5_000_000_000.0,
+        "close": 10.0,
+    },
+    # TRAPCO: mismo perfil salvo el margen operativo, que se contrae >200bps
+    # en los últimos 3 años (26% -> 18%, i.e. -800bps) — el trap detector debe
+    # excluirlo aunque su FCF yield y su ROIC (todavía > WACC) pasarían solos.
+    "TRAPCO": {
+        "industry": "Software",
+        "op_margins": [0.30, 0.28, 0.26, 0.24, 0.22, 0.18],
+        "market_cap": 5_000_000_000.0,
+        "close": 10.0,
+    },
+    # NOCOVCO: industria que no mapea a ningún sector Damodaran -> ninguna fila
+    # de benchmark -> excluido por el gate de cobertura (ADR 0006), no por un
+    # veredicto normal.
+    "NOCOVCO": {
+        "industry": "Unmapped Provider Sector",
+        "op_margins": [0.30, 0.30, 0.30, 0.30, 0.30, 0.30],
+        "market_cap": 5_000_000_000.0,
+        "close": 10.0,
+    },
+}
 
-    conn.execute(
-        "INSERT INTO prices_daily (ticker, date, close, market_cap, currency, source) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        [ticker, f"{_YEAR}-05-29", close, market_cap, "USD", "fmp"],
-    )
+
+def _fixture_bundles() -> dict[str, FundamentalsBundle]:
+    """Build one :class:`FundamentalsBundle` per fixture ticker."""
+    years = list(range(_YEAR - 6, _YEAR))
+    bundles: dict[str, FundamentalsBundle] = {}
+    for ticker, spec in _TICKER_FIXTURES.items():
+        profile = CompanyInfo(
+            ticker=ticker,
+            name=f"{ticker} Inc",
+            exchange="NASDAQ",
+            exchange_short_name="NASDAQ",
+            country="United States",  # matches damodaran_country.country from the fixtures
+            currency="USD",
+            sector="Technology",
+            industry=spec["industry"],
+            is_actively_trading=True,
+        )
+        statements = _fabricated_statements(
+            ticker,
+            years=years,
+            revenue_start=1_000_000_000.0,
+            revenue_growth=0.10,
+            op_margins=spec["op_margins"],
+            interest=20_000_000.0,
+            total_debt=0.0,
+            cash=0.0,
+            total_equity=2_000_000_000.0,
+            goodwill=200_000_000.0,
+            total_assets=3_000_000_000.0,
+            operating_cashflow=550_000_000.0,
+            free_cashflow=500_000_000.0,
+            shares=1_000_000_000.0,
+        )
+        bundles[ticker] = _bundle_from_statements(ticker, profile, statements)
+    return bundles
+
+
+def _fixture_prices() -> dict[str, list[PriceBar]]:
+    """One EOD price bar per fixture ticker, matching the values the test used
+    to insert directly into ``prices_daily``."""
+    return {
+        ticker: [
+            PriceBar(
+                date=date(_YEAR, 5, 29),
+                close=spec["close"],
+                volume=None,
+                market_cap=spec["market_cap"],
+            )
+        ]
+        for ticker, spec in _TICKER_FIXTURES.items()
+    }
 
 
 def test_pipeline_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -243,42 +285,19 @@ def test_pipeline_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     apply_schema(conn)
 
     # 1. Capa A: Damodaran desde fixtures (patrón de test_damodaran_import) +
-    #    tres empresas: una que debe sobrevivir el screen (GOODCO), una que
-    #    debe caer por un trap de margen (TRAPCO), y una que debe caer por el
-    #    gate de cobertura (NOCOVCO, spec §6.1/ADR 0006).
+    #    tres empresas — GOODCO (sobrevive el screen), TRAPCO (cae por el
+    #    detector de trampas) y NOCOVCO (cae por el gate de cobertura, spec
+    #    §6.1/ADR 0006) — a través de la orquestación real del refresh
+    #    (refresh_universe/refresh_prices) contra un FakeProvider: el mismo
+    #    puerto que alimenta FmpProvider en producción, así que el pipeline no
+    #    puede distinguir qué adapter lo sirvió.
     _seed_damodaran_from_fixtures(conn)
-    # GOODCO: márgenes estables al 30% (ROIC bien por encima de la WACC
-    # sectorial ~9.3%, FCF yield 500M/5B = 10% > 8%).
-    _seed_company_via_fmp_importer(
-        conn,
-        ticker="GOODCO",
-        industry="Software",
-        op_margins=[0.30, 0.30, 0.30, 0.30, 0.30, 0.30],
-        market_cap=5_000_000_000.0,
-        close=10.0,
-    )
-    # TRAPCO: mismo perfil salvo el margen operativo, que se contrae >200bps
-    # en los últimos 3 años (26% -> 18%, i.e. -800bps) — el trap detector debe
-    # excluirlo aunque su FCF yield y su ROIC (todavía > WACC) pasarían solos.
-    _seed_company_via_fmp_importer(
-        conn,
-        ticker="TRAPCO",
-        industry="Software",
-        op_margins=[0.30, 0.28, 0.26, 0.24, 0.22, 0.18],
-        market_cap=5_000_000_000.0,
-        close=10.0,
-    )
-    # NOCOVCO: industria que no mapea a ningún sector Damodaran -> ninguna fila
-    # de benchmark -> excluido por el gate de cobertura (ADR 0006), no por un
-    # veredicto normal.
-    _seed_company_via_fmp_importer(
-        conn,
-        ticker="NOCOVCO",
-        industry="Unmapped Provider Sector",
-        op_margins=[0.30, 0.30, 0.30, 0.30, 0.30, 0.30],
-        market_cap=5_000_000_000.0,
-        close=10.0,
-    )
+    provider = _NamedFakeProvider(bundles=_fixture_bundles(), prices=_fixture_prices())
+    tickers = list(_fixture_bundles())
+    universe_result = refresh_universe(conn, provider=provider, tickers=tickers)
+    assert universe_result.failed == 0, universe_result.outcomes
+    prices_result = refresh_prices(conn, provider=provider, tickers=tickers)
+    assert prices_result.failed == 0, prices_result.outcomes
     conn.close()
 
     runner = CliRunner()
