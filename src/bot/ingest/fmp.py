@@ -275,6 +275,7 @@ class FmpProvider:
     def close(self) -> None:
         if self._client is not None:
             self._client.close()
+            self._client = None
 
     def __enter__(self) -> FmpProvider:
         return self

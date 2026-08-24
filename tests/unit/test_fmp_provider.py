@@ -75,5 +75,7 @@ def test_fundamentals_returns_a_bundle_even_when_empty() -> None:
 
 def test_close_closes_the_underlying_client() -> None:
     p = _provider()
+    stub = p._client
     p.close()
-    assert p._client.closed  # type: ignore[union-attr]
+    assert stub.closed  # type: ignore[union-attr]
+    assert p._client is None
