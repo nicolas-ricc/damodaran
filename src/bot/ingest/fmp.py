@@ -11,6 +11,7 @@ here (M2.1). Fundamentals ingestion lands in a later slice.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -24,7 +25,13 @@ from bot.ingest.industry_mapping import (
     load_industry_mapping,
     resolve_mapping_path,
 )
-from bot.ingest.provider import CompanyInfo, ProviderRateLimitError
+from bot.ingest.provider import (
+    CompanyInfo,
+    FundamentalsBundle,
+    FxRate,
+    PriceBar,
+    ProviderRateLimitError,
+)
 from bot.ingest.sec_edgar import (
     ParsedCompanyData,
     upsert_company,
@@ -241,6 +248,109 @@ class FmpClient:
     ) -> list[dict[str, Any]]:
         """Return the cash-flow array for ``ticker`` (``annual``/``quarter``)."""
         return self._statement("cash-flow-statement", ticker, period=period, limit=limit)
+
+
+class FmpProvider:
+    """The FMP adapter behind :class:`bot.ingest.provider.MarketDataProvider`.
+
+    One instance owns one :class:`FmpClient` (one connection pool) for its
+    lifetime — construct per bulk run, close when done (context manager).
+    Everything FMP-specific — endpoints, JSON shapes, parsing — stays inside.
+    """
+
+    def __init__(self, api_key: str, timeout: float = 30.0) -> None:
+        self._api_key = api_key
+        self._timeout = timeout
+        self._client: FmpClient | None = None
+
+    @property
+    def name(self) -> str:
+        return "fmp"
+
+    def _fmp(self) -> FmpClient:
+        if self._client is None:
+            self._client = FmpClient(api_key=self._api_key, timeout=self._timeout)
+        return self._client
+
+    def close(self) -> None:
+        if self._client is not None:
+            self._client.close()
+
+    def __enter__(self) -> FmpProvider:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+    def lookup_company(self, ticker: str) -> CompanyInfo | None:
+        return self._fmp().lookup_company(ticker)
+
+    def fundamentals(self, ticker: str) -> FundamentalsBundle:
+        sym = ticker.upper()
+        fmp = self._fmp()
+        info = fmp.lookup_company(sym)
+        inc_a = fmp.income_statement(sym, period="annual")
+        bal_a = fmp.balance_sheet(sym, period="annual")
+        cf_a = fmp.cash_flow(sym, period="annual")
+        inc_q = fmp.income_statement(sym, period="quarter")
+        bal_q = fmp.balance_sheet(sym, period="quarter")
+        cf_q = fmp.cash_flow(sym, period="quarter")
+        return FundamentalsBundle(
+            info=info,
+            annual=parse_fmp_fundamentals(sym, inc_a, bal_a, cf_a),
+            quarterly=parse_fmp_fundamentals(sym, inc_q, bal_q, cf_q),
+            filings=_collect_fmp_filings(sym, inc_a, inc_q),
+        )
+
+    def daily_prices(self, ticker: str, since: date | None) -> list[PriceBar]:
+        rows = self._fmp().historical_prices(ticker.upper(), start=since, end=None)
+        return [
+            PriceBar(
+                date=_as_date(r["date"]),
+                close=_float_or_none(r.get("close")),
+                volume=_float_or_none(r.get("volume")),
+                market_cap=_float_or_none(r.get("market_cap")),
+            )
+            for r in rows
+        ]
+
+    def fx_rates(self, currency: str, since: date | None) -> list[FxRate]:
+        rows = self._fmp().historical_fx(currency.upper(), start=since, end=None)
+        return [
+            FxRate(date=_as_date(r["date"]), rate_to_usd=float(r["rate_to_usd"]))
+            for r in rows
+        ]
+
+    def latest_filing_date(self, ticker: str) -> date | None:
+        sym = ticker.upper()
+        rows = self._fmp().income_statement(sym, period="annual", limit=1)
+        return _latest_filing_from_rows(rows)
+
+
+def _as_date(value: Any) -> date:
+    return value if isinstance(value, date) else date.fromisoformat(str(value)[:10])
+
+
+def _latest_filing_from_rows(rows: Iterable[dict[str, object]]) -> date | None:
+    """Return the newest ``fillingDate``/``acceptedDate`` across FMP statement rows.
+
+    Adapter-internal copy of ``universe.py``'s ``_latest_filing_from_statements``
+    (same logic; it reads FMP statement rows, so it belongs behind this adapter).
+    """
+    latest: date | None = None
+    for entry in rows:
+        if not isinstance(entry, dict):
+            continue
+        filed_raw = entry.get("fillingDate") or entry.get("acceptedDate")
+        if not filed_raw:
+            continue
+        try:
+            filed = date.fromisoformat(str(filed_raw)[:10])
+        except ValueError:
+            continue
+        if latest is None or filed > latest:
+            latest = filed
+    return latest
 
 
 def _str_or_none(value: Any) -> str | None:
