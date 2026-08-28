@@ -452,6 +452,18 @@ _OVERRIDE_KEYS: frozenset[str] = frozenset(
 )
 
 
+def conventional_override_path(assumptions_dir: Path | None, ticker: str) -> Path | None:
+    """Return ``<assumptions_dir>/<TICKER>.yaml`` when it exists (spec §7.6), else None.
+
+    The single place that knows the convention: ``bot analyze`` and the
+    screener's second-pass DCF both resolve overrides through here.
+    """
+    if assumptions_dir is None:
+        return None
+    candidate = assumptions_dir / f"{ticker.upper()}.yaml"
+    return candidate if candidate.exists() else None
+
+
 def _load_override(override_path: Path | None) -> dict[str, Any]:
     if override_path is None or not override_path.exists():
         return {}

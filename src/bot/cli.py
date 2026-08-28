@@ -35,6 +35,7 @@ from bot.screener.persist import persist_candidates
 from bot.storage.db import apply_schema, connect, schema_table_count
 from bot.utils.logging import configure_logging, get_logger
 from bot.valuator.analysis import analyze as run_analysis
+from bot.valuator.assumptions import conventional_override_path
 
 app = typer.Typer(
     help="Personal investment bot — value screener + portfolio monitor.",
@@ -404,9 +405,7 @@ def _analyze_one(
     ticker = ticker.upper()
 
     if override is None:
-        conventional = settings.assumptions_dir / f"{ticker}.yaml"
-        if conventional.exists():
-            override = conventional
+        override = conventional_override_path(settings.assumptions_dir, ticker)
 
     try:
         analysis = run_analysis(ticker, conn, override_path=override)

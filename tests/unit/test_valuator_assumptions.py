@@ -30,6 +30,7 @@ from bot.valuator.assumptions import (
     AssumptionSource,
     Sourced,
     _resolve_revenue_growth,
+    conventional_override_path,
     resolve_assumptions,
 )
 from bot.valuator.story_types import StoryType
@@ -787,3 +788,18 @@ def test_high_growth_fade_starts_at_the_historical_average_not_year_one() -> Non
     assert path is not None
     assert path[0] == pytest.approx(0.18)  # fmean(historical), NOT 0.50
     assert path[-1] == pytest.approx(0.04)
+
+
+# --------------------------------------------------------------------------- #
+# conventional_override_path helper (Task 1)                                  #
+# --------------------------------------------------------------------------- #
+
+
+def test_conventional_override_path_finds_the_ticker_yaml(tmp_path: Path) -> None:
+    (tmp_path / "AAPL.yaml").write_text("story_type: mature\n")
+    assert conventional_override_path(tmp_path, "aapl") == tmp_path / "AAPL.yaml"
+
+
+def test_conventional_override_path_is_none_when_missing_or_no_dir(tmp_path: Path) -> None:
+    assert conventional_override_path(tmp_path, "MSFT") is None
+    assert conventional_override_path(None, "MSFT") is None

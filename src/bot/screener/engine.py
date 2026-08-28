@@ -43,6 +43,7 @@ from bot.screener.types import CompanyData, IndustryBenchmarks
 from bot.utils.finance import cagr
 from bot.utils.fx import to_usd
 from bot.valuator.analysis import analyze, load_valuation_input
+from bot.valuator.assumptions import conventional_override_path
 
 #: Damodaran region used when a company's country has no ``damodaran_country``
 #: row (so a value indicator can still look its sector median up). The screener
@@ -109,11 +110,7 @@ def _batch_dcf_margins(
     """
     margins: dict[str, float | None] = {}
     for ticker in tickers:
-        override_path = None
-        if assumptions_dir is not None:
-            candidate_path = assumptions_dir / f"{ticker}.yaml"
-            if candidate_path.exists():
-                override_path = candidate_path
+        override_path = conventional_override_path(assumptions_dir, ticker)
         try:
             inputs = load_valuation_input(conn, ticker)
             analysis = analyze(ticker, conn, override_path=override_path, company=inputs)
