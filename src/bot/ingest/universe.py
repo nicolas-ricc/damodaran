@@ -105,12 +105,12 @@ class UniverseRefreshResult:
 
     @property
     def deferred(self) -> int:
-        """Tickers no intentados porque la cuota diaria de FMP se agotó."""
+        """Tickers not attempted because FMP's daily quota was exhausted."""
         return sum(1 for o in self.outcomes if o.status == "deferred")
 
     @property
     def failure_rate(self) -> float:
-        """Fracción de lo *intentado* que falló (0.0 cuando no se intentó nada)."""
+        """Fraction of what was *attempted* that failed (0.0 when nothing was attempted)."""
         attempted = self.total - self.deferred
         return self.failed / attempted if attempted else 0.0
 

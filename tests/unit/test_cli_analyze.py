@@ -290,8 +290,8 @@ def test_analyze_from_screen_with_empty_shortlist_says_so(
     runner = CliRunner()
     result = runner.invoke(app, ["analyze", "--from-screen"])
     assert result.exit_code == 2
-    assert "No hay ningún screen persistido" not in result.output
-    assert "no dejó ningún candidato" in result.output
+    assert "No screen has been persisted" not in result.output
+    assert "did not leave any candidates" in result.output
 
 
 def test_analyze_explicit_override_with_many_tickers_is_rejected(

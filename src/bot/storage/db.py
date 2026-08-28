@@ -28,6 +28,6 @@ def apply_schema(conn: duckdb.DuckDBPyConnection) -> None:
 
 
 def schema_table_count() -> int:
-    """Cantidad de tablas que define ``schema.sql`` (para chequeos de salud)."""
+    """Number of tables ``schema.sql`` defines (used by ``bot doctor``)."""
     sql = resources.files("bot.storage").joinpath("schema.sql").read_text()
     return sql.count("CREATE TABLE IF NOT EXISTS")

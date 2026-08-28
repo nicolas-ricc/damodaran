@@ -104,7 +104,7 @@ def refresh(
     limit: int | None = typer.Option(
         None,
         "--limit",
-        help="Procesar a lo sumo N tickers de --fmp/--prices (para el tier gratis de FMP).",
+        help="Process at most N tickers from --fmp/--prices (for FMP's free tier).",
     ),
 ) -> None:
     """Refresh data from external sources.
@@ -127,9 +127,9 @@ def refresh(
 
     if damodaran and region.upper() != "US":
         typer.echo(
-            f"--region {region}: esta versión es US-only. Las URLs de Damodaran "
-            "apuntan al dataset de EE.UU.; pedir otra región guardaría datos de "
-            "EE.UU. etiquetados con esa región. Usá --region US.",
+            f"--region {region}: this version is US-only. Damodaran's URLs "
+            "point at the US dataset; requesting another region would store "
+            "US data labeled with that region. Use --region US.",
             err=True,
         )
         raise typer.Exit(code=2)
@@ -256,7 +256,7 @@ def _report_universe_refresh(result: UniverseRefreshResult) -> None:
     if result.deferred:
         typer.echo(
             f"NOTE — {result.deferred} tickers deferred (FMP daily quota); "
-            "volvé a correr el mismo comando mañana para continuar.",
+            "re-run the same command tomorrow to continue.",
         )
 
 
@@ -350,14 +350,14 @@ def analyze(
     """
     tickers = tickers or []
     if from_screen and tickers:
-        typer.echo("--from-screen no admite tickers explícitos.", err=True)
+        typer.echo("--from-screen does not accept explicit tickers.", err=True)
         raise typer.Exit(code=2)
     if not from_screen and not tickers:
-        typer.echo("Especificá uno o más tickers, o usá --from-screen.", err=True)
+        typer.echo("Specify one or more tickers, or use --from-screen.", err=True)
         raise typer.Exit(code=2)
     if override is not None and len(tickers) != 1:
         typer.echo(
-            "--override solo es válido con exactamente un ticker.", err=True
+            "--override is only valid with exactly one ticker.", err=True
         )
         raise typer.Exit(code=2)
 
@@ -369,7 +369,7 @@ def analyze(
         ).fetchone()
         if latest_run is None:
             typer.echo(
-                "No hay ningún screen persistido — corré `bot screen` primero.",
+                "No screen has been persisted — run `bot screen` first.",
                 err=True,
             )
             raise typer.Exit(code=2)
@@ -380,8 +380,8 @@ def analyze(
         ).fetchall()
         if not rows:
             typer.echo(
-                "El último screen no dejó ningún candidato — probá cargar más datos "
-                "y volver a correr `bot screen`.",
+                "The last screen did not leave any candidates — try loading more "
+                "data and re-running `bot screen`.",
                 err=True,
             )
             raise typer.Exit(code=2)
@@ -547,7 +547,7 @@ def doctor() -> None:
     typer.echo(f"Log level:        {settings.log_level}")
 
     if not settings.fmp_api_key.strip():
-        issues.append("FMP API key vacía — refresh --fmp no puede funcionar (BOT_FMP_API_KEY).")
+        issues.append("FMP API key is empty — refresh --fmp cannot work (BOT_FMP_API_KEY).")
 
     try:
         conn = connect(settings.db_path)

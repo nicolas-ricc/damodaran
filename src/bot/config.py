@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     )
     assumptions_dir: Path = Field(
         default=Path("./config/assumptions"),
-        description="Directorio de overrides por convención: <TICKER>.yaml (spec §7.6).",
+        description="Convention-based overrides directory: <TICKER>.yaml (spec §7.6).",
     )
     industry_mapping_path: Path | None = Field(
         default=None,

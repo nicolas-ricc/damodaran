@@ -34,11 +34,11 @@ BASE_URL = "https://financialmodelingprep.com/api/v3"
 
 
 class FmpRateLimitError(ProviderRateLimitError):
-    """FMP devolvió HTTP 429: se agotó la cuota diaria del API key.
+    """FMP returned HTTP 429: the API key's daily quota is exhausted.
 
-    No es una falla del ticker ni un error de datos: la corrida debe cortar y
-    el resto del universo queda diferido para la próxima corrida (el refresh es
-    incremental, así que retomarlo es gratis).
+    Not a per-ticker failure or a data error: the run must stop and the rest
+    of the universe is deferred to the next run (the refresh is incremental,
+    so resuming it is free).
     """
 
 
@@ -77,7 +77,7 @@ class FmpClient:
         r = self._client.get(path, params=query)
         if r.status_code == 429:
             raise FmpRateLimitError(
-                "FMP rate limit (HTTP 429): cuota diaria agotada; reintentá mañana"
+                "FMP rate limit (HTTP 429): daily quota exhausted; retry tomorrow"
             )
         r.raise_for_status()
         return r.json()
