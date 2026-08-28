@@ -46,7 +46,8 @@ Canonical records live beside the Protocol in `provider.py`:
   needs for one ticker.
 - New frozen dataclasses `PriceBar` (`date: date`, `close: float | None`,
   `volume: float | None`, `market_cap: float | None`) and `FxRate` (`date: date`,
-  `currency: str`, `rate_to_usd: float`) replace the raw `list[dict]` row shapes that
+  `rate_to_usd: float`) — the currency is the `fx_rates(currency, since)` argument and the
+  `upsert_fx_rates(currency=...)` keyword, not a per-row field. These replace the raw `list[dict]` row shapes that
   `upsert_prices_daily` / `upsert_fx_rates` consume today.
 - `ProviderRateLimitError(RuntimeError)` is the neutral rate-limit contract.
   `FmpRateLimitError` becomes a subclass (existing imports keep working).

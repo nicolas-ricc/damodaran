@@ -1418,6 +1418,10 @@ registro para que el plan y el código vuelvan a coincidir:
    diagnósticos distintos merecen dos textos. El contrato (exit 2) no cambia.
    El test E2E además siembra una tercera empresa para ejercitar la compuerta
    de cobertura de la ADR 0006 — más cobertura, mismo spec.
+5. **`FxRate` no lleva `currency`** (el diseño del port lo listaba): la moneda
+   viaja como argumento de `fx_rates(currency, since)` y como keyword de
+   `upsert_fx_rates(currency=...)`, igual que en los tests de la Tarea 1 del
+   plan del port. El diseño quedó corregido el 2026-08-24.
 
 ## Self-Review
 
