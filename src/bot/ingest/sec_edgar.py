@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any
 
 import duckdb
 import httpx
 
 from bot.ingest.base import IngestResult, refresh_run, transaction
+from bot.ingest.provider import ParsedCompanyData
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -75,16 +75,6 @@ class SecEdgarClient:
 
 
 # ---------- Parser ----------
-
-
-@dataclass
-class ParsedCompanyData:
-    """Result of parsing SEC company facts JSON."""
-
-    company: dict[str, Any]
-    annual: list[dict[str, Any]] = field(default_factory=list)
-    quarterly: list[dict[str, Any]] = field(default_factory=list)
-    filings: list[dict[str, Any]] = field(default_factory=list)
 
 
 # XBRL concept (us-gaap) -> our DB column. Multiple alternative concepts per column;

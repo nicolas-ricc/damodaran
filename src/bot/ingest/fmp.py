@@ -22,10 +22,10 @@ from bot.ingest.provider import (
     CompanyInfo,
     FundamentalsBundle,
     FxRate,
+    ParsedCompanyData,
     PriceBar,
     ProviderRateLimitError,
 )
-from bot.ingest.sec_edgar import ParsedCompanyData
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)

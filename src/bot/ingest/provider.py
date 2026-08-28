@@ -9,11 +9,23 @@ never a concrete adapter's client.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from typing import Any, Protocol, runtime_checkable
 
-from bot.ingest.sec_edgar import ParsedCompanyData
+
+@dataclass
+class ParsedCompanyData:
+    """Fundamentals in DB-row shape: one company dict plus annual/quarterly/filings rows.
+
+    The canonical record every adapter (SEC EDGAR, FMP, fakes) produces, so the
+    importer never sees a source's wire format.
+    """
+
+    company: dict[str, Any]
+    annual: list[dict[str, Any]] = field(default_factory=list)
+    quarterly: list[dict[str, Any]] = field(default_factory=list)
+    filings: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

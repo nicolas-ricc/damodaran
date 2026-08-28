@@ -27,3 +27,9 @@ def test_fmp_client_is_internal_to_the_adapter() -> None:
 
 def test_only_the_composition_root_names_the_concrete_adapter() -> None:
     assert _offenders(r"\bFmpProvider\b", allowed={"fmp.py", "cli.py"}) == []
+
+
+def test_the_port_imports_no_concrete_adapter() -> None:
+    port = (SRC / "ingest" / "provider.py").read_text(encoding="utf-8")
+    assert re.search(r"from bot\.ingest\.(sec_edgar|fmp)\b", port) is None
+    assert re.search(r"import bot\.ingest\.(sec_edgar|fmp)\b", port) is None
