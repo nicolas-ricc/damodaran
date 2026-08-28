@@ -55,6 +55,11 @@ T = TypeVar("T")
 # analyst-consensus / story-type layer (M4.3+), which overrides this default.
 _HORIZON = 5
 
+# A cyclical company's "cycle average" margin is only meaningful once we hold at
+# least one full business cycle of annual margins; fewer years fall back to the
+# sector median rather than averaging a half-cycle.
+_MIN_CYCLE_YEARS = 4
+
 # Default nominal GDP growth used as the terminal-growth ceiling and the
 # rule-based revenue-growth anchor when no better figure is supplied. Roughly
 # long-run US nominal GDP; callers pass a country-specific value when known.
@@ -421,7 +426,7 @@ def _historical_growth_path(
     ]
     if not growths:
         return None
-    average = sum(growths) / len(growths)
+    average = fmean(growths)
     return (average,) * _HORIZON
 
 
@@ -679,7 +684,8 @@ def _resolve_operating_margin(
     high-growth: linear ramp from the company's own current margin to the
     sector median — margin improvement is half of a high-growth story.
     cyclical: the cycle's own average margin, not the current year's, so a
-    trough or peak year does not get projected forward as steady state.
+    trough or peak year does not get projected forward as steady state,
+    given at least `_MIN_CYCLE_YEARS` years of margin history.
     Every other archetype keeps the previous behaviour: a flat sector median.
     A manual override (scalar or list) always wins.
     """
@@ -696,8 +702,8 @@ def _resolve_operating_margin(
             value=_linear_path(company_margin, sector_margin),
             source=AssumptionSource.STORY_PATTERN,
         )
-    if story_type is StoryType.CYCLICAL and len(margin_history) >= 4:
-        cycle_avg = sum(margin_history) / len(margin_history)
+    if story_type is StoryType.CYCLICAL and len(margin_history) >= _MIN_CYCLE_YEARS:
+        cycle_avg = fmean(margin_history)
         return Sourced(
             value=(cycle_avg,) * _HORIZON, source=AssumptionSource.HISTORICAL_AVERAGE
         )

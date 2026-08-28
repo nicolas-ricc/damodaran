@@ -25,6 +25,7 @@ import duckdb
 import pytest
 
 from bot.storage.db import apply_schema, connect
+from bot.valuator import assumptions as assumptions_mod
 from bot.valuator.assumptions import (
     Assumptions,
     AssumptionSource,
@@ -803,3 +804,7 @@ def test_conventional_override_path_finds_the_ticker_yaml(tmp_path: Path) -> Non
 def test_conventional_override_path_is_none_when_missing_or_no_dir(tmp_path: Path) -> None:
     assert conventional_override_path(tmp_path, "MSFT") is None
     assert conventional_override_path(None, "MSFT") is None
+
+
+def test_cyclical_margin_needs_a_full_cycle_of_history() -> None:
+    assert assumptions_mod._MIN_CYCLE_YEARS == 4
