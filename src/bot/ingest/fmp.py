@@ -17,6 +17,7 @@ from typing import Any
 
 import httpx
 
+from bot.ingest.base import coerce_date
 from bot.ingest.provider import (
     CompanyInfo,
     FundamentalsBundle,
@@ -102,7 +103,7 @@ class FmpClient:
             sector=_str_or_none(profile.get("sector")),
             industry=_str_or_none(profile.get("industry")),
             is_actively_trading=bool(profile.get("isActivelyTrading", False)),
-            ipo_date=_date_or_none(profile.get("ipoDate")),
+            ipo_date=coerce_date(profile.get("ipoDate")),
         )
         log.info("fmp.lookup_company.found", ticker=info.ticker, country=info.country)
         return info
@@ -315,7 +316,10 @@ class FmpProvider:
 
 
 def _as_date(value: Any) -> date:
-    return value if isinstance(value, date) else date.fromisoformat(str(value)[:10])
+    parsed = coerce_date(value)
+    if parsed is None:
+        raise ValueError(f"FMP row has no usable date: {value!r}")
+    return parsed
 
 
 def _latest_filing_from_rows(rows: Iterable[dict[str, object]]) -> date | None:
@@ -331,9 +335,8 @@ def _latest_filing_from_rows(rows: Iterable[dict[str, object]]) -> date | None:
         filed_raw = entry.get("fillingDate") or entry.get("acceptedDate")
         if not filed_raw:
             continue
-        try:
-            filed = date.fromisoformat(str(filed_raw)[:10])
-        except ValueError:
+        filed = coerce_date(filed_raw)
+        if filed is None:
             continue
         if latest is None or filed > latest:
             latest = filed
@@ -346,16 +349,6 @@ def _str_or_none(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
-
-
-def _date_or_none(value: Any) -> date | None:
-    """Coerce an FMP date-ish string (e.g. ``ipoDate``) to a ``date``, or None."""
-    if not value:
-        return None
-    try:
-        return date.fromisoformat(str(value)[:10])
-    except ValueError:
-        return None
 
 
 def _float_or_none(value: Any) -> float | None:

@@ -33,7 +33,13 @@ from pathlib import Path
 
 import duckdb
 
-from bot.ingest.base import IngestResult, _log_refresh, refresh_run, transaction
+from bot.ingest.base import (
+    IngestResult,
+    _log_refresh,
+    coerce_date,
+    refresh_run,
+    transaction,
+)
 from bot.ingest.industry_mapping import (
     IndustryMapping,
     load_industry_mapping,
@@ -162,14 +168,7 @@ def latest_local_filing_date(
         "SELECT max(filing_date) FROM filings_log WHERE ticker = ? AND source = ?",
         [ticker.upper(), source],
     ).fetchone()
-    if row is None or row[0] is None:
-        return None
-    value = row[0]
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    return date.fromisoformat(str(value)[:10])
+    return coerce_date(row[0]) if row is not None else None
 
 
 def _resolve_status(failure_rate: float) -> str:
@@ -492,14 +491,7 @@ def _max_price_date(conn: duckdb.DuckDBPyConnection, ticker: str) -> date | None
         "SELECT max(date) FROM prices_daily WHERE ticker = ?",
         [ticker.upper()],
     ).fetchone()
-    if row is None or row[0] is None:
-        return None
-    value = row[0]
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    return date.fromisoformat(str(value)[:10])
+    return coerce_date(row[0]) if row is not None else None
 
 
 def refresh_prices(

@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 import duckdb
@@ -31,6 +31,24 @@ class IngestResult:
 
     def is_success(self) -> bool:
         return self.status == "success"
+
+
+def coerce_date(value: object) -> date | None:
+    """Coerce a DB cell or provider date-ish string to a ``date``.
+
+    ``None``/empty → None; ``datetime`` → its date; ``date`` → itself; any other
+    value is parsed as the first 10 chars of its ISO text, None if unparsable.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
 
 
 def _log_refresh(
