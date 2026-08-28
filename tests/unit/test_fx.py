@@ -29,6 +29,7 @@ def _seed(conn) -> None:
             FxRate(date=date(2023, 12, 29), rate_to_usd=1.1039),
             FxRate(date=date(2024, 1, 2), rate_to_usd=1.0950),
         ],
+        source="fmp",
     )
 
 
@@ -90,10 +91,16 @@ def test_to_usd_passes_through_none_amount(conn) -> None:
 
 def test_upsert_is_idempotent_and_updates(conn) -> None:
     upsert_fx_rates(
-        conn, currency="EUR", rates=[FxRate(date=date(2024, 1, 2), rate_to_usd=1.0950)]
+        conn,
+        currency="EUR",
+        rates=[FxRate(date=date(2024, 1, 2), rate_to_usd=1.0950)],
+        source="fmp",
     )
     upsert_fx_rates(
-        conn, currency="EUR", rates=[FxRate(date=date(2024, 1, 2), rate_to_usd=1.0951)]
+        conn,
+        currency="EUR",
+        rates=[FxRate(date=date(2024, 1, 2), rate_to_usd=1.0951)],
+        source="fmp",
     )
     count = conn.execute("SELECT COUNT(*) FROM currencies WHERE currency = 'EUR'").fetchone()
     assert count == (1,)
@@ -108,12 +115,13 @@ def test_upsert_returns_row_count(conn) -> None:
             FxRate(date=date(2024, 1, 2), rate_to_usd=1.0950),
             FxRate(date=date(2024, 1, 3), rate_to_usd=1.0920),
         ],
+        source="fmp",
     )
     assert n == 2
 
 
 def test_upsert_empty_is_noop(conn) -> None:
-    assert upsert_fx_rates(conn, currency="EUR", rates=[]) == 0
+    assert upsert_fx_rates(conn, currency="EUR", rates=[], source="fmp") == 0
 
 
 def test_import_fx_usd_is_success_with_zero_rows(conn) -> None:

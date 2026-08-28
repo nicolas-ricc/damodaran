@@ -8,9 +8,10 @@ happens.
 
 from __future__ import annotations
 
+import inspect
 from datetime import date
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import duckdb
 import pytest
@@ -18,12 +19,15 @@ import pytest
 from bot.ingest.provider import ProviderRateLimitError
 from bot.ingest.universe import (
     TickerOutcome,
+    TickerStatus,
     default_universe_path,
     latest_local_filing_date,
     load_universe,
     refresh_universe,
+    upsert_prices_daily,
 )
 from bot.storage.db import apply_schema, connect
+from bot.utils.fx import upsert_fx_rates
 from tests.fake_provider import FakeProvider
 
 
@@ -70,7 +74,7 @@ def test_skips_ticker_when_remote_filing_not_advanced() -> None:
     conn = _db()
     conn.execute(
         "INSERT INTO filings_log (ticker, filing_type, filing_date, source) "
-        "VALUES ('AAPL', 'FY', '2023-11-03', 'fmp')"
+        "VALUES ('AAPL', 'FY', '2023-11-03', 'fake')"
     )
     provider = FakeProvider(filing_dates={"AAPL": date(2023, 11, 3)})
 
@@ -86,7 +90,7 @@ def test_imports_when_remote_filing_advanced() -> None:
     conn = _db()
     conn.execute(
         "INSERT INTO filings_log (ticker, filing_type, filing_date, source) "
-        "VALUES ('AAPL', 'FY', '2023-11-03', 'fmp')"
+        "VALUES ('AAPL', 'FY', '2023-11-03', 'fake')"
     )
     provider = FakeProvider(filing_dates={"AAPL": date(2024, 11, 1)})
 
@@ -110,7 +114,7 @@ def test_probe_failure_falls_through_to_import() -> None:
     conn = _db()
     conn.execute(
         "INSERT INTO filings_log (ticker, filing_type, filing_date, source) "
-        "VALUES ('AAPL', 'FY', '2023-11-03', 'fmp')"
+        "VALUES ('AAPL', 'FY', '2023-11-03', 'fake')"
     )
 
     class _BoomingProvider(FakeProvider):
@@ -133,8 +137,8 @@ def test_latest_local_filing_date_reads_max() -> None:
             "VALUES ('AAPL', 'FY', ?, 'fmp')",
             [d],
         )
-    assert latest_local_filing_date(conn, "aapl") == date(2023, 11, 3)
-    assert latest_local_filing_date(conn, "MSFT") is None
+    assert latest_local_filing_date(conn, "aapl", "fmp") == date(2023, 11, 3)
+    assert latest_local_filing_date(conn, "MSFT", "fmp") is None
 
 
 # ---------- error isolation + status thresholds ----------
@@ -285,7 +289,7 @@ def test_rate_limit_raised_by_the_probe_stops_the_run_too(
     conn = _db()
     conn.execute(
         "INSERT INTO filings_log (ticker, filing_type, filing_date, source) "
-        "VALUES ('CCC', 'FY', '2024-01-01', 'fmp')"
+        "VALUES ('CCC', 'FY', '2024-01-01', 'fake')"
     )
 
     class _ProbeRateLimitedProvider(FakeProvider):
@@ -308,3 +312,12 @@ def test_rate_limit_raised_by_the_probe_stops_the_run_too(
     assert result.failed == 0
     assert result.status == "success"
     assert "universe.refresh.probe_failed" not in caplog.text
+
+
+def test_ticker_status_names_the_four_outcomes() -> None:
+    assert set(get_args(TickerStatus)) == {"imported", "skipped", "failed", "deferred"}
+
+
+def test_provider_neutral_writers_require_an_explicit_source() -> None:
+    for fn in (upsert_prices_daily, upsert_fx_rates, latest_local_filing_date):
+        assert inspect.signature(fn).parameters["source"].default is inspect.Parameter.empty

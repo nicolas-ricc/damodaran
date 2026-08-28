@@ -25,11 +25,13 @@ from __future__ import annotations
 
 import csv
 import uuid
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from importlib import resources
 from pathlib import Path
+from typing import Literal
 
 import duckdb
 
@@ -71,6 +73,8 @@ PARTIAL_MAX_FAILURE_RATE = 0.25
 # How often (in tickers processed) to emit a structlog progress line.
 DEFAULT_PROGRESS_EVERY = 50
 
+TickerStatus = Literal["imported", "skipped", "failed", "deferred"]
+
 
 @dataclass(frozen=True)
 class TickerOutcome:
@@ -80,7 +84,7 @@ class TickerOutcome:
     # "imported": fetched + upserted. "skipped": unchanged since last run.
     # "failed": the per-ticker import raised or returned an error result.
     # "deferred": not attempted (or the run was interrupted) by an FMP rate limit.
-    status: str
+    status: TickerStatus
     rows_affected: int = 0
     error_message: str | None = None
 
@@ -161,7 +165,7 @@ def _parse_universe_csv(text: str) -> list[str]:
 
 
 def latest_local_filing_date(
-    conn: duckdb.DuckDBPyConnection, ticker: str, source: str = "fmp"
+    conn: duckdb.DuckDBPyConnection, ticker: str, source: str
 ) -> date | None:
     """Return the newest ``filings_log`` date stored for ``ticker`` / ``source``."""
     row = conn.execute(
@@ -365,14 +369,14 @@ def _run_bulk_refresh(
     run_id = str(uuid.uuid4())
     total = len(items)
     outcomes: list[TickerOutcome] = []
-    imported = skipped = failed = deferred = 0
+    counts: Counter[TickerStatus] = Counter()
     rate_limited = False
 
     log.info(f"{label}.refresh.start", run_id=run_id, total=total)
     for index, item in enumerate(items, start=1):
         if rate_limited:
             outcomes.append(TickerOutcome(ticker=item.upper(), status="deferred"))
-            deferred += 1
+            counts["deferred"] += 1
             continue
         try:
             outcome = process(item)
@@ -380,17 +384,10 @@ def _run_bulk_refresh(
             log.warning(f"{label}.refresh.rate_limited", item=item, error=str(exc))
             rate_limited = True
             outcomes.append(TickerOutcome(ticker=item.upper(), status="deferred"))
-            deferred += 1
+            counts["deferred"] += 1
             continue
         outcomes.append(outcome)
-        if outcome.status == "imported":
-            imported += 1
-        elif outcome.status == "skipped":
-            skipped += 1
-        elif outcome.status == "deferred":
-            deferred += 1
-        else:
-            failed += 1
+        counts[outcome.status] += 1
 
         if progress_every > 0 and index % progress_every == 0:
             log.info(
@@ -398,15 +395,15 @@ def _run_bulk_refresh(
                 run_id=run_id,
                 processed=index,
                 total=total,
-                imported=imported,
-                skipped=skipped,
-                failed=failed,
-                deferred=deferred,
+                imported=counts["imported"],
+                skipped=counts["skipped"],
+                failed=counts["failed"],
+                deferred=counts["deferred"],
             )
 
     finished = datetime.now()
-    attempted = total - deferred
-    failure_rate = failed / attempted if attempted else 0.0
+    attempted = total - counts["deferred"]
+    failure_rate = counts["failed"] / attempted if attempted else 0.0
     status = _resolve_status(failure_rate)
     result = UniverseRefreshResult(
         run_id=run_id,
@@ -414,9 +411,9 @@ def _run_bulk_refresh(
         finished_at=finished,
         status=status,
         total=total,
-        imported=imported,
-        skipped=skipped,
-        failed=failed,
+        imported=counts["imported"],
+        skipped=counts["skipped"],
+        failed=counts["failed"],
         outcomes=outcomes,
     )
 
@@ -424,7 +421,7 @@ def _run_bulk_refresh(
         log.warning(
             f"{label}.refresh.failures",
             run_id=run_id,
-            failed=failed,
+            failed=counts["failed"],
             failure_rate=round(failure_rate, 4),
             tickers=[f.ticker for f in result.failures],
         )
@@ -434,10 +431,10 @@ def _run_bulk_refresh(
         run_id=run_id,
         status=status,
         total=total,
-        imported=imported,
-        skipped=skipped,
-        failed=failed,
-        deferred=deferred,
+        imported=counts["imported"],
+        skipped=counts["skipped"],
+        failed=counts["failed"],
+        deferred=counts["deferred"],
     )
 
     _log_bulk_refresh(conn, result, source=source)
@@ -458,7 +455,7 @@ def upsert_prices_daily(
     ticker: str,
     bars: list[PriceBar],
     currency: str | None = None,
-    source: str = "fmp",
+    source: str,
 ) -> int:
     """Insert/replace daily price rows for ``ticker``. Returns rows written.
 
@@ -649,7 +646,7 @@ def _refresh_one(
     """Refresh a single ticker, never raising. Returns its outcome."""
     sym = ticker.upper()
     try:
-        local_latest = latest_local_filing_date(conn, sym)
+        local_latest = latest_local_filing_date(conn, sym, provider.name)
         if local_latest is not None and _should_skip(sym, local_latest, provider):
             log.info("universe.refresh.skip", ticker=sym, latest_filing=local_latest)
             return TickerOutcome(ticker=sym, status="skipped")

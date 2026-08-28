@@ -323,7 +323,7 @@ def test_multi_currency_normalization(conn: duckdb.DuckDBPyConnection) -> None:
     # Price listed in USD, but the position is held/cost-based in EUR.
     _seed_price(conn, "ACME", 110.0, on=day, currency="USD")
     upsert_fx_rates(
-        conn, currency="EUR", rates=[FxRate(date=day, rate_to_usd=1.10)]
+        conn, currency="EUR", rates=[FxRate(date=day, rate_to_usd=1.10)], source="fmp"
     )
     client = FakeIbkrClient(
         accounts=["DU1"],

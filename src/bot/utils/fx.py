@@ -45,7 +45,7 @@ def upsert_fx_rates(
     *,
     currency: str,
     rates: list[FxRate],
-    source: str = "fmp",
+    source: str,
 ) -> int:
     """Insert/replace daily FX rows for ``currency``. Returns the row count.
 
