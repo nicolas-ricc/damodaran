@@ -193,3 +193,14 @@ def test_refresh_fmp_forwards_the_configured_industry_mapping_path(
 
     assert result.exit_code == 0
     assert captured["mapping_path"] == custom
+
+
+def test_universe_tickers_applies_limit_and_returns_the_path(tmp_path: Path) -> None:
+    from bot.cli import _universe_tickers
+
+    csv_path = tmp_path / "u.csv"
+    csv_path.write_text("ticker\nAAPL\nMSFT\nNVDA\n")
+    path, tickers = _universe_tickers(csv_path, limit=2)
+    assert path == csv_path
+    assert tickers == ["AAPL", "MSFT"]
+    assert _universe_tickers(csv_path, limit=None)[1] == ["AAPL", "MSFT", "NVDA"]

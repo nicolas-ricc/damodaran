@@ -171,6 +171,15 @@ def _refresh_damodaran(
     return 1
 
 
+def _universe_tickers(universe: Path | None, limit: int | None) -> tuple[Path, list[str]]:
+    """Resolve the universe file, load its tickers and apply ``--limit``."""
+    path = universe or default_universe_path()
+    tickers = load_universe(path)
+    if limit is not None:
+        tickers = tickers[:limit]
+    return path, tickers
+
+
 def _refresh_fmp_universe(
     conn: duckdb.DuckDBPyConnection,
     settings: Settings,
@@ -183,10 +192,7 @@ def _refresh_fmp_universe(
     most 5% of the universe failed, ``2`` (data error) when more than 5% failed.
     Per-ticker failures are summarised on stderr; they never abort the run.
     """
-    path = universe or default_universe_path()
-    tickers = load_universe(path)
-    if limit is not None:
-        tickers = tickers[:limit]
+    path, tickers = _universe_tickers(universe, limit)
     if not tickers:
         typer.echo(f"Universe file {path} has no tickers.", err=True)
         return 2
@@ -212,10 +218,7 @@ def _refresh_prices(
     limit: int | None = None,
 ) -> int:
     """Refresh EOD prices for the universe. Returns the exit code (0 ok, 2 data error)."""
-    path = universe or default_universe_path()
-    tickers = load_universe(path)
-    if limit is not None:
-        tickers = tickers[:limit]
+    path, tickers = _universe_tickers(universe, limit)
     if not tickers:
         typer.echo(f"Universe file {path} has no tickers.", err=True)
         return 2
