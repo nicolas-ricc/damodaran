@@ -560,7 +560,6 @@ def _refresh_one_price(
                 )
 
             run.rows_affected = affected
-            run.details = {"ticker": sym}
         assert run.result is not None  # refresh_run always sets it on exit
         result = run.result
         if result.is_success():

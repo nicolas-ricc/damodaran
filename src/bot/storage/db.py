@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+import re
 from importlib import resources
 from pathlib import Path
 
 import duckdb
 
 DbPath = Path | str
+
+_CREATE_TABLE = re.compile(
+    r"^\s*CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+", re.IGNORECASE | re.MULTILINE
+)
+
+
+def _count_create_tables(sql: str) -> int:
+    """Count CREATE TABLE statements, ignoring SQL line comments."""
+    uncommented = "\n".join(line.split("--", 1)[0] for line in sql.splitlines())
+    return len(_CREATE_TABLE.findall(uncommented))
 
 
 def connect(db_path: DbPath) -> duckdb.DuckDBPyConnection:
@@ -30,4 +41,4 @@ def apply_schema(conn: duckdb.DuckDBPyConnection) -> None:
 def schema_table_count() -> int:
     """Number of tables ``schema.sql`` defines (used by ``bot doctor``)."""
     sql = resources.files("bot.storage").joinpath("schema.sql").read_text()
-    return sql.count("CREATE TABLE IF NOT EXISTS")
+    return _count_create_tables(sql)
