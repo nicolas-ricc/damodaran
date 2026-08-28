@@ -37,7 +37,7 @@ class MarketDataProvider(Protocol):
 
 Canonical records live beside the Protocol in `provider.py`:
 
-- `CompanyInfo` and `ParsedCompanyData` **move** there from `fmp.py` (unchanged shape;
+- `CompanyInfo` and `ParsedCompanyData` **move** there from `sec_edgar.py` (unchanged shape;
   `fmp.py` re-imports them). Adapters depend on canonical types, never the reverse.
 - New frozen dataclass `FundamentalsBundle`: `info: CompanyInfo | None`,
   `annual: ParsedCompanyData`, `quarterly: ParsedCompanyData`,
