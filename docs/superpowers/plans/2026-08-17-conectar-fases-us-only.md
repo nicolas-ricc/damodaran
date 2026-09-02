@@ -1423,6 +1423,22 @@ registro para que el plan y el código vuelvan a coincidir:
    `upsert_fx_rates(currency=...)`, igual que en los tests de la Tarea 1 del
    plan del port. El diseño quedó corregido el 2026-08-24.
 
+### Corrida real (Tarea 13) — ejecutada 2026-09-02
+
+`doctor` OK · `refresh --damodaran` OK (96 sectores, 96/96 con WACC; 158 países)
+· `refresh --fmp --limit 25`: 3 imported / 22 failed (cobertura de símbolos del
+tier gratis; exit 2 honesto al 88%) · `refresh --prices --limit 25`: 3 imported
+/ 9 failed / **13 deferred** — el 429 real disparó el corte limpio y la NOTE en
+vivo · `screen --preset damodaran_value --top 10`: 3 screened → 2 candidatos
+(ADBE #1 MoS 1.38x, ABBV #2 MoS 0.67x), AAPL rechazado con `failed_gates`
+reales, `Excluded (ADR 0006): 0` (los 3 tenían benchmark) · `analyze
+--from-screen`: 2 reportes (md+html). Roturas encontradas y arregladas:
+`fix(fmp)` ×3 — migración a la API `/stable` (la v3 devuelve 403 para claves
+posteriores a 2025-08-31), `limit` de estados financieros ≤5 en el tier gratis
+(402), y renombres de campos del dialecto stable (`weightedAverageShsOutDil`,
+`netDividendsPaid`) + market cap del profile al último bar fresco (el EOD
+stable ya no trae `marketCap`).
+
 ## Self-Review
 
 - **Cobertura del objetivo:** refresh real (T1, T2, T4, T13) → screen honesto (T5, T6) → analyze conectado (T7, T8, T9) → cadena screen→analyze (T10) → verificación (T11, T12, T13) → docs (T14). Los muertos de la auditoría dentro del alcance quedan todos con tarea; los fuera de alcance están listados explícitamente arriba.
