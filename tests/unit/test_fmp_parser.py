@@ -635,3 +635,14 @@ def test_filing_date_extraction_accepts_stable_and_legacy_field_names() -> None:
 
     legacy_rows = [{"fillingDate": "2023-02-23", "date": "2022-12-31"}]
     assert _latest_filing_from_rows(legacy_rows) == date(2023, 2, 23)
+
+
+def test_statement_default_limit_is_free_tier_safe() -> None:
+    """FMP's free tier 402s on limit > 5 — the default must stay within it."""
+    import inspect
+
+    from bot.ingest.fmp import STATEMENT_LIMIT, FmpClient
+
+    assert STATEMENT_LIMIT <= 5
+    for method in (FmpClient.income_statement, FmpClient.balance_sheet, FmpClient.cash_flow):
+        assert inspect.signature(method).parameters["limit"].default == STATEMENT_LIMIT

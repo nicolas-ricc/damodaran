@@ -39,6 +39,9 @@ log = get_logger(__name__)
 
 BASE_URL = "https://financialmodelingprep.com/stable"
 
+# FMP's free tier rejects limit > 5 on statement endpoints (HTTP 402, "Premium Query Parameter").
+STATEMENT_LIMIT = 5
+
 
 class FmpRateLimitError(ProviderRateLimitError):
     """FMP returned HTTP 429: the API key's daily quota is exhausted.
@@ -215,19 +218,19 @@ class FmpClient:
         return [e for e in data if isinstance(e, dict)]
 
     def income_statement(
-        self, ticker: str, *, period: str = "annual", limit: int = 10
+        self, ticker: str, *, period: str = "annual", limit: int = STATEMENT_LIMIT
     ) -> list[dict[str, Any]]:
         """Return the income-statement array for ``ticker`` (``annual``/``quarter``)."""
         return self._statement("income-statement", ticker, period=period, limit=limit)
 
     def balance_sheet(
-        self, ticker: str, *, period: str = "annual", limit: int = 10
+        self, ticker: str, *, period: str = "annual", limit: int = STATEMENT_LIMIT
     ) -> list[dict[str, Any]]:
         """Return the balance-sheet array for ``ticker`` (``annual``/``quarter``)."""
         return self._statement("balance-sheet-statement", ticker, period=period, limit=limit)
 
     def cash_flow(
-        self, ticker: str, *, period: str = "annual", limit: int = 10
+        self, ticker: str, *, period: str = "annual", limit: int = STATEMENT_LIMIT
     ) -> list[dict[str, Any]]:
         """Return the cash-flow array for ``ticker`` (``annual``/``quarter``)."""
         return self._statement("cash-flow-statement", ticker, period=period, limit=limit)
