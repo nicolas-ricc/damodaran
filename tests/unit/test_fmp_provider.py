@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 
 from bot.ingest.fmp import FmpProvider
@@ -38,6 +38,9 @@ class _StubClient:
 
     def lookup_company(self, ticker: str) -> None:
         return None
+
+    def current_market_cap(self, ticker: str) -> float | None:
+        raise AssertionError("current_market_cap should not be called for a stale newest bar")
 
     def close(self) -> None:
         self.closed = True
@@ -104,3 +107,61 @@ def test_lazily_opens_one_client_shared_across_many_calls(
     p.fundamentals("BBB")
 
     assert len(instances) == 1, f"expected one shared client, got {len(instances)}"
+
+
+class _FreshBarsClient(_StubClient):
+    """Newest bar is within 7 days of today and has no market_cap."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.market_cap_calls: list[str] = []
+        today = date.today()
+        self._newest = today - timedelta(days=2)
+        self._older = today - timedelta(days=3)
+
+    def historical_prices(
+        self, ticker: str, *, start: date | None = None, end: date | None = None
+    ) -> list[dict[str, Any]]:
+        # FMP returns newest-first; the code must not assume ordering.
+        return [
+            {"date": self._newest.isoformat(), "close": 11.0, "volume": 100.0, "market_cap": None},
+            {"date": self._older.isoformat(), "close": 10.0, "volume": 90.0, "market_cap": None},
+        ]
+
+    def current_market_cap(self, ticker: str) -> float | None:
+        self.market_cap_calls.append(ticker)
+        return 123456.0
+
+
+def test_daily_prices_attaches_market_cap_to_the_fresh_newest_bar() -> None:
+    stub = _FreshBarsClient()
+    p = FmpProvider(api_key="test-key")
+    p._client = stub  # type: ignore[assignment]
+
+    bars = p.daily_prices("ACME", since=None)
+
+    by_date = {b.date: b for b in bars}
+    assert by_date[stub._newest].market_cap == 123456.0
+    assert by_date[stub._older].market_cap is None
+    assert stub.market_cap_calls == ["ACME"]
+
+
+class _StaleBarsClient(_StubClient):
+    """Newest bar is older than 7 days (historical backfill) — no cap request."""
+
+    def historical_prices(
+        self, ticker: str, *, start: date | None = None, end: date | None = None
+    ) -> list[dict[str, Any]]:
+        return [{"date": "2023-01-03", "close": 9.0, "volume": 80.0, "market_cap": None}]
+
+
+def test_daily_prices_does_not_attach_market_cap_to_a_stale_newest_bar() -> None:
+    stub = _StaleBarsClient()
+    p = FmpProvider(api_key="test-key")
+    p._client = stub  # type: ignore[assignment]
+
+    bars = p.daily_prices("ACME", since=None)
+
+    assert bars == [
+        PriceBar(date=date(2023, 1, 3), close=9.0, volume=80.0, market_cap=None)
+    ]

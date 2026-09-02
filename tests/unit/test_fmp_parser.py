@@ -646,3 +646,63 @@ def test_statement_default_limit_is_free_tier_safe() -> None:
     assert STATEMENT_LIMIT <= 5
     for method in (FmpClient.income_statement, FmpClient.balance_sheet, FmpClient.cash_flow):
         assert inspect.signature(method).parameters["limit"].default == STATEMENT_LIMIT
+
+
+def test_parse_maps_stable_dialect_shares_diluted() -> None:
+    """Stable renamed weightedAverageShsDilOut -> weightedAverageShsOutDil."""
+    income = [
+        {
+            "date": "2023-12-31",
+            "calendarYear": "2023",
+            "period": "FY",
+            "revenue": 1000,
+            "weightedAverageShsOutDil": 5000000,
+        }
+    ]
+    result = parse_fmp_fundamentals("AAPL", income, [], [])
+    by_year = {r["fiscal_year"]: r for r in result.annual}
+    assert by_year[2023]["shares_diluted"] == 5000000
+
+
+def test_parse_still_maps_legacy_v3_shares_diluted() -> None:
+    income = [
+        {
+            "date": "2023-12-31",
+            "calendarYear": "2023",
+            "period": "FY",
+            "revenue": 1000,
+            "weightedAverageShsDilOut": 4900000,
+        }
+    ]
+    result = parse_fmp_fundamentals("AAPL", income, [], [])
+    by_year = {r["fiscal_year"]: r for r in result.annual}
+    assert by_year[2023]["shares_diluted"] == 4900000
+
+
+def test_parse_maps_stable_dialect_dividends_paid() -> None:
+    """Stable renamed dividendsPaid -> netDividendsPaid."""
+    cashflow = [
+        {
+            "date": "2023-12-31",
+            "calendarYear": "2023",
+            "period": "FY",
+            "netDividendsPaid": -1234,
+        }
+    ]
+    result = parse_fmp_fundamentals("AAPL", [], [], cashflow)
+    by_year = {r["fiscal_year"]: r for r in result.annual}
+    assert by_year[2023]["dividends_paid"] == -1234
+
+
+def test_parse_still_maps_legacy_v3_dividends_paid() -> None:
+    cashflow = [
+        {
+            "date": "2023-12-31",
+            "calendarYear": "2023",
+            "period": "FY",
+            "dividendsPaid": -4321,
+        }
+    ]
+    result = parse_fmp_fundamentals("AAPL", [], [], cashflow)
+    by_year = {r["fiscal_year"]: r for r in result.annual}
+    assert by_year[2023]["dividends_paid"] == -4321

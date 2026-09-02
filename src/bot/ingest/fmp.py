@@ -18,6 +18,7 @@ here (M2.1). Fundamentals ingestion lands in a later slice.
 
 from __future__ import annotations
 
+import dataclasses
 from collections.abc import Iterable
 from datetime import date
 from typing import Any
@@ -152,6 +153,13 @@ class FmpClient:
             out.append({"date": str(d)[:10], "rate_to_usd": float(close)})
         log.info("fmp.historical_fx.fetched", currency=ccy, rows=len(out))
         return out
+
+    def current_market_cap(self, ticker: str) -> float | None:
+        """Current market cap from ``/profile`` (stable's EOD rows carry none)."""
+        data = self._get("/profile", params={"symbol": ticker.upper()})
+        if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+            return None
+        return _float_or_none(data[0].get("marketCap"))
 
     def historical_prices(
         self,
@@ -290,8 +298,9 @@ class FmpProvider:
         )
 
     def daily_prices(self, ticker: str, since: date | None) -> list[PriceBar]:
-        rows = self._fmp().historical_prices(ticker.upper(), start=since, end=None)
-        return [
+        sym = ticker.upper()
+        rows = self._fmp().historical_prices(sym, start=since, end=None)
+        bars = [
             PriceBar(
                 date=_as_date(r["date"]),
                 close=_float_or_none(r.get("close")),
@@ -300,6 +309,14 @@ class FmpProvider:
             )
             for r in rows
         ]
+        if bars:
+            newest_idx = max(range(len(bars)), key=lambda i: bars[i].date)
+            newest = bars[newest_idx]
+            if newest.market_cap is None and (date.today() - newest.date).days <= 7:
+                cap = self._fmp().current_market_cap(sym)
+                if cap is not None:
+                    bars[newest_idx] = dataclasses.replace(newest, market_cap=cap)
+        return bars
 
     def fx_rates(self, currency: str, since: date | None) -> list[FxRate]:
         rows = self._fmp().historical_fx(currency.upper(), start=since, end=None)
@@ -427,6 +444,7 @@ _INCOME_FIELD_MAP: dict[str, str] = {
     "incomeTaxExpense": "tax_expense",
     "netIncome": "net_income",
     "weightedAverageShsDilOut": "shares_diluted",
+    "weightedAverageShsOutDil": "shares_diluted",
     "depreciationAndAmortization": "depreciation",
 }
 
@@ -444,6 +462,7 @@ _CASHFLOW_FIELD_MAP: dict[str, str] = {
     "operatingCashFlow": "operating_cashflow",
     "freeCashFlow": "free_cashflow",
     "dividendsPaid": "dividends_paid",
+    "netDividendsPaid": "dividends_paid",
 }
 
 
