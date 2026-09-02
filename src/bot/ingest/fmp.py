@@ -1,9 +1,16 @@
 """Financial Modeling Prep (FMP) adapter — HTTP client + auth + ticker lookup.
 
-Thin client over the FMP REST API. Plays the same role as ``SecEdgarClient`` but
-for global coverage (international fundamentals + EOD prices). The API key is read
-from ``BOT_FMP_API_KEY`` (see :class:`bot.config.Settings`) and passed to FMP as
-the ``apikey`` query parameter on every request.
+Thin client over the FMP REST API (the ``/stable`` surface — FMP retired
+``/api/v3`` for API keys created after 2025-08-31). Plays the same role as
+``SecEdgarClient`` but for global coverage (international fundamentals + EOD
+prices). The API key is read from ``BOT_FMP_API_KEY`` (see
+:class:`bot.config.Settings`) and passed to FMP as the ``apikey`` query
+parameter on every request.
+
+Parsers tolerate both the ``/stable`` and legacy ``/api/v3`` response
+dialects (field renames such as ``fillingDate``/``filingDate`` and
+``calendarYear``/``fiscalYear``), since existing VCR fixtures still carry v3
+response bodies.
 
 Only the ticker lookup and exchange/country listing endpoints are implemented
 here (M2.1). Fundamentals ingestion lands in a later slice.
@@ -30,7 +37,7 @@ from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
 
-BASE_URL = "https://financialmodelingprep.com/api/v3"
+BASE_URL = "https://financialmodelingprep.com/stable"
 
 
 class FmpRateLimitError(ProviderRateLimitError):
@@ -85,26 +92,14 @@ class FmpClient:
     def lookup_company(self, ticker: str) -> CompanyInfo | None:
         """Return normalized basic info for ``ticker``, or None if not found.
 
-        FMP's ``/profile/{ticker}`` endpoint returns a JSON array: a single
-        profile object for a known symbol, or an empty array for an unknown one.
+        FMP's ``/profile`` endpoint returns a JSON array: a single profile
+        object for a known symbol, or an empty array for an unknown one.
         """
-        data = self._get(f"/profile/{ticker.upper()}")
+        data = self._get("/profile", params={"symbol": ticker.upper()})
         if not isinstance(data, list) or not data:
             log.info("fmp.lookup_company.not_found", ticker=ticker)
             return None
-        profile = data[0]
-        info = CompanyInfo(
-            ticker=str(profile.get("symbol", ticker)).upper(),
-            name=str(profile.get("companyName", "")),
-            exchange=_str_or_none(profile.get("exchange")),
-            exchange_short_name=_str_or_none(profile.get("exchangeShortName")),
-            country=_str_or_none(profile.get("country")),
-            currency=_str_or_none(profile.get("currency")),
-            sector=_str_or_none(profile.get("sector")),
-            industry=_str_or_none(profile.get("industry")),
-            is_actively_trading=bool(profile.get("isActivelyTrading", False)),
-            ipo_date=coerce_date(profile.get("ipoDate")),
-        )
+        info = _company_info_from_profile(data[0], fallback_ticker=ticker)
         log.info("fmp.lookup_company.found", ticker=info.ticker, country=info.country)
         return info
 
@@ -124,7 +119,7 @@ class FmpClient:
     ) -> list[dict[str, Any]]:
         """Return daily {currency}/USD rates as ``[{"date", "rate_to_usd"}, ...]``.
 
-        Uses FMP's ``/historical-price-full/{PAIR}`` endpoint for the forex pair
+        Uses FMP's ``/historical-price-eod/full`` endpoint for the forex pair
         ``{CURRENCY}USD`` (e.g. ``EURUSD``). The daily ``close`` is taken as the
         rate that converts one unit of ``currency`` into USD. USD itself needs no
         request — it is the numeraire — so it returns an empty list.
@@ -132,13 +127,13 @@ class FmpClient:
         ccy = currency.upper()
         if ccy == "USD":
             return []
-        params: dict[str, Any] = {}
+        params: dict[str, Any] = {"symbol": f"{ccy}USD"}
         if start is not None:
             params["from"] = start.isoformat()
         if end is not None:
             params["to"] = end.isoformat()
-        data = self._get(f"/historical-price-full/{ccy}USD", params=params)
-        historical = data.get("historical") if isinstance(data, dict) else None
+        data = self._get("/historical-price-eod/full", params=params)
+        historical = _unwrap_historical(data)
         if not isinstance(historical, list):
             log.info("fmp.historical_fx.empty", currency=ccy)
             return []
@@ -164,21 +159,22 @@ class FmpClient:
     ) -> list[dict[str, Any]]:
         """Return daily EOD price rows for ``ticker`` as a list of dicts.
 
-        Uses FMP's ``/historical-price-full/{TICKER}`` endpoint. Each returned
+        Uses FMP's ``/historical-price-eod/full`` endpoint. Each returned
         dict carries ``date`` (``YYYY-MM-DD``), ``close``, ``volume`` and
         ``market_cap`` (the last derived from FMP's ``marketCap`` field when
-        present, else ``None``). ``start``/``end`` are passed as FMP's
+        present, else ``None`` — the stable endpoint no longer returns
+        ``marketCap`` at all). ``start``/``end`` are passed as FMP's
         ``from``/``to`` query parameters to bound the fetched window — used by
         :meth:`FmpProvider.daily_prices` for incremental fetches.
         """
         sym = ticker.upper()
-        params: dict[str, Any] = {}
+        params: dict[str, Any] = {"symbol": sym}
         if start is not None:
             params["from"] = start.isoformat()
         if end is not None:
             params["to"] = end.isoformat()
-        data = self._get(f"/historical-price-full/{sym}", params=params)
-        historical = data.get("historical") if isinstance(data, dict) else None
+        data = self._get("/historical-price-eod/full", params=params)
+        historical = _unwrap_historical(data)
         if not isinstance(historical, list):
             log.info("fmp.historical_prices.empty", ticker=sym)
             return []
@@ -211,8 +207,8 @@ class FmpClient:
         array (one object per fiscal period), or ``[]`` for an unknown symbol.
         """
         data = self._get(
-            f"/{kind}/{ticker.upper()}",
-            params={"period": period, "limit": limit},
+            f"/{kind}",
+            params={"symbol": ticker.upper(), "period": period, "limit": limit},
         )
         if not isinstance(data, list):
             return []
@@ -315,6 +311,21 @@ class FmpProvider:
         return _latest_filing_from_rows(rows)
 
 
+def _unwrap_historical(data: Any) -> list[Any] | None:
+    """Unwrap an EOD-price response body into its row list.
+
+    Stable's ``/historical-price-eod/full`` returns a flat JSON array of row
+    dicts. The legacy ``/api/v3`` shape (still used by some fixtures) wraps
+    the same rows in ``{"symbol": ..., "historical": [...]}``. Accept either.
+    """
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        historical = data.get("historical")
+        return historical if isinstance(historical, list) else None
+    return None
+
+
 def _as_date(value: Any) -> date:
     parsed = coerce_date(value)
     if parsed is None:
@@ -332,7 +343,9 @@ def _latest_filing_from_rows(rows: Iterable[dict[str, object]]) -> date | None:
     for entry in rows:
         if not isinstance(entry, dict):
             continue
-        filed_raw = entry.get("fillingDate") or entry.get("acceptedDate")
+        filed_raw = (
+            entry.get("filingDate") or entry.get("fillingDate") or entry.get("acceptedDate")
+        )
         if not filed_raw:
             continue
         filed = coerce_date(filed_raw)
@@ -341,6 +354,35 @@ def _latest_filing_from_rows(rows: Iterable[dict[str, object]]) -> date | None:
         if latest is None or filed > latest:
             latest = filed
     return latest
+
+
+def _company_info_from_profile(profile: dict[str, Any], *, fallback_ticker: str) -> CompanyInfo:
+    """Map one FMP ``/profile`` entry to :class:`CompanyInfo`.
+
+    Tolerates both response dialects. Legacy ``/api/v3`` bodies carry
+    ``exchange`` (full name) and ``exchangeShortName`` (short name). Stable's
+    ``/profile`` renames these: ``exchangeFullName`` is now the full name and
+    ``exchange`` is the short name. The presence of ``exchangeShortName``
+    distinguishes which dialect a given body is in.
+    """
+    if "exchangeShortName" in profile:
+        exchange = _str_or_none(profile.get("exchange"))
+        exchange_short_name = _str_or_none(profile.get("exchangeShortName"))
+    else:
+        exchange = _str_or_none(profile.get("exchangeFullName"))
+        exchange_short_name = _str_or_none(profile.get("exchange"))
+    return CompanyInfo(
+        ticker=str(profile.get("symbol", fallback_ticker)).upper(),
+        name=str(profile.get("companyName", "")),
+        exchange=exchange,
+        exchange_short_name=exchange_short_name,
+        country=_str_or_none(profile.get("country")),
+        currency=_str_or_none(profile.get("currency")),
+        sector=_str_or_none(profile.get("sector")),
+        industry=_str_or_none(profile.get("industry")),
+        is_actively_trading=bool(profile.get("isActivelyTrading", False)),
+        ipo_date=coerce_date(profile.get("ipoDate")),
+    )
 
 
 def _str_or_none(value: Any) -> str | None:
@@ -533,7 +575,12 @@ def _merge_statement(
             continue
         period_end = str(raw_period_end)[:10]
 
-        filed_raw = entry.get("fillingDate") or entry.get("acceptedDate") or raw_period_end
+        filed_raw = (
+            entry.get("filingDate")
+            or entry.get("fillingDate")
+            or entry.get("acceptedDate")
+            or raw_period_end
+        )
         filed = str(filed_raw)[:10]
         if period_end in latest_filed:
             # Same period reported twice within this statement -> restatement.
@@ -589,8 +636,8 @@ def _working_capital(raw: dict[str, Any]) -> float | None:
 
 
 def _fiscal_year(entry: dict[str, Any]) -> int | None:
-    """Resolve the fiscal year from ``calendarYear`` or the ``date`` year."""
-    cal = entry.get("calendarYear")
+    """Resolve the fiscal year from ``fiscalYear``/``calendarYear`` or the ``date`` year."""
+    cal = entry.get("fiscalYear") or entry.get("calendarYear")
     if cal is not None:
         try:
             return int(cal)
@@ -655,7 +702,9 @@ def _collect_fmp_filings(
         for entry in statement:
             if not isinstance(entry, dict):
                 continue
-            filed_raw = entry.get("fillingDate") or entry.get("acceptedDate")
+            filed_raw = (
+                entry.get("filingDate") or entry.get("fillingDate") or entry.get("acceptedDate")
+            )
             period = _str_or_none(entry.get("period"))
             if not filed_raw or period is None:
                 continue

@@ -11,7 +11,7 @@ interactions:
       Accept:
       - application/json
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/historical-price-full/EURUSD?from=2023-12-27&apikey=SCRUBBED
+    uri: https://financialmodelingprep.com/stable/historical-price-eod/full?symbol=EURUSD&from=2023-12-27&apikey=SCRUBBED
   response:
     status:
       code: 200

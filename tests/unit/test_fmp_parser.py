@@ -562,3 +562,76 @@ def test_company_row_does_not_warn_when_the_provider_has_no_industry() -> None:
     from bot.ingest.industry_mapping import IndustryMapping
 
     assert _unmapped_events(None, IndustryMapping(_entries={})) == []
+
+
+# ---------- /stable migration regression tests ----------
+#
+# FMP retired /api/v3 for API keys created after 2025-08-31 (403 on every
+# request); the adapter now targets /stable. These tests pin the dual-dialect
+# tolerance that lets both the new response shape and the old (still used by
+# some fixtures/cassettes) parse correctly.
+
+
+def test_lookup_company_maps_stable_dialect_profile() -> None:
+    from bot.ingest.fmp import _company_info_from_profile
+
+    stable_profile = {
+        "symbol": "AAPL",
+        "companyName": "Apple Inc.",
+        "exchange": "NASDAQ",
+        "exchangeFullName": "NASDAQ Global Select",
+        "country": "US",
+        "currency": "USD",
+        "sector": "Technology",
+        "industry": "Consumer Electronics",
+        "isActivelyTrading": True,
+        "ipoDate": "1980-12-12",
+    }
+    info = _company_info_from_profile(stable_profile, fallback_ticker="AAPL")
+    assert info.exchange == "NASDAQ Global Select"
+    assert info.exchange_short_name == "NASDAQ"
+
+
+def test_lookup_company_maps_legacy_v3_dialect_profile() -> None:
+    from bot.ingest.fmp import _company_info_from_profile
+
+    v3_profile = {
+        "symbol": "AAPL",
+        "companyName": "Apple Inc.",
+        "exchange": "NASDAQ Global Select",
+        "exchangeShortName": "NASDAQ",
+        "country": "US",
+        "currency": "USD",
+        "sector": "Technology",
+        "industry": "Consumer Electronics",
+        "isActivelyTrading": True,
+        "ipoDate": "1980-12-12",
+    }
+    info = _company_info_from_profile(v3_profile, fallback_ticker="AAPL")
+    assert info.exchange == "NASDAQ Global Select"
+    assert info.exchange_short_name == "NASDAQ"
+
+
+def test_unwrap_historical_accepts_flat_list_and_legacy_wrapped_dict() -> None:
+    from bot.ingest.fmp import _unwrap_historical
+
+    rows = [{"date": "2023-12-29", "close": 193.6}]
+    assert _unwrap_historical(rows) == rows
+    assert _unwrap_historical({"symbol": "AAPL", "historical": rows}) == rows
+
+
+def test_fiscal_year_accepts_stable_and_legacy_field_names() -> None:
+    from bot.ingest.fmp import _fiscal_year
+
+    assert _fiscal_year({"fiscalYear": "2025", "date": "2025-12-31"}) == 2025
+    assert _fiscal_year({"calendarYear": "2023", "date": "2023-12-31"}) == 2023
+
+
+def test_filing_date_extraction_accepts_stable_and_legacy_field_names() -> None:
+    from bot.ingest.fmp import _latest_filing_from_rows
+
+    stable_rows = [{"filingDate": "2024-02-22", "date": "2023-12-31"}]
+    assert _latest_filing_from_rows(stable_rows) == date(2024, 2, 22)
+
+    legacy_rows = [{"fillingDate": "2023-02-23", "date": "2022-12-31"}]
+    assert _latest_filing_from_rows(legacy_rows) == date(2023, 2, 23)
