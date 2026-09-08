@@ -1,42 +1,64 @@
 """Bulk universe ingest + incremental refresh (M2.6).
 
-This module orchestrates importing *thousands* of tickers from FMP in a single
-run. It is the engine behind ``bot refresh --fmp [--universe FILE]``.
+This module orchestrates importing *thousands* of tickers through a
+:class:`~bot.ingest.provider.MarketDataProvider` in a single run. It is the
+engine behind ``bot refresh --fmp [--universe FILE]``.
 
 Two ideas drive the design:
 
 * **Incremental, not full** (spec §4.4): fundamentals are invalidated *by event*
   (a new filing detected), never by a TTL. Before importing a ticker we read its
-  newest ``filings_log`` date and ask FMP for the company's latest filing date;
-  if it has not advanced since the last run we skip the import entirely. The
-  first run (empty ``filings_log``) imports everything.
+  newest ``filings_log`` date and ask the provider for the company's latest
+  filing date; if it has not advanced since the last run we skip the import
+  entirely. The first run (empty ``filings_log``) imports everything.
 * **Resilient, not fatal**: a single ticker failing (bad symbol, FMP hiccup)
   must not abort a 500-name run. Per-ticker errors are caught, recorded, and
   reported at the end. The run's overall status is derived from the *failure
   rate*, and the CLI maps that to an exit code.
 
 Everything here is pure in the adapter sense: functions accept a ``conn`` and an
-explicit ticker list / importer callable, hold no global state, and record the
-run in ``refresh_log``.
+explicit ticker list, fetch market data through a :class:`~bot.ingest.provider.MarketDataProvider`
+port instance, hold no global state, and record the run in ``refresh_log``.
 """
 
 from __future__ import annotations
 
 import csv
 import uuid
-from collections.abc import Callable, Iterable, Iterator
-from contextlib import contextmanager
+from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import date, datetime
-from functools import partial
+from datetime import date, datetime, timedelta
 from importlib import resources
 from pathlib import Path
+from typing import Literal
 
 import duckdb
 
-from bot.ingest.base import IngestResult, _log_refresh
-from bot.ingest.fmp import FmpClient, import_company_from_fmp, import_prices_from_fmp
-from bot.ingest.industry_mapping import load_industry_mapping, resolve_mapping_path
+from bot.ingest.base import (
+    IngestResult,
+    _log_refresh,
+    coerce_date,
+    refresh_run,
+    transaction,
+)
+from bot.ingest.industry_mapping import (
+    IndustryMapping,
+    load_industry_mapping,
+    resolve_mapping_path,
+)
+from bot.ingest.provider import (
+    CompanyInfo,
+    MarketDataProvider,
+    PriceBar,
+    ProviderRateLimitError,
+)
+from bot.ingest.sec_edgar import (
+    upsert_company,
+    upsert_filings,
+    upsert_financials_annual,
+    upsert_financials_quarterly,
+)
 from bot.utils.fx import import_fx_rates
 from bot.utils.logging import get_logger
 
@@ -51,10 +73,7 @@ PARTIAL_MAX_FAILURE_RATE = 0.25
 # How often (in tickers processed) to emit a structlog progress line.
 DEFAULT_PROGRESS_EVERY = 50
 
-# Importer signature: (conn, *, ticker, api_key) -> IngestResult.
-type Importer = Callable[..., IngestResult]
-# Latest-filing probe signature: (ticker) -> date | None.
-type LatestFilingProbe = Callable[[str], date | None]
+TickerStatus = Literal["imported", "skipped", "failed", "deferred"]
 
 
 @dataclass(frozen=True)
@@ -64,7 +83,8 @@ class TickerOutcome:
     ticker: str
     # "imported": fetched + upserted. "skipped": unchanged since last run.
     # "failed": the per-ticker import raised or returned an error result.
-    status: str
+    # "deferred": not attempted (or the run was interrupted) by an FMP rate limit.
+    status: TickerStatus
     rows_affected: int = 0
     error_message: str | None = None
 
@@ -84,9 +104,15 @@ class UniverseRefreshResult:
     outcomes: list[TickerOutcome] = field(default_factory=list)
 
     @property
+    def deferred(self) -> int:
+        """Tickers not attempted because FMP's daily quota was exhausted."""
+        return sum(1 for o in self.outcomes if o.status == "deferred")
+
+    @property
     def failure_rate(self) -> float:
-        """Fraction of the universe whose import failed (0.0 when empty)."""
-        return self.failed / self.total if self.total else 0.0
+        """Fraction of what was *attempted* that failed (0.0 when nothing was attempted)."""
+        attempted = self.total - self.deferred
+        return self.failed / attempted if attempted else 0.0
 
     @property
     def failures(self) -> list[TickerOutcome]:
@@ -139,62 +165,14 @@ def _parse_universe_csv(text: str) -> list[str]:
 
 
 def latest_local_filing_date(
-    conn: duckdb.DuckDBPyConnection, ticker: str, source: str = "fmp"
+    conn: duckdb.DuckDBPyConnection, ticker: str, source: str
 ) -> date | None:
     """Return the newest ``filings_log`` date stored for ``ticker`` / ``source``."""
     row = conn.execute(
         "SELECT max(filing_date) FROM filings_log WHERE ticker = ? AND source = ?",
         [ticker.upper(), source],
     ).fetchone()
-    if row is None or row[0] is None:
-        return None
-    value = row[0]
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    return date.fromisoformat(str(value)[:10])
-
-
-def make_fmp_latest_filing_probe(
-    api_key: str, client: FmpClient | None = None
-) -> LatestFilingProbe:
-    """Build a probe that returns a ticker's newest filing date from FMP.
-
-    Uses the lightweight annual income-statement endpoint (``limit=1``) and reads
-    its ``fillingDate`` (FMP's spelling). Returns ``None`` when FMP has nothing —
-    in which case the caller imports the ticker (better to try than to skip).
-
-    Pass ``client`` to reuse an open :class:`FmpClient` across probes (the bulk
-    refresh shares one for the whole run); otherwise each probe opens its own.
-    """
-
-    def probe(ticker: str) -> date | None:
-        if client is not None:
-            rows = client.income_statement(ticker, period="annual", limit=1)
-        else:
-            with FmpClient(api_key=api_key) as own:
-                rows = own.income_statement(ticker, period="annual", limit=1)
-        return _latest_filing_from_statements(rows)
-
-    return probe
-
-
-def _latest_filing_from_statements(rows: Iterable[dict[str, object]]) -> date | None:
-    latest: date | None = None
-    for entry in rows:
-        if not isinstance(entry, dict):
-            continue
-        filed_raw = entry.get("fillingDate") or entry.get("acceptedDate")
-        if not filed_raw:
-            continue
-        try:
-            filed = date.fromisoformat(str(filed_raw)[:10])
-        except ValueError:
-            continue
-        if latest is None or filed > latest:
-            latest = filed
-    return latest
+    return coerce_date(row[0]) if row is not None else None
 
 
 def _resolve_status(failure_rate: float) -> str:
@@ -205,79 +183,169 @@ def _resolve_status(failure_rate: float) -> str:
     return "error"
 
 
-def refresh_universe_from_fmp(
+def _company_row(
+    ticker: str,
+    info: CompanyInfo | None,
+    currency: str | None,
+    *,
+    source: str,
+    mapping: IndustryMapping,
+) -> dict[str, object]:
+    """Build the ``companies`` row from the provider's profile (+ parsed currency
+    fallback).
+
+    ``source`` is the owning provider's short id (``provider.name``, e.g. ``"fmp"``)
+    so ``companies.source`` traces back to whichever adapter supplied the row.
+
+    The profile's ``currency`` is preferred; the parsed statement currency is the
+    fallback so a company row always carries a currency even if the profile omits
+    it.
+
+    ``industry`` keeps the provider's own label for traceability;
+    ``industry_damodaran`` carries the translated label the sector-relative rules
+    and the valuator key off (spec §4.3.1), or ``None`` when unmapped. An unmapped
+    label is logged as a warning: it leaves every sector assumption ``unresolved``
+    (so ``analyze`` raises) and ``is_financial_services`` ``False`` (so a bank
+    slips past the §6.2 exclusion), and the only fix is a mapping-CSV row.
+    """
+    sym = ticker.upper()
+    if info is None:
+        return {
+            "ticker": sym,
+            "name": sym,
+            "currency": currency,
+            "source": source,
+            "status": "active",
+            "industry_damodaran": None,
+            "ipo_date": None,
+        }
+    damodaran_industry = mapping.resolve(source, info.industry)
+    if damodaran_industry is None and info.industry is not None:
+        log.warning(
+            "ingest.industry_mapping.unmapped",
+            ticker=sym,
+            provider=source,
+            provider_industry=info.industry,
+        )
+    return {
+        "ticker": sym,
+        "name": info.name or sym,
+        "country": info.country,
+        "exchange": info.exchange_short_name or info.exchange,
+        "industry": info.industry,
+        "industry_damodaran": damodaran_industry,
+        "currency": info.currency or currency,
+        "status": "active" if info.is_actively_trading else "inactive",
+        "source": source,
+        "ipo_date": info.ipo_date,
+    }
+
+
+def import_company(
     conn: duckdb.DuckDBPyConnection,
     *,
-    api_key: str,
+    ticker: str,
+    provider: MarketDataProvider,
+    mapping: IndustryMapping | None = None,
+    mapping_path: Path | None = None,
+) -> IngestResult:
+    """Fetch + upsert one ticker's fundamentals through the provider port.
+
+    Mirrors :func:`bot.ingest.sec_edgar.import_company_from_sec`: it returns the
+    same :class:`IngestResult` contract and reuses the existing
+    ``upsert_company`` / ``upsert_financials_*`` helpers. All writes happen in a
+    single transaction; the run is recorded in ``refresh_log`` under
+    ``provider.name``.
+
+    Pass ``mapping`` to reuse an already-loaded :class:`IndustryMapping` across
+    many tickers; when omitted, ``mapping_path`` (i.e.
+    ``Settings.industry_mapping_path``) is loaded for this call alone, falling
+    back to the packaged CSV when that file does not exist.
+    """
+    sym = ticker.upper()
+    with refresh_run(
+        conn,
+        source=provider.name,
+        log=log,
+        error_event="ingest.import.failed",
+        log_fail_event="ingest.refresh_log_insert_failed",
+    ) as run:
+        run.details = {"ticker": sym}
+        bundle = provider.fundamentals(sym)
+        currency = (
+            bundle.annual.company.get("currency") or bundle.quarterly.company.get("currency")
+        )
+        resolved_mapping = (
+            mapping
+            if mapping is not None
+            else load_industry_mapping(resolve_mapping_path(mapping_path))
+        )
+        company = _company_row(
+            sym, bundle.info, currency, source=provider.name, mapping=resolved_mapping
+        )
+        with transaction(conn):
+            upsert_company(conn, company)
+            annual = upsert_financials_annual(conn, bundle.annual.annual)
+            quarterly = upsert_financials_quarterly(conn, bundle.quarterly.quarterly)
+            filings = upsert_filings(conn, bundle.filings)
+        run.rows_affected = 1 + annual + quarterly + filings
+        run.details = {
+            "ticker": sym,
+            "annual": annual,
+            "quarterly": quarterly,
+            "filings": filings,
+            "currency": currency,
+        }
+    assert run.result is not None  # refresh_run always sets it on exit
+    return run.result
+
+
+def refresh_universe(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    provider: MarketDataProvider,
     tickers: list[str],
     progress_every: int = DEFAULT_PROGRESS_EVERY,
-    importer: Importer = import_company_from_fmp,
-    latest_filing_probe: LatestFilingProbe | None = None,
     mapping_path: Path | None = None,
 ) -> UniverseRefreshResult:
-    """Bulk-import ``tickers`` from FMP, skipping those unchanged since last run.
+    """Bulk-import ``tickers`` through ``provider``, skipping unchanged ones.
 
     For each ticker:
 
-    1. Probe FMP for the ticker's latest filing date and compare it to the newest
-       ``filings_log`` date already stored. If the remote date has *not* advanced
-       (and we have a local date), the ticker is **skipped**. A probe that errors
-       is non-fatal — we fall through and attempt the full import.
-    2. Otherwise import the ticker via ``importer`` (the M2.3 single-ticker
-       importer by default). Any exception or error ``IngestResult`` is caught,
-       recorded as a **failed** outcome, and the run continues.
+    1. Probe the provider for the ticker's latest filing date and compare it to
+       the newest ``filings_log`` date already stored. If the remote date has
+       *not* advanced (and we have a local date), the ticker is **skipped**. A
+       probe that errors is non-fatal — we fall through and attempt the full
+       import.
+    2. Otherwise import the ticker via :func:`import_company`. Any exception or
+       error ``IngestResult`` is caught, recorded as a **failed** outcome, and
+       the run continues.
+
+    A :class:`~bot.ingest.provider.ProviderRateLimitError` (from either the
+    probe or the import) stops the run cleanly: the remaining tickers are
+    recorded as **deferred**, not failed.
 
     Progress is logged via structlog every ``progress_every`` tickers. The
     aggregate status is derived from the failure rate (``_resolve_status``) and a
-    summary row is written to ``refresh_log`` (source ``fmp_universe``). ``importer``
-    and ``latest_filing_probe`` are injectable to keep the orchestrator testable
-    without live HTTP.
+    summary row is written to ``refresh_log`` (source ``f"{provider.name}_universe"``).
 
     ``mapping_path`` is the industry-mapping CSV to load for the run — the CLI
     passes ``Settings.industry_mapping_path`` so a user-edited CSV actually takes
     effect; a non-existent path falls back to the packaged copy.
     """
-    # Share one FmpClient (one connection pool) across the probe and the default
-    # importer for the whole run, instead of a fresh client — and TLS handshake —
-    # per ticker. Only the real FMP path needs it: a fully-injected importer +
-    # probe (tests) makes no live calls.
-    needs_client = importer is import_company_from_fmp or latest_filing_probe is None
-    with _shared_fmp_client(api_key, needed=needs_client) as shared_client:
-        probe = latest_filing_probe or make_fmp_latest_filing_probe(api_key, client=shared_client)
-        active_importer = importer
-        if importer is import_company_from_fmp and shared_client is not None:
-            # Load the mapping once for the whole bulk run instead of once per
-            # ticker (the default importer would otherwise re-read + re-parse
-            # the CSV on every single call).
-            active_importer = partial(
-                import_company_from_fmp,
-                client=shared_client,
-                mapping=load_industry_mapping(resolve_mapping_path(mapping_path)),
-            )
-
-        return _run_bulk_refresh(
-            conn,
-            items=tickers,
-            process=lambda ticker: _refresh_one(
-                conn, ticker=ticker, api_key=api_key, importer=active_importer, probe=probe
-            ),
-            source="fmp_universe",
-            label="universe",
-            progress_every=progress_every,
-        )
-
-
-@contextmanager
-def _shared_fmp_client(api_key: str, *, needed: bool) -> Iterator[FmpClient | None]:
-    """Yield one :class:`FmpClient` for a bulk run (or ``None`` when not needed),
-    closing it on exit. Centralises the open/close lifecycle the universe / prices
-    / fx orchestrators share; each still binds the client into its own importer."""
-    client = FmpClient(api_key=api_key) if needed else None
-    try:
-        yield client
-    finally:
-        if client is not None:
-            client.close()
+    # Load the mapping once for the whole bulk run instead of once per ticker
+    # (import_company would otherwise re-read + re-parse the CSV every call).
+    mapping = load_industry_mapping(resolve_mapping_path(mapping_path))
+    return _run_bulk_refresh(
+        conn,
+        items=tickers,
+        process=lambda ticker: _refresh_one(
+            conn, ticker=ticker, provider=provider, mapping=mapping
+        ),
+        source=f"{provider.name}_universe",
+        label="universe",
+        progress_every=progress_every,
+    )
 
 
 def _run_bulk_refresh(
@@ -293,26 +361,33 @@ def _run_bulk_refresh(
     log progress under ``{label}.refresh.*``, and write one ``source`` summary row
     to ``refresh_log``.
 
-    The caller owns the :class:`FmpClient` lifecycle and binds it into ``process``;
-    this driver only sequences the per-item work and aggregates the result, shared
-    by the universe / prices / fx refreshes.
+    The caller owns the provider's lifecycle and binds it into ``process``; this
+    driver only sequences the per-item work and aggregates the result, shared by
+    the universe / prices / fx refreshes.
     """
     started = datetime.now()
     run_id = str(uuid.uuid4())
     total = len(items)
     outcomes: list[TickerOutcome] = []
-    imported = skipped = failed = 0
+    counts: Counter[TickerStatus] = Counter()
+    rate_limited = False
 
     log.info(f"{label}.refresh.start", run_id=run_id, total=total)
     for index, item in enumerate(items, start=1):
-        outcome = process(item)
+        if rate_limited:
+            outcomes.append(TickerOutcome(ticker=item.upper(), status="deferred"))
+            counts["deferred"] += 1
+            continue
+        try:
+            outcome = process(item)
+        except ProviderRateLimitError as exc:
+            log.warning(f"{label}.refresh.rate_limited", item=item, error=str(exc))
+            rate_limited = True
+            outcomes.append(TickerOutcome(ticker=item.upper(), status="deferred"))
+            counts["deferred"] += 1
+            continue
         outcomes.append(outcome)
-        if outcome.status == "imported":
-            imported += 1
-        elif outcome.status == "skipped":
-            skipped += 1
-        else:
-            failed += 1
+        counts[outcome.status] += 1
 
         if progress_every > 0 and index % progress_every == 0:
             log.info(
@@ -320,13 +395,15 @@ def _run_bulk_refresh(
                 run_id=run_id,
                 processed=index,
                 total=total,
-                imported=imported,
-                skipped=skipped,
-                failed=failed,
+                imported=counts["imported"],
+                skipped=counts["skipped"],
+                failed=counts["failed"],
+                deferred=counts["deferred"],
             )
 
     finished = datetime.now()
-    failure_rate = failed / total if total else 0.0
+    attempted = total - counts["deferred"]
+    failure_rate = counts["failed"] / attempted if attempted else 0.0
     status = _resolve_status(failure_rate)
     result = UniverseRefreshResult(
         run_id=run_id,
@@ -334,9 +411,9 @@ def _run_bulk_refresh(
         finished_at=finished,
         status=status,
         total=total,
-        imported=imported,
-        skipped=skipped,
-        failed=failed,
+        imported=counts["imported"],
+        skipped=counts["skipped"],
+        failed=counts["failed"],
         outcomes=outcomes,
     )
 
@@ -344,7 +421,7 @@ def _run_bulk_refresh(
         log.warning(
             f"{label}.refresh.failures",
             run_id=run_id,
-            failed=failed,
+            failed=counts["failed"],
             failure_rate=round(failure_rate, 4),
             tickers=[f.ticker for f in result.failures],
         )
@@ -354,9 +431,10 @@ def _run_bulk_refresh(
         run_id=run_id,
         status=status,
         total=total,
-        imported=imported,
-        skipped=skipped,
-        failed=failed,
+        imported=counts["imported"],
+        skipped=counts["skipped"],
+        failed=counts["failed"],
+        deferred=counts["deferred"],
     )
 
     _log_bulk_refresh(conn, result, source=source)
@@ -371,56 +449,119 @@ def company_currency(conn: duckdb.DuckDBPyConnection, ticker: str) -> str | None
     return str(row[0]) if row is not None and row[0] else None
 
 
-def refresh_prices_from_fmp(
+def upsert_prices_daily(
     conn: duckdb.DuckDBPyConnection,
     *,
-    api_key: str,
+    ticker: str,
+    bars: list[PriceBar],
+    currency: str | None = None,
+    source: str,
+) -> int:
+    """Insert/replace daily price rows for ``ticker``. Returns rows written.
+
+    Replaces on the ``(ticker, date)`` primary key so re-running is idempotent.
+    Assumes it is called inside a single logical write.
+    """
+    if not bars:
+        return 0
+    sym = ticker.upper()
+    for bar in bars:
+        d_iso = bar.date.isoformat()
+        conn.execute(
+            "DELETE FROM prices_daily WHERE ticker = ? AND date = ?",
+            [sym, d_iso],
+        )
+        conn.execute(
+            """
+            INSERT INTO prices_daily
+                (ticker, date, close, volume, market_cap, currency, source)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [sym, d_iso, bar.close, bar.volume, bar.market_cap, currency, source],
+        )
+    return len(bars)
+
+
+def _max_price_date(conn: duckdb.DuckDBPyConnection, ticker: str) -> date | None:
+    """Return the latest stored price date for ``ticker``, or None if absent."""
+    row = conn.execute(
+        "SELECT max(date) FROM prices_daily WHERE ticker = ?",
+        [ticker.upper()],
+    ).fetchone()
+    return coerce_date(row[0]) if row is not None else None
+
+
+def refresh_prices(
+    conn: duckdb.DuckDBPyConnection,
+    *,
+    provider: MarketDataProvider,
     tickers: list[str],
     since_date: date | None = None,
     progress_every: int = DEFAULT_PROGRESS_EVERY,
-    importer: Importer = import_prices_from_fmp,
 ) -> UniverseRefreshResult:
-    """Bulk-refresh EOD prices for ``tickers`` from FMP (incremental per ticker).
+    """Bulk-refresh EOD prices for ``tickers`` through ``provider`` (incremental
+    per ticker).
 
-    Shares one :class:`FmpClient` across the run; per-ticker errors are isolated
-    into a failed outcome; a ``fmp_prices_universe`` summary row is written to
-    ``refresh_log``. Each ticker's currency is read from ``companies.currency`` and
-    passed through so ``prices_daily.currency`` is set for the screener's USD
-    market-cap conversion. ``importer`` is injectable for tests.
+    Shares one ``provider`` across the run; per-ticker errors are isolated into a
+    failed outcome; a ``f"{provider.name}_prices_universe"`` summary row is
+    written to ``refresh_log``. Each ticker's currency is read from
+    ``companies.currency`` and passed through so ``prices_daily.currency`` is set
+    for the screener's USD market-cap conversion.
     """
-    needs_client = importer is import_prices_from_fmp
-    with _shared_fmp_client(api_key, needed=needs_client) as shared_client:
-        active = importer
-        if importer is import_prices_from_fmp and shared_client is not None:
-            active = partial(import_prices_from_fmp, client=shared_client)
-
-        return _run_bulk_refresh(
-            conn,
-            items=tickers,
-            process=lambda ticker: _refresh_one_price(
-                conn, ticker=ticker, api_key=api_key, since_date=since_date, importer=active
-            ),
-            source="fmp_prices_universe",
-            label="prices",
-            progress_every=progress_every,
-        )
+    return _run_bulk_refresh(
+        conn,
+        items=tickers,
+        process=lambda ticker: _refresh_one_price(
+            conn, ticker=ticker, provider=provider, since_date=since_date
+        ),
+        source=f"{provider.name}_prices_universe",
+        label="prices",
+        progress_every=progress_every,
+    )
 
 
 def _refresh_one_price(
     conn: duckdb.DuckDBPyConnection,
     *,
     ticker: str,
-    api_key: str,
+    provider: MarketDataProvider,
     since_date: date | None,
-    importer: Importer,
 ) -> TickerOutcome:
-    """Refresh one ticker's prices, never raising. Returns its outcome."""
+    """Refresh one ticker's prices through the provider port, never raising."""
     sym = ticker.upper()
     try:
         currency = company_currency(conn, sym)
-        result = importer(
-            conn, ticker=sym, api_key=api_key, since_date=since_date, currency=currency
-        )
+        with refresh_run(
+            conn,
+            source=f"{provider.name}_prices",
+            log=log,
+            error_event="prices.import.failed",
+            log_fail_event="prices.refresh_log_insert_failed",
+        ) as run:
+            run.details = {"ticker": sym}
+
+            last = _max_price_date(conn, sym)
+            # Incremental lower bound: fetch strictly after the newest stored date.
+            since = since_date
+            if last is not None:
+                next_day = last + timedelta(days=1)
+                since = next_day if since is None or next_day > since else since
+
+            bars = provider.daily_prices(sym, since)
+
+            # Defensive: drop anything at or before the last stored date so a
+            # re-run that re-fetches an overlapping window still INSERTs nothing new.
+            if last is not None:
+                bars = [b for b in bars if b.date > last]
+
+            with transaction(conn):
+                affected = upsert_prices_daily(
+                    conn, ticker=sym, bars=bars, currency=currency, source=provider.name
+                )
+
+            run.rows_affected = affected
+        assert run.result is not None  # refresh_run always sets it on exit
+        result = run.result
         if result.is_success():
             return TickerOutcome(ticker=sym, status="imported", rows_affected=result.rows_affected)
         return TickerOutcome(
@@ -428,6 +569,8 @@ def _refresh_one_price(
             status="failed",
             error_message=result.error_message or "import returned non-success",
         )
+    except ProviderRateLimitError:
+        raise
     except Exception as exc:
         log.warning("prices.refresh.ticker_failed", ticker=sym, error=str(exc))
         return TickerOutcome(ticker=sym, status="failed", error_message=str(exc))
@@ -444,58 +587,40 @@ def distinct_non_usd_currencies(conn: duckdb.DuckDBPyConnection) -> list[str]:
     return [str(r[0]).upper() for r in rows]
 
 
-def refresh_fx_from_fmp(
+def refresh_fx(
     conn: duckdb.DuckDBPyConnection,
     *,
-    api_key: str,
-    start: date | None = None,
-    end: date | None = None,
-    currencies: list[str] | None = None,
-    progress_every: int = DEFAULT_PROGRESS_EVERY,
-    importer: Importer = import_fx_rates,
+    provider: MarketDataProvider,
 ) -> UniverseRefreshResult:
-    """Bulk-refresh FX rates for the currencies held in ``companies`` (or an
-    explicit ``currencies`` list).
+    """Bulk-refresh FX rates for every non-USD currency held in ``companies``.
 
-    Shares one :class:`FmpClient` across the run; per-currency errors are isolated;
-    a ``fmp_fx_universe`` summary row is written to ``refresh_log``. An all-USD
-    universe yields an empty currency set → ``total=0``, status ``success``, no FMP
-    calls. ``importer`` is injectable for tests.
+    Shares one ``provider`` across the run; per-currency errors are isolated; a
+    ``f"{provider.name}_fx_universe"`` summary row is written to ``refresh_log``.
+    An all-USD universe yields an empty currency set → ``total=0``, status
+    ``success``, no provider calls.
     """
-    items = currencies if currencies is not None else distinct_non_usd_currencies(conn)
-    # No client needed for an all-USD universe (empty set → no FMP calls).
-    needs_client = importer is import_fx_rates and bool(items)
-    with _shared_fmp_client(api_key, needed=needs_client) as shared_client:
-        active = importer
-        if importer is import_fx_rates and shared_client is not None:
-            active = partial(import_fx_rates, client=shared_client)
-
-        return _run_bulk_refresh(
-            conn,
-            items=items,
-            process=lambda currency: _refresh_one_currency(
-                conn, currency=currency, api_key=api_key, start=start, end=end, importer=active
-            ),
-            source="fmp_fx_universe",
-            label="fx",
-            progress_every=progress_every,
-        )
+    currencies = distinct_non_usd_currencies(conn)
+    return _run_bulk_refresh(
+        conn,
+        items=currencies,
+        process=lambda currency: _refresh_one_currency(conn, currency=currency, provider=provider),
+        source=f"{provider.name}_fx_universe",
+        label="fx",
+        progress_every=DEFAULT_PROGRESS_EVERY,
+    )
 
 
 def _refresh_one_currency(
     conn: duckdb.DuckDBPyConnection,
     *,
     currency: str,
-    api_key: str,
-    start: date | None,
-    end: date | None,
-    importer: Importer,
+    provider: MarketDataProvider,
 ) -> TickerOutcome:
     """Refresh one currency's FX rates, never raising. Returns its outcome (the
     ``ticker`` field carries the currency code)."""
     ccy = currency.upper()
     try:
-        result = importer(conn, currency=ccy, api_key=api_key, start=start, end=end)
+        result = import_fx_rates(conn, provider=provider, currency=ccy)
         if result.is_success():
             return TickerOutcome(ticker=ccy, status="imported", rows_affected=result.rows_affected)
         return TickerOutcome(
@@ -503,6 +628,8 @@ def _refresh_one_currency(
             status="failed",
             error_message=result.error_message or "import returned non-success",
         )
+    except ProviderRateLimitError:
+        raise
     except Exception as exc:
         log.warning("fx.refresh.currency_failed", currency=ccy, error=str(exc))
         return TickerOutcome(ticker=ccy, status="failed", error_message=str(exc))
@@ -512,19 +639,18 @@ def _refresh_one(
     conn: duckdb.DuckDBPyConnection,
     *,
     ticker: str,
-    api_key: str,
-    importer: Importer,
-    probe: LatestFilingProbe,
+    provider: MarketDataProvider,
+    mapping: IndustryMapping,
 ) -> TickerOutcome:
     """Refresh a single ticker, never raising. Returns its outcome."""
     sym = ticker.upper()
     try:
-        local_latest = latest_local_filing_date(conn, sym)
-        if local_latest is not None and _should_skip(sym, local_latest, probe):
+        local_latest = latest_local_filing_date(conn, sym, provider.name)
+        if local_latest is not None and _should_skip(sym, local_latest, provider):
             log.info("universe.refresh.skip", ticker=sym, latest_filing=local_latest)
             return TickerOutcome(ticker=sym, status="skipped")
 
-        result = importer(conn, ticker=sym, api_key=api_key)
+        result = import_company(conn, ticker=sym, provider=provider, mapping=mapping)
         if result.is_success():
             return TickerOutcome(ticker=sym, status="imported", rows_affected=result.rows_affected)
         return TickerOutcome(
@@ -532,19 +658,23 @@ def _refresh_one(
             status="failed",
             error_message=result.error_message or "import returned non-success",
         )
+    except ProviderRateLimitError:
+        raise
     except Exception as exc:
         log.warning("universe.refresh.ticker_failed", ticker=sym, error=str(exc))
         return TickerOutcome(ticker=sym, status="failed", error_message=str(exc))
 
 
-def _should_skip(ticker: str, local_latest: date, probe: LatestFilingProbe) -> bool:
+def _should_skip(ticker: str, local_latest: date, provider: MarketDataProvider) -> bool:
     """Return True when the remote latest filing date has not advanced.
 
     A probe error is swallowed (returns False) so a transient lookup failure
     triggers a full import rather than a silent skip of stale data.
     """
     try:
-        remote_latest = probe(ticker)
+        remote_latest = provider.latest_filing_date(ticker)
+    except ProviderRateLimitError:
+        raise
     except Exception as exc:
         log.warning("universe.refresh.probe_failed", ticker=ticker, error=str(exc))
         return False
@@ -561,6 +691,9 @@ def _log_bulk_refresh(
     if result.failures:
         sample = ", ".join(f.ticker for f in result.failures[:10])
         error_message = f"{result.failed}/{result.total} failed: {sample}"
+    if result.deferred:
+        deferred_note = f"rate limited: {result.deferred} deferred"
+        error_message = f"{error_message}; {deferred_note}" if error_message else deferred_note
     summary = IngestResult(
         source=source,
         started_at=result.started_at,

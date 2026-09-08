@@ -57,7 +57,7 @@ def test_refresh_runs_both_damodaran_and_fmp(tmp_path, monkeypatch):
     )
     with (
         patch("bot.cli.import_damodaran", return_value=dam) as mdam,
-        patch("bot.cli.refresh_universe_from_fmp", return_value=uni) as mfmp,
+        patch("bot.cli.refresh_universe", return_value=uni) as mfmp,
     ):
         runner = CliRunner()
         result = runner.invoke(app, ["refresh", "--damodaran", "--fmp"])
@@ -94,7 +94,7 @@ def test_refresh_worst_of_exit_code(tmp_path, monkeypatch):
     )
     with (
         patch("bot.cli.import_damodaran", return_value=dam),
-        patch("bot.cli.refresh_universe_from_fmp", return_value=uni),
+        patch("bot.cli.refresh_universe", return_value=uni),
     ):
         runner = CliRunner()
         result = runner.invoke(app, ["refresh", "--damodaran", "--fmp"])
@@ -119,7 +119,7 @@ def test_refresh_prices_invokes_price_orchestrator(tmp_path, monkeypatch):
         failed=0,
         outcomes=[],
     )
-    with patch("bot.cli.refresh_prices_from_fmp", return_value=prices) as mprices:
+    with patch("bot.cli.refresh_prices", return_value=prices) as mprices:
         runner = CliRunner()
         result = runner.invoke(app, ["refresh", "--prices"])
 
@@ -146,7 +146,7 @@ def test_refresh_fx_invokes_fx_orchestrator(tmp_path, monkeypatch):
     monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
     monkeypatch.setenv("BOT_REPORTS_DIR", str(tmp_path / "reports"))
 
-    with patch("bot.cli.refresh_fx_from_fmp", return_value=_uni("fx")) as mfx:
+    with patch("bot.cli.refresh_fx", return_value=_uni("fx")) as mfx:
         runner = CliRunner()
         result = runner.invoke(app, ["refresh", "--fx"])
 
@@ -172,15 +172,15 @@ def test_refresh_all_runs_every_source_in_order(tmp_path, monkeypatch):
     with (
         patch("bot.cli.import_damodaran", side_effect=lambda *a, **k: calls.append("dam") or dam),
         patch(
-            "bot.cli.refresh_universe_from_fmp",
+            "bot.cli.refresh_universe",
             side_effect=lambda *a, **k: calls.append("fmp") or _uni("u"),
         ),
         patch(
-            "bot.cli.refresh_prices_from_fmp",
+            "bot.cli.refresh_prices",
             side_effect=lambda *a, **k: calls.append("prices") or _uni("p"),
         ),
         patch(
-            "bot.cli.refresh_fx_from_fmp",
+            "bot.cli.refresh_fx",
             side_effect=lambda *a, **k: calls.append("fx") or _uni("f"),
         ),
     ):
@@ -200,3 +200,14 @@ def test_refresh_without_flags_shows_help(tmp_path, monkeypatch):
     # The error message goes to stderr; CliRunner mixes_stderr=False by default? Check both.
     combined = (result.stdout + (result.stderr or "")).lower()
     assert "specify" in combined or "flag" in combined or "damodaran" in combined
+
+
+def test_refresh_damodaran_rejects_non_us_region(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "test.duckdb"))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(tmp_path / "reports"))
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["refresh", "--damodaran", "--region", "Europe"])
+    assert result.exit_code == 2
+    assert "US" in result.output

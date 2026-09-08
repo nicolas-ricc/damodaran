@@ -41,8 +41,8 @@ def persist_candidates(
         conn.execute(
             "INSERT INTO screener_candidates "
             "(run_id, preset, ticker, rank, score, value_score, quality_score, "
-            "growth_score, mos_score, passed_gates, failed_gates) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "growth_score, mos_score, passed_gates, failed_gates, passed) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)",
             [
                 rid,
                 result.preset,
@@ -56,5 +56,12 @@ def persist_candidates(
                 list(company.passed_gates),
                 list(company.failed_gates),
             ],
+        )
+    for company_rejected in result.rejected:
+        conn.execute(
+            "INSERT INTO screener_candidates "
+            "(run_id, preset, ticker, rank, passed, failed_gates) "
+            "VALUES (?, ?, ?, NULL, FALSE, ?)",
+            [rid, result.preset, company_rejected.ticker, list(company_rejected.failed_gates)],
         )
     return rid

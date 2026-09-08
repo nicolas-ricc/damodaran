@@ -8,7 +8,7 @@ interactions:
       Accept:
       - application/json
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/profile/AAPL?apikey=SCRUBBED
+    uri: https://financialmodelingprep.com/stable/profile?symbol=AAPL&apikey=SCRUBBED
   response:
     status:
       code: 200

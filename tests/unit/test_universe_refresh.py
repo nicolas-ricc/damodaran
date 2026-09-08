@@ -2,98 +2,39 @@
 
 These exercise the orchestration logic — universe parsing, incremental skip via
 ``filings_log``, per-ticker error isolation, status thresholds, progress logging
-and the ``refresh_log`` summary — with injected fakes so no HTTP happens.
+and the ``refresh_log`` summary — against a :class:`FakeProvider` so no HTTP
+happens.
 """
 
 from __future__ import annotations
 
-from datetime import date, datetime
+import inspect
+from datetime import date
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any, get_args
 
 import duckdb
 import pytest
 
-from bot.ingest.base import IngestResult
+from bot.ingest.provider import ProviderRateLimitError
 from bot.ingest.universe import (
     TickerOutcome,
+    TickerStatus,
     default_universe_path,
     latest_local_filing_date,
     load_universe,
-    refresh_universe_from_fmp,
+    refresh_universe,
+    upsert_prices_daily,
 )
 from bot.storage.db import apply_schema, connect
+from bot.utils.fx import upsert_fx_rates
+from tests.fake_provider import FakeProvider
 
 
 def _db() -> duckdb.DuckDBPyConnection:
     conn = connect(":memory:")
     apply_schema(conn)
     return conn
-
-
-def _ok_importer(rows: int = 5) -> Any:
-    def importer(conn: duckdb.DuckDBPyConnection, *, ticker: str, api_key: str) -> IngestResult:
-        now = datetime.now()
-        return IngestResult(
-            source="fmp",
-            started_at=now,
-            finished_at=now,
-            status="success",
-            rows_affected=rows,
-            details={"ticker": ticker},
-        )
-
-    return importer
-
-
-class _CountingClient:
-    """Stub FmpClient that counts constructions and returns empty payloads."""
-
-    instances: ClassVar[list[_CountingClient]] = []
-
-    def __init__(self, api_key: str, timeout: float = 30.0) -> None:
-        _CountingClient.instances.append(self)
-
-    def __enter__(self) -> _CountingClient:
-        return self
-
-    def __exit__(self, *_: object) -> None:
-        return None
-
-    def close(self) -> None:
-        return None
-
-    def lookup_company(self, ticker: str) -> None:
-        return None
-
-    def income_statement(
-        self, ticker: str, *, period: str = "annual", limit: int | None = None
-    ) -> list[dict[str, Any]]:
-        return []
-
-    def balance_sheet(self, ticker: str, *, period: str = "annual") -> list[dict[str, Any]]:
-        return []
-
-    def cash_flow(self, ticker: str, *, period: str = "annual") -> list[dict[str, Any]]:
-        return []
-
-
-def test_refresh_uses_one_shared_fmp_client_for_the_run(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """The real FMP path must open a single FmpClient for the whole run, not one
-    per ticker for the probe and another per ticker for the import."""
-    _CountingClient.instances = []
-    monkeypatch.setattr("bot.ingest.universe.FmpClient", _CountingClient)
-    monkeypatch.setattr("bot.ingest.fmp.FmpClient", _CountingClient)
-
-    conn = _db()
-    # Default importer + default probe (no injected fakes) -> real FMP path.
-    refresh_universe_from_fmp(conn, api_key="k", tickers=["AAA", "BBB"])
-
-    assert len(_CountingClient.instances) == 1, (
-        f"expected one shared client, got {len(_CountingClient.instances)}"
-    )
 
 
 # ---------- universe parsing ----------
@@ -121,8 +62,8 @@ def test_default_universe_ships_and_is_sizeable() -> None:
     tickers = load_universe(default_universe_path())
     assert len(tickers) >= 400
     assert "AAPL" in tickers
-    # Contains international FMP-suffixed symbols, not just US.
-    assert any("." in t for t in tickers)
+    # US-only S&P 500 constituents in FMP format (hyphens, not dots).
+    assert not any("." in t for t in tickers)
     assert len(set(tickers)) == len(tickers)  # de-duplicated
 
 
@@ -133,22 +74,13 @@ def test_skips_ticker_when_remote_filing_not_advanced() -> None:
     conn = _db()
     conn.execute(
         "INSERT INTO filings_log (ticker, filing_type, filing_date, source) "
-        "VALUES ('AAPL', 'FY', '2023-11-03', 'fmp')"
+        "VALUES ('AAPL', 'FY', '2023-11-03', 'fake')"
     )
-    calls: list[str] = []
+    provider = FakeProvider(filing_dates={"AAPL": date(2023, 11, 3)})
 
-    def importer(c: duckdb.DuckDBPyConnection, *, ticker: str, api_key: str) -> IngestResult:
-        calls.append(ticker)
-        return _ok_importer()(c, ticker=ticker, api_key=api_key)
+    result = refresh_universe(conn, provider=provider, tickers=["AAPL"])
 
-    result = refresh_universe_from_fmp(
-        conn,
-        api_key="k",
-        tickers=["AAPL"],
-        importer=importer,
-        latest_filing_probe=lambda _t: date(2023, 11, 3),
-    )
-    assert calls == []  # importer never invoked
+    assert ("fundamentals", "AAPL") not in provider.calls  # importer never invoked
     assert result.skipped == 1
     assert result.imported == 0
     assert result.status == "success"
@@ -158,15 +90,12 @@ def test_imports_when_remote_filing_advanced() -> None:
     conn = _db()
     conn.execute(
         "INSERT INTO filings_log (ticker, filing_type, filing_date, source) "
-        "VALUES ('AAPL', 'FY', '2023-11-03', 'fmp')"
+        "VALUES ('AAPL', 'FY', '2023-11-03', 'fake')"
     )
-    result = refresh_universe_from_fmp(
-        conn,
-        api_key="k",
-        tickers=["AAPL"],
-        importer=_ok_importer(),
-        latest_filing_probe=lambda _t: date(2024, 11, 1),
-    )
+    provider = FakeProvider(filing_dates={"AAPL": date(2024, 11, 1)})
+
+    result = refresh_universe(conn, provider=provider, tickers=["AAPL"])
+
     assert result.imported == 1
     assert result.skipped == 0
 
@@ -174,13 +103,10 @@ def test_imports_when_remote_filing_advanced() -> None:
 def test_imports_when_no_local_filing_history() -> None:
     conn = _db()
     # Probe would say "unchanged", but with no local history we must import.
-    result = refresh_universe_from_fmp(
-        conn,
-        api_key="k",
-        tickers=["AAPL"],
-        importer=_ok_importer(),
-        latest_filing_probe=lambda _t: date(2020, 1, 1),
-    )
+    provider = FakeProvider(filing_dates={"AAPL": date(2020, 1, 1)})
+
+    result = refresh_universe(conn, provider=provider, tickers=["AAPL"])
+
     assert result.imported == 1
 
 
@@ -188,15 +114,17 @@ def test_probe_failure_falls_through_to_import() -> None:
     conn = _db()
     conn.execute(
         "INSERT INTO filings_log (ticker, filing_type, filing_date, source) "
-        "VALUES ('AAPL', 'FY', '2023-11-03', 'fmp')"
+        "VALUES ('AAPL', 'FY', '2023-11-03', 'fake')"
     )
 
-    def boom(_t: str) -> date | None:
-        raise RuntimeError("FMP down")
+    class _BoomingProvider(FakeProvider):
+        def latest_filing_date(self, ticker: str) -> date | None:
+            raise RuntimeError("FMP down")
 
-    result = refresh_universe_from_fmp(
-        conn, api_key="k", tickers=["AAPL"], importer=_ok_importer(), latest_filing_probe=boom
-    )
+    provider = _BoomingProvider()
+
+    result = refresh_universe(conn, provider=provider, tickers=["AAPL"])
+
     assert result.imported == 1
     assert result.failed == 0
 
@@ -209,8 +137,8 @@ def test_latest_local_filing_date_reads_max() -> None:
             "VALUES ('AAPL', 'FY', ?, 'fmp')",
             [d],
         )
-    assert latest_local_filing_date(conn, "aapl") == date(2023, 11, 3)
-    assert latest_local_filing_date(conn, "MSFT") is None
+    assert latest_local_filing_date(conn, "aapl", "fmp") == date(2023, 11, 3)
+    assert latest_local_filing_date(conn, "MSFT", "fmp") is None
 
 
 # ---------- error isolation + status thresholds ----------
@@ -218,19 +146,10 @@ def test_latest_local_filing_date_reads_max() -> None:
 
 def test_per_ticker_error_is_isolated_not_fatal() -> None:
     conn = _db()
+    provider = FakeProvider(fail_with={"BAD": ValueError("kaboom")})
 
-    def importer(c: duckdb.DuckDBPyConnection, *, ticker: str, api_key: str) -> IngestResult:
-        if ticker == "BAD":
-            raise ValueError("kaboom")
-        return _ok_importer()(c, ticker=ticker, api_key=api_key)
+    result = refresh_universe(conn, provider=provider, tickers=["AAPL", "BAD", "MSFT"])
 
-    result = refresh_universe_from_fmp(
-        conn,
-        api_key="k",
-        tickers=["AAPL", "BAD", "MSFT"],
-        importer=importer,
-        latest_filing_probe=lambda _t: None,
-    )
     assert result.imported == 2
     assert result.failed == 1
     assert [o.ticker for o in result.failures] == ["BAD"]
@@ -240,20 +159,15 @@ def test_per_ticker_error_is_isolated_not_fatal() -> None:
 def test_non_success_result_counts_as_failure() -> None:
     conn = _db()
 
-    def importer(c: duckdb.DuckDBPyConnection, *, ticker: str, api_key: str) -> IngestResult:
-        now = datetime.now()
-        return IngestResult(
-            source="fmp",
-            started_at=now,
-            finished_at=now,
-            status="error",
-            error_message="profile not found",
-            details={"ticker": ticker},
-        )
+    class _NoProfileProvider(FakeProvider):
+        def fundamentals(self, ticker: str) -> Any:
+            self.calls.append(("fundamentals", ticker.upper()))
+            raise ValueError("profile not found")
 
-    result = refresh_universe_from_fmp(
-        conn, api_key="k", tickers=["NOPE"], importer=importer, latest_filing_probe=lambda _t: None
-    )
+    provider = _NoProfileProvider()
+
+    result = refresh_universe(conn, provider=provider, tickers=["NOPE"])
+
     assert result.failed == 1
     assert result.failures[0].error_message == "profile not found"
 
@@ -270,17 +184,12 @@ def test_non_success_result_counts_as_failure() -> None:
 )
 def test_status_thresholds(n_fail: int, n_total: int, expected: str) -> None:
     conn = _db()
-    fail_set = {f"F{i}" for i in range(n_fail)}
-
-    def importer(c: duckdb.DuckDBPyConnection, *, ticker: str, api_key: str) -> IngestResult:
-        if ticker in fail_set:
-            raise ValueError("fail")
-        return _ok_importer()(c, ticker=ticker, api_key=api_key)
+    fail_with = {f"F{i}": ValueError("fail") for i in range(n_fail)}
+    provider = FakeProvider(fail_with=fail_with)
 
     tickers = [f"F{i}" for i in range(n_fail)] + [f"OK{i}" for i in range(n_total - n_fail)]
-    result = refresh_universe_from_fmp(
-        conn, api_key="k", tickers=tickers, importer=importer, latest_filing_probe=lambda _t: None
-    )
+    result = refresh_universe(conn, provider=provider, tickers=tickers)
+
     assert result.total == n_total
     assert result.failed == n_fail
     assert result.status == expected
@@ -288,9 +197,10 @@ def test_status_thresholds(n_fail: int, n_total: int, expected: str) -> None:
 
 def test_empty_universe_is_success_with_zero_total() -> None:
     conn = _db()
-    result = refresh_universe_from_fmp(
-        conn, api_key="k", tickers=[], importer=_ok_importer(), latest_filing_probe=lambda _t: None
-    )
+    provider = FakeProvider()
+
+    result = refresh_universe(conn, provider=provider, tickers=[])
+
     assert result.total == 0
     assert result.status == "success"
     assert result.failure_rate == 0.0
@@ -317,12 +227,11 @@ def test_progress_logged_every_n(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(mod, "log", _Recorder())
 
-    refresh_universe_from_fmp(
+    provider = FakeProvider()
+    refresh_universe(
         conn,
-        api_key="k",
+        provider=provider,
         tickers=[f"T{i}" for i in range(5)],
-        importer=_ok_importer(),
-        latest_filing_probe=lambda _t: None,
         progress_every=2,
     )
     progress = [e for e in events if e[0] == "universe.refresh.progress"]
@@ -332,26 +241,17 @@ def test_progress_logged_every_n(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_writes_refresh_log_summary_row() -> None:
     conn = _db()
+    provider = FakeProvider(fail_with={"BAD": ValueError("kaboom")})
 
-    def importer(c: duckdb.DuckDBPyConnection, *, ticker: str, api_key: str) -> IngestResult:
-        if ticker == "BAD":
-            raise ValueError("kaboom")
-        return _ok_importer()(c, ticker=ticker, api_key=api_key)
+    result = refresh_universe(conn, provider=provider, tickers=["AAPL", "BAD"])
 
-    result = refresh_universe_from_fmp(
-        conn,
-        api_key="k",
-        tickers=["AAPL", "BAD"],
-        importer=importer,
-        latest_filing_probe=lambda _t: None,
-    )
     row = conn.execute(
         "SELECT source, run_id, status, rows_affected, error_message "
-        "FROM refresh_log WHERE source = 'fmp_universe'"
+        "FROM refresh_log WHERE source = 'fake_universe'"
     ).fetchone()
     assert row is not None
     source, run_id, _status, rows_affected, error_message = row
-    assert source == "fmp_universe"
+    assert source == "fake_universe"
     assert run_id == result.run_id
     assert rows_affected == 1  # imported count (AAPL)
     assert error_message is not None
@@ -362,3 +262,62 @@ def test_outcome_dataclass_shape() -> None:
     o = TickerOutcome(ticker="AAPL", status="imported", rows_affected=5)
     assert o.ticker == "AAPL"
     assert o.error_message is None
+
+
+# ---------- rate limiting ----------
+
+
+def test_rate_limit_defers_the_rest() -> None:
+    conn = _db()
+    provider = FakeProvider(rate_limit_after=1)
+
+    result = refresh_universe(conn, provider=provider, tickers=["AAA", "BBB", "CCC"])
+
+    statuses = {o.ticker: o.status for o in result.outcomes}
+    assert statuses["BBB"] == "deferred" and statuses["CCC"] == "deferred"
+    assert result.imported == 1
+    assert result.deferred == 2
+    assert result.failed == 0
+    assert result.status == "success"
+
+
+def test_rate_limit_raised_by_the_probe_stops_the_run_too(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A rate limit raised by the *probe* (not fundamentals) must still cut the
+    run, not be swallowed as a generic ``probe_failed`` warning."""
+    conn = _db()
+    conn.execute(
+        "INSERT INTO filings_log (ticker, filing_type, filing_date, source) "
+        "VALUES ('CCC', 'FY', '2024-01-01', 'fake')"
+    )
+
+    class _ProbeRateLimitedProvider(FakeProvider):
+        def latest_filing_date(self, ticker: str) -> date | None:
+            self.calls.append(("latest_filing_date", ticker.upper()))
+            if ticker.upper() == "CCC":
+                raise ProviderRateLimitError("quota")
+            return None
+
+    provider = _ProbeRateLimitedProvider()
+
+    result = refresh_universe(conn, provider=provider, tickers=["AAA", "BBB", "CCC", "DDD", "EEE"])
+
+    probe_calls = [c for c in provider.calls if c[0] == "latest_filing_date"]
+    assert probe_calls == [("latest_filing_date", "CCC")]  # AAA/BBB have no local filing
+    imported_tickers = {o.ticker for o in result.outcomes if o.status == "imported"}
+    assert imported_tickers == {"AAA", "BBB"}  # CCC's import is never reached
+    assert result.imported == 2
+    assert result.deferred == 3  # CCC (rate-limited) + DDD + EEE
+    assert result.failed == 0
+    assert result.status == "success"
+    assert "universe.refresh.probe_failed" not in caplog.text
+
+
+def test_ticker_status_names_the_four_outcomes() -> None:
+    assert set(get_args(TickerStatus)) == {"imported", "skipped", "failed", "deferred"}
+
+
+def test_provider_neutral_writers_require_an_explicit_source() -> None:
+    for fn in (upsert_prices_daily, upsert_fx_rates, latest_local_filing_date):
+        assert inspect.signature(fn).parameters["source"].default is inspect.Parameter.empty

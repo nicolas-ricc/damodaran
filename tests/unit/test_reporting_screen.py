@@ -49,6 +49,19 @@ def test_markdown_has_header_and_rows() -> None:
     assert "2026-05-30" in md
 
 
+def test_markdown_reports_no_coverage_exclusions() -> None:
+    # ADR 0006: the summary line must surface how many companies left the
+    # universe for lack of a usable sector benchmark.
+    result = ScreenResult(
+        preset="damodaran_value",
+        shortlist=(_company("AAA"),),
+        screened=1,
+        no_coverage=("AAA", "BBB"),
+    )
+    md = render_markdown(result, generated_on=date(2026, 5, 30))
+    assert "Excluded (no sector benchmark, ADR 0006): 2" in md
+
+
 def test_markdown_empty_shortlist() -> None:
     result = ScreenResult(preset="p", shortlist=(), screened=3)
     md = render_markdown(result, generated_on=date(2026, 5, 30))

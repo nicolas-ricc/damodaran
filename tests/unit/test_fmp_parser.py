@@ -11,9 +11,11 @@ and SYNTHETIC. No live calls; values are fabricated, not real filings.
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 import duckdb
+import pytest
 
 from bot.ingest.fmp import parse_fmp_fundamentals
 from bot.ingest.sec_edgar import (
@@ -376,9 +378,87 @@ def test_parse_output_upserts_into_db() -> None:
     conn.close()
 
 
+def test_lookup_company_parses_ipo_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    """FMP's ``ipoDate`` on the profile becomes ``CompanyInfo.ipo_date``."""
+    from bot.ingest.fmp import FmpClient
+
+    client = FmpClient(api_key="fake-key")
+    monkeypatch.setattr(
+        client,
+        "_get",
+        lambda path, params=None: [
+            {
+                "symbol": "AAPL",
+                "companyName": "Apple Inc.",
+                "exchange": "NASDAQ Global Select",
+                "exchangeShortName": "NASDAQ",
+                "country": "US",
+                "currency": "USD",
+                "sector": "Technology",
+                "industry": "Consumer Electronics",
+                "isActivelyTrading": True,
+                "ipoDate": "1980-12-12",
+            }
+        ],
+    )
+    info = client.lookup_company("AAPL")
+    assert info is not None
+    assert info.ipo_date == date(1980, 12, 12)
+
+
+def test_lookup_company_missing_ipo_date_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    from bot.ingest.fmp import FmpClient
+
+    client = FmpClient(api_key="fake-key")
+    monkeypatch.setattr(
+        client,
+        "_get",
+        lambda path, params=None: [
+            {
+                "symbol": "ZZZ",
+                "companyName": "No IPO Date Co",
+                "isActivelyTrading": True,
+            }
+        ],
+    )
+    info = client.lookup_company("ZZZ")
+    assert info is not None
+    assert info.ipo_date is None
+
+
+def test_company_row_includes_ipo_date() -> None:
+    from bot.ingest.industry_mapping import IndustryMapping
+    from bot.ingest.provider import CompanyInfo
+    from bot.ingest.universe import _company_row
+
+    info = CompanyInfo(
+        ticker="AAPL",
+        name="Apple Inc.",
+        exchange="NASDAQ",
+        exchange_short_name="NASDAQ",
+        country="US",
+        currency="USD",
+        sector="Technology",
+        industry="Consumer Electronics",
+        is_actively_trading=True,
+        ipo_date=date(1980, 12, 12),
+    )
+    row = _company_row("AAPL", info, "USD", source="fmp", mapping=IndustryMapping(_entries={}))
+    assert row["ipo_date"] == date(1980, 12, 12)
+
+
+def test_company_row_without_profile_has_none_ipo_date() -> None:
+    from bot.ingest.industry_mapping import IndustryMapping
+    from bot.ingest.universe import _company_row
+
+    row = _company_row("GHOST", None, "USD", source="fmp", mapping=IndustryMapping(_entries={}))
+    assert row.get("ipo_date") is None
+
+
 def test_company_row_maps_industry_to_damodaran() -> None:
-    from bot.ingest.fmp import CompanyInfo, _company_row
     from bot.ingest.industry_mapping import IndustryMapping, normalize_industry_label
+    from bot.ingest.provider import CompanyInfo
+    from bot.ingest.universe import _company_row
 
     mapping = IndustryMapping(
         _entries={("fmp", normalize_industry_label("Semiconductors")): "Semiconductor"}
@@ -394,14 +474,15 @@ def test_company_row_maps_industry_to_damodaran() -> None:
         industry="Semiconductors",
         is_actively_trading=True,
     )
-    row = _company_row("NVDA", info, "USD", mapping=mapping)
+    row = _company_row("NVDA", info, "USD", source="fmp", mapping=mapping)
     assert row["industry"] == "Semiconductors"
     assert row["industry_damodaran"] == "Semiconductor"
 
 
 def test_company_row_unmapped_industry_leaves_damodaran_none() -> None:
-    from bot.ingest.fmp import CompanyInfo, _company_row
     from bot.ingest.industry_mapping import IndustryMapping
+    from bot.ingest.provider import CompanyInfo
+    from bot.ingest.universe import _company_row
 
     info = CompanyInfo(
         ticker="WEIRD",
@@ -414,21 +495,21 @@ def test_company_row_unmapped_industry_leaves_damodaran_none() -> None:
         industry="Blockchain Widgets",
         is_actively_trading=True,
     )
-    row = _company_row("WEIRD", info, "USD", mapping=IndustryMapping(_entries={}))
+    row = _company_row("WEIRD", info, "USD", source="fmp", mapping=IndustryMapping(_entries={}))
     assert row["industry"] == "Blockchain Widgets"
     assert row["industry_damodaran"] is None
 
 
 def test_company_row_without_profile_has_no_damodaran_industry() -> None:
-    from bot.ingest.fmp import _company_row
     from bot.ingest.industry_mapping import IndustryMapping
+    from bot.ingest.universe import _company_row
 
-    row = _company_row("GHOST", None, "USD", mapping=IndustryMapping(_entries={}))
+    row = _company_row("GHOST", None, "USD", source="fmp", mapping=IndustryMapping(_entries={}))
     assert row.get("industry_damodaran") is None
 
 
 def _company_info(industry: str | None) -> Any:
-    from bot.ingest.fmp import CompanyInfo
+    from bot.ingest.provider import CompanyInfo
 
     return CompanyInfo(
         ticker="WEIRD",
@@ -447,11 +528,11 @@ def _unmapped_events(industry: str | None, mapping: Any) -> list[dict[str, Any]]
     """Run ``_company_row`` and return only its unmapped-industry warnings."""
     from structlog.testing import capture_logs
 
-    from bot.ingest.fmp import _company_row
+    from bot.ingest.universe import _company_row
 
     with capture_logs() as events:
-        _company_row("WEIRD", _company_info(industry), "USD", mapping=mapping)
-    return [e for e in events if e.get("event") == "fmp.industry_mapping.unmapped"]
+        _company_row("WEIRD", _company_info(industry), "USD", source="fmp", mapping=mapping)
+    return [e for e in events if e.get("event") == "ingest.industry_mapping.unmapped"]
 
 
 def test_company_row_warns_when_the_provider_industry_is_unmapped() -> None:
@@ -481,3 +562,147 @@ def test_company_row_does_not_warn_when_the_provider_has_no_industry() -> None:
     from bot.ingest.industry_mapping import IndustryMapping
 
     assert _unmapped_events(None, IndustryMapping(_entries={})) == []
+
+
+# ---------- /stable migration regression tests ----------
+#
+# FMP retired /api/v3 for API keys created after 2025-08-31 (403 on every
+# request); the adapter now targets /stable. These tests pin the dual-dialect
+# tolerance that lets both the new response shape and the old (still used by
+# some fixtures/cassettes) parse correctly.
+
+
+def test_lookup_company_maps_stable_dialect_profile() -> None:
+    from bot.ingest.fmp import _company_info_from_profile
+
+    stable_profile = {
+        "symbol": "AAPL",
+        "companyName": "Apple Inc.",
+        "exchange": "NASDAQ",
+        "exchangeFullName": "NASDAQ Global Select",
+        "country": "US",
+        "currency": "USD",
+        "sector": "Technology",
+        "industry": "Consumer Electronics",
+        "isActivelyTrading": True,
+        "ipoDate": "1980-12-12",
+    }
+    info = _company_info_from_profile(stable_profile, fallback_ticker="AAPL")
+    assert info.exchange == "NASDAQ Global Select"
+    assert info.exchange_short_name == "NASDAQ"
+
+
+def test_lookup_company_maps_legacy_v3_dialect_profile() -> None:
+    from bot.ingest.fmp import _company_info_from_profile
+
+    v3_profile = {
+        "symbol": "AAPL",
+        "companyName": "Apple Inc.",
+        "exchange": "NASDAQ Global Select",
+        "exchangeShortName": "NASDAQ",
+        "country": "US",
+        "currency": "USD",
+        "sector": "Technology",
+        "industry": "Consumer Electronics",
+        "isActivelyTrading": True,
+        "ipoDate": "1980-12-12",
+    }
+    info = _company_info_from_profile(v3_profile, fallback_ticker="AAPL")
+    assert info.exchange == "NASDAQ Global Select"
+    assert info.exchange_short_name == "NASDAQ"
+
+
+def test_unwrap_historical_accepts_flat_list_and_legacy_wrapped_dict() -> None:
+    from bot.ingest.fmp import _unwrap_historical
+
+    rows = [{"date": "2023-12-29", "close": 193.6}]
+    assert _unwrap_historical(rows) == rows
+    assert _unwrap_historical({"symbol": "AAPL", "historical": rows}) == rows
+
+
+def test_fiscal_year_accepts_stable_and_legacy_field_names() -> None:
+    from bot.ingest.fmp import _fiscal_year
+
+    assert _fiscal_year({"fiscalYear": "2025", "date": "2025-12-31"}) == 2025
+    assert _fiscal_year({"calendarYear": "2023", "date": "2023-12-31"}) == 2023
+
+
+def test_filing_date_extraction_accepts_stable_and_legacy_field_names() -> None:
+    from bot.ingest.fmp import _latest_filing_from_rows
+
+    stable_rows = [{"filingDate": "2024-02-22", "date": "2023-12-31"}]
+    assert _latest_filing_from_rows(stable_rows) == date(2024, 2, 22)
+
+    legacy_rows = [{"fillingDate": "2023-02-23", "date": "2022-12-31"}]
+    assert _latest_filing_from_rows(legacy_rows) == date(2023, 2, 23)
+
+
+def test_statement_default_limit_is_free_tier_safe() -> None:
+    """FMP's free tier 402s on limit > 5 — the default must stay within it."""
+    import inspect
+
+    from bot.ingest.fmp import STATEMENT_LIMIT, FmpClient
+
+    assert STATEMENT_LIMIT <= 5
+    for method in (FmpClient.income_statement, FmpClient.balance_sheet, FmpClient.cash_flow):
+        assert inspect.signature(method).parameters["limit"].default == STATEMENT_LIMIT
+
+
+def test_parse_maps_stable_dialect_shares_diluted() -> None:
+    """Stable renamed weightedAverageShsDilOut -> weightedAverageShsOutDil."""
+    income = [
+        {
+            "date": "2023-12-31",
+            "calendarYear": "2023",
+            "period": "FY",
+            "revenue": 1000,
+            "weightedAverageShsOutDil": 5000000,
+        }
+    ]
+    result = parse_fmp_fundamentals("AAPL", income, [], [])
+    by_year = {r["fiscal_year"]: r for r in result.annual}
+    assert by_year[2023]["shares_diluted"] == 5000000
+
+
+def test_parse_still_maps_legacy_v3_shares_diluted() -> None:
+    income = [
+        {
+            "date": "2023-12-31",
+            "calendarYear": "2023",
+            "period": "FY",
+            "revenue": 1000,
+            "weightedAverageShsDilOut": 4900000,
+        }
+    ]
+    result = parse_fmp_fundamentals("AAPL", income, [], [])
+    by_year = {r["fiscal_year"]: r for r in result.annual}
+    assert by_year[2023]["shares_diluted"] == 4900000
+
+
+def test_parse_maps_stable_dialect_dividends_paid() -> None:
+    """Stable renamed dividendsPaid -> netDividendsPaid."""
+    cashflow = [
+        {
+            "date": "2023-12-31",
+            "calendarYear": "2023",
+            "period": "FY",
+            "netDividendsPaid": -1234,
+        }
+    ]
+    result = parse_fmp_fundamentals("AAPL", [], [], cashflow)
+    by_year = {r["fiscal_year"]: r for r in result.annual}
+    assert by_year[2023]["dividends_paid"] == -1234
+
+
+def test_parse_still_maps_legacy_v3_dividends_paid() -> None:
+    cashflow = [
+        {
+            "date": "2023-12-31",
+            "calendarYear": "2023",
+            "period": "FY",
+            "dividendsPaid": -4321,
+        }
+    ]
+    result = parse_fmp_fundamentals("AAPL", [], [], cashflow)
+    by_year = {r["fiscal_year"]: r for r in result.annual}
+    assert by_year[2023]["dividends_paid"] == -4321

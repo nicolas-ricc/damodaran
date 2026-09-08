@@ -14,7 +14,7 @@ from unittest.mock import patch
 import pytest
 from typer.testing import CliRunner
 
-from bot.cli import app
+from bot.cli import _universe_tickers, app
 from bot.ingest.universe import TickerOutcome, UniverseRefreshResult
 
 
@@ -25,21 +25,23 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BOT_FMP_API_KEY", "test-fmp-key")
 
 
-def _result(*, total: int, failed: int, status: str) -> UniverseRefreshResult:
+def _result(*, total: int, failed: int, status: str, deferred: int = 0) -> UniverseRefreshResult:
     now = datetime.now()
+    imported = total - failed - deferred
     return UniverseRefreshResult(
         run_id="run-1",
         started_at=now,
         finished_at=now,
         status=status,
         total=total,
-        imported=total - failed,
+        imported=imported,
         skipped=0,
         failed=failed,
         outcomes=[
             TickerOutcome(ticker=f"BAD{i}", status="failed", error_message="boom")
             for i in range(failed)
-        ],
+        ]
+        + [TickerOutcome(ticker=f"DEF{i}", status="deferred") for i in range(deferred)],
     )
 
 
@@ -48,12 +50,12 @@ def test_refresh_fmp_uses_default_universe(tmp_path: Path, monkeypatch: pytest.M
     captured: dict[str, object] = {}
 
     def fake_refresh(
-        conn: object, *, api_key: str, tickers: list[str], mapping_path: Path | None
+        conn: object, *, provider: object, tickers: list[str], mapping_path: Path | None
     ) -> UniverseRefreshResult:
         captured["tickers"] = tickers
         return _result(total=len(tickers), failed=0, status="success")
 
-    with patch("bot.cli.refresh_universe_from_fmp", side_effect=fake_refresh):
+    with patch("bot.cli.refresh_universe", side_effect=fake_refresh):
         runner = CliRunner()
         result = runner.invoke(app, ["refresh", "--fmp"])
     assert result.exit_code == 0
@@ -70,12 +72,12 @@ def test_refresh_fmp_custom_universe(tmp_path: Path, monkeypatch: pytest.MonkeyP
     captured: dict[str, object] = {}
 
     def fake_refresh(
-        conn: object, *, api_key: str, tickers: list[str], mapping_path: Path | None
+        conn: object, *, provider: object, tickers: list[str], mapping_path: Path | None
     ) -> UniverseRefreshResult:
         captured["tickers"] = tickers
         return _result(total=len(tickers), failed=0, status="success")
 
-    with patch("bot.cli.refresh_universe_from_fmp", side_effect=fake_refresh):
+    with patch("bot.cli.refresh_universe", side_effect=fake_refresh):
         runner = CliRunner()
         result = runner.invoke(app, ["refresh", "--fmp", "--universe", str(uni)])
     assert result.exit_code == 0
@@ -90,11 +92,11 @@ def test_refresh_fmp_exit_code_2_when_over_threshold(
     uni.write_text("ticker\n" + "\n".join(f"T{i}" for i in range(20)) + "\n")
 
     def fake_refresh(
-        conn: object, *, api_key: str, tickers: list[str], mapping_path: Path | None
+        conn: object, *, provider: object, tickers: list[str], mapping_path: Path | None
     ) -> UniverseRefreshResult:
         return _result(total=20, failed=6, status="error")
 
-    with patch("bot.cli.refresh_universe_from_fmp", side_effect=fake_refresh):
+    with patch("bot.cli.refresh_universe", side_effect=fake_refresh):
         runner = CliRunner()
         result = runner.invoke(app, ["refresh", "--fmp", "--universe", str(uni)])
     assert result.exit_code == 2
@@ -111,11 +113,11 @@ def test_refresh_fmp_partial_still_exits_2(
     uni.write_text("ticker\n" + "\n".join(f"T{i}" for i in range(20)) + "\n")
 
     def fake_refresh(
-        conn: object, *, api_key: str, tickers: list[str], mapping_path: Path | None
+        conn: object, *, provider: object, tickers: list[str], mapping_path: Path | None
     ) -> UniverseRefreshResult:
         return _result(total=20, failed=2, status="partial")
 
-    with patch("bot.cli.refresh_universe_from_fmp", side_effect=fake_refresh):
+    with patch("bot.cli.refresh_universe", side_effect=fake_refresh):
         runner = CliRunner()
         result = runner.invoke(app, ["refresh", "--fmp", "--universe", str(uni)])
     # > 5% failed -> not 'success' -> exit 2 (data error).
@@ -133,6 +135,26 @@ def test_refresh_fmp_empty_universe_errors(
     assert result.exit_code == 2
     combined = result.stdout + (result.stderr or "")
     assert "no tickers" in combined.lower()
+
+
+def test_refresh_fmp_deferred_exits_0_and_mentions_deferred(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _env(tmp_path, monkeypatch)
+    uni = tmp_path / "mini.csv"
+    uni.write_text("ticker\n" + "\n".join(f"T{i}" for i in range(5)) + "\n")
+
+    def fake_refresh(
+        conn: object, *, provider: object, tickers: list[str], mapping_path: Path | None
+    ) -> UniverseRefreshResult:
+        return _result(total=5, failed=0, status="success", deferred=3)
+
+    with patch("bot.cli.refresh_universe", side_effect=fake_refresh):
+        runner = CliRunner()
+        result = runner.invoke(app, ["refresh", "--fmp", "--universe", str(uni)])
+    assert result.exit_code == 0
+    combined = result.stdout + (result.stderr or "")
+    assert "deferred" in combined.lower()
 
 
 def test_refresh_no_flags_mentions_fmp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -158,16 +180,33 @@ def test_refresh_fmp_forwards_the_configured_industry_mapping_path(
     captured: dict[str, object] = {}
 
     def fake_refresh(
-        conn: object, *, api_key: str, tickers: list[str], mapping_path: Path | None
+        conn: object, *, provider: object, tickers: list[str], mapping_path: Path | None
     ) -> UniverseRefreshResult:
         captured["mapping_path"] = mapping_path
         return _result(total=len(tickers), failed=0, status="success")
 
     universe = tmp_path / "universe.txt"
     universe.write_text("NVDA\n")
-    with patch("bot.cli.refresh_universe_from_fmp", side_effect=fake_refresh):
+    with patch("bot.cli.refresh_universe", side_effect=fake_refresh):
         runner = CliRunner()
         result = runner.invoke(app, ["refresh", "--fmp", "--universe", str(universe)])
 
     assert result.exit_code == 0
     assert captured["mapping_path"] == custom
+
+
+def test_universe_tickers_applies_limit_and_returns_the_path(tmp_path: Path) -> None:
+    csv_path = tmp_path / "u.csv"
+    csv_path.write_text("ticker\nAAPL\nMSFT\nNVDA\n")
+    path, tickers = _universe_tickers(csv_path, limit=2)
+    assert path == csv_path
+    assert tickers == ["AAPL", "MSFT"]
+    assert _universe_tickers(csv_path, limit=None)[1] == ["AAPL", "MSFT", "NVDA"]
+
+
+def test_universe_tickers_defaults_to_the_packaged_universe() -> None:
+    from bot.ingest.universe import default_universe_path
+
+    path, tickers = _universe_tickers(None, limit=3)
+    assert path == default_universe_path()
+    assert len(tickers) == 3

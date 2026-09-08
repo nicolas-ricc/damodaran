@@ -8,7 +8,7 @@ interactions:
       Accept:
       - application/json
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/profile/NESN.SW?apikey=SCRUBBED
+    uri: https://financialmodelingprep.com/stable/profile?symbol=NESN.SW&apikey=SCRUBBED
   response:
     status:
       code: 200

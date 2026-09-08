@@ -1,8 +1,9 @@
 """Integration tests for the high-level FMP fundamentals importer (M2.3).
 
-``import_company_from_fmp`` mirrors ``import_company_from_sec``: it fetches the
-profile + income / balance / cash-flow statements (annual and quarterly), parses
-them with the pure M2.2 parser, and upserts a single ticker atomically.
+``import_company`` (through :class:`FmpProvider`) mirrors ``import_company_from_sec``:
+it fetches the profile + income / balance / cash-flow statements (annual and
+quarterly), parses them with the pure M2.2 parser, and upserts a single ticker
+atomically.
 
 Network is replayed from VCR cassettes in ``tests/fixtures/cassettes/fmp/``. The
 cassettes are SYNTHETIC (hand-authored, fabricated-but-realistic FMP JSON) so the
@@ -14,7 +15,8 @@ from __future__ import annotations
 
 import pytest
 
-from bot.ingest.fmp import import_company_from_fmp
+from bot.ingest.fmp import FmpProvider
+from bot.ingest.universe import import_company
 from bot.storage.db import apply_schema, connect
 
 API_KEY = "test-fmp-key"
@@ -39,7 +41,8 @@ def test_import_company_from_fmp_us_populates_db() -> None:
     conn = connect(":memory:")
     apply_schema(conn)
 
-    result = import_company_from_fmp(conn, ticker="AAPL", api_key=API_KEY)
+    with FmpProvider(api_key=API_KEY) as provider:
+        result = import_company(conn, ticker="AAPL", provider=provider)
 
     assert result.is_success()
     assert result.source == "fmp"
@@ -94,7 +97,8 @@ def test_import_company_from_fmp_non_us_has_local_currency() -> None:
     conn = connect(":memory:")
     apply_schema(conn)
 
-    result = import_company_from_fmp(conn, ticker="NESN.SW", api_key=API_KEY)
+    with FmpProvider(api_key=API_KEY) as provider:
+        result = import_company(conn, ticker="NESN.SW", provider=provider)
 
     assert result.is_success()
 

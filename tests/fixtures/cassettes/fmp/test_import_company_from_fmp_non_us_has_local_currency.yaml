@@ -11,7 +11,7 @@ interactions:
       Accept:
       - application/json
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/profile/NESN.SW?apikey=SCRUBBED
+    uri: https://financialmodelingprep.com/stable/profile?symbol=NESN.SW&apikey=SCRUBBED
   response:
     status:
       code: 200
@@ -42,7 +42,7 @@ interactions:
       Accept:
       - application/json
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/income-statement/NESN.SW?period=annual&limit=10&apikey=SCRUBBED
+    uri: https://financialmodelingprep.com/stable/income-statement?symbol=NESN.SW&period=annual&limit=5&apikey=SCRUBBED
   response:
     status:
       code: 200
@@ -98,7 +98,7 @@ interactions:
       Accept:
       - application/json
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/NESN.SW?period=annual&limit=10&apikey=SCRUBBED
+    uri: https://financialmodelingprep.com/stable/balance-sheet-statement?symbol=NESN.SW&period=annual&limit=5&apikey=SCRUBBED
   response:
     status:
       code: 200
@@ -145,7 +145,7 @@ interactions:
       Accept:
       - application/json
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/NESN.SW?period=annual&limit=10&apikey=SCRUBBED
+    uri: https://financialmodelingprep.com/stable/cash-flow-statement?symbol=NESN.SW&period=annual&limit=5&apikey=SCRUBBED
   response:
     status:
       code: 200
@@ -187,7 +187,7 @@ interactions:
       Accept:
       - application/json
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/income-statement/NESN.SW?period=quarter&limit=10&apikey=SCRUBBED
+    uri: https://financialmodelingprep.com/stable/income-statement?symbol=NESN.SW&period=quarter&limit=5&apikey=SCRUBBED
   response:
     status:
       code: 200
@@ -218,7 +218,7 @@ interactions:
       Accept:
       - application/json
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/NESN.SW?period=quarter&limit=10&apikey=SCRUBBED
+    uri: https://financialmodelingprep.com/stable/balance-sheet-statement?symbol=NESN.SW&period=quarter&limit=5&apikey=SCRUBBED
   response:
     status:
       code: 200
@@ -246,7 +246,7 @@ interactions:
       Accept:
       - application/json
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/NESN.SW?period=quarter&limit=10&apikey=SCRUBBED
+    uri: https://financialmodelingprep.com/stable/cash-flow-statement?symbol=NESN.SW&period=quarter&limit=5&apikey=SCRUBBED
   response:
     status:
       code: 200

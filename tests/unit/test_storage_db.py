@@ -1,4 +1,7 @@
-from bot.storage.db import apply_schema, connect
+import re
+from importlib import resources
+
+from bot.storage.db import _count_create_tables, apply_schema, connect, schema_table_count
 
 
 def test_connect_creates_file(tmp_path):
@@ -113,3 +116,19 @@ def test_connect_in_memory():
     result = conn.execute("SELECT COUNT(*) FROM companies").fetchone()
     assert result == (0,)
     conn.close()
+
+
+def test_count_create_tables_ignores_case_spacing_and_comments() -> None:
+    sql = """
+    -- CREATE TABLE IF NOT EXISTS commented_out (x INT);
+    create table   if   not   exists  a (x INT);
+    CREATE TABLE b (x INT);
+    CREATE INDEX ix ON b (x);
+    """
+    assert _count_create_tables(sql) == 2
+
+
+def test_schema_table_count_matches_the_shipped_schema() -> None:
+    sql = resources.files("bot.storage").joinpath("schema.sql").read_text()
+    expected = len(re.findall(r"(?im)^\s*create\s+table\b", sql))
+    assert schema_table_count() == expected == 15

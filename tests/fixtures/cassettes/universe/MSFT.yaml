@@ -12,7 +12,7 @@ interactions:
       Accept:
       - application/json
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/profile/MSFT?apikey=SCRUBBED
+    uri: https://financialmodelingprep.com/stable/profile?symbol=MSFT&apikey=SCRUBBED
   response:
     status:
       code: 200
@@ -42,7 +42,7 @@ interactions:
       Accept:
       - application/json
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/income-statement/MSFT?period=annual&limit=10&apikey=SCRUBBED
+    uri: https://financialmodelingprep.com/stable/income-statement?symbol=MSFT&period=annual&limit=5&apikey=SCRUBBED
   response:
     status:
       code: 200
@@ -101,7 +101,7 @@ interactions:
       Accept:
       - application/json
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/MSFT?period=annual&limit=10&apikey=SCRUBBED
+    uri: https://financialmodelingprep.com/stable/balance-sheet-statement?symbol=MSFT&period=annual&limit=5&apikey=SCRUBBED
   response:
     status:
       code: 200
@@ -150,7 +150,7 @@ interactions:
       Accept:
       - application/json
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/MSFT?period=annual&limit=10&apikey=SCRUBBED
+    uri: https://financialmodelingprep.com/stable/cash-flow-statement?symbol=MSFT&period=annual&limit=5&apikey=SCRUBBED
   response:
     status:
       code: 200
@@ -193,7 +193,7 @@ interactions:
       Accept:
       - application/json
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/income-statement/MSFT?period=quarter&limit=10&apikey=SCRUBBED
+    uri: https://financialmodelingprep.com/stable/income-statement?symbol=MSFT&period=quarter&limit=5&apikey=SCRUBBED
   response:
     status:
       code: 200
@@ -226,7 +226,7 @@ interactions:
       Accept:
       - application/json
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/balance-sheet-statement/MSFT?period=quarter&limit=10&apikey=SCRUBBED
+    uri: https://financialmodelingprep.com/stable/balance-sheet-statement?symbol=MSFT&period=quarter&limit=5&apikey=SCRUBBED
   response:
     status:
       code: 200
@@ -257,7 +257,7 @@ interactions:
       Accept:
       - application/json
     method: GET
-    uri: https://financialmodelingprep.com/api/v3/cash-flow-statement/MSFT?period=quarter&limit=10&apikey=SCRUBBED
+    uri: https://financialmodelingprep.com/stable/cash-flow-statement?symbol=MSFT&period=quarter&limit=5&apikey=SCRUBBED
   response:
     status:
       code: 200

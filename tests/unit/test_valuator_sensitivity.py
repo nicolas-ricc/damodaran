@@ -14,6 +14,8 @@ required by the acceptance criteria rather than re-deriving the DCF formula.
 
 from __future__ import annotations
 
+import dataclasses
+
 import duckdb
 import pytest
 
@@ -104,6 +106,28 @@ def test_tornado_entry_records_both_swung_values_and_their_intrinsics() -> None:
     assert entry.intrinsic_high == pytest.approx(high.intrinsic_value, abs=TOL)
     assert entry.intrinsic_low == pytest.approx(low.intrinsic_value, abs=TOL)
     assert entry.impact == pytest.approx(abs(high.intrinsic_value - low.intrinsic_value), abs=TOL)
+
+
+def test_tornado_path_axis_endpoint_is_year_one_not_the_whole_path() -> None:
+    # A non-uniform path (a high-growth fade/ramp, spec §7.1) is not flat across
+    # years, so the reported low/high endpoint must be honestly year-1-only,
+    # matching base_path[0] * multiplier — not some other representative value
+    # (an average, the last year, ...) that would misstate what was perturbed.
+    fin = _financials()
+    base = dataclasses.replace(
+        _assumptions(),
+        revenue_growth=(0.30, 0.24, 0.18, 0.12, 0.04),
+        operating_margin=(0.08, 0.11, 0.14, 0.17, 0.20),
+    )
+    entries = {e.axis: e for e in tornado(fin, base)}
+
+    growth = entries[SensitivityAxis.REVENUE_GROWTH]
+    assert growth.low_value == pytest.approx(0.30 * 0.8, abs=TOL)
+    assert growth.high_value == pytest.approx(0.30 * 1.2, abs=TOL)
+
+    margin = entries[SensitivityAxis.OPERATING_MARGIN]
+    assert margin.low_value == pytest.approx(0.08 * 0.8, abs=TOL)
+    assert margin.high_value == pytest.approx(0.08 * 1.2, abs=TOL)
 
 
 def test_tornado_is_ordered_descending_by_abs_impact() -> None:

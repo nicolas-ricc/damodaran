@@ -17,24 +17,22 @@ Lookups use a *nearest-prior* strategy: a period-end that falls on a weekend or
 holiday resolves to the most recent earlier trading day. We never look forward,
 so a conversion only ever uses information available on or before the as-of date.
 
-Source of FX data: FMP historical forex prices (pair ``{CURRENCY}USD``, daily
-close), via :meth:`bot.ingest.fmp.FmpClient.historical_fx`. FMP is already a
-project dependency (international fundamentals + EOD prices), so reusing it keeps
-the data pipeline and auth in one place. If FMP's forex coverage proves too
-slow/expensive, the ``import_fx_rates`` entry point can be repointed at ECB or
-openexchangerates.org without touching the lookup/conversion helpers, which only
-read from the ``currencies`` table.
+Source of FX data: any :class:`~bot.ingest.provider.MarketDataProvider` — today
+that is FMP's historical forex prices (pair ``{CURRENCY}USD``, daily close), via
+the provider's ``fx_rates`` method. Because ``import_fx_rates`` only depends on
+the port, swapping in a different data source (ECB, openexchangerates.org, ...)
+means writing a new adapter, not touching this module or the lookup/conversion
+helpers, which only read from the ``currencies`` table.
 """
 
 from __future__ import annotations
 
 from datetime import date
-from typing import Any
 
 import duckdb
 
 from bot.ingest.base import IngestResult, refresh_run, transaction
-from bot.ingest.fmp import FmpClient
+from bot.ingest.provider import FxRate, MarketDataProvider
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -46,31 +44,28 @@ def upsert_fx_rates(
     conn: duckdb.DuckDBPyConnection,
     *,
     currency: str,
-    rows: list[dict[str, Any]],
-    source: str = "fmp",
+    rates: list[FxRate],
+    source: str,
 ) -> int:
     """Insert/replace daily FX rows for ``currency``. Returns the row count.
 
-    Each row needs ``date`` (ISO string or ``datetime.date``) and ``rate_to_usd``.
     Replaces on the ``(currency, date)`` primary key so re-running is idempotent.
     Assumes it is called inside (or as) a single logical write.
     """
-    if not rows:
+    if not rates:
         return 0
     ccy = currency.upper()
-    for r in rows:
-        d = r["date"]
-        d_iso = d.isoformat() if isinstance(d, date) else str(d)[:10]
-        rate = float(r["rate_to_usd"])
+    for rate in rates:
+        d_iso = rate.date.isoformat()
         conn.execute(
             "DELETE FROM currencies WHERE currency = ? AND date = ?",
             [ccy, d_iso],
         )
         conn.execute(
             "INSERT INTO currencies (currency, date, rate_to_usd, source) VALUES (?, ?, ?, ?)",
-            [ccy, d_iso, rate, source],
+            [ccy, d_iso, rate.rate_to_usd, source],
         )
-    return len(rows)
+    return len(rates)
 
 
 def get_fx_rate(
@@ -124,39 +119,40 @@ def to_usd(
 def import_fx_rates(
     conn: duckdb.DuckDBPyConnection,
     *,
-    api_key: str,
+    provider: MarketDataProvider,
     currency: str,
     start: date | None = None,
     end: date | None = None,
-    client: FmpClient | None = None,
 ) -> IngestResult:
-    """Fetch daily ``currency``/USD rates from FMP and upsert them. Atomic on DB.
+    """Fetch daily ``currency``/USD rates through ``provider`` and upsert them.
+    Atomic on DB.
 
-    Records the run in ``refresh_log``. USD is a no-op (it needs no rows).
-
-    Pass ``client`` to reuse an open :class:`FmpClient` across many currencies
-    (the bulk FX refresh shares one for the whole run); otherwise one is opened
-    and closed for this call alone.
+    Records the run in ``refresh_log`` under ``f"{provider.name}_fx"``. USD is a
+    no-op (it needs no rows). ``start`` bounds the fetch (passed through as the
+    port's ``since``); the port has no server-side upper bound, so ``end``, when
+    given, additionally trims the returned rows client-side.
     """
     ccy = currency.upper()
     with refresh_run(
         conn,
-        source="fmp_fx",
+        source=f"{provider.name}_fx",
         log=log,
-        error_event="fmp_fx.import.failed",
-        log_fail_event="fmp_fx.refresh_log_insert_failed",
+        error_event="fx.import.failed",
+        log_fail_event="fx.refresh_log_insert_failed",
     ) as run:
         run.details = {"currency": ccy}
 
-        fmp = client if client is not None else FmpClient(api_key=api_key)
-        try:
-            rows = fmp.historical_fx(ccy, start=start, end=end)
-        finally:
-            if client is None:
-                fmp.close()
+        # USD is the numeraire: it needs no FX row, and no provider call either
+        # (mirrors get_fx_rate/to_usd, which never look it up in ``currencies``).
+        if ccy == USD:
+            rates = []
+        else:
+            rates = provider.fx_rates(ccy, start)
+            if end is not None:
+                rates = [r for r in rates if r.date <= end]
 
         with transaction(conn):
-            affected = upsert_fx_rates(conn, currency=ccy, rows=rows)
+            affected = upsert_fx_rates(conn, currency=ccy, rates=rates, source=provider.name)
 
         run.rows_affected = affected
         run.details = {"currency": ccy}

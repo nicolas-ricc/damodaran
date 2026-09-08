@@ -21,6 +21,7 @@ from jinja2 import Environment, PackageLoader, select_autoescape
 
 from bot.valuator.analysis import Analysis
 from bot.valuator.narrative_flags import FlagColor
+from bot.valuator.sensitivity import PATH_AXES, SensitivityAxis
 
 _DASH = "—"
 
@@ -82,6 +83,24 @@ def _fmt_pct(value: Any) -> str:
     return f"{float(value):.1%}"
 
 
+def _fmt_margin_path(value: Any) -> str:
+    """Render an operating-margin path (spec §7.1): a point, or a range if it moves.
+
+    A story-type-branched margin path (high-growth's ramp, or any other path
+    that is not flat) shows both ends so the report discloses the projection
+    instead of showing a single misleadingly-precise number; a flat path
+    (unchanged sector/cyclical behaviour) collapses to that one number.
+    """
+    if value is None:
+        return _DASH
+    path = tuple(value)
+    if not path:
+        return _DASH
+    if min(path) == max(path):
+        return _fmt_pct(path[0])
+    return f"{path[0]:.1%} → {path[-1]:.1%}"
+
+
 def _fmt_ratio(value: Any) -> str:
     if value is None:
         return _DASH
@@ -92,6 +111,21 @@ def _fmt_num(value: Any) -> str:
     if value is None:
         return _DASH
     return f"{float(value):.2f}"
+
+
+def _fmt_axis_label(axis: SensitivityAxis) -> str:
+    """A tornado row's axis label, flagging path axes as year-1-only (spec §7.4).
+
+    The tornado's swung low/high values for ``revenue_growth`` /
+    ``operating_margin`` are year 1 only (:func:`bot.valuator.sensitivity.
+    _axis_endpoint_value`): every year is scaled by the same multiplier, but a
+    story-branched path (a high-growth fade or margin ramp, spec §7.1) is not
+    flat across years, so year 1 is not the whole path. The "(yr 1)" suffix
+    matches the convention the §3 assumptions table already uses for
+    ``revenue_growth``, so the report never implies a flat path that isn't one.
+    """
+    label = axis.value
+    return f"{label} (yr 1)" if axis in PATH_AXES else label
 
 
 def _fmt_mult(value: Any) -> str:
@@ -114,6 +148,8 @@ def _environment() -> Environment:
     env.filters["money"] = _fmt_money
     env.filters["per_share"] = _fmt_per_share
     env.filters["pct"] = _fmt_pct
+    env.filters["margin_path"] = _fmt_margin_path
+    env.filters["axis_label"] = _fmt_axis_label
     env.filters["ratio"] = _fmt_ratio
     env.filters["num"] = _fmt_num
     env.filters["mult"] = _fmt_mult

@@ -2,6 +2,8 @@
 
 Personal investment bot. Local CLI tool. Single user. Greenfield project.
 
+Current version: US-only (S&P 500).
+
 ## Domain language
 
 - **Universe**: set of companies the screener considers (~50k global once M2 is done).
@@ -24,7 +26,7 @@ Personal investment bot. Local CLI tool. Single user. Greenfield project.
 
 - **Spec**: `docs/superpowers/specs/2026-05-25-investment-bot-design.md`
 - **ADRs**: `docs/adr/`
-- **Active plan**: `docs/superpowers/plans/2026-05-25-m1-skeleton-damodaran-sec-edgar.md`
+- **Active plan**: `docs/superpowers/plans/2026-08-17-conectar-fases-us-only.md`
 - **Open audit**: `docs/superpowers/notes/2026-08-14-grilling-pipeline-seams.md` — pipeline seam-by-seam audit; seams 1-2 closed (ADR 0005, 0006), seam 3 onward pending.
 - **The two plans**: `docs/plano/` — `plano.html` explains how the system is meant to work; `estado.html` says how much of it exists today. Read `estado.html` before starting a stage and update both when finishing one. See `docs/plano/README.md`.
 
@@ -45,9 +47,11 @@ they age differently:
   status plan is not: it is hand-curated from an audit and goes stale in
   silence, so it needs a real re-audit against the code (not against the spec).
   `build_estado.py` warns when `src/` moved after the recorded audit commit.
-- **If a stage implements an ADR, say so in the ADR.** ADR 0005 and 0006 both
-  read "Accepted" while their decisions remain unimplemented, so anyone reading
-  `docs/adr/` believes the code complies. Do not add a third.
+- **If a stage implements an ADR, say so in the ADR.** ADR 0005 and 0006 once
+  both read "Accepted" while their decisions remained unimplemented, so anyone
+  reading `docs/adr/` believed the code complied. ADR 0006 now says
+  "Implemented"; ADR 0005 says explicitly that it isn't, and why that's safe
+  under the current US-only scope. Do not let a fourth ADR go silent.
 
 ## External services
 

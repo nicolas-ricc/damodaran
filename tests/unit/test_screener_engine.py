@@ -16,6 +16,7 @@ from bot.screener.config import ScreenerConfig, load_screener_config
 from bot.screener.engine import (
     DEFAULT_REGION,
     DEFAULT_TAX_RATE,
+    RejectedCompany,
     _CompanyRow,
     _load_companies,
     _resolve_region,
@@ -449,6 +450,93 @@ def test_load_industry_benchmarks_reused(conn: duckdb.DuckDBPyConnection) -> Non
 
 
 # --------------------------------------------------------------------------- #
+# ADR 0006 — the coverage gate: no usable sector benchmark, no candidate      #
+# --------------------------------------------------------------------------- #
+
+
+def _adr0006_preset() -> ScreenerConfig:
+    from pathlib import Path
+
+    return load_screener_config(
+        Path(__file__).resolve().parents[2] / "config" / "presets" / "damodaran_value.yaml"
+    )
+
+
+def test_company_without_industry_mapping_leaves_the_universe(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    # NULL industry_damodaran: no sector to look a benchmark up under at all.
+    conn.execute(
+        "INSERT INTO companies (ticker, name, country, industry, industry_damodaran, source) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ["NOMAP", "No Map Corp", "United States", "Some Provider Label", None, "fmp"],
+    )
+    result = run_screen(conn, _adr0006_preset(), valuator=None)
+    assert result.screened == 0
+    assert result.no_coverage == ("NOMAP",)
+
+
+def test_company_whose_industry_has_no_benchmark_row_leaves_the_universe(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    # industry_damodaran resolves, but no damodaran_industry row exists for it.
+    conn.execute(
+        "INSERT INTO companies (ticker, name, country, industry, industry_damodaran, source) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        [
+            "NOBENCH",
+            "No Bench Corp",
+            "United States",
+            "Software (System)",
+            "Software (System)",
+            "fmp",
+        ],
+    )
+    result = run_screen(conn, _adr0006_preset(), valuator=None)
+    assert result.screened == 0
+    assert result.no_coverage == ("NOBENCH",)
+
+
+def test_company_whose_benchmark_has_null_wacc_leaves_the_universe(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    # damodaran_industry row exists but its wacc is NULL — the residual case.
+    conn.execute(
+        "INSERT INTO companies (ticker, name, country, industry, industry_damodaran, source) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ["NULLWACC", "Null Wacc Corp", "United States", "Software", "Software", "fmp"],
+    )
+    conn.execute(
+        "INSERT INTO damodaran_country (country, year, region) VALUES (?, ?, ?)",
+        ["United States", 2026, "US"],
+    )
+    conn.execute(
+        "INSERT INTO damodaran_industry (industry, region, year, wacc, pe) VALUES (?, ?, ?, ?, ?)",
+        ["Software", "US", 2026, None, 20.0],
+    )
+    result = run_screen(conn, _adr0006_preset(), valuator=None)
+    assert result.screened == 0
+    assert result.no_coverage == ("NULLWACC",)
+
+
+def test_trap_detector_skip_is_eliminatory() -> None:
+    from bot.screener.rules import ROICAboveSectorWACC
+
+    company = CompanyData(ticker="X", name="X", market_cap=1e10, roic=0.10)
+    benchmarks_without_wacc = IndustryBenchmarks(industry="Software", region="US", year=2026)
+    verdict = evaluate_company(
+        company,
+        benchmarks_without_wacc,
+        quality_gates=[],
+        value_indicators=[],
+        trap_detection=[ROICAboveSectorWACC()],
+    )
+    # The skip must no longer absolve the company — no verdict, no candidate.
+    assert verdict.passed is False
+    assert "roic_above_sector_wacc" in verdict.failed_gates
+
+
+# --------------------------------------------------------------------------- #
 # M4.7 — valuator wiring into the ranking                                      #
 # --------------------------------------------------------------------------- #
 
@@ -513,6 +601,36 @@ def _seed_company(conn: duckdb.DuckDBPyConnection, ticker: str) -> None:
         "VALUES (?, ?, ?, ?, ?, ?)",
         [ticker, "2026-05-29", 10.0, 5_000_000_000.0, "USD", "fmp"],
     )
+
+
+def test_screen_result_carries_rejected_companies_with_their_failed_gates(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_sector(conn)
+    _seed_company(conn, "TST")
+    _seed_company(conn, "TINY")
+    # TINY shares TST's otherwise-passing shape but trips the min_market_cap gate.
+    conn.execute("UPDATE prices_daily SET market_cap = 1000.0 WHERE ticker = 'TINY'")
+
+    result = run_screen(conn, _value_preset(), valuator=None)
+
+    rejected = {r.ticker: r.failed_gates for r in result.rejected}
+    assert "TINY" in rejected
+    assert any("market_cap" in g for g in rejected["TINY"])
+    assert isinstance(next(iter(result.rejected)), RejectedCompany)
+
+
+def test_no_coverage_companies_appear_as_rejected_by_the_coverage_gate(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    conn.execute(
+        "INSERT INTO companies (ticker, name, country, industry, industry_damodaran, source) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ["NOMAP", "No Map Corp", "United States", "Some Provider Label", None, "fmp"],
+    )
+    result = run_screen(conn, _adr0006_preset(), valuator=None)
+    rejected = {r.ticker: r.failed_gates for r in result.rejected}
+    assert rejected["NOMAP"] == ("coverage_gate",)
 
 
 def test_run_screen_uses_valuator_mos(conn: duckdb.DuckDBPyConnection) -> None:
@@ -776,3 +894,28 @@ def test_run_screen_default_valuator_byte_identical_to_per_ticker(
     per_ticker = run_screen(conn, _value_preset(), top=3, valuator=per_ticker_valuator)
 
     assert batched.shortlist == per_ticker.shortlist
+
+
+def test_run_screen_honours_assumptions_dir_override(
+    conn: duckdb.DuckDBPyConnection, tmp_path: object
+) -> None:
+    """`assumptions_dir` threads to the second-pass DCF and changes the MoS."""
+    from pathlib import Path
+
+    assert isinstance(tmp_path, Path)
+    _seed_valuable_sector(conn)
+    _seed_company(conn, "AAA")
+
+    baseline = run_screen(conn, _value_preset(), top=1)
+    baseline_mos = baseline.shortlist[0].margin_of_safety
+
+    assumptions_dir = tmp_path / "assumptions"
+    assumptions_dir.mkdir()
+    (assumptions_dir / "AAA.yaml").write_text("operating_margin: 0.05\n")
+
+    overridden = run_screen(conn, _value_preset(), top=1, assumptions_dir=assumptions_dir)
+    overridden_mos = overridden.shortlist[0].margin_of_safety
+
+    assert baseline_mos is not None
+    assert overridden_mos is not None
+    assert overridden_mos != baseline_mos

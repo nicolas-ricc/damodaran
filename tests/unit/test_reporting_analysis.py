@@ -191,6 +191,41 @@ def test_manual_story_type_does_not_contradict_its_reasons(
         assert f"classified as {other}" not in md
 
 
+def test_report_shows_constant_margin_path_as_one_number(analysis: Analysis) -> None:
+    # The base fixture has no growth/margin branching (not classified high-growth
+    # or cyclical), so the operating-margin path is flat — the report shows the
+    # single value, not a misleadingly precise range.
+    assert analysis.assumptions.operating_margin.value is not None
+    assert min(analysis.assumptions.operating_margin.value) == max(
+        analysis.assumptions.operating_margin.value
+    )
+    md = render_analysis(analysis)
+    assert "→" not in md.split("Operating margin")[1].split("\n")[0]
+
+
+def test_report_shows_varying_margin_path_as_a_range(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    override = tmp_path / "X.yaml"
+    override.write_text("operating_margin: [0.13, 0.14, 0.15, 0.16, 0.185]\n")
+    analysis = _seeded_analysis(conn, override_path=override)
+    md = render_analysis(analysis)
+    assert "13.0% → 18.5%" in md
+
+
+def test_tornado_path_axes_are_labelled_year_one(analysis: Analysis) -> None:
+    # The tornado's revenue_growth / operating_margin rows swing year 1 only
+    # (bot.valuator.sensitivity._axis_endpoint_value); a non-uniform,
+    # story-branched path is not flat across years, so the report must not
+    # imply the whole path moved by labelling the row as if it were.
+    md = render_analysis(analysis)
+    assert "revenue_growth (yr 1)" in md
+    assert "operating_margin (yr 1)" in md
+    # Scalar axes are unaffected.
+    assert "tax_rate (yr 1)" not in md
+    assert "| tax_rate |" in md
+
+
 def test_per_share_values_are_not_scaled_to_thousands() -> None:
     from bot.reporting.analysis_report import _fmt_per_share
 

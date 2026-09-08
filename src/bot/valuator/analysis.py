@@ -16,6 +16,7 @@ DB — writing the rendered report to disk is the CLI's job, not the pipeline's.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date as _date
 from pathlib import Path
 
 import duckdb
@@ -113,6 +114,7 @@ class _CompanyRow:
     country: str | None
     currency: str | None
     industry_damodaran: str | None
+    ipo_date: _date | None
 
 
 @dataclass(frozen=True)
@@ -129,14 +131,18 @@ class _LatestFinancials:
 
 def _load_company(conn: duckdb.DuckDBPyConnection, ticker: str) -> _CompanyRow:
     row = conn.execute(
-        "SELECT name, country, currency, industry_damodaran "
+        "SELECT name, country, currency, industry_damodaran, ipo_date "
         "FROM companies WHERE ticker = ?",
         [ticker],
     ).fetchone()
     if row is None:
         raise LookupError(f"company {ticker!r} not found in companies table")
     return _CompanyRow(
-        name=row[0], country=row[1], currency=row[2], industry_damodaran=row[3]
+        name=row[0],
+        country=row[1],
+        currency=row[2],
+        industry_damodaran=row[3],
+        ipo_date=row[4],
     )
 
 
@@ -456,6 +462,11 @@ def analyze(
     ebit_history = inputs.ebit_history
     sector = inputs.sector
     current_price = inputs.current_price
+
+    # Derive age from the company's ipoDate (FMP) when the caller didn't pass
+    # one explicitly — an explicit age_years always wins.
+    if age_years is None and company_row.ipo_date is not None:
+        age_years = max(0, (_date.today() - company_row.ipo_date).days // 365)
 
     # Story type: classify, then let a manual override win inside resolve.
     interest_coverage = None

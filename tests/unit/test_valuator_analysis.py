@@ -7,6 +7,7 @@ sensitivity and narrative flags, and packages everything the §7.7 report needs.
 
 from __future__ import annotations
 
+from datetime import date, timedelta
 from pathlib import Path
 
 import duckdb
@@ -335,7 +336,7 @@ def test_analyze_manual_override_applied(
     )
     analysis = analyze("AAPL", seeded_conn, override_path=override)
     assert analysis.story_type == "high-growth"
-    assert analysis.assumptions.operating_margin.value == pytest.approx(0.35)
+    assert analysis.assumptions.operating_margin.value == pytest.approx((0.35,) * 5)
     assert analysis.assumptions.operating_margin.source == AssumptionSource.MANUAL
     assert analysis.override_notes == "Services mix lifts steady-state margin."
 
@@ -359,3 +360,75 @@ def test_caller_can_still_force_non_cyclical(conn: duckdb.DuckDBPyConnection) ->
     _seed_volatile_financials(conn, ticker="STEEL2")
     result = analyze("STEEL2", conn, is_cyclical_sector=False)
     assert result.story_type != StoryType.CYCLICAL.value
+
+
+def _seed_high_cagr_financials(conn: duckdb.DuckDBPyConnection, ticker: str) -> None:
+    """Revenue history with a ~20% CAGR — clears ``_HIGH_GROWTH_CAGR`` (0.15)."""
+    fiscal_years = (2021, 2022, 2023, 2024, 2025)
+    revenues = (100_000.0, 120_000.0, 144_000.0, 172_800.0, 207_360.0)
+    for year, revenue in zip(fiscal_years, revenues, strict=True):
+        conn.execute(
+            "INSERT INTO financials_annual "
+            "(ticker, fiscal_year, revenue, ebit, net_income, interest_expense, "
+            "total_debt, cash, shares_diluted, is_restated, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ticker,
+                year,
+                revenue,
+                revenue * 0.15,
+                revenue * 0.10,
+                0.0,
+                0.0,
+                0.0,
+                1_000.0,
+                False,
+                "sec_edgar",
+            ],
+        )
+
+
+def test_analyze_derives_age_from_ipo_date_old_company_is_not_high_growth(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    # A 40-year-old company with a 20% revenue CAGR: the age rule (§7.1) must
+    # disqualify it from high-growth even though the growth signal clears the
+    # threshold on its own.
+    _seed_company(conn, ticker="OLD", industry_damodaran="Computers/Peripherals")
+    _seed_high_cagr_financials(conn, ticker="OLD")
+    ipo_date = date.today() - timedelta(days=40 * 365)
+    conn.execute("UPDATE companies SET ipo_date = ? WHERE ticker = ?", [ipo_date, "OLD"])
+
+    result = analyze("OLD", conn)
+
+    assert result.story_type != StoryType.HIGH_GROWTH.value
+
+
+def test_analyze_derives_age_from_ipo_date_young_company_is_high_growth(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    # Same growth profile, but a 5-year-old company: young enough for the
+    # high-growth rule to fire once age_years is derived from ipo_date.
+    _seed_company(conn, ticker="YOUNG", industry_damodaran="Computers/Peripherals")
+    _seed_high_cagr_financials(conn, ticker="YOUNG")
+    ipo_date = date.today() - timedelta(days=5 * 365)
+    conn.execute("UPDATE companies SET ipo_date = ? WHERE ticker = ?", [ipo_date, "YOUNG"])
+
+    result = analyze("YOUNG", conn)
+
+    assert result.story_type == StoryType.HIGH_GROWTH.value
+
+
+def test_analyze_explicit_age_years_wins_over_ipo_date(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    # A young company by ipo_date, but the caller explicitly passes an old age:
+    # the explicit value must win over the derived one.
+    _seed_company(conn, ticker="EXPLICIT", industry_damodaran="Computers/Peripherals")
+    _seed_high_cagr_financials(conn, ticker="EXPLICIT")
+    ipo_date = date.today() - timedelta(days=5 * 365)
+    conn.execute("UPDATE companies SET ipo_date = ? WHERE ticker = ?", [ipo_date, "EXPLICIT"])
+
+    result = analyze("EXPLICIT", conn, age_years=40)
+
+    assert result.story_type != StoryType.HIGH_GROWTH.value

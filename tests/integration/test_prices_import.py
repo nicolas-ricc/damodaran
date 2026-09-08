@@ -13,7 +13,8 @@ from datetime import date
 
 import pytest
 
-from bot.ingest.fmp import FmpClient, import_prices_from_fmp
+from bot.ingest.fmp import FmpClient, FmpProvider
+from bot.ingest.universe import refresh_prices
 from bot.storage.db import apply_schema, connect
 
 API_KEY = "test-fmp-key"
@@ -35,6 +36,8 @@ def vcr_config() -> dict[str, object]:
 @pytest.mark.integration
 @pytest.mark.vcr
 def test_fetch_historical_prices_returns_rows() -> None:
+    # Exercises the low-level FmpClient directly (unrelated to the provider-port
+    # rename) — start/end bound the fetch window, matching the recorded cassette.
     with FmpClient(api_key=API_KEY) as client:
         rows = client.historical_prices(
             "AAPL", start=date(2023, 12, 27), end=date(2023, 12, 29)
@@ -53,15 +56,17 @@ def test_import_prices_populates_table() -> None:
     conn = connect(":memory:")
     apply_schema(conn)
     try:
-        result = import_prices_from_fmp(
-            conn,
-            api_key=API_KEY,
-            ticker="AAPL",
-            since_date=date(2023, 12, 27),
-            currency="USD",
+        conn.execute(
+            "INSERT INTO companies (ticker, name, currency, source) "
+            "VALUES ('AAPL', 'Apple Inc.', 'USD', 'fmp')"
         )
-        assert result.is_success()
-        assert result.rows_affected == 3
+        with FmpProvider(api_key=API_KEY) as provider:
+            result = refresh_prices(
+                conn, provider=provider, tickers=["AAPL"], since_date=date(2023, 12, 27)
+            )
+        assert result.status == "success"
+        assert result.imported == 1
+        assert result.outcomes[0].rows_affected == 3
 
         rows = conn.execute(
             "SELECT date, close, volume, market_cap, currency, source "
@@ -81,19 +86,25 @@ def test_import_prices_populates_table() -> None:
 @pytest.mark.integration
 @pytest.mark.vcr
 def test_second_run_is_incremental_zero_inserts() -> None:
-    """A second import with already-current data performs zero new INSERTs."""
+    """A second import with already-current data performs zero new INSERTs.
+
+    Incremental semantics: the fetch window starts the day *after* the newest
+    stored date (``_max_price_date`` + 1 day), so a re-run with no new remote
+    data fetches nothing new and performs zero INSERTs.
+    """
     conn = connect(":memory:")
     apply_schema(conn)
     try:
-        first = import_prices_from_fmp(
-            conn,
-            api_key=API_KEY,
-            ticker="AAPL",
-            since_date=date(2023, 12, 27),
-            currency="USD",
+        conn.execute(
+            "INSERT INTO companies (ticker, name, currency, source) "
+            "VALUES ('AAPL', 'Apple Inc.', 'USD', 'fmp')"
         )
-        assert first.is_success()
-        assert first.rows_affected == 3
+        with FmpProvider(api_key=API_KEY) as provider:
+            first = refresh_prices(
+                conn, provider=provider, tickers=["AAPL"], since_date=date(2023, 12, 27)
+            )
+        assert first.status == "success"
+        assert first.outcomes[0].rows_affected == 3
 
         count_after_first = conn.execute(
             "SELECT count(*) FROM prices_daily WHERE ticker = 'AAPL'"
@@ -103,14 +114,10 @@ def test_second_run_is_incremental_zero_inserts() -> None:
 
         # Second run: incremental window starts at max(date)+1 (2023-12-30),
         # for which the cassette returns an empty history -> no new INSERTs.
-        second = import_prices_from_fmp(
-            conn,
-            api_key=API_KEY,
-            ticker="AAPL",
-            currency="USD",
-        )
-        assert second.is_success()
-        assert second.rows_affected == 0
+        with FmpProvider(api_key=API_KEY) as provider:
+            second = refresh_prices(conn, provider=provider, tickers=["AAPL"])
+        assert second.status == "success"
+        assert second.outcomes[0].rows_affected == 0
 
         count_after_second = conn.execute(
             "SELECT count(*) FROM prices_daily WHERE ticker = 'AAPL'"

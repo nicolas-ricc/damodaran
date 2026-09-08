@@ -1,9 +1,16 @@
 """Financial Modeling Prep (FMP) adapter — HTTP client + auth + ticker lookup.
 
-Thin client over the FMP REST API. Plays the same role as ``SecEdgarClient`` but
-for global coverage (international fundamentals + EOD prices). The API key is read
-from ``BOT_FMP_API_KEY`` (see :class:`bot.config.Settings`) and passed to FMP as
-the ``apikey`` query parameter on every request.
+Thin client over the FMP REST API (the ``/stable`` surface — FMP retired
+``/api/v3`` for API keys created after 2025-08-31). Plays the same role as
+``SecEdgarClient`` but for global coverage (international fundamentals + EOD
+prices). The API key is read from ``BOT_FMP_API_KEY`` (see
+:class:`bot.config.Settings`) and passed to FMP as the ``apikey`` query
+parameter on every request.
+
+Parsers tolerate both the ``/stable`` and legacy ``/api/v3`` response
+dialects (field renames such as ``fillingDate``/``filingDate`` and
+``calendarYear``/``fiscalYear``), since existing VCR fixtures still carry v3
+response bodies.
 
 Only the ticker lookup and exchange/country listing endpoints are implemented
 here (M2.1). Fundamentals ingestion lands in a later slice.
@@ -11,47 +18,39 @@ here (M2.1). Fundamentals ingestion lands in a later slice.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import date, datetime, timedelta
-from pathlib import Path
+import dataclasses
+from collections.abc import Iterable
+from datetime import date
 from typing import Any
 
-import duckdb
 import httpx
 
-from bot.ingest.base import IngestResult, refresh_run, transaction
-from bot.ingest.industry_mapping import (
-    IndustryMapping,
-    load_industry_mapping,
-    resolve_mapping_path,
-)
-from bot.ingest.sec_edgar import (
+from bot.ingest.base import coerce_date
+from bot.ingest.provider import (
+    CompanyInfo,
+    FundamentalsBundle,
+    FxRate,
     ParsedCompanyData,
-    upsert_company,
-    upsert_filings,
-    upsert_financials_annual,
-    upsert_financials_quarterly,
+    PriceBar,
+    ProviderRateLimitError,
 )
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
 
-BASE_URL = "https://financialmodelingprep.com/api/v3"
+BASE_URL = "https://financialmodelingprep.com/stable"
+
+# FMP's free tier rejects limit > 5 on statement endpoints (HTTP 402, "Premium Query Parameter").
+STATEMENT_LIMIT = 5
 
 
-@dataclass(frozen=True)
-class CompanyInfo:
-    """Normalized basic company info from an FMP profile lookup."""
+class FmpRateLimitError(ProviderRateLimitError):
+    """FMP returned HTTP 429: the API key's daily quota is exhausted.
 
-    ticker: str
-    name: str
-    exchange: str | None
-    exchange_short_name: str | None
-    country: str | None
-    currency: str | None
-    sector: str | None
-    industry: str | None
-    is_actively_trading: bool
+    Not a per-ticker failure or a data error: the run must stop and the rest
+    of the universe is deferred to the next run (the refresh is incremental,
+    so resuming it is free).
+    """
 
 
 class FmpClient:
@@ -87,31 +86,24 @@ class FmpClient:
         query: dict[str, Any] = dict(params or {})
         query["apikey"] = self._api_key
         r = self._client.get(path, params=query)
+        if r.status_code == 429:
+            raise FmpRateLimitError(
+                "FMP rate limit (HTTP 429): daily quota exhausted; retry tomorrow"
+            )
         r.raise_for_status()
         return r.json()
 
     def lookup_company(self, ticker: str) -> CompanyInfo | None:
         """Return normalized basic info for ``ticker``, or None if not found.
 
-        FMP's ``/profile/{ticker}`` endpoint returns a JSON array: a single
-        profile object for a known symbol, or an empty array for an unknown one.
+        FMP's ``/profile`` endpoint returns a JSON array: a single profile
+        object for a known symbol, or an empty array for an unknown one.
         """
-        data = self._get(f"/profile/{ticker.upper()}")
+        data = self._get("/profile", params={"symbol": ticker.upper()})
         if not isinstance(data, list) or not data:
             log.info("fmp.lookup_company.not_found", ticker=ticker)
             return None
-        profile = data[0]
-        info = CompanyInfo(
-            ticker=str(profile.get("symbol", ticker)).upper(),
-            name=str(profile.get("companyName", "")),
-            exchange=_str_or_none(profile.get("exchange")),
-            exchange_short_name=_str_or_none(profile.get("exchangeShortName")),
-            country=_str_or_none(profile.get("country")),
-            currency=_str_or_none(profile.get("currency")),
-            sector=_str_or_none(profile.get("sector")),
-            industry=_str_or_none(profile.get("industry")),
-            is_actively_trading=bool(profile.get("isActivelyTrading", False)),
-        )
+        info = _company_info_from_profile(data[0], fallback_ticker=ticker)
         log.info("fmp.lookup_company.found", ticker=info.ticker, country=info.country)
         return info
 
@@ -131,7 +123,7 @@ class FmpClient:
     ) -> list[dict[str, Any]]:
         """Return daily {currency}/USD rates as ``[{"date", "rate_to_usd"}, ...]``.
 
-        Uses FMP's ``/historical-price-full/{PAIR}`` endpoint for the forex pair
+        Uses FMP's ``/historical-price-eod/full`` endpoint for the forex pair
         ``{CURRENCY}USD`` (e.g. ``EURUSD``). The daily ``close`` is taken as the
         rate that converts one unit of ``currency`` into USD. USD itself needs no
         request — it is the numeraire — so it returns an empty list.
@@ -139,13 +131,13 @@ class FmpClient:
         ccy = currency.upper()
         if ccy == "USD":
             return []
-        params: dict[str, Any] = {}
+        params: dict[str, Any] = {"symbol": f"{ccy}USD"}
         if start is not None:
             params["from"] = start.isoformat()
         if end is not None:
             params["to"] = end.isoformat()
-        data = self._get(f"/historical-price-full/{ccy}USD", params=params)
-        historical = data.get("historical") if isinstance(data, dict) else None
+        data = self._get("/historical-price-eod/full", params=params)
+        historical = _unwrap_historical(data)
         if not isinstance(historical, list):
             log.info("fmp.historical_fx.empty", currency=ccy)
             return []
@@ -162,6 +154,13 @@ class FmpClient:
         log.info("fmp.historical_fx.fetched", currency=ccy, rows=len(out))
         return out
 
+    def current_market_cap(self, ticker: str) -> float | None:
+        """Current market cap from ``/profile`` (stable's EOD rows carry none)."""
+        data = self._get("/profile", params={"symbol": ticker.upper()})
+        if not isinstance(data, list) or not data or not isinstance(data[0], dict):
+            return None
+        return _float_or_none(data[0].get("marketCap"))
+
     def historical_prices(
         self,
         ticker: str,
@@ -171,21 +170,22 @@ class FmpClient:
     ) -> list[dict[str, Any]]:
         """Return daily EOD price rows for ``ticker`` as a list of dicts.
 
-        Uses FMP's ``/historical-price-full/{TICKER}`` endpoint. Each returned
+        Uses FMP's ``/historical-price-eod/full`` endpoint. Each returned
         dict carries ``date`` (``YYYY-MM-DD``), ``close``, ``volume`` and
         ``market_cap`` (the last derived from FMP's ``marketCap`` field when
-        present, else ``None``). ``start``/``end`` are passed as FMP's
+        present, else ``None`` — the stable endpoint no longer returns
+        ``marketCap`` at all). ``start``/``end`` are passed as FMP's
         ``from``/``to`` query parameters to bound the fetched window — used by
-        :func:`import_prices_from_fmp` for incremental fetches.
+        :meth:`FmpProvider.daily_prices` for incremental fetches.
         """
         sym = ticker.upper()
-        params: dict[str, Any] = {}
+        params: dict[str, Any] = {"symbol": sym}
         if start is not None:
             params["from"] = start.isoformat()
         if end is not None:
             params["to"] = end.isoformat()
-        data = self._get(f"/historical-price-full/{sym}", params=params)
-        historical = data.get("historical") if isinstance(data, dict) else None
+        data = self._get("/historical-price-eod/full", params=params)
+        historical = _unwrap_historical(data)
         if not isinstance(historical, list):
             log.info("fmp.historical_prices.empty", ticker=sym)
             return []
@@ -218,30 +218,191 @@ class FmpClient:
         array (one object per fiscal period), or ``[]`` for an unknown symbol.
         """
         data = self._get(
-            f"/{kind}/{ticker.upper()}",
-            params={"period": period, "limit": limit},
+            f"/{kind}",
+            params={"symbol": ticker.upper(), "period": period, "limit": limit},
         )
         if not isinstance(data, list):
             return []
         return [e for e in data if isinstance(e, dict)]
 
     def income_statement(
-        self, ticker: str, *, period: str = "annual", limit: int = 10
+        self, ticker: str, *, period: str = "annual", limit: int = STATEMENT_LIMIT
     ) -> list[dict[str, Any]]:
         """Return the income-statement array for ``ticker`` (``annual``/``quarter``)."""
         return self._statement("income-statement", ticker, period=period, limit=limit)
 
     def balance_sheet(
-        self, ticker: str, *, period: str = "annual", limit: int = 10
+        self, ticker: str, *, period: str = "annual", limit: int = STATEMENT_LIMIT
     ) -> list[dict[str, Any]]:
         """Return the balance-sheet array for ``ticker`` (``annual``/``quarter``)."""
         return self._statement("balance-sheet-statement", ticker, period=period, limit=limit)
 
     def cash_flow(
-        self, ticker: str, *, period: str = "annual", limit: int = 10
+        self, ticker: str, *, period: str = "annual", limit: int = STATEMENT_LIMIT
     ) -> list[dict[str, Any]]:
         """Return the cash-flow array for ``ticker`` (``annual``/``quarter``)."""
         return self._statement("cash-flow-statement", ticker, period=period, limit=limit)
+
+
+class FmpProvider:
+    """The FMP adapter behind :class:`bot.ingest.provider.MarketDataProvider`.
+
+    One instance owns one :class:`FmpClient` (one connection pool) for its
+    lifetime — construct per bulk run, close when done (context manager).
+    Everything FMP-specific — endpoints, JSON shapes, parsing — stays inside.
+    """
+
+    def __init__(self, api_key: str, timeout: float = 30.0) -> None:
+        self._api_key = api_key
+        self._timeout = timeout
+        self._client: FmpClient | None = None
+
+    @property
+    def name(self) -> str:
+        return "fmp"
+
+    def _fmp(self) -> FmpClient:
+        if self._client is None:
+            self._client = FmpClient(api_key=self._api_key, timeout=self._timeout)
+        return self._client
+
+    def close(self) -> None:
+        if self._client is not None:
+            self._client.close()
+            self._client = None
+
+    def __enter__(self) -> FmpProvider:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+    def lookup_company(self, ticker: str) -> CompanyInfo | None:
+        return self._fmp().lookup_company(ticker)
+
+    def fundamentals(self, ticker: str) -> FundamentalsBundle:
+        sym = ticker.upper()
+        fmp = self._fmp()
+        info = fmp.lookup_company(sym)
+        inc_a = fmp.income_statement(sym, period="annual")
+        bal_a = fmp.balance_sheet(sym, period="annual")
+        cf_a = fmp.cash_flow(sym, period="annual")
+        inc_q = fmp.income_statement(sym, period="quarter")
+        bal_q = fmp.balance_sheet(sym, period="quarter")
+        cf_q = fmp.cash_flow(sym, period="quarter")
+        return FundamentalsBundle(
+            info=info,
+            annual=parse_fmp_fundamentals(sym, inc_a, bal_a, cf_a),
+            quarterly=parse_fmp_fundamentals(sym, inc_q, bal_q, cf_q),
+            filings=_collect_fmp_filings(sym, inc_a, inc_q),
+        )
+
+    def daily_prices(self, ticker: str, since: date | None) -> list[PriceBar]:
+        sym = ticker.upper()
+        rows = self._fmp().historical_prices(sym, start=since, end=None)
+        bars = [
+            PriceBar(
+                date=_as_date(r["date"]),
+                close=_float_or_none(r.get("close")),
+                volume=_float_or_none(r.get("volume")),
+                market_cap=_float_or_none(r.get("market_cap")),
+            )
+            for r in rows
+        ]
+        if bars:
+            newest_idx = max(range(len(bars)), key=lambda i: bars[i].date)
+            newest = bars[newest_idx]
+            if newest.market_cap is None and (date.today() - newest.date).days <= 7:
+                cap = self._fmp().current_market_cap(sym)
+                if cap is not None:
+                    bars[newest_idx] = dataclasses.replace(newest, market_cap=cap)
+        return bars
+
+    def fx_rates(self, currency: str, since: date | None) -> list[FxRate]:
+        rows = self._fmp().historical_fx(currency.upper(), start=since, end=None)
+        return [
+            FxRate(date=_as_date(r["date"]), rate_to_usd=float(r["rate_to_usd"]))
+            for r in rows
+        ]
+
+    def latest_filing_date(self, ticker: str) -> date | None:
+        sym = ticker.upper()
+        rows = self._fmp().income_statement(sym, period="annual", limit=1)
+        return _latest_filing_from_rows(rows)
+
+
+def _unwrap_historical(data: Any) -> list[Any] | None:
+    """Unwrap an EOD-price response body into its row list.
+
+    Stable's ``/historical-price-eod/full`` returns a flat JSON array of row
+    dicts. The legacy ``/api/v3`` shape (still used by some fixtures) wraps
+    the same rows in ``{"symbol": ..., "historical": [...]}``. Accept either.
+    """
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        historical = data.get("historical")
+        return historical if isinstance(historical, list) else None
+    return None
+
+
+def _as_date(value: Any) -> date:
+    parsed = coerce_date(value)
+    if parsed is None:
+        raise ValueError(f"FMP row has no usable date: {value!r}")
+    return parsed
+
+
+def _latest_filing_from_rows(rows: Iterable[dict[str, object]]) -> date | None:
+    """Return the newest ``fillingDate``/``acceptedDate`` across FMP statement rows.
+
+    Backs :meth:`FmpProvider.latest_filing_date` — adapter-internal since it reads
+    FMP's own statement JSON shape.
+    """
+    latest: date | None = None
+    for entry in rows:
+        if not isinstance(entry, dict):
+            continue
+        filed_raw = (
+            entry.get("filingDate") or entry.get("fillingDate") or entry.get("acceptedDate")
+        )
+        if not filed_raw:
+            continue
+        filed = coerce_date(filed_raw)
+        if filed is None:
+            continue
+        if latest is None or filed > latest:
+            latest = filed
+    return latest
+
+
+def _company_info_from_profile(profile: dict[str, Any], *, fallback_ticker: str) -> CompanyInfo:
+    """Map one FMP ``/profile`` entry to :class:`CompanyInfo`.
+
+    Tolerates both response dialects. Legacy ``/api/v3`` bodies carry
+    ``exchange`` (full name) and ``exchangeShortName`` (short name). Stable's
+    ``/profile`` renames these: ``exchangeFullName`` is now the full name and
+    ``exchange`` is the short name. The presence of ``exchangeShortName``
+    distinguishes which dialect a given body is in.
+    """
+    if "exchangeShortName" in profile:
+        exchange = _str_or_none(profile.get("exchange"))
+        exchange_short_name = _str_or_none(profile.get("exchangeShortName"))
+    else:
+        exchange = _str_or_none(profile.get("exchangeFullName"))
+        exchange_short_name = _str_or_none(profile.get("exchange"))
+    return CompanyInfo(
+        ticker=str(profile.get("symbol", fallback_ticker)).upper(),
+        name=str(profile.get("companyName", "")),
+        exchange=exchange,
+        exchange_short_name=exchange_short_name,
+        country=_str_or_none(profile.get("country")),
+        currency=_str_or_none(profile.get("currency")),
+        sector=_str_or_none(profile.get("sector")),
+        industry=_str_or_none(profile.get("industry")),
+        is_actively_trading=bool(profile.get("isActivelyTrading", False)),
+        ipo_date=coerce_date(profile.get("ipoDate")),
+    )
 
 
 def _str_or_none(value: Any) -> str | None:
@@ -283,6 +444,7 @@ _INCOME_FIELD_MAP: dict[str, str] = {
     "incomeTaxExpense": "tax_expense",
     "netIncome": "net_income",
     "weightedAverageShsDilOut": "shares_diluted",
+    "weightedAverageShsOutDil": "shares_diluted",
     "depreciationAndAmortization": "depreciation",
 }
 
@@ -300,6 +462,7 @@ _CASHFLOW_FIELD_MAP: dict[str, str] = {
     "operatingCashFlow": "operating_cashflow",
     "freeCashFlow": "free_cashflow",
     "dividendsPaid": "dividends_paid",
+    "netDividendsPaid": "dividends_paid",
 }
 
 
@@ -434,7 +597,12 @@ def _merge_statement(
             continue
         period_end = str(raw_period_end)[:10]
 
-        filed_raw = entry.get("fillingDate") or entry.get("acceptedDate") or raw_period_end
+        filed_raw = (
+            entry.get("filingDate")
+            or entry.get("fillingDate")
+            or entry.get("acceptedDate")
+            or raw_period_end
+        )
         filed = str(filed_raw)[:10]
         if period_end in latest_filed:
             # Same period reported twice within this statement -> restatement.
@@ -490,8 +658,8 @@ def _working_capital(raw: dict[str, Any]) -> float | None:
 
 
 def _fiscal_year(entry: dict[str, Any]) -> int | None:
-    """Resolve the fiscal year from ``calendarYear`` or the ``date`` year."""
-    cal = entry.get("calendarYear")
+    """Resolve the fiscal year from ``fiscalYear``/``calendarYear`` or the ``date`` year."""
+    cal = entry.get("fiscalYear") or entry.get("calendarYear")
     if cal is not None:
         try:
             return int(cal)
@@ -533,128 +701,6 @@ def _quarter_number(period: str) -> int | None:
     return None
 
 
-# ---------- Daily EOD prices ingest (M2.4) ----------
-
-
-def upsert_prices_daily(
-    conn: duckdb.DuckDBPyConnection,
-    *,
-    ticker: str,
-    rows: list[dict[str, Any]],
-    currency: str | None = None,
-    source: str = "fmp",
-) -> int:
-    """Insert/replace daily price rows for ``ticker``. Returns rows written.
-
-    Each row needs ``date`` (ISO string or ``datetime.date``); ``close``,
-    ``volume`` and ``market_cap`` are optional. Replaces on the
-    ``(ticker, date)`` primary key so re-running is idempotent. Assumes it is
-    called inside a single logical write.
-    """
-    if not rows:
-        return 0
-    sym = ticker.upper()
-    for r in rows:
-        d = r["date"]
-        d_iso = d.isoformat() if isinstance(d, date) else str(d)[:10]
-        conn.execute(
-            "DELETE FROM prices_daily WHERE ticker = ? AND date = ?",
-            [sym, d_iso],
-        )
-        conn.execute(
-            """
-            INSERT INTO prices_daily
-                (ticker, date, close, volume, market_cap, currency, source)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                sym,
-                d_iso,
-                _float_or_none(r.get("close")),
-                _float_or_none(r.get("volume")),
-                _float_or_none(r.get("market_cap")),
-                currency,
-                source,
-            ],
-        )
-    return len(rows)
-
-
-def _max_price_date(conn: duckdb.DuckDBPyConnection, ticker: str) -> date | None:
-    """Return the latest stored price date for ``ticker``, or None if absent."""
-    row = conn.execute(
-        "SELECT max(date) FROM prices_daily WHERE ticker = ?",
-        [ticker.upper()],
-    ).fetchone()
-    if row is None or row[0] is None:
-        return None
-    value = row[0]
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    return date.fromisoformat(str(value)[:10])
-
-
-def import_prices_from_fmp(
-    conn: duckdb.DuckDBPyConnection,
-    *,
-    api_key: str,
-    ticker: str,
-    since_date: date | None = None,
-    currency: str | None = None,
-    client: FmpClient | None = None,
-) -> IngestResult:
-    """Fetch daily EOD prices for ``ticker`` from FMP and upsert them. Atomic.
-
-    Incremental: the fetch window starts at the day *after* the latest date
-    already stored for ``ticker`` (or ``since_date`` if that is later), so a
-    second run with current data fetches nothing new and performs zero INSERTs.
-    Pass ``since_date`` to bound a first import (otherwise FMP's full history is
-    requested). Records the run in ``refresh_log``.
-
-    Pass ``client`` to reuse an open :class:`FmpClient` across many tickers (the
-    bulk price refresh shares one for the whole run); otherwise one is opened and
-    closed for this call alone.
-    """
-    sym = ticker.upper()
-    with refresh_run(
-        conn,
-        source="fmp_prices",
-        log=log,
-        error_event="fmp_prices.import.failed",
-        log_fail_event="fmp_prices.refresh_log_insert_failed",
-    ) as run:
-        run.details = {"ticker": sym}
-
-        last = _max_price_date(conn, sym)
-        # Incremental lower bound: fetch strictly after the newest stored date.
-        start = since_date
-        if last is not None:
-            next_day = last + timedelta(days=1)
-            start = next_day if start is None or next_day > start else start
-
-        fmp = client if client is not None else FmpClient(api_key=api_key)
-        try:
-            rows = fmp.historical_prices(sym, start=start)
-        finally:
-            if client is None:
-                fmp.close()
-
-        # Defensive: drop anything at or before the last stored date so a
-        # re-run that re-fetches an overlapping window still INSERTs nothing new.
-        if last is not None:
-            rows = [r for r in rows if str(r["date"])[:10] > last.isoformat()]
-
-        with transaction(conn):
-            affected = upsert_prices_daily(conn, ticker=sym, rows=rows, currency=currency)
-
-        run.rows_affected = affected
-        run.details = {"ticker": sym}
-    assert run.result is not None  # refresh_run always sets it on exit
-    return run.result
-
-
 # ---------- Fundamentals importer (M2.3) ----------
 
 
@@ -678,7 +724,9 @@ def _collect_fmp_filings(
         for entry in statement:
             if not isinstance(entry, dict):
                 continue
-            filed_raw = entry.get("fillingDate") or entry.get("acceptedDate")
+            filed_raw = (
+                entry.get("filingDate") or entry.get("fillingDate") or entry.get("acceptedDate")
+            )
             period = _str_or_none(entry.get("period"))
             if not filed_raw or period is None:
                 continue
@@ -699,133 +747,3 @@ def _collect_fmp_filings(
             )
     return out
 
-
-def _company_row(
-    ticker: str,
-    info: CompanyInfo | None,
-    currency: str | None,
-    *,
-    mapping: IndustryMapping,
-) -> dict[str, Any]:
-    """Build the ``companies`` row from the FMP profile (+ parsed currency fallback).
-
-    Mirrors the ``company`` dict shape produced for SEC EDGAR. The profile's
-    ``currency`` is preferred; the parsed ``reportedCurrency`` is the fallback so
-    a company row always carries a currency even if the profile omits it.
-
-    ``industry`` keeps the provider's own label for traceability;
-    ``industry_damodaran`` carries the translated label the sector-relative rules
-    and the valuator key off (spec §4.3.1), or ``None`` when unmapped. An unmapped
-    label is logged as a warning: it leaves every sector assumption ``unresolved``
-    (so ``analyze`` raises) and ``is_financial_services`` ``False`` (so a bank
-    slips past the §6.2 exclusion), and the only fix is a mapping-CSV row.
-    """
-    sym = ticker.upper()
-    if info is None:
-        return {
-            "ticker": sym,
-            "name": sym,
-            "currency": currency,
-            "source": "fmp",
-            "status": "active",
-            "industry_damodaran": None,
-        }
-    damodaran_industry = mapping.resolve("fmp", info.industry)
-    if damodaran_industry is None and info.industry is not None:
-        log.warning(
-            "fmp.industry_mapping.unmapped",
-            ticker=sym,
-            provider_industry=info.industry,
-        )
-    return {
-        "ticker": sym,
-        "name": info.name or sym,
-        "country": info.country,
-        "exchange": info.exchange_short_name or info.exchange,
-        "industry": info.industry,
-        "industry_damodaran": damodaran_industry,
-        "currency": info.currency or currency,
-        "status": "active" if info.is_actively_trading else "inactive",
-        "source": "fmp",
-    }
-
-
-def import_company_from_fmp(
-    conn: duckdb.DuckDBPyConnection,
-    *,
-    ticker: str,
-    api_key: str,
-    client: FmpClient | None = None,
-    mapping: IndustryMapping | None = None,
-    mapping_path: Path | None = None,
-) -> IngestResult:
-    """Fetch + parse + upsert one ticker's fundamentals from FMP. Atomic on the DB side.
-
-    Mirrors :func:`bot.ingest.sec_edgar.import_company_from_sec`: it returns the
-    same :class:`IngestResult` contract and reuses the existing
-    ``upsert_company`` / ``upsert_financials_*`` helpers. The annual and
-    quarterly statements are fetched separately (FMP scopes period granularity
-    per request) and parsed by the pure M2.2 parser. Currency / country come from
-    the source profile — non-US tickers keep their local currency. All writes
-    happen in a single transaction; the run is recorded in ``refresh_log``.
-
-    Pass ``client`` to reuse an open :class:`FmpClient` (and its connection pool)
-    across many tickers — the bulk universe refresh shares one client for the
-    whole run. When omitted, a client is opened and closed for this call alone.
-
-    Pass ``mapping`` to reuse an already-loaded :class:`IndustryMapping` across
-    many tickers; when omitted, ``mapping_path`` (i.e.
-    ``Settings.industry_mapping_path``) is loaded for this call alone, falling
-    back to the packaged CSV when that file does not exist.
-    """
-    sym = ticker.upper()
-    with refresh_run(
-        conn,
-        source="fmp",
-        log=log,
-        error_event="fmp.import.failed",
-        log_fail_event="fmp.refresh_log_insert_failed",
-    ) as run:
-        run.details = {"ticker": sym}
-
-        fmp = client if client is not None else FmpClient(api_key=api_key)
-        try:
-            info = fmp.lookup_company(sym)
-            inc_a = fmp.income_statement(sym, period="annual")
-            bal_a = fmp.balance_sheet(sym, period="annual")
-            cf_a = fmp.cash_flow(sym, period="annual")
-            inc_q = fmp.income_statement(sym, period="quarter")
-            bal_q = fmp.balance_sheet(sym, period="quarter")
-            cf_q = fmp.cash_flow(sym, period="quarter")
-        finally:
-            if client is None:
-                fmp.close()
-
-        parsed_annual = parse_fmp_fundamentals(sym, inc_a, bal_a, cf_a)
-        parsed_quarterly = parse_fmp_fundamentals(sym, inc_q, bal_q, cf_q)
-
-        currency = parsed_annual.company.get("currency") or parsed_quarterly.company.get("currency")
-        resolved_mapping = (
-            mapping
-            if mapping is not None
-            else load_industry_mapping(resolve_mapping_path(mapping_path))
-        )
-        company = _company_row(sym, info, currency, mapping=resolved_mapping)
-        filing_rows = _collect_fmp_filings(sym, inc_a, inc_q)
-
-        with transaction(conn):
-            upsert_company(conn, company)
-            annual = upsert_financials_annual(conn, parsed_annual.annual)
-            quarterly = upsert_financials_quarterly(conn, parsed_quarterly.quarterly)
-            filings = upsert_filings(conn, filing_rows)
-
-        run.rows_affected = 1 + annual + quarterly + filings
-        run.details = {
-            "ticker": sym,
-            "annual": annual,
-            "quarterly": quarterly,
-            "filings": filings,
-            "currency": currency,
-        }
-    assert run.result is not None  # refresh_run always sets it on exit
-    return run.result

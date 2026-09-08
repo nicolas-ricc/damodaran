@@ -119,7 +119,8 @@ def render_markdown(result: ScreenResult, *, generated_on: date | None = None) -
         f"# Screen — {result.preset}",
         "",
         f"Generated: {stamp}  ·  Screened {result.screened} companies  ·  "
-        f"Shortlist {len(result.shortlist)}",
+        f"Shortlist {len(result.shortlist)}  ·  "
+        f"Excluded (no sector benchmark, ADR 0006): {len(result.no_coverage)}",
         "",
     ]
     if not result.shortlist:

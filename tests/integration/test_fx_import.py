@@ -13,7 +13,7 @@ from datetime import date
 
 import pytest
 
-from bot.ingest.fmp import FmpClient
+from bot.ingest.fmp import FmpClient, FmpProvider
 from bot.storage.db import apply_schema, connect
 from bot.utils.fx import get_fx_rate, import_fx_rates, to_usd
 
@@ -40,6 +40,8 @@ def vcr_config() -> dict[str, object]:
 @pytest.mark.integration
 @pytest.mark.vcr
 def test_fetch_historical_fx_returns_rows() -> None:
+    # Exercises the low-level FmpClient directly (unrelated to the provider-port
+    # rename) — start/end bound the fetch window, matching the recorded cassette.
     with FmpClient(api_key=API_KEY) as client:
         rows = client.historical_fx("EUR", start=date(2023, 12, 27), end=date(2023, 12, 29))
     by_date = {r["date"]: r["rate_to_usd"] for r in rows}
@@ -52,13 +54,14 @@ def test_import_fx_rates_populates_currencies_table() -> None:
     conn = connect(":memory:")
     apply_schema(conn)
     try:
-        result = import_fx_rates(
-            conn,
-            api_key=API_KEY,
-            currency="EUR",
-            start=date(2023, 12, 27),
-            end=date(2023, 12, 29),
-        )
+        with FmpProvider(api_key=API_KEY) as provider:
+            result = import_fx_rates(
+                conn,
+                provider=provider,
+                currency="EUR",
+                start=date(2023, 12, 27),
+                end=date(2023, 12, 29),
+            )
         assert result.is_success()
         assert result.rows_affected >= 1
 

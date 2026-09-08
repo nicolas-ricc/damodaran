@@ -52,7 +52,7 @@ class SensitivityAxis(StrEnum):
 
 
 #: Axes whose underlying assumption is a per-year path rather than a scalar.
-_PATH_AXES = frozenset({SensitivityAxis.REVENUE_GROWTH, SensitivityAxis.OPERATING_MARGIN})
+PATH_AXES = frozenset({SensitivityAxis.REVENUE_GROWTH, SensitivityAxis.OPERATING_MARGIN})
 
 
 @dataclasses.dataclass(frozen=True)
@@ -62,8 +62,14 @@ class TornadoEntry:
     Attributes:
         axis: The assumption that was moved.
         low_value: The assumption's value at the -20% end. For a path axis this
-            is the (uniform) scaled per-year value, i.e. ``base * 0.8``.
-        high_value: The assumption's value at the +20% end (``base * 1.2``).
+            is *year 1 only* (``base_path[0] * 0.8``) — every year is scaled by
+            the same multiplier (see :func:`scale_axis`), but a story-branched
+            path (e.g. a high-growth fade or margin ramp, spec §7.1) is not
+            uniform across years, so year 1 is not representative of the whole
+            path; it is reported anyway as the year-1 figure, consistent with
+            how the assumptions table labels path values "(yr 1)".
+        high_value: The assumption's value at the +20% end (``base_path[0] *
+            1.2`` for a path axis, "(yr 1)" as above).
         intrinsic_low: Per-share intrinsic value with the axis at ``low_value``.
         intrinsic_high: Per-share intrinsic value with the axis at ``high_value``.
         impact: ``abs(intrinsic_high - intrinsic_low)`` — the bar width by which
@@ -138,7 +144,7 @@ def scale_axis(assumptions: Assumptions, axis: SensitivityAxis, multiplier: floa
     Returns:
         A new :class:`Assumptions` with only ``axis`` changed.
     """
-    if axis in _PATH_AXES:
+    if axis in PATH_AXES:
         current: tuple[float, ...] = getattr(assumptions, axis.value)
         scaled: Any = tuple(value * multiplier for value in current)
     else:
@@ -163,12 +169,18 @@ def _safe_intrinsic(financials: Financials, assumptions: Assumptions) -> float |
 
 
 def _axis_endpoint_value(assumptions: Assumptions, axis: SensitivityAxis) -> float:
-    """The representative scalar value an axis holds in ``assumptions``.
+    """The scalar value reported for an axis's swung endpoint.
 
-    For a path axis this is the (uniform) per-year value; the scaled copies in a
-    tornado keep that uniformity, so the first element is representative.
+    For a path axis this is *year 1 only* (``path[0]``). ``scale_axis`` scales
+    every year by the same multiplier, so this is exact for a flat/uniform
+    path, but a story-branched path (a high-growth fade or margin ramp, spec
+    §7.1) is not uniform across years — year 1 is then only the first point of
+    a moving path, not a stand-in for the whole horizon. Callers that display
+    this value must label it "(yr 1)" for path axes, the same convention the
+    assumptions table uses, so the report never implies a flat path that isn't
+    one.
     """
-    if axis in _PATH_AXES:
+    if axis in PATH_AXES:
         path: tuple[float, ...] = getattr(assumptions, axis.value)
         return path[0]
     value: float = getattr(assumptions, axis.value)

@@ -6,7 +6,7 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 import duckdb
@@ -31,6 +31,24 @@ class IngestResult:
 
     def is_success(self) -> bool:
         return self.status == "success"
+
+
+def coerce_date(value: object) -> date | None:
+    """Coerce a DB cell or provider date-ish string to a ``date``.
+
+    ``None``/empty → None; ``datetime`` → its date; ``date`` → itself; any other
+    value is parsed as the first 10 chars of its ISO text, None if unparsable.
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
 
 
 def _log_refresh(
@@ -104,6 +122,13 @@ def refresh_run(
     :class:`IngestResult` and always records it in ``refresh_log`` (a logging
     failure is caught and logged, never propagated). ``box.result`` is assigned
     on both branches so the caller can ``return run.result``.
+
+    A :class:`~bot.ingest.provider.ProviderRateLimitError` is the one exception
+    this does *not* fold into a failed result: it is not a per-ticker/per-run
+    failure but a signal that the provider's quota is exhausted, so it is
+    re-raised untouched for the bulk-refresh orchestrator to catch and defer
+    the rest of the run (imported lazily to avoid a base<->provider import
+    cycle).
     """
     started = datetime.now()
     run_id = str(uuid.uuid4())
@@ -120,6 +145,10 @@ def refresh_run(
             details=box.details,
         )
     except Exception as e:
+        from bot.ingest.provider import ProviderRateLimitError
+
+        if isinstance(e, ProviderRateLimitError):
+            raise
         # Fold the box's early-set context (e.g. {"ticker": sym}) into the
         # failure event so it keeps the structured fields the inline importers
         # used to log directly.

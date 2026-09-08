@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import closing
 from datetime import date
 from pathlib import Path
 
@@ -11,15 +12,17 @@ import typer
 from bot import __version__
 from bot.config import Settings, load_settings
 from bot.ingest.damodaran import import_damodaran
+from bot.ingest.fmp import FmpProvider
 from bot.ingest.ibkr import IbkrClient
+from bot.ingest.provider import MarketDataProvider
 from bot.ingest.sec_edgar import import_company_from_sec
 from bot.ingest.universe import (
     UniverseRefreshResult,
     default_universe_path,
     load_universe,
-    refresh_fx_from_fmp,
-    refresh_prices_from_fmp,
-    refresh_universe_from_fmp,
+    refresh_fx,
+    refresh_prices,
+    refresh_universe,
 )
 from bot.portfolio.command import run_portfolio
 from bot.reporting.analysis_report import render_analysis
@@ -29,9 +32,10 @@ from bot.reporting.show import format_company_summary
 from bot.screener.config import load_screener_config
 from bot.screener.engine import run_screen
 from bot.screener.persist import persist_candidates
-from bot.storage.db import apply_schema, connect
+from bot.storage.db import apply_schema, connect, schema_table_count
 from bot.utils.logging import configure_logging, get_logger
 from bot.valuator.analysis import analyze as run_analysis
+from bot.valuator.assumptions import conventional_override_path
 
 app = typer.Typer(
     help="Personal investment bot — value screener + portfolio monitor.",
@@ -51,6 +55,15 @@ def _open_db() -> tuple[duckdb.DuckDBPyConnection, Settings]:
     conn = connect(settings.db_path)
     apply_schema(conn)
     return conn, settings
+
+
+def _make_provider(settings: Settings) -> MarketDataProvider:
+    """The composition root: the ONLY place a concrete data provider is named.
+
+    Swapping the data source = writing a new adapter in bot/ingest/ and
+    changing this return line (spec 2026-08-24).
+    """
+    return FmpProvider(api_key=settings.fmp_api_key)
 
 
 @app.command()
@@ -88,6 +101,11 @@ def refresh(
         "--download-dir",
         help="Where to cache downloaded Damodaran files.",
     ),
+    limit: int | None = typer.Option(
+        None,
+        "--limit",
+        help="Process at most N tickers from --fmp/--prices (for FMP's free tier).",
+    ),
 ) -> None:
     """Refresh data from external sources.
 
@@ -107,6 +125,15 @@ def refresh(
         )
         raise typer.Exit(code=2)
 
+    if damodaran and region.upper() != "US":
+        typer.echo(
+            f"--region {region}: this version is US-only. Damodaran's URLs "
+            "point at the US dataset; requesting another region would store "
+            "US data labeled with that region. Use --region US.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
     conn, settings = _open_db()
     exit_code = 0
     if damodaran:
@@ -115,9 +142,9 @@ def refresh(
             _refresh_damodaran(conn, region=region, year=year, download_dir=download_dir),
         )
     if fmp:
-        exit_code = max(exit_code, _refresh_fmp_universe(conn, settings, universe))
+        exit_code = max(exit_code, _refresh_fmp_universe(conn, settings, universe, limit))
     if prices:
-        exit_code = max(exit_code, _refresh_prices(conn, settings, universe))
+        exit_code = max(exit_code, _refresh_prices(conn, settings, universe, limit))
     if fx:
         exit_code = max(exit_code, _refresh_fx(conn, settings))
     raise typer.Exit(code=exit_code)
@@ -144,8 +171,20 @@ def _refresh_damodaran(
     return 1
 
 
+def _universe_tickers(universe: Path | None, limit: int | None) -> tuple[Path, list[str]]:
+    """Resolve the universe file, load its tickers and apply ``--limit``."""
+    path = universe or default_universe_path()
+    tickers = load_universe(path)
+    if limit is not None:
+        tickers = tickers[:limit]
+    return path, tickers
+
+
 def _refresh_fmp_universe(
-    conn: duckdb.DuckDBPyConnection, settings: Settings, universe: Path | None
+    conn: duckdb.DuckDBPyConnection,
+    settings: Settings,
+    universe: Path | None,
+    limit: int | None = None,
 ) -> int:
     """Run a bulk FMP universe refresh and map its outcome to an exit code.
 
@@ -153,19 +192,19 @@ def _refresh_fmp_universe(
     most 5% of the universe failed, ``2`` (data error) when more than 5% failed.
     Per-ticker failures are summarised on stderr; they never abort the run.
     """
-    path = universe or default_universe_path()
-    tickers = load_universe(path)
+    path, tickers = _universe_tickers(universe, limit)
     if not tickers:
         typer.echo(f"Universe file {path} has no tickers.", err=True)
         return 2
 
     typer.echo(f"Refreshing {len(tickers)} tickers from FMP (universe={path})...")
-    result = refresh_universe_from_fmp(
-        conn,
-        api_key=settings.fmp_api_key,
-        tickers=tickers,
-        mapping_path=settings.industry_mapping_path,
-    )
+    with closing(_make_provider(settings)) as provider:
+        result = refresh_universe(
+            conn,
+            provider=provider,
+            tickers=tickers,
+            mapping_path=settings.industry_mapping_path,
+        )
     _report_universe_refresh(result)
 
     # > 5% failed (i.e. status is not 'success') is a data error.
@@ -173,17 +212,20 @@ def _refresh_fmp_universe(
 
 
 def _refresh_prices(
-    conn: duckdb.DuckDBPyConnection, settings: Settings, universe: Path | None
+    conn: duckdb.DuckDBPyConnection,
+    settings: Settings,
+    universe: Path | None,
+    limit: int | None = None,
 ) -> int:
     """Refresh EOD prices for the universe. Returns the exit code (0 ok, 2 data error)."""
-    path = universe or default_universe_path()
-    tickers = load_universe(path)
+    path, tickers = _universe_tickers(universe, limit)
     if not tickers:
         typer.echo(f"Universe file {path} has no tickers.", err=True)
         return 2
 
     typer.echo(f"Refreshing prices for {len(tickers)} tickers from FMP...")
-    result = refresh_prices_from_fmp(conn, api_key=settings.fmp_api_key, tickers=tickers)
+    with closing(_make_provider(settings)) as provider:
+        result = refresh_prices(conn, provider=provider, tickers=tickers)
     _report_universe_refresh(result)
 
     return 0 if result.status == "success" else 2
@@ -192,7 +234,8 @@ def _refresh_prices(
 def _refresh_fx(conn: duckdb.DuckDBPyConnection, settings: Settings) -> int:
     """Refresh FX rates for the universe's currencies. Returns the exit code."""
     typer.echo("Refreshing FX rates for the universe's currencies from FMP...")
-    result = refresh_fx_from_fmp(conn, api_key=settings.fmp_api_key)
+    with closing(_make_provider(settings)) as provider:
+        result = refresh_fx(conn, provider=provider)
     _report_universe_refresh(result)
 
     return 0 if result.status == "success" else 2
@@ -210,6 +253,11 @@ def _report_universe_refresh(result: UniverseRefreshResult) -> None:
         typer.echo("Failures:", err=True)
         for outcome in result.failures:
             typer.echo(f"  {outcome.ticker}: {outcome.error_message}", err=True)
+    if result.deferred:
+        typer.echo(
+            f"NOTE — {result.deferred} tickers deferred (FMP daily quota); "
+            "re-run the same command tomorrow to continue.",
+        )
 
 
 @app.command()
@@ -269,33 +317,107 @@ def show(
 
 @app.command()
 def analyze(
-    ticker: str = typer.Argument(..., help="Company ticker (e.g. AAPL)."),
+    tickers: list[str] = typer.Argument(  # noqa: B008
+        None, help="One or more tickers (e.g. AAPL MSFT). Omit with --from-screen."
+    ),
+    from_screen: bool = typer.Option(
+        False,
+        "--from-screen",
+        help="Analyze the shortlist from the latest persisted screen run.",
+    ),
     override: Path | None = typer.Option(  # noqa: B008
         None,
         "--override",
-        help="Path to config/assumptions/<TICKER>.yaml with manual overrides.",
+        help="Path to config/assumptions/<TICKER>.yaml with manual overrides "
+        "(only valid with exactly one ticker).",
     ),
 ) -> None:
     """Run a Damodaran-style DCF analysis and write the §7.7 reports.
 
-    Produces ``<reports_dir>/YYYY-MM-DD/analysis/<TICKER>.md`` with the executive
-    summary, story type, assumptions (with source), year-by-year DCF, sensitivity
-    (tornado + 2-D grid), narrative flags, manual overrides, and the sanity check
-    versus sector multiples. A self-contained ``<TICKER>.html`` (M6.1) is written
-    alongside it: the same report rendered to HTML with a base64-inlined
-    Matplotlib tornado chart, openable in a browser with no external assets.
+    Accepts one or more tickers (``bot analyze AAPL MSFT``), or ``--from-screen``
+    to analyze the shortlist of the latest persisted ``bot screen`` run (ordered
+    by rank). Produces ``<reports_dir>/YYYY-MM-DD/analysis/<TICKER>.md`` for each
+    ticker, with the executive summary, story type, assumptions (with source),
+    year-by-year DCF, sensitivity (tornado + 2-D grid), narrative flags, manual
+    overrides, and the sanity check versus sector multiples. A self-contained
+    ``<TICKER>.html`` (M6.1) is written alongside it: the same report rendered to
+    HTML with a base64-inlined Matplotlib tornado chart, openable in a browser
+    with no external assets.
+
+    A per-ticker failure (unknown ticker, missing data) is printed and does not
+    abort the rest of the batch; the command exits with the worst per-ticker
+    code.
     """
+    tickers = tickers or []
+    if from_screen and tickers:
+        typer.echo("--from-screen does not accept explicit tickers.", err=True)
+        raise typer.Exit(code=2)
+    if not from_screen and not tickers:
+        typer.echo("Specify one or more tickers, or use --from-screen.", err=True)
+        raise typer.Exit(code=2)
+    if override is not None and len(tickers) != 1:
+        typer.echo(
+            "--override is only valid with exactly one ticker.", err=True
+        )
+        raise typer.Exit(code=2)
+
     conn, settings = _open_db()
+
+    if from_screen:
+        latest_run = conn.execute(
+            "SELECT run_id FROM screener_candidates ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        if latest_run is None:
+            typer.echo(
+                "No screen has been persisted — run `bot screen` first.",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+        rows = conn.execute(
+            "SELECT ticker FROM screener_candidates "
+            "WHERE passed AND run_id = ? ORDER BY rank",
+            [latest_run[0]],
+        ).fetchall()
+        if not rows:
+            typer.echo(
+                "The last screen did not leave any candidates — try loading more "
+                "data and re-running `bot screen`.",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+        tickers = [str(r[0]) for r in rows]
+
+    exit_code = 0
+    for ticker in tickers:
+        exit_code = max(exit_code, _analyze_one(conn, settings, ticker, override))
+    raise typer.Exit(code=exit_code)
+
+
+def _analyze_one(
+    conn: duckdb.DuckDBPyConnection,
+    settings: Settings,
+    ticker: str,
+    override: Path | None,
+) -> int:
+    """Analyze one ticker and write its §7.7 reports. Returns its exit code.
+
+    ``0`` on success, ``2`` for an unknown ticker (``LookupError``), ``1`` when
+    the ticker can't be valued (``ValueError``). Errors are printed, not raised,
+    so a batch of tickers keeps going after one fails.
+    """
     ticker = ticker.upper()
+
+    if override is None:
+        override = conventional_override_path(settings.assumptions_dir, ticker)
 
     try:
         analysis = run_analysis(ticker, conn, override_path=override)
     except LookupError as exc:
         typer.echo(f"{ticker}: {exc}", err=True)
-        raise typer.Exit(code=2) from exc
+        return 2
     except ValueError as exc:
         typer.echo(f"{ticker}: cannot value — {exc}", err=True)
-        raise typer.Exit(code=1) from exc
+        return 1
 
     today = date.today()
     report_md = render_analysis(analysis, generated_on=today)
@@ -315,6 +437,7 @@ def analyze(
             f"vs price {analysis.current_price:,.2f} → "
             f"margin of safety {analysis.margin_of_safety:.2f}x"
         )
+    return 0
 
 
 @app.command()
@@ -348,7 +471,7 @@ def screen(
         raise typer.Exit(code=2)
     screener_config = load_screener_config(config_path)
 
-    result = run_screen(conn, screener_config, top=top)
+    result = run_screen(conn, screener_config, top=top, assumptions_dir=settings.assumptions_dir)
     run_id = persist_candidates(conn, result)
 
     today = date.today()
@@ -423,6 +546,9 @@ def doctor() -> None:
     typer.echo(f"FMP API key:      {'set' if settings.fmp_api_key else 'MISSING'}")
     typer.echo(f"Log level:        {settings.log_level}")
 
+    if not settings.fmp_api_key.strip():
+        issues.append("FMP API key is empty — refresh --fmp cannot work (BOT_FMP_API_KEY).")
+
     try:
         conn = connect(settings.db_path)
         apply_schema(conn)
@@ -430,8 +556,11 @@ def doctor() -> None:
             "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'main'"
         ).fetchone()
         tables = row[0] if row is not None else 0
-        if tables < 8:
-            issues.append(f"DB has only {tables} tables — schema may be incomplete.")
+        expected_tables = schema_table_count()
+        if tables < expected_tables:
+            issues.append(
+                f"DB has {tables} tables, schema defines {expected_tables} — schema incomplete."
+            )
         else:
             typer.echo(f"DB tables:        {tables} (OK)")
         conn.close()

@@ -55,10 +55,10 @@ CREATE TABLE IF NOT EXISTS currencies (
 -- Daily end-of-day prices (M2.4). One row per (ticker, date).
 -- `close` is the unadjusted closing price in the company's listing currency
 -- (`currency`). `market_cap` is FMP's reported market capitalization for that
--- day when available. Sourced from FMP's historical EOD price endpoint. The
--- importer (`import_prices_from_fmp`) is incremental: it only fetches dates
--- after max(date) already stored for the ticker, so a second run with current
--- data performs zero new INSERTs.
+-- day when available. Sourced from the market-data provider port's
+-- `daily_prices` endpoint. `refresh_prices` (bot.ingest.universe) is
+-- incremental: it only fetches dates after max(date) already stored for the
+-- ticker, so a second run with current data performs zero new INSERTs.
 CREATE TABLE IF NOT EXISTS prices_daily (
     ticker          VARCHAR NOT NULL,
     date            DATE NOT NULL,
@@ -82,6 +82,7 @@ CREATE TABLE IF NOT EXISTS companies (
     isin            VARCHAR,
     currency        VARCHAR,
     status          VARCHAR DEFAULT 'active',
+    ipo_date        DATE,
     source          VARCHAR NOT NULL,
     last_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -270,7 +271,7 @@ CREATE TABLE IF NOT EXISTS screener_candidates (
     run_id          VARCHAR NOT NULL,
     preset          VARCHAR NOT NULL,
     ticker          VARCHAR NOT NULL,
-    rank            INTEGER NOT NULL,
+    rank            INTEGER,
     score           DOUBLE,
     value_score     DOUBLE,
     quality_score   DOUBLE,
@@ -278,6 +279,7 @@ CREATE TABLE IF NOT EXISTS screener_candidates (
     mos_score       DOUBLE,
     passed_gates    VARCHAR[],
     failed_gates    VARCHAR[],
+    passed          BOOLEAN NOT NULL DEFAULT TRUE,
     created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (run_id, ticker)
 );
