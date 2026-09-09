@@ -2,19 +2,27 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 import duckdb
 import httpx
 
-from bot.ingest.base import IngestResult, refresh_run, transaction
-from bot.ingest.provider import ParsedCompanyData
+from bot.ingest.base import IngestResult, coerce_date, refresh_run, transaction
+from bot.ingest.provider import CompanyInfo, ParsedCompanyData, ProviderRateLimitError
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
 
 TICKER_LOOKUP_URL = "https://www.sec.gov/files/company_tickers.json"
 COMPANY_FACTS_URL_TEMPLATE = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
+SUBMISSIONS_URL_TEMPLATE = "https://data.sec.gov/submissions/CIK{cik}.json"
+
+_FINANCIAL_FORMS = {"10-K", "10-K/A", "10-Q", "10-Q/A", "20-F", "20-F/A"}
+
+
+class EdgarRateLimitError(ProviderRateLimitError):
+    """EDGAR throttled us (429, or the 403 it serves for abusive traffic)."""
 
 
 class SecEdgarClient:
@@ -24,7 +32,12 @@ class SecEdgarClient:
     (per https://www.sec.gov/os/accessing-edgar-data).
     """
 
-    def __init__(self, user_agent: str, timeout: float = 30.0) -> None:
+    def __init__(
+        self,
+        user_agent: str,
+        timeout: float = 30.0,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
         if not user_agent or "@" not in user_agent:
             raise ValueError(
                 "SEC requires a User-Agent identifying you. Format: 'Your Name email@example.com'"
@@ -33,6 +46,7 @@ class SecEdgarClient:
             timeout=timeout,
             headers={"User-Agent": user_agent, "Accept": "application/json"},
             follow_redirects=True,
+            transport=transport,
         )
         self._ticker_table: dict[str, str] | None = None
 
@@ -45,11 +59,16 @@ class SecEdgarClient:
     def __exit__(self, *_: object) -> None:
         self.close()
 
+    def _checked(self, r: httpx.Response) -> httpx.Response:
+        if r.status_code in (403, 429):
+            raise EdgarRateLimitError(f"EDGAR throttled: HTTP {r.status_code} for {r.url}")
+        r.raise_for_status()
+        return r
+
     def _load_ticker_table(self) -> dict[str, str]:
         if self._ticker_table is not None:
             return self._ticker_table
-        r = self._client.get(TICKER_LOOKUP_URL)
-        r.raise_for_status()
+        r = self._checked(self._client.get(TICKER_LOOKUP_URL))
         data = r.json()
         # File is { "0": {"cik_str": 320193, "ticker": "AAPL", ...}, ... }
         self._ticker_table = {
@@ -68,10 +87,58 @@ class SecEdgarClient:
         if len(cik) != 10 or not cik.isdigit():
             raise ValueError(f"CIK must be 10 digits zero-padded; got {cik!r}")
         url = COMPANY_FACTS_URL_TEMPLATE.format(cik=cik)
-        r = self._client.get(url)
-        r.raise_for_status()
+        r = self._checked(self._client.get(url))
         result: dict[str, Any] = r.json()
         return result
+
+    def fetch_submissions(self, cik: str) -> dict[str, Any]:
+        """Fetch the submissions JSON (profile + recent filings) for a CIK."""
+        if len(cik) != 10 or not cik.isdigit():
+            raise ValueError(f"CIK must be 10 digits zero-padded; got {cik!r}")
+        r = self._checked(self._client.get(SUBMISSIONS_URL_TEMPLATE.format(cik=cik)))
+        result: dict[str, Any] = r.json()
+        return result
+
+
+def parse_submissions_info(ticker: str, submissions: dict[str, Any]) -> CompanyInfo:
+    """Map an EDGAR submissions payload to :class:`CompanyInfo`.
+
+    ``industry`` carries ``sicDescription`` verbatim — that string is the
+    ``sec_edgar`` key into ``industry_mapping.csv``. EDGAR has no IPO date and
+    no sector taxonomy, so those stay ``None`` (ADR 0007).
+    """
+    exchanges = submissions.get("exchanges") or []
+    exchange = str(exchanges[0]) if exchanges else None
+    sic_description = str(submissions.get("sicDescription") or "").strip() or None
+    return CompanyInfo(
+        ticker=ticker.upper(),
+        name=str(submissions.get("name") or ticker.upper()),
+        exchange=exchange,
+        exchange_short_name=exchange,
+        country="US",
+        currency="USD",
+        sector=None,
+        industry=sic_description,
+        is_actively_trading=True,
+        ipo_date=None,
+    )
+
+
+def latest_filing_date_from_submissions(submissions: dict[str, Any]) -> date | None:
+    """Newest 10-K/10-Q filing date in ``filings.recent`` (parallel arrays)."""
+    recent = submissions.get("filings", {}).get("recent", {})
+    forms = recent.get("form") or []
+    dates = recent.get("filingDate") or []
+    latest: date | None = None
+    for form, filed_raw in zip(forms, dates, strict=False):
+        if form not in _FINANCIAL_FORMS:
+            continue
+        filed = coerce_date(filed_raw)
+        if filed is None:
+            continue
+        if latest is None or filed > latest:
+            latest = filed
+    return latest
 
 
 # ---------- Parser ----------
