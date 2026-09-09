@@ -1,0 +1,11 @@
+{
+  "cik": 320193,
+  "taxonomy": "dei",
+  "tag": "EntityCommonStockSharesOutstanding",
+  "units": {
+    "shares": [
+      {"end": "2026-06-27", "val": 14840392000, "form": "10-Q", "filed": "2026-08-01"},
+      {"end": "2025-09-27", "val": 15037870000, "form": "10-K", "filed": "2025-11-01"}
+    ]
+  }
+}
