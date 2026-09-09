@@ -17,6 +17,10 @@ log = get_logger(__name__)
 TICKER_LOOKUP_URL = "https://www.sec.gov/files/company_tickers.json"
 COMPANY_FACTS_URL_TEMPLATE = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
 SUBMISSIONS_URL_TEMPLATE = "https://data.sec.gov/submissions/CIK{cik}.json"
+COMPANY_CONCEPT_URL_TEMPLATE = (
+    "https://data.sec.gov/api/xbrl/companyconcept/CIK{cik}/dei/"
+    "EntityCommonStockSharesOutstanding.json"
+)
 
 _FINANCIAL_FORMS = {"10-K", "10-K/A", "10-Q", "10-Q/A", "20-F", "20-F/A"}
 
@@ -99,6 +103,26 @@ class SecEdgarClient:
         result: dict[str, Any] = r.json()
         return result
 
+    def shares_outstanding(self, cik: str) -> float | None:
+        """Newest reported common shares outstanding (dei), or None."""
+        if len(cik) != 10 or not cik.isdigit():
+            raise ValueError(f"CIK must be 10 digits zero-padded; got {cik!r}")
+        r = self._client.get(COMPANY_CONCEPT_URL_TEMPLATE.format(cik=cik))
+        if r.status_code == 404:
+            return None
+        r = self._checked(r)
+        entries = r.json().get("units", {}).get("shares", [])
+        newest_val: float | None = None
+        newest_end: date | None = None
+        for entry in entries:
+            end = coerce_date(entry.get("end"))
+            val = entry.get("val")
+            if end is None or val is None:
+                continue
+            if newest_end is None or end > newest_end:
+                newest_end, newest_val = end, float(val)
+        return newest_val
+
 
 def parse_submissions_info(ticker: str, submissions: dict[str, Any]) -> CompanyInfo:
     """Map an EDGAR submissions payload to :class:`CompanyInfo`.
@@ -169,7 +193,28 @@ ANNUAL_CONCEPT_MAP: dict[str, list[str]] = {
     "operating_cashflow": ["NetCashProvidedByUsedInOperatingActivities"],
     "dividends_paid": ["PaymentsOfDividends"],
     "shares_diluted": ["WeightedAverageNumberOfDilutedSharesOutstanding"],
+    "_current_assets": ["AssetsCurrent"],
+    "_current_liabilities": ["LiabilitiesCurrent"],
 }
+
+
+def _derive_financial_fields(row: dict[str, Any]) -> None:
+    """Fill ebitda / free_cashflow / working_capital when their inputs exist.
+
+    EDGAR facts report the components, not the aggregates FMP pre-computed.
+    Derivations only fill gaps — a reported aggregate is never overwritten —
+    and missing inputs leave ``None`` (graceful degradation, spec §13.2).
+    """
+    ebit, dep = row.get("ebit"), row.get("depreciation")
+    if row.get("ebitda") is None:
+        row["ebitda"] = ebit + dep if ebit is not None and dep is not None else None
+    ocf, capex = row.get("operating_cashflow"), row.get("capex")
+    if row.get("free_cashflow") is None:
+        row["free_cashflow"] = ocf - capex if ocf is not None and capex is not None else None
+    ca = row.pop("_current_assets", None)
+    cl = row.pop("_current_liabilities", None)
+    if row.get("working_capital") is None:
+        row["working_capital"] = ca - cl if ca is not None and cl is not None else None
 
 
 def parse_company_facts(ticker: str, facts: dict[str, Any]) -> ParsedCompanyData:
@@ -282,12 +327,7 @@ def _collect_period_rows(
             row["period_end_date"] = max(end_dates)
         for db_col, info in cols.items():
             row[db_col] = info["val"]
-        # Derived: EBITDA = EBIT + Depreciation (when both present)
-        if row.get("ebit") is not None and row.get("depreciation") is not None:
-            row["ebitda"] = row["ebit"] + row["depreciation"]
-        # Derived: FCF = OCF - Capex
-        if row.get("operating_cashflow") is not None and row.get("capex") is not None:
-            row["free_cashflow"] = row["operating_cashflow"] - row["capex"]
+        _derive_financial_fields(row)
         out.append(row)
     return out
 
