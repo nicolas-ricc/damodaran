@@ -5,7 +5,7 @@ Dos páginas autocontenidas que se leen juntas y contestan preguntas distintas.
 | Página | Contesta | Envejece |
 |---|---|---|
 | `plano.html` | **Cómo está pensado el sistema.** Tres niveles: la axonometría, cada capa con sus reglas, y una ficha por pieza con la lógica de Damodaran al lado de su implementación. | Ruidosamente: el build falla. |
-| `estado.html` | **Cuánto de eso existe hoy.** El mismo dibujo teñido por estado real, más el inventario de los 76 componentes con su evidencia. | En silencio: hay que re-auditar. |
+| `estado.html` | **Cuánto de eso existe hoy.** El mismo dibujo teñido por estado real, más el inventario de los 77 componentes con su evidencia. | En silencio: hay que re-auditar. |
 
 Esa asimetría es la que manda todo lo demás de este documento.
 
@@ -104,7 +104,7 @@ una deuda de diseño que ya pagaste.
 | `codemap.py` | Parsea `src/bot/` con `ast`: grafo de módulos, grafo de paquetes, tensiones e índice de símbolos con firma y línea. |
 | `iso.py` | La axonometría. La comparten los dos planos: uno la tiñe por rol y el otro por estado. |
 | `views.py` | Los seis planos de nivel 2. El de «El código» deriva su grafo de `codemap`. |
-| `estado.py` | El inventario de estado: los 76 componentes, la tinción de la axonometría y las ocho brechas. **Es lo que se actualiza después de cada etapa.** |
+| `estado.py` | El inventario de estado: los 77 componentes, la tinción de la axonometría y las ocho brechas. **Es lo que se actualiza después de cada etapa.** |
 | `part-head.html` | Tokens de color y todo el CSS del plano de arquitectura. |
 | `part-body.html` | El armazón: hero, los cuatro principios, la navegación y el diálogo. |
 | `part-data.js` | El contenido de las fichas de dominio. |

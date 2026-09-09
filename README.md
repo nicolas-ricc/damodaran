@@ -6,25 +6,28 @@ CLI-only. Local. No real-time data, no execution.
 
 See `docs/superpowers/specs/2026-05-25-investment-bot-design.md` for the full design.
 
-## Quickstart (US-only, FMP tier gratis)
+## Quickstart (US-only, free data stack)
 
 Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
 
 1. `uv sync` — install dependencies.
-2. `cp .env.example .env` and fill in `BOT_SEC_USER_AGENT` (your name + email) and your FMP API
-   key.
+2. `cp .env.example .env` and fill in `BOT_SEC_USER_AGENT` (your name + email). That's the only
+   credential the default provider needs — SEC EDGAR (fundamentals) + Stooq (EOD prices), $0/month,
+   no API key. See [ADR 0007](docs/adr/0007-free-data-stack-edgar-stooq.md).
 3. `uv run bot doctor` — verify setup.
 4. `uv run bot refresh --damodaran` — US sector benchmarks from Damodaran (once yearly).
-5. `uv run bot refresh --fmp && uv run bot refresh --prices` — load the S&P 500 universe. On the
-   free FMP tier (~250 requests/day) a single run won't cover the whole universe: it stops
-   cleanly once the daily quota is exhausted (the remaining tickers are deferred, not skipped),
-   and the next day's run re-probes the tickers already loaded and continues from where it left
-   off. Full universe loads over ~2 weeks of daily refreshes.
+5. `uv run bot refresh --fundamentals && uv run bot refresh --prices` — load the S&P 500 universe.
+   EDGAR has no documented per-day quota, but Stooq's undocumented daily hit limit and SEC EDGAR's
+   own throttling can still cut a run short: the remaining tickers are deferred, not skipped, and
+   the next day's run re-probes the tickers already loaded and continues from where it left off.
    Use `--limit N` to cap a run at the first N universe tickers — useful for a first-day sanity
    check, not for daily use (it always re-probes the same alphabetical head of the ticker list,
    so it won't help you progress through the universe day over day).
 6. `uv run bot screen --preset damodaran_value --top 10` — mechanical shortlist (§6).
 7. `uv run bot analyze --from-screen` — DCF and report (§7.7) for each candidate.
+
+The paid Financial Modeling Prep adapter is still available for the eventual non-US reopening —
+set `BOT_DATA_PROVIDER=fmp` and `BOT_FMP_API_KEY` (see `.env.example`).
 
 Other useful commands:
 

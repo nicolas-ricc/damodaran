@@ -13,8 +13,8 @@ Cuatro estados, y el tercero es el que importa:
 """
 from html import escape as esc
 
-AUDITADO_EN = "c3a67e9"
-AUDITADO_EL = "19 de agosto de 2026"
+AUDITADO_EN = "f8d2337"
+AUDITADO_EL = "9 de septiembre de 2026"
 
 ESTADOS = [
     ("hecho", "hecho", "existe, algo lo llama, y tiene tests"),
@@ -46,10 +46,12 @@ INVENTARIO = {
   "Se toma un solo escalar del encabezado del archivo de EE.UU. y se escribe en las ~150 filas de país. Es exactamente lo que la ADR 0005 manda eliminar, y el valuador lo consume tal cual."),
  ("sec-parse", "SEC EDGAR: cliente y parseo", "hecho", "ingest/sec_edgar.py:20,118",
   None),
- ("sec-import", "SEC EDGAR: importador", "a-medias", "ingest/sec_edgar.py:268,390",
-  "Su único llamador sigue siendo «bot show --fetch»; ningún refresh lo usa. Pero el bug de borrado ya no existe: upsert_company (líneas 268-295) hace merge-preserve por columna en vez de DELETE+INSERT crudo, así que un show sobre un ticker importado por FMP ya no le borra industry/industry_damodaran/currency/ipo_date."),
+ ("sec-import", "SEC EDGAR: importador", "hecho", "ingest/sec_edgar.py:366,488",
+  "Ya no es solo «bot show --fetch»: refresh_universe (ingest/universe.py:287-289) llama upsert_company/upsert_financials_annual/upsert_financials_quarterly directamente para cualquier proveedor que pase por el puerto, y EdgarStooqProvider (ingest/edgar_stooq.py) es ese llamador real en el camino por defecto. El bug de borrado sigue corregido: upsert_company hace merge-preserve por columna en vez de DELETE+INSERT crudo."),
  ("fmp-todo", "FMP: cliente, fundamentals y precios", "hecho", "ingest/fmp.py:44,239",
-  "FmpProvider (239) implementa el puerto MarketDataProvider (ingest/provider.py) sobre FmpClient (44): fundamentals, daily_prices, fx_rates y latest_filing_date. El refresco incremental con marca de agua por fecha ya no vive acá — se movió a ingest/universe.py (latest_local_filing_date + _should_skip, _max_price_date), que ahora es provider-agnóstico: FakeProvider implementa el mismo puerto para los tests (tests/fake_provider.py)."),
+  "FmpProvider (239) implementa el puerto MarketDataProvider (ingest/provider.py) sobre FmpClient (44): fundamentals, daily_prices, fx_rates y latest_filing_date. El refresco incremental con marca de agua por fecha ya no vive acá — se movió a ingest/universe.py (latest_local_filing_date + _should_skip, _max_price_date), que ahora es provider-agnóstico: FakeProvider implementa el mismo puerto para los tests (tests/fake_provider.py). Ya no es el proveedor por defecto (ver edgar-stooq): sigue disponible detrás de BOT_DATA_PROVIDER=fmp para M2."),
+ ("edgar-stooq", "EdgarStooqProvider: el stack gratis por defecto", "hecho", "ingest/edgar_stooq.py:33; ingest/stooq.py:63; docs/adr/0007",
+  "Implementa el mismo puerto MarketDataProvider componiendo SecEdgarClient (fundamentals, profile, dei shares) y StooqClient (EOD). Es el proveedor por defecto (BOT_DATA_PROVIDER=edgar-stooq); ver ADR 0007. La corrida real de esta tarea confirmó fundamentals (25/25 importados, dos pasadas) pero encontró que Stooq ahora antepone un reto JS anti-bot (proof-of-work) a las peticiones sin navegador — 404/200-con-reto en vez del límite diario documentado (StooqRateLimitError). El código clasifica esa falla correctamente como fallo de proveedor (no como un crash), pero no hay forma de superar el reto sin un navegador real; queda registrado como riesgo operativo del proveedor, no como bug de ingest."),
  ("ibkr-pos", "IBKR: posiciones y efectivo", "hecho", "ingest/ibkr.py:205,211",
   None),
  ("ibkr-trades", "IBKR: historial de operaciones", "muerto", "portfolio/trades.py:63",
@@ -57,9 +59,9 @@ INVENTARIO = {
  ("ibkr-corp", "IBKR: dividendos y splits", "falta", "docs/adr/0004:43",
   "El socket de TWS no trae corporate actions; haría falta el Flex Web Service. La tabla existe y alguien la lee, pero nadie la escribe."),
  ("universo", "El universo", "hecho", "ingest/universe_default.csv:1-3; tests/unit/test_universe_csv.py",
-  "Los 451 tickers sintéticos se fueron: el CSV de fábrica son los 503 componentes reales del S&P 500 en formato FMP (guion, no punto — BRK-B), con test dedicado que verifica el conteo, miembros permanentes y el formato. Sigue siendo US-only por decisión de alcance (ver ADR 0006): el spec apunta a 50.000 empresas globales, y ese salto queda fuera de esta etapa."),
- ("mapeo", "Mapeo de industrias", "hecho", "ingest/industry_mapping.py:124",
-  "144 filas, todas del proveedor FMP, cubriendo 89 de las 94 industrias de Damodaran."),
+  "Los 451 tickers sintéticos se fueron: el CSV de fábrica son los 503 componentes reales del S&P 500 en formato FMP (guion, no punto — BRK-B), con test dedicado que verifica el conteo, miembros permanentes y el formato. Sigue siendo US-only por decisión de alcance (ver ADR 0006): el spec apunta a 50.000 empresas globales, y ese salto queda fuera de esta etapa. La corrida real de esta tarea confirmó fundamentals contra el universo real (25 tickers vía --limit, más una segunda pasada hasta agotar sesión, ver ADR 0007 y datos-reales)."),
+ ("mapeo", "Mapeo de industrias", "hecho", "ingest/industry_mapping.py:124; ingest/industry_mapping.csv",
+  "337 filas: las 144 originales de FMP (89 de las 94 industrias de Damodaran) más 193 de edgar_stooq, agregadas en dos pasadas de esta tarea contra el universo real completo (503 tickers, 0 diferidos): 25 tickers dejaron 14 SIC sin mapear y una segunda corrida contra los 503 completos dejó 137 más — casi todas variantes de puntuación/coma del mismo SIC de EDGAR (p. ej. \"Biological Products (No Diagnostic Substances)\" sin coma vs. \"Biological Products, (No Diagnostic Substances)\" con coma), porque el resolver normaliza mayúsculas/espacios/guiones pero no comas. Cada label del lado derecho ya existía del lado FMP (test_edgar_stooq_damodaran_labels_are_already_known_labels sigue en verde sin extender el comentario de racionalidad)."),
  ("fx", "Tipos de cambio", "a-medias", "utils/fx.py:104",
   "La descarga y la búsqueda están completas. La conversión tiene solo dos consumidores, así que PE, P/BV, EV/EBITDA y FCF yield siguen mezclando precio en moneda de cotización con cifras en moneda de reporte."),
  ("storage", "Conexión y esquema", "a-medias", "storage/db.py:24",
@@ -159,16 +161,16 @@ INVENTARIO = {
   "Los reportes llevan fecha de generación y nada más. Sin versión del dataset ni fecha del último filing, dos corridas distintas producen encabezados indistinguibles."),
  ("cli-8", "Los ocho comandos", "hecho", "cli.py:56-479",
   "Los ocho responden y tienen al menos un test que los ejecuta. analyze acepta un solo ticker y portfolio no sincroniza operaciones."),
- ("cli-falta", "Comandos y opciones que faltan", "a-medias", "cli.py:300-365; spec §9.2",
-  "El analyze variádico y --from-screen ya existen (cli.py:300-365: uno o más tickers, o el shortlist del último screen persistido ordenado por rank). Lo que sigue faltando: config validate, config edit, --json global, --dry-run, refresh --portfolio."),
+ ("cli-falta", "Comandos y opciones que faltan", "a-medias", "cli.py:332-369; spec §9.2",
+  "El analyze variádico y --from-screen ya existen (cli.py:332-369: uno o más tickers, o el shortlist del último screen persistido ordenado por rank). Lo que sigue faltando: config validate, config edit, --json global, --dry-run, refresh --portfolio. BOT_DATA_PROVIDER (edgar-stooq por defecto, fmp opcional) ya existe como variable de entorno pero no como opción de CLI expuesta ni validada por config validate, porque ese comando no existe."),
  ("doctor", "bot doctor", "hecho", "cli.py:507-558; storage/db.py:30-33; tests/unit/test_cli_doctor.py",
-  "Los dos defectos de la auditoría anterior están corregidos: con BOT_FMP_API_KEY vacía agrega un issue y sale con code 1 (ya no code 0), y el conteo de tablas esperado ya no es un ocho hardcodeado — schema_table_count() (storage/db.py:30) lo deriva contando CREATE TABLE en schema.sql (hoy 15). Cinco tests dedicados."),
+  "Los dos defectos de la auditoría anterior están corregidos: con BOT_FMP_API_KEY vacía agrega un issue y sale con code 1 (ya no code 0), y el conteo de tablas esperado ya no es un ocho hardcodeado — schema_table_count() (storage/db.py:30) lo deriva contando CREATE TABLE en schema.sql (hoy 15). Cinco tests dedicados. La corrida real de esta tarea lo confirmó reportando el proveedor por defecto (edgar-stooq) sin exigir BOT_FMP_API_KEY."),
 ]),
 
 "proyecto": ("El proyecto", "hitos, decisiones y operación", [
  ("m1", "M1 · esqueleto, Damodaran y SEC", "hecho", "739 tests verdes", None),
- ("m2", "M2 · universo global y FMP", "a-medias", "universe_default.csv",
-  "El universo ya es real: 503 tickers del S&P 500 en vez de 451 sintéticos. Lo que sigue pendiente es la corrida real contra la red (no hay bot.duckdb cargado) y la expansión global — una sola región de Damodaran, ahora una decisión de alcance explícita (US-only, ver ADR 0006) y no un límite oculto."),
+ ("m2", "M2 · universo global y stack de datos", "a-medias", "universe_default.csv; docs/adr/0007",
+  "El universo ya es real: 503 tickers del S&P 500 en vez de 451 sintéticos, y ya hubo dos corridas reales contra la red (FMP el 2026-09-02, el stack gratis edgar-stooq el 2026-09-09; ver datos-reales). El proveedor por defecto pasó de FMP a la composición SEC EDGAR + Stooq ($0/mes, ADR 0007); FMP queda disponible detrás de BOT_DATA_PROVIDER=fmp para cuando M2 reabra la expansión global — sigue siendo US-only por naturaleza (EDGAR no cubre fuera de EE.UU.) y una sola región de Damodaran, ambas decisiones de alcance explícitas (ver ADR 0006) y no límites ocultos."),
  ("m3", "M3 · screener", "hecho", "screener/", "La compuerta de cobertura (ADR 0006) ya está implementada."),
  ("m4", "M4 · valuador", "hecho", "valuator/", "El story type ya rama crecimiento y margen; le sigue faltando sales-to-capital, crecimiento terminal y valuación condicional a supervivencia."),
  ("m5", "M5 · IBKR", "a-medias", "portfolio/", "Falta cablear las operaciones (diferido por decisión de alcance, no un olvido); las corporate actions requieren otro servicio."),
@@ -189,8 +191,8 @@ INVENTARIO = {
   "Existe: siembra Damodaran desde fixtures y tres empresas US (GOODCO sobrevive, TRAPCO cae por trampa de margen, NOCOVCO cae por la compuerta de cobertura ADR 0006) a través de la orquestación real de refresco (refresh_universe/refresh_prices, ingest/universe.py) contra un FakeProvider (tests/fake_provider.py) — el mismo puerto MarketDataProvider que implementa FmpProvider en producción — sobre una base compartida, y ejercita los comandos reales de CLI screen y analyze --from-screen contra esa base, verificando shortlist, artefactos y las tablas screener_candidates/refresh_log. Sin red: sigue sin ser una corrida contra FMP/SEC/Damodaran reales (ver datos-reales)."),
  ("cov", "Medición de cobertura", "falta", "pyproject.toml",
   "pytest-cov no está instalado ni configurado. El objetivo de 100% en valuator y en rules.py está escrito en el spec y en CONTEXT.md, y nunca se midió con las herramientas de este repo."),
- ("datos-reales", "Correr contra datos reales", "falta", "notes/2026-08-14",
-  "Sigue sin haber bot.duckdb ni reports/ generados por una corrida real. Los 719 tests (incluido el e2e nuevo) corren sobre fixtures y fakes duck-typed, con .env.example y un quickstart de README (c3a67e9) que documentan cómo correrlo contra FMP/SEC/Damodaran reales, pero nadie lo ejecutó todavía en este repo. La suite prueba que el código es consistente consigo mismo, no que sepa leer lo que FMP y Stern devuelven de verdad."),
+ ("datos-reales", "Correr contra datos reales", "hecho", "docs/superpowers/plans/2026-08-17-conectar-fases-us-only.md#corrida-real; docs/superpowers/plans/2026-09-09-free-data-stack-edgar-stooq.md#real-run",
+  "Dos corridas reales atestiguadas contra la red, no contra fixtures. La primera (2026-09-02, Tarea 13) contra FMP dejó bot.duckdb y reports/ en el repo: 3/25 fundamentals importados (cobertura de símbolos del tier gratis), 3/25 precios importados con 13 diferidos por 429 real, screen y analyze corridos de punta a punta. La segunda (2026-09-09, Tarea 8 de este plan) contra el stack gratis por defecto (edgar-stooq) usó bot-freestack.duckdb/reports-freestack (fuera de git, para no pisar la corrida anterior): fundamentals 25/25 importado sin fallos en dos pasadas; precios 0/25 — Stooq ahora exige un reto JS anti-bot (proof-of-work) a cualquier cliente sin navegador, un modo de falla más duro que el límite diario documentado que StooqRateLimitError sabe manejar. screen y analyze corrieron sobre esos datos parciales (0 candidatos, sin precio no hay market cap). La suite ya no solo prueba que el código es consistente consigo mismo: probó contra los tres servicios reales (Damodaran, SEC EDGAR, FMP) y contra dos de tres del stack por defecto (Damodaran, SEC EDGAR); Stooq quedó bloqueado por el proveedor, no por el código."),
  ("alcance", "El fuera de alcance", "hecho", "spec §15",
   "Seis ítems diferidos, cero código embrionario, ni un import especulativo. La disciplina de alcance es el punto más fuerte del proyecto."),
 ]),

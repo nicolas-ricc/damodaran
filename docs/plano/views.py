@@ -491,8 +491,6 @@ PATRONES = [
 TENSIONES = {
     ("screener", "valuator"): ("x-bc", "screener → valuator", "la Capa B importa la Capa C"),
     ("utils", "ingest"): ("x-utils", "utils → ingest", "una utilidad arrastra un proveedor"),
-    ("bot.ingest.fmp", "bot.ingest.sec_edgar"):
-        ("x-adapter", "fmp → sec_edgar", "un adapter depende de otro"),
 }
 
 
@@ -584,7 +582,7 @@ def plan_codigo():
     o.append(txt(246, 470, "y vuelve:", "t-s role-elimina", "end"))
     o.append(txt(246, 484, "utils → ingest", "t-s role-elimina", "end"))
 
-    o.append(band(38, 566, 826, 176, "Las tres tensiones",
+    o.append(band(38, 566, 826, 176, "Las dos tensiones",
                   "derivadas del grafo, no afirmadas", "elimina"))
     for i, (tid, titulo, nota) in enumerate(TENSIONES.values()):
         x = 50 + i * 274
@@ -594,8 +592,8 @@ def plan_codigo():
         for k, ln in enumerate(wrap(nota, 30)):
             inner += txt(x + 13, 648 + k * 14, ln, "t-s")
         o.append(hot(tid, "elimina", x, 604, 262, 72, inner, f"Tensión {titulo}: {nota}"))
-    o.append(txt(50, 706, "Dos van contra la dirección esperada y una es entre adapters. "
-                "Ninguna es un error: las tres tienen una razón y un costo.", "t-n"))
+    o.append(txt(50, 706, "Las dos van contra la dirección esperada. "
+                "Ninguna es un error: ambas tienen una razón y un costo.", "t-n"))
 
     o.append(band(38, 770, 826, 340, "Los patrones que se repiten",
                   "nueve, y alcanzan para todo el repo", "selecciona"))

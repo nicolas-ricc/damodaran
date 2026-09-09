@@ -1473,6 +1473,66 @@ git commit -m "docs: ADR 0007 free data stack implemented; real run attested; es
 
 ---
 
+## Real run (Task 8) — executed 2026-09-09
+
+All commands run with `BOT_DB_PATH=./bot-freestack.duckdb BOT_REPORTS_DIR=./reports-freestack`
+(kept out of git and separate from the 2026-09-02 FMP attestation's `bot.duckdb`/`reports/`),
+`.env` carrying only `BOT_SEC_USER_AGENT` (the FMP key present in `.env` is inert — the default
+provider is `edgar-stooq`).
+
+`doctor` OK — reports `Data provider: edgar-stooq`, no FMP key required · `refresh --damodaran`
+OK (254 rows, industry=96, country=158, 12.1s) · `refresh --fundamentals --limit 25` (brief
+scope): 25/25 imported, 0 failed, 14 distinct unmapped SIC descriptions logged · `refresh
+--prices --limit 25`: **0/25 imported, 25 failed** — Stooq now serves a JavaScript proof-of-work
+anti-bot challenge to any non-browser client (plain `httpx` gets a straight 404; a browser
+User-Agent gets a 200 page requiring `crypto.subtle.digest` + a `/__verify` POST), a harder
+failure mode than the daily-hits-limit marker `StooqRateLimitError` is built to catch. The
+ingest code classified every request as a clean per-ticker failure (no crash, no silent success,
+exit code non-zero) — this is Stooq's service having changed, not a code defect, so no fix
+commit; recorded here as the real-world number per the controller's ruling that a Stooq
+failure is an acceptable, attestable outcome, exactly like the 2026-09-02 run's FMP 429s ·
+`screen --preset damodaran_value --top 10`: 8 companies screened → 0 candidates, 17 excluded
+(no sector benchmark, ADR 0006) — the 8 that had a mapped SIC still had no price data, so no
+`market_cap` and the size gate can't clear anyone · `analyze --from-screen`: "the last screen
+did not leave any candidates" (honest, expected given 0 prices).
+
+**Mapping-coverage loop:** iterated per the brief on top of the `--limit 25` attestation, using
+the session's remaining SEC EDGAR budget (a good citizen — sequential requests, no retries) to
+run `refresh --fundamentals` against the **full 503-ticker universe** twice:
+
+- First full pass: 501/503 imported, 2 failed (`AVB`, `EQR` — genuinely absent from
+  `https://www.sec.gov/files/company_tickers.json` today, the same class of "symbol coverage"
+  gap the 2026-09-02 FMP run hit, not a client bug; confirmed both CIKs exist and file real
+  10-Ks via EDGAR's company-search feed), 0 deferred, 521.5s, no EDGAR rate limiting at all
+  across the whole universe. It surfaced 137 additional distinct unmapped SIC descriptions
+  beyond the 14 from the `--limit 25` slice — almost all punctuation/comma variants of SIC text
+  EDGAR itself is inconsistent about (e.g. `"Biological Products (No Diagnostic Substances)"`
+  vs `"Biological Products, (No Diagnostic Substances)"`; the mapping resolver normalizes case,
+  whitespace and dash runs but not commas, by design).
+- All 151 distinct unmapped SIC descriptions (14 + 137) got an `edgar_stooq` row in
+  `industry_mapping.csv`, each right-hand label reused from the existing fmp-side vocabulary
+  (`test_edgar_stooq_damodaran_labels_are_already_known_labels` stayed green with no new
+  Damodaran label and no comment-rationale extension needed).
+- Second full pass (verification): 501/503 imported, same 2 failures (`AVB`, `EQR`), **0
+  unmapped SIC descriptions**, 469.5s. The unmapped-SIC loop is closed for the full 503-ticker
+  universe in this session — the brief's "repeat until zero across the 503 tickers" was met
+  without needing a multi-day defer/resume cycle, since SEC EDGAR did not rate-limit even once
+  across roughly 2,000 sequential requests (2 runs x 503 tickers x 2 endpoints).
+- `industry_mapping.csv` grew from 144 fmp + 42 edgar_stooq (186 rows) to 144 fmp + 193
+  edgar_stooq (337 rows).
+
+**What a full-503 sweep of `--prices` would need:** unlike fundamentals, Stooq's anti-bot wall
+blocks every price request outright (see above) — this is not a quota to wait out day over day,
+it is a standing block on this session's client. A future session should re-probe `stooq.com`
+before assuming the defer/resume machinery will make progress; if the wall persists, EOD prices
+need either a browser-driven fetch path or a different free EOD source, which is a design
+decision out of this task's scope (flagged, not solved, here).
+
+**Regression check:** `uv run pytest -q` (801 passed), `uv run mypy src` (Success, 50 files),
+`uv run ruff check src tests` (all checks passed) — all green after both the mapping additions
+and the docs changes, confirming the real run surfaced no code defect requiring a `fix(ingest)`
+commit.
+
 ## Self-Review
 
 - **Coverage of the goal:** replace paid FMP end to end — prices (T1), company info + filing dates (T2), statement parity (T3), industry mapping so the coverage gate doesn't empty the universe (T4), the port adapter (T5), selection + operability (T6), regression proof (T7), real-world attestation + decision record (T8). FMP path preserved untouched behind the same port.

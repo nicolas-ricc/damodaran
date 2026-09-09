@@ -11,7 +11,10 @@ __pycache__/
 .env
 bot.duckdb
 bot.duckdb.wal
+bot-freestack.duckdb
+bot-freestack.duckdb.wal
 reports/
+reports-freestack/
 logs/
 
 # VCR — record locally, ignore re-records
