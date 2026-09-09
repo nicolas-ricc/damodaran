@@ -17,9 +17,17 @@ Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
 3. `uv run bot doctor` — verify setup.
 4. `uv run bot refresh --damodaran` — US sector benchmarks from Damodaran (once yearly).
 5. `uv run bot refresh --fundamentals && uv run bot refresh --prices` — load the S&P 500 universe.
-   EDGAR has no documented per-day quota, but Stooq's undocumented daily hit limit and SEC EDGAR's
-   own throttling can still cut a run short: the remaining tickers are deferred, not skipped, and
-   the next day's run re-probes the tickers already loaded and continues from where it left off.
+   EDGAR has no documented per-day quota. **As of 2026-09-09, `refresh --prices` is
+   non-functional against the free stack**: Stooq now serves a JavaScript anti-bot
+   proof-of-work challenge to any client without a real browser, so every request fails —
+   this is a standing block, not a quota, and the `StooqRateLimitError` defer/resume
+   machinery (built for Stooq's documented daily-hits marker) does not help here. Choosing
+   a replacement EOD source, or a browser-driven fetch path, is an open decision — see the
+   "Real run (Task 8)" section of
+   `docs/superpowers/plans/2026-09-09-free-data-stack-edgar-stooq.md`. `refresh
+   --fundamentals` is unaffected by this and works normally; SEC EDGAR's own throttling can
+   still cut a fundamentals run short, in which case the remaining tickers are deferred, not
+   skipped, and the next day's run continues from where it left off.
    Use `--limit N` to cap a run at the first N universe tickers — useful for a first-day sanity
    check, not for daily use (it always re-probes the same alphabetical head of the ticker list,
    so it won't help you progress through the universe day over day).

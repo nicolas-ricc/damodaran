@@ -28,7 +28,13 @@ nature, so this decision is scoped exactly like ADR 0005's deferral.
 - ipo_date is not available (EDGAR carries none): age_years degrades to
   unknown for story-type classification; acceptable, logged, revisit at M2.
 - Stooq's undocumented daily hit limit is handled by the same defer/resume
-  machinery as FMP's 429 (StooqRateLimitError).
+  machinery as FMP's 429 (StooqRateLimitError) — but that machinery addresses a quota,
+  not a wall: as of 2026-09-09 Stooq serves a JavaScript anti-bot proof-of-work challenge
+  to every client without a real browser (confirmed with both a plain and a browser
+  User-Agent), so refresh --prices currently fails 100% of requests under this provider.
+  Choosing a replacement EOD source, or a browser-driven fetch path, is an open decision;
+  see the "Real run (Task 8)" section of
+  docs/superpowers/plans/2026-09-09-free-data-stack-edgar-stooq.md.
 - XBRL concept variance across filers may leave more None gaps than FMP's
   standardized statements; the coverage gate (ADR 0006) makes those visible
   instead of silent.
