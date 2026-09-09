@@ -143,45 +143,45 @@ fmp,Utilities—Regulated Gas,Utility (General)
 fmp,Utilities—Regulated Water,Utility (Water)
 fmp,Waste Management,Environmental & Waste Services
 fmp,Wireless Telecommunication Services,Telecom (Wireless)
-sec_edgar,Electronic Computers,Computers/Peripherals
-sec_edgar,Services-Prepackaged Software,Software (System & Application)
-sec_edgar,Services-Computer Programming Data Processing,Software (Internet)
-sec_edgar,Semiconductors & Related Devices,Semiconductor
-sec_edgar,Pharmaceutical Preparations,Drugs (Pharmaceutical)
-sec_edgar,Biological Products (No Diagnostic Substances),Drugs (Biotechnology)
-sec_edgar,Surgical & Medical Instruments & Apparatus,Healthcare Products
-sec_edgar,National Commercial Banks,Bank (Money Center)
-sec_edgar,State Commercial Banks,Banks (Regional)
-sec_edgar,Fire Marine & Casualty Insurance,Insurance (Prop/Cas.)
-sec_edgar,Life Insurance,Insurance (Life)
-sec_edgar,Crude Petroleum & Natural Gas,Oil/Gas (Production and Exploration)
-sec_edgar,Petroleum Refining,Oil/Gas (Integrated)
-sec_edgar,Electric Services,Power
-sec_edgar,Natural Gas Transmission,Oil/Gas Distribution
-sec_edgar,Retail-Variety Stores,Retail (General)
-sec_edgar,Retail-Eating Places,Restaurant/Dining
-sec_edgar,Retail-Drug Stores and Proprietary Stores,Retail (Special Lines)
-sec_edgar,Retail-Catalog & Mail-Order Houses,Retail (Special Lines)
-sec_edgar,Motor Vehicles & Passenger Car Bodies,Auto & Truck
-sec_edgar,Motor Vehicle Parts & Accessories,Auto Parts
-sec_edgar,Aircraft,Aerospace/Defense
-sec_edgar,Guided Missiles & Space Vehicles & Parts,Aerospace/Defense
-sec_edgar,Air Transportation Scheduled,Air Transport
-sec_edgar,Railroads Line-Haul Operating,Transportation (Railroads)
-sec_edgar,Beverages,Beverage (Soft)
-sec_edgar,Malt Beverages,Beverage (Alcoholic)
-sec_edgar,Perfumes Cosmetics & Other Toilet Preparations,Household Products
-sec_edgar,Soap Detergents Cleaning Preparations,Household Products
-sec_edgar,Plastics Materials Synth Resins & Nonvulcan Elastomers,Chemical (Specialty)
-sec_edgar,Industrial Inorganic Chemicals,Chemical (Basic)
-sec_edgar,Steel Works Blast Furnaces & Rolling Mills,Steel
-sec_edgar,Gold Mining,Precious Metals
-sec_edgar,Construction Machinery & Equip,Machinery
-sec_edgar,Farm Machinery & Equipment,Machinery
-sec_edgar,General Industrial Machinery & Equipment,Machinery
-sec_edgar,Telephone Communications (No Radiotelephone),Telecom. Services
-sec_edgar,Radiotelephone Communications,Telecom (Wireless)
-sec_edgar,Cable & Other Pay Television Services,Broadcasting
-sec_edgar,Real Estate Investment Trusts,R.E.I.T.
-sec_edgar,Hotels & Motels,Hotel/Gaming
-sec_edgar,Services-Advertising Agencies,Advertising
+edgar_stooq,Electronic Computers,Computers/Peripherals
+edgar_stooq,Services-Prepackaged Software,Software (System & Application)
+edgar_stooq,Services-Computer Programming Data Processing,Software (Internet)
+edgar_stooq,Semiconductors & Related Devices,Semiconductor
+edgar_stooq,Pharmaceutical Preparations,Drugs (Pharmaceutical)
+edgar_stooq,Biological Products (No Diagnostic Substances),Drugs (Biotechnology)
+edgar_stooq,Surgical & Medical Instruments & Apparatus,Healthcare Products
+edgar_stooq,National Commercial Banks,Bank (Money Center)
+edgar_stooq,State Commercial Banks,Banks (Regional)
+edgar_stooq,Fire Marine & Casualty Insurance,Insurance (Prop/Cas.)
+edgar_stooq,Life Insurance,Insurance (Life)
+edgar_stooq,Crude Petroleum & Natural Gas,Oil/Gas (Production and Exploration)
+edgar_stooq,Petroleum Refining,Oil/Gas (Integrated)
+edgar_stooq,Electric Services,Power
+edgar_stooq,Natural Gas Transmission,Oil/Gas Distribution
+edgar_stooq,Retail-Variety Stores,Retail (General)
+edgar_stooq,Retail-Eating Places,Restaurant/Dining
+edgar_stooq,Retail-Drug Stores and Proprietary Stores,Retail (Special Lines)
+edgar_stooq,Retail-Catalog & Mail-Order Houses,Retail (Special Lines)
+edgar_stooq,Motor Vehicles & Passenger Car Bodies,Auto & Truck
+edgar_stooq,Motor Vehicle Parts & Accessories,Auto Parts
+edgar_stooq,Aircraft,Aerospace/Defense
+edgar_stooq,Guided Missiles & Space Vehicles & Parts,Aerospace/Defense
+edgar_stooq,Air Transportation Scheduled,Air Transport
+edgar_stooq,Railroads Line-Haul Operating,Transportation (Railroads)
+edgar_stooq,Beverages,Beverage (Soft)
+edgar_stooq,Malt Beverages,Beverage (Alcoholic)
+edgar_stooq,Perfumes Cosmetics & Other Toilet Preparations,Household Products
+edgar_stooq,Soap Detergents Cleaning Preparations,Household Products
+edgar_stooq,Plastics Materials Synth Resins & Nonvulcan Elastomers,Chemical (Specialty)
+edgar_stooq,Industrial Inorganic Chemicals,Chemical (Basic)
+edgar_stooq,Steel Works Blast Furnaces & Rolling Mills,Steel
+edgar_stooq,Gold Mining,Precious Metals
+edgar_stooq,Construction Machinery & Equip,Machinery
+edgar_stooq,Farm Machinery & Equipment,Machinery
+edgar_stooq,General Industrial Machinery & Equipment,Machinery
+edgar_stooq,Telephone Communications (No Radiotelephone),Telecom. Services
+edgar_stooq,Radiotelephone Communications,Telecom (Wireless)
+edgar_stooq,Cable & Other Pay Television Services,Broadcasting
+edgar_stooq,Real Estate Investment Trusts,R.E.I.T.
+edgar_stooq,Hotels & Motels,Hotel/Gaming
+edgar_stooq,Services-Advertising Agencies,Advertising

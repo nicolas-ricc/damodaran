@@ -50,15 +50,7 @@ def test_import_company_lands_row_with_damodaran_industry(
     assert name == "Apple Inc."
     assert industry == "Electronic Computers"
     assert source == "edgar_stooq"
-    # NOTE: Task 4 seeded `industry_mapping.csv` under the provider key
-    # "sec_edgar", but `import_company` resolves the mapping against
-    # `provider.name`, which for `EdgarStooqProvider` is "edgar_stooq" (Task
-    # 5). Those keys never match, so `industry_damodaran` is unresolved
-    # (None) for every ticker ingested through this provider today — a
-    # pre-existing cross-task wiring gap, not something introduced here. See
-    # the task-7 report for details; this assertion documents current, real
-    # behavior rather than the brief's original expectation.
-    assert industry_damodaran is None
+    assert industry_damodaran is not None  # Task 4's mapping resolved it
     annual = conn.execute(
         "SELECT revenue FROM financials_annual WHERE ticker='AAPL'"
     ).fetchall()

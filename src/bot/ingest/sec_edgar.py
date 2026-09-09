@@ -128,8 +128,9 @@ def parse_submissions_info(ticker: str, submissions: dict[str, Any]) -> CompanyI
     """Map an EDGAR submissions payload to :class:`CompanyInfo`.
 
     ``industry`` carries ``sicDescription`` verbatim — that string is the
-    ``sec_edgar`` key into ``industry_mapping.csv``. EDGAR has no IPO date and
-    no sector taxonomy, so those stay ``None`` (ADR 0007).
+    provider-industry key into ``industry_mapping.csv``, looked up under
+    ``edgar_stooq``, the provider name of the adapter that serves it. EDGAR
+    has no IPO date and no sector taxonomy, so those stay ``None`` (ADR 0007).
     """
     exchanges = submissions.get("exchanges") or []
     exchange = str(exchanges[0]) if exchanges else None
