@@ -185,3 +185,154 @@ edgar_stooq,Cable & Other Pay Television Services,Broadcasting
 edgar_stooq,Real Estate Investment Trusts,R.E.I.T.
 edgar_stooq,Hotels & Motels,Hotel/Gaming
 edgar_stooq,Services-Advertising Agencies,Advertising
+edgar_stooq,Laboratory Analytical Instruments,Electronics (General)
+edgar_stooq,Services-To Dwellings & Other Buildings,Business & Consumer Services
+edgar_stooq,"Fire, Marine & Casualty Insurance",Insurance (Prop/Cas.)
+edgar_stooq,"Services-Business Services, NEC",Business & Consumer Services
+edgar_stooq,Fats & Oils,Farming/Agriculture
+edgar_stooq,Services-Computer Processing & Data Preparation,Computer Services
+edgar_stooq,Electric & Other Services Combined,Power
+edgar_stooq,Cogeneration Services & Small Power Producers,Power
+edgar_stooq,Accident & Health Insurance,Insurance (Life)
+edgar_stooq,"Insurance Carriers, NEC",Insurance (General)
+edgar_stooq,"Insurance Agents, Brokers & Service",Insurance (General)
+edgar_stooq,"Plastic Materials, Synth Resins & Nonvulcan Elastomers",Chemical (Specialty)
+edgar_stooq,"Orthopedic, Prosthetic & Surgical Appliances & Supplies",Healthcare Products
+edgar_stooq,"Services-Detective, Guard & Armored Car Services",Business & Consumer Services
+edgar_stooq,"Games, Toys & Children's Vehicles (No Dolls & Bicycles)",Recreation
+edgar_stooq,"Men's & Boys' Furnishgs, Work Clothg, & Allied Garments",Apparel
+edgar_stooq,"Wholesale-Drugs, Proprietaries & Druggists' Sundries",Healthcare Support Services
+edgar_stooq,Agricultural Chemicals,Farming/Agriculture
+edgar_stooq,Agricultural Production-Crops,Farming/Agriculture
+edgar_stooq,Air Courier Services,Air Transport
+edgar_stooq,"Air Transportation, Scheduled",Air Transport
+edgar_stooq,Air-Cond & Warm Air Heatg Equip & Comm & Indl Refrig Equip,Machinery
+edgar_stooq,Aircraft & Parts,Aerospace/Defense
+edgar_stooq,Aircraft Engines & Engine Parts,Aerospace/Defense
+edgar_stooq,"Aircraft Parts & Auxiliary Equipment, NEC",Aerospace/Defense
+edgar_stooq,Apparel & Other Finishd Prods of  Fabrics & Similar Matl,Apparel
+edgar_stooq,Arrangement of  Transportation of  Freight & Cargo,Transportation
+edgar_stooq,Auto Controls For Regulating Residential & Comml Environments,Electrical Equipment
+edgar_stooq,"Biological Products, (No Diagnostic Substances)",Drugs (Biotechnology)
+edgar_stooq,Bottled & Canned Soft Drinks & Carbonated Waters,Beverage (Soft)
+edgar_stooq,"Canned, Frozen & Preservd Fruit, Veg & Food Specialties",Food Processing
+edgar_stooq,"Canned, Fruits, Veg, Preserves, Jams & Jellies",Food Processing
+edgar_stooq,"Cement, Hydraulic",Building Materials
+edgar_stooq,Cigarettes,Tobacco
+edgar_stooq,"Communications Equipment, NEC",Telecom. Equipment
+edgar_stooq,"Communications Services, NEC",Telecom. Services
+edgar_stooq,Computer & office Equipment,Computers/Peripherals
+edgar_stooq,Computer Communications Equipment,Telecom. Equipment
+edgar_stooq,"Computer Peripheral Equipment, NEC",Computers/Peripherals
+edgar_stooq,Computer Storage Devices,Computers/Peripherals
+edgar_stooq,"Construction, Mining & Materials Handling Machinery & Equip",Machinery
+edgar_stooq,Converted Paper & Paperboard Prods (No Contaners/Boxes),Paper/Forest Products
+edgar_stooq,"Cutlery, Handtools & General Hardware",Machinery
+edgar_stooq,Drawing & Insulating of  Nonferrous Wire,Metals & Mining
+edgar_stooq,Electrical Work,Engineering/Construction
+edgar_stooq,Electromedical & Electrotherapeutic Apparatus,Healthcare Products
+edgar_stooq,Electronic & Other Electrical Equipment (No Computer Equip),Electronics (General)
+edgar_stooq,Electronic Components & Accessories,Electronics (General)
+edgar_stooq,"Electronic Components, NEC",Electronics (General)
+edgar_stooq,Electronic Connectors,Electronics (General)
+edgar_stooq,Engines & Turbines,Machinery
+edgar_stooq,Finance Services,Financial Svcs. (Non-bank & Insurance)
+edgar_stooq,Food and Kindred Products,Food Processing
+edgar_stooq,Gas & Other Services Combined,Utility (General)
+edgar_stooq,General Bldg Contractors - Residential Bldgs,Homebuilding
+edgar_stooq,"General Industrial Machinery & Equipment, NEC",Machinery
+edgar_stooq,Gold and Silver Ores,Precious Metals
+edgar_stooq,Grain Mill Products,Food Processing
+edgar_stooq,"Heating Equip, Except Elec & Warm Air; & Plumbing Fixtures",Construction Supplies
+edgar_stooq,Heavy Construction Other Than Bldg Const - Contractors,Engineering/Construction
+edgar_stooq,Hospital & Medical Service Plans,Healthcare Support Services
+edgar_stooq,Household Appliances,Furn/Home Furnishings
+edgar_stooq,In Vitro & In Vivo Diagnostic Substances,Healthcare Products
+edgar_stooq,"Industrial Instruments For Measurement, Display, and Control",Electronics (General)
+edgar_stooq,Industrial Organic Chemicals,Chemical (Basic)
+edgar_stooq,Instruments For Meas & Testing of  Electricity & Elec Signals,Electronics (General)
+edgar_stooq,Investment Advice,Investments & Asset Management
+edgar_stooq,Leather & Leather Products,Shoe
+edgar_stooq,"Measuring & Controlling Devices, NEC",Electronics (General)
+edgar_stooq,Meat Packing Plants,Food Processing
+edgar_stooq,Metal Cans,Packaging & Container
+edgar_stooq,Metal Mining,Metals & Mining
+edgar_stooq,Mining & Quarrying of  Nonmetallic Minerals (No Fuels),Metals & Mining
+edgar_stooq,Misc Industrial & Commercial Machinery & Equipment,Machinery
+edgar_stooq,Miscellaneous Fabricated Metal Products,Metals & Mining
+edgar_stooq,Miscellaneous Food Preparations & Kindred Products,Food Processing
+edgar_stooq,Miscellaneous Manufacturing Industries,Diversified
+edgar_stooq,Motors & Generators,Electrical Equipment
+edgar_stooq,Natural Gas Distribution,Oil/Gas Distribution
+edgar_stooq,Natural Gas Transmisison & Distribution,Oil/Gas Distribution
+edgar_stooq,Newspapers: Publishing or  Publishing & Printing,Publishing & Newspapers
+edgar_stooq,Oil & Gas Field Machinery & Equipment,Oilfield Svcs/Equip.
+edgar_stooq,"Oil & Gas Field Services, NEC",Oilfield Svcs/Equip.
+edgar_stooq,Oil Royalty Traders,Oil/Gas (Production and Exploration)
+edgar_stooq,Operative Builders,Homebuilding
+edgar_stooq,Ophthalmic Goods,Healthcare Products
+edgar_stooq,Optical Instruments & Lenses,Electronics (General)
+edgar_stooq,"Ordnance & Accessories, (No Vehicles/Guided Missiles)",Aerospace/Defense
+edgar_stooq,"Paints, Varnishes, Lacquers, Enamels & Allied Prods",Chemical (Specialty)
+edgar_stooq,Paper Mills,Paper/Forest Products
+edgar_stooq,Paperboard Containers & Boxes,Packaging & Container
+edgar_stooq,"Perfumes, Cosmetics & Other Toilet Preparations",Household Products
+edgar_stooq,Poultry Slaughtering and Processing,Food Processing
+edgar_stooq,Printed Circuit Boards,Electronics (General)
+edgar_stooq,Pumps & Pumping Equipment,Machinery
+edgar_stooq,Radio & Tv Broadcasting & Communications Equipment,Telecom. Equipment
+edgar_stooq,Railroad Equipment,Machinery
+edgar_stooq,"Railroads, Line-Haul Operating",Transportation (Railroads)
+edgar_stooq,Real Estate,Real Estate (General/Diversified)
+edgar_stooq,Real Estate Operators (No Developers) & Lessors,Real Estate (Operations & Services)
+edgar_stooq,Refuse Systems,Environmental & Waste Services
+edgar_stooq,Retail-Auto & Home Supply Stores,Retail (Automotive)
+edgar_stooq,Retail-Auto Dealers & Gasoline Stations,Retail (Automotive)
+edgar_stooq,"Retail-Building Materials, Hardware, Garden Supply",Retail (Building Supply)
+edgar_stooq,Retail-Eating & Drinking Places,Restaurant/Dining
+edgar_stooq,Retail-Family Clothing Stores,Retail (Special Lines)
+edgar_stooq,Retail-Grocery Stores,Retail (Grocery and Food)
+edgar_stooq,"Retail-Home Furniture, Furnishings & Equipment Stores",Retail (Special Lines)
+edgar_stooq,Retail-Lumber & Other Building Materials Dealers,Retail (Building Supply)
+edgar_stooq,"Retail-Radio, Tv & Consumer Electronics Stores",Retail (Special Lines)
+edgar_stooq,"Retail-Retail Stores, NEC",Retail (General)
+edgar_stooq,Rolling Drawing & Extruding of  Nonferrous Metals,Metals & Mining
+edgar_stooq,Rubber & Plastics Footwear,Shoe
+edgar_stooq,"Search, Detection, Navigation, Guidance, Aeronautical Sys",Aerospace/Defense
+edgar_stooq,"Security & Commodity Brokers, Dealers, Exchanges & Services",Brokerage & Investment Banking
+edgar_stooq,"Security Brokers, Dealers & Flotation Companies",Brokerage & Investment Banking
+edgar_stooq,Services-Amusement & Recreation Services,Recreation
+edgar_stooq,Services-Commercial Physical & Biological Research,Business & Consumer Services
+edgar_stooq,Services-Computer Integrated Systems Design,Computer Services
+edgar_stooq,Services-Computer Programming Services,Computer Services
+edgar_stooq,"Services-Computer Programming, Data Processing, Etc.",Software (Internet)
+edgar_stooq,"Services-Consumer Credit Reporting, Collection Agencies",Financial Svcs. (Non-bank & Insurance)
+edgar_stooq,"Services-Engineering, Accounting, Research, Management",Business & Consumer Services
+edgar_stooq,"Services-Equipment Rental & Leasing, NEC",Business & Consumer Services
+edgar_stooq,"Services-General Medical & Surgical Hospitals, NEC",Hospitals/Healthcare Facilities
+edgar_stooq,Services-Management Services,Business & Consumer Services
+edgar_stooq,Services-Medical Laboratories,Healthcare Products
+edgar_stooq,"Services-Misc Health & Allied Services, NEC",Healthcare Support Services
+edgar_stooq,Services-Miscellaneous Amusement & Recreation,Recreation
+edgar_stooq,Services-Video Tape Rental,Entertainment
+edgar_stooq,Ship & Boat Building & Repairing,Shipbuilding & Marine
+edgar_stooq,"Soap, Detergents, Cleang Preparations, Perfumes, Cosmetics",Household Products
+edgar_stooq,Special Industry Machinery (No Metalworking Machinery),Machinery
+edgar_stooq,"Special Industry Machinery, NEC",Machinery
+edgar_stooq,"Specialty Cleaning, Polishing and Sanitation Preparations",Household Products
+edgar_stooq,"Steel Works, Blast Furnaces & Rolling Mills (Coke Ovens)",Steel
+edgar_stooq,Sugar & Confectionery Products,Food Processing
+edgar_stooq,Telephone & Telegraph Apparatus,Telecom. Equipment
+edgar_stooq,Television Broadcasting Stations,Broadcasting
+edgar_stooq,Transportation Services,Transportation
+edgar_stooq,Trucking & Courier Services (No Air),Trucking
+edgar_stooq,Trucking (No Local),Trucking
+edgar_stooq,Water Supply,Utility (Water)
+edgar_stooq,Water Transportation,Transportation
+edgar_stooq,Wholesale-Durable Goods,Retail (Distributors)
+edgar_stooq,"Wholesale-Electronic Parts & Equipment, NEC",Retail (Distributors)
+edgar_stooq,Wholesale-Groceries & Related Products,Food Wholesalers
+edgar_stooq,Wholesale-Hardware & Plumbing & Heating Equipment & Supplies,Retail (Distributors)
+edgar_stooq,"Wholesale-Medical, Dental & Hospital Equipment & Supplies",Healthcare Support Services
+edgar_stooq,Wholesale-Motor Vehicle Supplies & New Parts,Retail (Distributors)
+edgar_stooq,X-Ray Apparatus & Tubes & Related Irradiation Apparatus,Healthcare Products
