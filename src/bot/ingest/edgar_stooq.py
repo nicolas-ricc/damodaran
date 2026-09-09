@@ -15,7 +15,14 @@ from datetime import date
 
 import httpx
 
-from bot.ingest.provider import CompanyInfo, FundamentalsBundle, FxRate, PriceBar
+from bot.ingest.provider import (
+    CompanyInfo,
+    FundamentalsBundle,
+    FxRate,
+    ParsedCompanyData,
+    PriceBar,
+    ProviderRateLimitError,
+)
 from bot.ingest.sec_edgar import (
     SecEdgarClient,
     latest_filing_date_from_submissions,
@@ -107,11 +114,29 @@ class EdgarStooqProvider:
         if cik is None:
             raise LookupError(f"{sym}: not in EDGAR's ticker table")
         parsed = parse_company_facts(sym, self._edgar().fetch_company_facts(cik))
+        restamped = self._restamp(parsed)
         return FundamentalsBundle(
             info=self.lookup_company(sym),
-            annual=dataclasses.replace(parsed, quarterly=[]),
-            quarterly=dataclasses.replace(parsed, annual=[]),
-            filings=parsed.filings,
+            annual=dataclasses.replace(restamped, quarterly=[]),
+            quarterly=dataclasses.replace(restamped, annual=[]),
+            filings=restamped.filings,
+        )
+
+    def _restamp(self, parsed: ParsedCompanyData) -> ParsedCompanyData:
+        """Re-stamp ``source`` as this provider's name (not the raw "sec_edgar").
+
+        ``parse_company_facts`` always stamps "sec_edgar" so the ``bot show
+        --fetch`` path keeps its own provenance. But the incremental-skip
+        watermark (``universe.latest_local_filing_date``) is queried under
+        ``provider.name`` ("edgar_stooq"); leaving the raw stamp means the
+        watermark query never finds a row and every fundamentals refresh
+        re-imports the full universe.
+        """
+        return ParsedCompanyData(
+            company={**parsed.company, "source": self.name},
+            annual=[{**row, "source": self.name} for row in parsed.annual],
+            quarterly=[{**row, "source": self.name} for row in parsed.quarterly],
+            filings=[{**row, "source": self.name} for row in parsed.filings],
         )
 
     def daily_prices(self, ticker: str, since: date | None) -> list[PriceBar]:
@@ -122,8 +147,14 @@ class EdgarStooqProvider:
         newest_idx = max(range(len(bars)), key=lambda i: bars[i].date)
         newest = bars[newest_idx]
         if newest.close is not None and (date.today() - newest.date).days <= _FRESH_DAYS:
-            cik = self._cik(sym)
-            shares = self._edgar().shares_outstanding(cik) if cik is not None else None
+            try:
+                cik = self._cik(sym)
+                shares = self._edgar().shares_outstanding(cik) if cik is not None else None
+            except ProviderRateLimitError:
+                raise
+            except Exception as exc:
+                log.warning("edgar_stooq.market_cap.failed", ticker=sym, error=str(exc))
+                shares = None
             if shares is not None:
                 bars[newest_idx] = dataclasses.replace(
                     newest, market_cap=newest.close * shares

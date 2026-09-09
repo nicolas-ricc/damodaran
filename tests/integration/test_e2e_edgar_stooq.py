@@ -17,7 +17,7 @@ import httpx
 import pytest
 
 from bot.ingest.edgar_stooq import EdgarStooqProvider
-from bot.ingest.universe import import_company, refresh_prices
+from bot.ingest.universe import import_company, latest_local_filing_date, refresh_prices
 from bot.storage.db import apply_schema, connect
 from tests.unit.test_edgar_stooq_provider import _edgar_handler, _stooq_handler
 
@@ -55,6 +55,21 @@ def test_import_company_lands_row_with_damodaran_industry(
         "SELECT revenue FROM financials_annual WHERE ticker='AAPL'"
     ).fetchall()
     assert annual and annual[0][0] == pytest.approx(400000000000)
+
+
+def test_import_company_populates_the_edgar_stooq_watermark(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """The incremental-skip logic in universe._refresh_one reads
+
+    ``latest_local_filing_date(conn, sym, provider.name)`` i.e. source
+    "edgar_stooq" (not "sec_edgar"). Filings must land stamped with the
+    provider's own name so a later ``refresh --fundamentals`` run can find
+    this watermark and skip re-importing an unchanged ticker.
+    """
+    import_company(conn, ticker="AAPL", provider=_provider())
+    watermark = latest_local_filing_date(conn, "AAPL", "edgar_stooq")
+    assert watermark is not None
 
 
 def test_refresh_prices_lands_stooq_bars(conn: duckdb.DuckDBPyConnection) -> None:

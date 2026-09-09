@@ -92,13 +92,18 @@ def refresh(
         help="Refresh universe fundamentals via the configured data provider.",
     ),
     prices: bool = typer.Option(
-        False, "--prices", help="Refresh EOD prices for the universe from FMP (incremental)."
+        False,
+        "--prices",
+        help="Refresh EOD prices for the universe via the configured data provider "
+        "(incremental).",
     ),
     fx: bool = typer.Option(
         False, "--fx", help="Refresh FX rates for the currencies held in the universe."
     ),
     all_: bool = typer.Option(
-        False, "--all", help="Refresh everything: damodaran + fmp + prices + fx, in order."
+        False,
+        "--all",
+        help="Refresh everything: damodaran + fundamentals + prices + fx, in order.",
     ),
     universe: Path | None = typer.Option(  # noqa: B008
         None,
@@ -117,7 +122,8 @@ def refresh(
     limit: int | None = typer.Option(
         None,
         "--limit",
-        help="Process at most N tickers from --fmp/--prices (for FMP's free tier).",
+        help="Process at most N tickers from --fmp/--prices (bounded slice; useful "
+        "under provider rate limits).",
     ),
 ) -> None:
     """Refresh data from external sources.
