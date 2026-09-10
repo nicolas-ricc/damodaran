@@ -1,0 +1,16 @@
+{
+  "cik": 320193,
+  "name": "Apple Inc.",
+  "sic": "3571",
+  "sicDescription": "Electronic Computers",
+  "tickers": ["AAPL"],
+  "exchanges": ["Nasdaq"],
+  "addresses": {"business": {"stateOrCountry": "CA"}},
+  "filings": {
+    "recent": {
+      "form": ["10-Q", "8-K", "10-K"],
+      "filingDate": ["2026-08-01", "2026-07-15", "2025-11-01"],
+      "accessionNumber": ["0000320193-26-000070", "0000320193-26-000061", "0000320193-25-000106"]
+    }
+  }
+}

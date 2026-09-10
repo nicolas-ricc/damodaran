@@ -55,9 +55,10 @@ they age differently:
 
 ## External services
 
-- **SEC EDGAR** (`data.sec.gov`): US fundamentals, free, requires User-Agent header.
+- **SEC EDGAR** (`data.sec.gov`): US fundamentals (company facts, submissions, dei shares), free, requires User-Agent header. Default data provider (`edgar-stooq`); see [ADR 0007](docs/adr/0007-free-data-stack-edgar-stooq.md).
+- **Stooq** (`stooq.com`): US EOD prices, free, no API key. Paired with SEC EDGAR as the default provider; see [ADR 0007](docs/adr/0007-free-data-stack-edgar-stooq.md).
 - **Damodaran datasets** (`pages.stern.nyu.edu/~adamodar/`): industry/country benchmarks, annual.
-- **Financial Modeling Prep** (M2): international fundamentals + global EOD prices.
+- **Financial Modeling Prep** (optional, `BOT_DATA_PROVIDER=fmp`; M2): international fundamentals + global EOD prices, for the eventual non-US reopening. See [ADR 0007](docs/adr/0007-free-data-stack-edgar-stooq.md).
 - **Interactive Brokers TWS API** via `ib_async` (M5): portfolio sync, read-only. Needs a local TWS/IB Gateway on `BOT_IBKR_PORT` (default 7496). See [ADR 0004](docs/adr/0004-tws-api-via-ib-async.md).
 
 ## Conventions

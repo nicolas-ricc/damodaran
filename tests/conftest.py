@@ -1,9 +1,10 @@
 """Shared pytest fixtures.
 
-``BOT_FMP_API_KEY`` is a *required* setting (no default) as of M2. To keep the
-pre-existing M1 tests — which only care about SEC/Damodaran — green without
-threading the key through every test, we provide a harmless default value for
-the whole suite. Tests that assert on the key being absent simply ``delenv`` it.
+``BOT_FMP_API_KEY`` is optional (default ``""``) — it's only required when
+``BOT_DATA_PROVIDER=fmp``. Tests that exercise the FMP adapter still expect a
+key to be present without threading it through every test, so we provide a
+harmless default value for the whole suite. Tests that assert on the key
+being absent simply ``delenv`` it.
 """
 
 from __future__ import annotations

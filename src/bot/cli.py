@@ -12,6 +12,7 @@ import typer
 from bot import __version__
 from bot.config import Settings, load_settings
 from bot.ingest.damodaran import import_damodaran
+from bot.ingest.edgar_stooq import EdgarStooqProvider
 from bot.ingest.fmp import FmpProvider
 from bot.ingest.ibkr import IbkrClient
 from bot.ingest.provider import MarketDataProvider
@@ -61,9 +62,18 @@ def _make_provider(settings: Settings) -> MarketDataProvider:
     """The composition root: the ONLY place a concrete data provider is named.
 
     Swapping the data source = writing a new adapter in bot/ingest/ and
-    changing this return line (spec 2026-08-24).
+    adding a branch here (spec 2026-08-24; ADR 0007).
     """
-    return FmpProvider(api_key=settings.fmp_api_key)
+    if settings.data_provider == "fmp":
+        if not settings.fmp_api_key.strip():
+            typer.echo(
+                "BOT_DATA_PROVIDER=fmp but BOT_FMP_API_KEY is empty. "
+                "Set the key, or switch to the free stack (BOT_DATA_PROVIDER=edgar-stooq).",
+                err=True,
+            )
+            raise typer.Exit(code=1)
+        return FmpProvider(api_key=settings.fmp_api_key)
+    return EdgarStooqProvider(sec_user_agent=settings.sec_user_agent)
 
 
 @app.command()
@@ -76,16 +86,24 @@ def version() -> None:
 def refresh(
     damodaran: bool = typer.Option(False, "--damodaran", help="Refresh Damodaran datasets."),
     fmp: bool = typer.Option(
-        False, "--fmp", help="Bulk-refresh a universe of tickers from FMP (incremental)."
+        False,
+        "--fundamentals",
+        "--fmp",
+        help="Refresh universe fundamentals via the configured data provider.",
     ),
     prices: bool = typer.Option(
-        False, "--prices", help="Refresh EOD prices for the universe from FMP (incremental)."
+        False,
+        "--prices",
+        help="Refresh EOD prices for the universe via the configured data provider "
+        "(incremental).",
     ),
     fx: bool = typer.Option(
         False, "--fx", help="Refresh FX rates for the currencies held in the universe."
     ),
     all_: bool = typer.Option(
-        False, "--all", help="Refresh everything: damodaran + fmp + prices + fx, in order."
+        False,
+        "--all",
+        help="Refresh everything: damodaran + fundamentals + prices + fx, in order.",
     ),
     universe: Path | None = typer.Option(  # noqa: B008
         None,
@@ -104,7 +122,8 @@ def refresh(
     limit: int | None = typer.Option(
         None,
         "--limit",
-        help="Process at most N tickers from --fmp/--prices (for FMP's free tier).",
+        help="Process at most N tickers from --fmp/--prices (bounded slice; useful "
+        "under provider rate limits).",
     ),
 ) -> None:
     """Refresh data from external sources.
@@ -543,11 +562,16 @@ def doctor() -> None:
     typer.echo(f"DB path:          {settings.db_path}")
     typer.echo(f"Reports dir:      {settings.reports_dir}")
     typer.echo(f"SEC user agent:   {settings.sec_user_agent}")
-    typer.echo(f"FMP API key:      {'set' if settings.fmp_api_key else 'MISSING'}")
     typer.echo(f"Log level:        {settings.log_level}")
 
-    if not settings.fmp_api_key.strip():
-        issues.append("FMP API key is empty — refresh --fmp cannot work (BOT_FMP_API_KEY).")
+    typer.echo(f"Data provider:    {settings.data_provider}")
+    if settings.data_provider == "fmp":
+        typer.echo(f"FMP API key:      {'set' if settings.fmp_api_key.strip() else 'MISSING'}")
+        if not settings.fmp_api_key.strip():
+            issues.append(
+                "BOT_DATA_PROVIDER=fmp but the API key is empty (BOT_FMP_API_KEY) — "
+                "refresh --fundamentals cannot work."
+            )
 
     try:
         conn = connect(settings.db_path)

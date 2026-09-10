@@ -43,12 +43,26 @@ def test_doctor_fails_when_fmp_key_is_blank(tmp_path, monkeypatch):
     monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "x.duckdb"))
     monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
     monkeypatch.setenv("BOT_REPORTS_DIR", str(tmp_path / "reports"))
+    monkeypatch.setenv("BOT_DATA_PROVIDER", "fmp")
     monkeypatch.setenv("BOT_FMP_API_KEY", "")
 
     runner = CliRunner()
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 1
     assert "FMP" in result.stdout.upper() or "FMP" in result.stderr.upper()
+
+
+def test_doctor_ok_on_the_free_stack_with_no_fmp_key(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "x.duckdb"))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(tmp_path / "reports"))
+    monkeypatch.delenv("BOT_DATA_PROVIDER", raising=False)
+    monkeypatch.delenv("BOT_FMP_API_KEY", raising=False)
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "ok" in result.stdout.lower()
 
 
 def test_doctor_expects_the_full_schema(tmp_path, monkeypatch):

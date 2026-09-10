@@ -22,9 +22,16 @@ class Settings(BaseSettings):
         ...,
         description="User-Agent header for SEC EDGAR requests. Required by SEC fair-use policy.",
     )
+    data_provider: Literal["edgar-stooq", "fmp"] = Field(
+        default="edgar-stooq",
+        description=(
+            "Market data adapter: 'edgar-stooq' (free: SEC EDGAR fundamentals + Stooq EOD "
+            "prices, US-only, ADR 0007) or 'fmp' (requires BOT_FMP_API_KEY)."
+        ),
+    )
     fmp_api_key: str = Field(
-        ...,
-        description="Financial Modeling Prep API key. Required for global fundamentals (M2).",
+        default="",
+        description="Financial Modeling Prep API key. Required only when BOT_DATA_PROVIDER=fmp.",
     )
     ibkr_host: str = Field(
         default="127.0.0.1",

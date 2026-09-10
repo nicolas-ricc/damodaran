@@ -21,13 +21,13 @@ def test_settings_loads_from_env(monkeypatch, tmp_path):
     assert s.log_level == "DEBUG"
 
 
-def test_settings_requires_fmp_api_key(monkeypatch, tmp_path):
+def test_settings_fmp_api_key_is_optional_and_defaults_empty(monkeypatch, tmp_path):
     monkeypatch.setenv("BOT_SEC_USER_AGENT", "X Y x@y.com")
     monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "x.duckdb"))
     monkeypatch.delenv("BOT_FMP_API_KEY", raising=False)
-    with pytest.raises(ValidationError) as exc:
-        Settings(_env_file=None)
-    assert "fmp_api_key" in str(exc.value).lower()
+    s = Settings(_env_file=None)
+    assert s.fmp_api_key == ""
+    assert s.data_provider == "edgar-stooq"
 
 
 def test_settings_requires_sec_user_agent(monkeypatch, tmp_path):
