@@ -32,8 +32,13 @@ nature, so this decision is scoped exactly like ADR 0005's deferral.
   not a wall: as of 2026-09-09 Stooq serves a JavaScript anti-bot proof-of-work challenge
   to every client without a real browser (confirmed with both a plain and a browser
   User-Agent), so refresh --prices currently fails 100% of requests under this provider.
-  Choosing a replacement EOD source, or a browser-driven fetch path, is an open decision;
-  see the "Real run (Task 8)" section of
+  Resolved (2026-09-09) with the browser-driven fetch path:
+  scripts/stooq_browser_fetch.mjs harvests the CSVs through a real Chrome session
+  (agent-browser over CDP — the browser solves the challenge, per-symbol quote-page
+  warm-ups authorize each CSV), and BOT_STOOQ_DIR points refresh --prices at the
+  harvested <TICKER>.csv files instead of the walled HTTP endpoint. The direct HTTP
+  path remains in the adapter should the wall ever come down. Background in the
+  "Real run (Task 8)" section of
   docs/superpowers/plans/2026-09-09-free-data-stack-edgar-stooq.md.
 - XBRL concept variance across filers may leave more None gaps than FMP's
   standardized statements; the coverage gate (ADR 0006) makes those visible

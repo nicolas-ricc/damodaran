@@ -35,3 +35,8 @@ def test_fmp_selected_with_key_builds_fmp() -> None:
 def test_fmp_selected_without_key_exits_with_guidance() -> None:
     with pytest.raises(typer.Exit):
         _make_provider(_settings(data_provider="fmp", fmp_api_key=""))
+
+
+def test_stooq_dir_setting_reaches_the_adapter(tmp_path: object) -> None:
+    provider = _make_provider(_settings(stooq_dir=str(tmp_path)))
+    assert getattr(provider, "_stooq_dir", None) is not None

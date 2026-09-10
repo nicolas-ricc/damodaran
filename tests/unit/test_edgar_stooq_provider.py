@@ -211,3 +211,49 @@ def test_close_then_reuse_reopens() -> None:
     assert provider.lookup_company("AAPL") is not None
     provider.close()
     assert provider.lookup_company("AAPL") is not None
+
+
+def _forbidden_stooq_handler(request: httpx.Request) -> httpx.Response:
+    raise AssertionError(f"stooq_dir is set — no Stooq HTTP call expected, got {request.url}")
+
+
+def _file_provider(stooq_dir: Path) -> EdgarStooqProvider:
+    return EdgarStooqProvider(
+        sec_user_agent="Test test@example.com",
+        sec_transport=httpx.MockTransport(_edgar_handler),
+        stooq_transport=httpx.MockTransport(_forbidden_stooq_handler),
+        stooq_dir=stooq_dir,
+    )
+
+
+def test_daily_prices_reads_ticker_csv_from_stooq_dir(tmp_path: Path) -> None:
+    (tmp_path / "AAPL.csv").write_text(
+        (FIXTURES / "stooq" / "aapl_daily.csv").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    bars = _file_provider(tmp_path).daily_prices("aapl", since=None)
+    assert [b.date for b in bars] == [date(2026, 9, 3), date(2026, 9, 4), date(2026, 9, 5)]
+
+
+def test_daily_prices_from_dir_applies_the_since_bound(tmp_path: Path) -> None:
+    (tmp_path / "AAPL.csv").write_text(
+        (FIXTURES / "stooq" / "aapl_daily.csv").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    bars = _file_provider(tmp_path).daily_prices("AAPL", since=date(2026, 9, 4))
+    assert [b.date for b in bars] == [date(2026, 9, 4), date(2026, 9, 5)]
+
+
+def test_daily_prices_from_dir_still_stamps_market_cap_when_fresh(tmp_path: Path) -> None:
+    (tmp_path / "AAPL.csv").write_text(
+        (FIXTURES / "stooq" / "aapl_daily.csv").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    bars = _file_provider(tmp_path).daily_prices("AAPL", since=None)
+    newest = max(bars, key=lambda b: b.date)
+    if (date.today() - newest.date).days <= 7:
+        assert newest.market_cap == pytest.approx(newest.close * 14840392000)  # type: ignore[operator]
+    else:
+        assert newest.market_cap is None
+
+
+def test_daily_prices_missing_csv_names_the_recipe(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="stooq_browser_fetch"):
+        _file_provider(tmp_path).daily_prices("MSFT", since=None)

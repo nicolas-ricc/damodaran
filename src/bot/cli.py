@@ -73,7 +73,9 @@ def _make_provider(settings: Settings) -> MarketDataProvider:
             )
             raise typer.Exit(code=1)
         return FmpProvider(api_key=settings.fmp_api_key)
-    return EdgarStooqProvider(sec_user_agent=settings.sec_user_agent)
+    return EdgarStooqProvider(
+        sec_user_agent=settings.sec_user_agent, stooq_dir=settings.stooq_dir
+    )
 
 
 @app.command()
@@ -571,6 +573,15 @@ def doctor() -> None:
             issues.append(
                 "BOT_DATA_PROVIDER=fmp but the API key is empty (BOT_FMP_API_KEY) — "
                 "refresh --fundamentals cannot work."
+            )
+    elif settings.stooq_dir is not None:
+        if settings.stooq_dir.is_dir():
+            csvs = len(list(settings.stooq_dir.glob("*.csv")))
+            typer.echo(f"Stooq CSV dir:    {settings.stooq_dir} ({csvs} files)")
+        else:
+            issues.append(
+                f"BOT_STOOQ_DIR={settings.stooq_dir} does not exist — run "
+                "scripts/stooq_browser_fetch.mjs first, or unset it."
             )
 
     try:

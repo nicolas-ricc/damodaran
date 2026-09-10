@@ -33,6 +33,14 @@ class Settings(BaseSettings):
         default="",
         description="Financial Modeling Prep API key. Required only when BOT_DATA_PROVIDER=fmp.",
     )
+    stooq_dir: Path | None = Field(
+        default=None,
+        description=(
+            "Directory of <TICKER>.csv files harvested by scripts/stooq_browser_fetch.mjs. "
+            "When set (edgar-stooq provider only), refresh --prices reads these files instead "
+            "of Stooq's HTTP endpoint, which is behind an anti-bot wall (ADR 0007)."
+        ),
+    )
     ibkr_host: str = Field(
         default="127.0.0.1",
         description="Host of the running TWS / IB Gateway socket (M5).",
