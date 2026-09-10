@@ -45,10 +45,14 @@ function parseArgs(argv) {
     else args.tickers.push(a);
   }
   if (args.universe) {
-    const rows = readFileSync(args.universe, "utf8").trim().split(/\r?\n/);
+    const rows = readFileSync(args.universe, "utf8")
+      .trim()
+      .split(/\r?\n/)
+      .filter((r) => r.trim() && !r.trimStart().startsWith("#"));
     const header = rows[0].split(",").map((c) => c.trim().toLowerCase());
     const col = Math.max(header.indexOf("ticker"), 0);
-    for (const row of rows.slice(1)) {
+    const skipHeader = header.includes("ticker") ? 1 : 0;
+    for (const row of rows.slice(skipHeader)) {
       const t = row.split(",")[col]?.trim();
       if (t) args.tickers.push(t);
     }
