@@ -17,12 +17,24 @@ Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
 3. `uv run bot doctor` — verify setup.
 4. `uv run bot refresh --damodaran` — US sector benchmarks from Damodaran (once yearly).
 5. `uv run bot refresh --fundamentals && uv run bot refresh --prices` — load the S&P 500 universe.
-   EDGAR has no documented per-day quota. **As of 2026-09-09, `refresh --prices` is
-   non-functional against the free stack**: Stooq now serves a JavaScript anti-bot
-   proof-of-work challenge to any client without a real browser, so every request fails —
+   EDGAR has no documented per-day quota. **`refresh --prices` needs one extra step under
+   the free stack**: Stooq serves a JavaScript anti-bot proof-of-work challenge to any
+   client without a real browser (observed 2026-09-09), so the direct HTTP path fails —
    this is a standing block, not a quota, and the `StooqRateLimitError` defer/resume
-   machinery (built for Stooq's documented daily-hits marker) does not help here. Choosing
-   a replacement EOD source, or a browser-driven fetch path, is an open decision — see the
+   machinery (built for Stooq's documented daily-hits marker) does not help there. The
+   working route is the browser recipe: harvest the CSVs through a real Chrome session
+   ([agent-browser](https://www.npmjs.com/package/agent-browser) required), then point the
+   bot at them:
+
+   ```bash
+   agent-browser open "https://stooq.com/q/d/?s=aapl.us" && agent-browser wait --load networkidle
+   node scripts/stooq_browser_fetch.mjs --universe src/bot/ingest/universe_default.csv
+   BOT_STOOQ_DIR=.cache/stooq uv run bot refresh --prices
+   ```
+
+   With `BOT_STOOQ_DIR` set, `refresh --prices` reads `<TICKER>.csv` files from that
+   directory instead of Stooq's HTTP endpoint; a ticker with no file fails individually
+   with a message naming the recipe, and the rest continue. Background in the
    "Real run (Task 8)" section of
    `docs/superpowers/plans/2026-09-09-free-data-stack-edgar-stooq.md`. `refresh
    --fundamentals` is unaffected by this and works normally; SEC EDGAR's own throttling can

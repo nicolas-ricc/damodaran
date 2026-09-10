@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 from datetime import date
+from pathlib import Path
 
 import httpx
 
@@ -29,7 +30,7 @@ from bot.ingest.sec_edgar import (
     parse_company_facts,
     parse_submissions_info,
 )
-from bot.ingest.stooq import StooqClient
+from bot.ingest.stooq import StooqClient, parse_stooq_csv
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -46,11 +47,13 @@ class EdgarStooqProvider:
         timeout: float = 30.0,
         sec_transport: httpx.BaseTransport | None = None,
         stooq_transport: httpx.BaseTransport | None = None,
+        stooq_dir: Path | None = None,
     ) -> None:
         self._sec_user_agent = sec_user_agent
         self._timeout = timeout
         self._sec_transport = sec_transport
         self._stooq_transport = stooq_transport
+        self._stooq_dir = stooq_dir
         self._sec: SecEdgarClient | None = None
         self._stooq: StooqClient | None = None
         self._submissions_cache: dict[str, dict[str, object]] = {}
@@ -139,9 +142,32 @@ class EdgarStooqProvider:
             filings=[{**row, "source": self.name} for row in parsed.filings],
         )
 
+    def _bars_from_dir(self, sym: str, since: date | None) -> list[PriceBar]:
+        """Read ``<stooq_dir>/<TICKER>.csv`` (the browser recipe's output).
+
+        Stooq's anti-bot wall blocks this adapter's HTTP path (ADR 0007);
+        ``scripts/stooq_browser_fetch.mjs`` harvests the CSVs through a real
+        browser instead. A missing file is a per-ticker failure that names the
+        recipe — the run continues with the other tickers.
+        """
+        assert self._stooq_dir is not None
+        path = self._stooq_dir / f"{sym}.csv"
+        if not path.is_file():
+            raise FileNotFoundError(
+                f"{path}: no CSV for {sym} — harvest it first with "
+                f"`node scripts/stooq_browser_fetch.mjs {sym}` (see ADR 0007)"
+            )
+        bars = parse_stooq_csv(path.read_text(encoding="utf-8"))
+        if since is not None:
+            bars = [b for b in bars if b.date >= since]
+        return bars
+
     def daily_prices(self, ticker: str, since: date | None) -> list[PriceBar]:
         sym = ticker.upper()
-        bars = self._prices().daily_prices(sym, since)
+        if self._stooq_dir is not None:
+            bars = self._bars_from_dir(sym, since)
+        else:
+            bars = self._prices().daily_prices(sym, since)
         if not bars:
             return bars
         newest_idx = max(range(len(bars)), key=lambda i: bars[i].date)
