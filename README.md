@@ -11,33 +11,35 @@ See `docs/superpowers/specs/2026-05-25-investment-bot-design.md` for the full de
 Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
 
 1. `uv sync` — install dependencies.
-2. `cp .env.example .env` and fill in `BOT_SEC_USER_AGENT` (your name + email). That's the only
-   credential the default provider needs — SEC EDGAR (fundamentals) + Stooq (EOD prices), $0/month,
-   no API key. See [ADR 0007](docs/adr/0007-free-data-stack-edgar-stooq.md).
+2. `cp .env.example .env` and fill in `BOT_SEC_USER_AGENT` (your name + email) and
+   `BOT_TIINGO_API_KEY` (a free token from [tiingo.com](https://www.tiingo.com/)). The default
+   provider is `edgar-tiingo` — SEC EDGAR for fundamentals (no key) + Tiingo for EOD prices
+   (free tier covers the S&P 500). See [ADR 0007](docs/adr/0007-free-data-stack-edgar-stooq.md).
 3. `uv run bot doctor` — verify setup.
 4. `uv run bot refresh --damodaran` — US sector benchmarks from Damodaran (once yearly).
 5. `uv run bot refresh --fundamentals && uv run bot refresh --prices` — load the S&P 500 universe.
-   EDGAR has no documented per-day quota. **`refresh --prices` needs one extra step under
-   the free stack**: Stooq serves a JavaScript anti-bot proof-of-work challenge to any
-   client without a real browser (observed 2026-09-09), so the direct HTTP path fails —
-   this is a standing block, not a quota, and the `StooqRateLimitError` defer/resume
-   machinery (built for Stooq's documented daily-hits marker) does not help there. The
-   working route is the browser recipe: harvest the CSVs through a real Chrome session
-   ([agent-browser](https://www.npmjs.com/package/agent-browser) required), then point the
-   bot at them:
+   Fundamentals come from EDGAR (no key; its own throttling defers, not skips — the next run
+   resumes). Prices come from Tiingo; on the free tier a 429 raises `TiingoRateLimitError` and
+   the remaining tickers defer to the next run.
+
+   **Alternative price source — `edgar-stooq`.** Set `BOT_DATA_PROVIDER=edgar-stooq` to read
+   Stooq CSVs instead of Tiingo. Stooq's HTTP endpoint is behind a JavaScript anti-bot wall
+   (observed 2026-09-09) and its `db/` bulk archives require a paid subscription, so the only
+   free route is harvesting per-ticker CSVs through a real browser
+   ([agent-browser](https://www.npmjs.com/package/agent-browser) required) — slow and
+   daily-limited even when logged in, so `edgar-tiingo` is preferred:
 
    ```bash
    agent-browser open "https://stooq.com/q/d/?s=aapl.us" && agent-browser wait --load networkidle
    node scripts/stooq_browser_fetch.mjs --universe src/bot/ingest/universe_default.csv
-   BOT_STOOQ_DIR=.cache/stooq uv run bot refresh --prices
+   BOT_DATA_PROVIDER=edgar-stooq BOT_STOOQ_DIR=.cache/stooq uv run bot refresh --prices
    ```
 
    With `BOT_STOOQ_DIR` set, `refresh --prices` reads `<TICKER>.csv` files from that
-   directory instead of Stooq's HTTP endpoint; a ticker with no file fails individually
-   with a message naming the recipe, and the rest continue. Background in the
-   "Real run (Task 8)" section of
-   `docs/superpowers/plans/2026-09-09-free-data-stack-edgar-stooq.md`. `refresh
-   --fundamentals` is unaffected by this and works normally; SEC EDGAR's own throttling can
+   directory; a ticker with no file fails individually with a message naming the recipe, and
+   the rest continue. Background in the "Real run (Task 8)" section of
+   `docs/superpowers/plans/2026-09-09-free-data-stack-edgar-stooq.md`. Under either provider,
+   SEC EDGAR's own throttling can
    still cut a fundamentals run short, in which case the remaining tickers are deferred, not
    skipped, and the next day's run continues from where it left off.
    Use `--limit N` to cap a run at the first N universe tickers — useful for a first-day sanity

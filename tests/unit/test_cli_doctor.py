@@ -77,3 +77,29 @@ def test_doctor_expects_the_full_schema(tmp_path, monkeypatch):
     assert match is not None
     # Schema should have 15 tables
     assert int(match.group(1)) == 15
+
+
+def test_doctor_warns_but_passes_when_tiingo_key_missing(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "x.duckdb"))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(tmp_path / "reports"))
+    monkeypatch.setenv("BOT_DATA_PROVIDER", "edgar-tiingo")
+    monkeypatch.setenv("BOT_TIINGO_API_KEY", "")
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "MISSING" in result.stdout and "tiingo" in result.stdout.lower()
+
+
+def test_doctor_reports_tiingo_key_set(tmp_path, monkeypatch):
+    monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "x.duckdb"))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(tmp_path / "reports"))
+    monkeypatch.setenv("BOT_DATA_PROVIDER", "edgar-tiingo")
+    monkeypatch.setenv("BOT_TIINGO_API_KEY", "sometoken")
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["doctor"])
+    assert result.exit_code == 0
+    assert "Tiingo API key:   set" in result.stdout

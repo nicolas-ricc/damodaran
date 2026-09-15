@@ -27,7 +27,7 @@ def test_settings_fmp_api_key_is_optional_and_defaults_empty(monkeypatch, tmp_pa
     monkeypatch.delenv("BOT_FMP_API_KEY", raising=False)
     s = Settings(_env_file=None)
     assert s.fmp_api_key == ""
-    assert s.data_provider == "edgar-stooq"
+    assert s.data_provider == "edgar-tiingo"
 
 
 def test_settings_requires_sec_user_agent(monkeypatch, tmp_path):

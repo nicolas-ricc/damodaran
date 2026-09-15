@@ -22,16 +22,24 @@ class Settings(BaseSettings):
         ...,
         description="User-Agent header for SEC EDGAR requests. Required by SEC fair-use policy.",
     )
-    data_provider: Literal["edgar-stooq", "fmp"] = Field(
-        default="edgar-stooq",
+    data_provider: Literal["edgar-tiingo", "edgar-stooq", "fmp"] = Field(
+        default="edgar-tiingo",
         description=(
-            "Market data adapter: 'edgar-stooq' (free: SEC EDGAR fundamentals + Stooq EOD "
-            "prices, US-only, ADR 0007) or 'fmp' (requires BOT_FMP_API_KEY)."
+            "Market data adapter (US-only, ADR 0007): 'edgar-tiingo' (SEC EDGAR fundamentals "
+            "+ Tiingo EOD prices, needs a free BOT_TIINGO_API_KEY — recommended), 'edgar-stooq' "
+            "(EDGAR + Stooq CSVs via BOT_STOOQ_DIR), or 'fmp' (needs BOT_FMP_API_KEY)."
         ),
     )
     fmp_api_key: str = Field(
         default="",
         description="Financial Modeling Prep API key. Required only when BOT_DATA_PROVIDER=fmp.",
+    )
+    tiingo_api_key: str = Field(
+        default="",
+        description=(
+            "Tiingo API token (free at tiingo.com). Required only when "
+            "BOT_DATA_PROVIDER=edgar-tiingo; supplies EOD prices for the universe."
+        ),
     )
     stooq_dir: Path | None = Field(
         default=None,

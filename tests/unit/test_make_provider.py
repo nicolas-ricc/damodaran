@@ -20,10 +20,20 @@ def _settings(**overrides: object) -> Settings:
     return Settings(**base)  # type: ignore[arg-type]
 
 
-def test_default_provider_is_the_free_stack() -> None:
+def test_default_provider_is_edgar_tiingo() -> None:
     settings = _settings()
-    assert settings.data_provider == "edgar-stooq"
-    provider = _make_provider(settings)
+    assert settings.data_provider == "edgar-tiingo"
+    assert _make_provider(settings).name == "edgar_tiingo"
+
+
+def test_edgar_tiingo_builds_without_a_key_so_fundamentals_still_run() -> None:
+    # Only prices need the key; construction must not hard-fail without it.
+    provider = _make_provider(_settings(tiingo_api_key=""))
+    assert provider.name == "edgar_tiingo"
+
+
+def test_edgar_stooq_selected_builds_stooq() -> None:
+    provider = _make_provider(_settings(data_provider="edgar-stooq"))
     assert provider.name == "edgar_stooq"
 
 
@@ -38,5 +48,5 @@ def test_fmp_selected_without_key_exits_with_guidance() -> None:
 
 
 def test_stooq_dir_setting_reaches_the_adapter(tmp_path: object) -> None:
-    provider = _make_provider(_settings(stooq_dir=str(tmp_path)))
+    provider = _make_provider(_settings(data_provider="edgar-stooq", stooq_dir=str(tmp_path)))
     assert getattr(provider, "_stooq_dir", None) is not None
