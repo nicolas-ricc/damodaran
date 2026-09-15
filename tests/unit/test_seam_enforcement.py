@@ -33,11 +33,20 @@ def test_stooq_client_is_internal_to_its_adapters() -> None:
     assert _offenders(r"\bStooqClient\b", allowed={"stooq.py", "edgar_stooq.py"}) == []
 
 
+def test_tiingo_client_is_internal_to_its_adapters() -> None:
+    assert _offenders(r"\bTiingoClient\b", allowed={"tiingo.py", "edgar_tiingo.py"}) == []
+
+
 def test_only_the_composition_root_names_the_free_stack_adapter() -> None:
     assert _offenders(r"\bEdgarStooqProvider\b", allowed={"edgar_stooq.py", "cli.py"}) == []
 
 
+def test_only_the_composition_root_names_the_tiingo_adapter() -> None:
+    assert _offenders(r"\bEdgarTiingoProvider\b", allowed={"edgar_tiingo.py", "cli.py"}) == []
+
+
 def test_the_port_imports_no_concrete_adapter() -> None:
     port = (SRC / "ingest" / "provider.py").read_text(encoding="utf-8")
-    assert re.search(r"from bot\.ingest\.(sec_edgar|fmp|stooq|edgar_stooq)\b", port) is None
-    assert re.search(r"import bot\.ingest\.(sec_edgar|fmp|stooq|edgar_stooq)\b", port) is None
+    concrete = r"(sec_edgar|fmp|stooq|edgar_stooq|tiingo|edgar_tiingo)"
+    assert re.search(rf"from bot\.ingest\.{concrete}\b", port) is None
+    assert re.search(rf"import bot\.ingest\.{concrete}\b", port) is None

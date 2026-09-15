@@ -13,6 +13,7 @@ from bot import __version__
 from bot.config import Settings, load_settings
 from bot.ingest.damodaran import import_damodaran
 from bot.ingest.edgar_stooq import EdgarStooqProvider
+from bot.ingest.edgar_tiingo import EdgarTiingoProvider
 from bot.ingest.fmp import FmpProvider
 from bot.ingest.ibkr import IbkrClient
 from bot.ingest.provider import MarketDataProvider
@@ -68,11 +69,18 @@ def _make_provider(settings: Settings) -> MarketDataProvider:
         if not settings.fmp_api_key.strip():
             typer.echo(
                 "BOT_DATA_PROVIDER=fmp but BOT_FMP_API_KEY is empty. "
-                "Set the key, or switch to the free stack (BOT_DATA_PROVIDER=edgar-stooq).",
+                "Set the key, or switch to the free stack (BOT_DATA_PROVIDER=edgar-tiingo).",
                 err=True,
             )
             raise typer.Exit(code=1)
         return FmpProvider(api_key=settings.fmp_api_key)
+    if settings.data_provider == "edgar-tiingo":
+        # No hard-exit on an empty key: EDGAR fundamentals work without it, so
+        # `refresh --fundamentals` still runs; only `refresh --prices` needs the
+        # key, and doctor flags its absence.
+        return EdgarTiingoProvider(
+            sec_user_agent=settings.sec_user_agent, tiingo_api_key=settings.tiingo_api_key
+        )
     return EdgarStooqProvider(
         sec_user_agent=settings.sec_user_agent, stooq_dir=settings.stooq_dir
     )
@@ -573,6 +581,16 @@ def doctor() -> None:
             issues.append(
                 "BOT_DATA_PROVIDER=fmp but the API key is empty (BOT_FMP_API_KEY) — "
                 "refresh --fundamentals cannot work."
+            )
+    elif settings.data_provider == "edgar-tiingo":
+        if settings.tiingo_api_key.strip():
+            typer.echo("Tiingo API key:   set")
+        else:
+            # Not a hard failure: EDGAR fundamentals work without it. Only
+            # refresh --prices needs the key, so this is a warning, not an issue.
+            typer.echo(
+                "Tiingo API key:   MISSING (refresh --prices needs it; "
+                "free key at tiingo.com)"
             )
     elif settings.stooq_dir is not None:
         if settings.stooq_dir.is_dir():

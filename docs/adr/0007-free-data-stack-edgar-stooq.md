@@ -3,6 +3,13 @@
 ## Status
 
 Accepted (2026-09-09). Implemented (2026-09-09, EdgarStooqProvider in ingest/edgar_stooq.py).
+Amended (2026-09-15): Stooq's free tier proved unfit for bulk price refresh — its
+HTTP endpoint is behind a JS anti-bot wall and its `db/` bulk archives require a paid
+subscription (a free login neither unlocks bulk downloads nor meaningfully lifts the
+per-ticker daily cap, ~17 tickers/run). The default price source is now **Tiingo**
+(`edgar-tiingo`, EdgarTiingoProvider): a keyed REST API whose free tier covers the S&P
+500. The EDGAR half is shared by both adapters via EdgarPricedProvider (ingest/edgar_base.py);
+`edgar-stooq` remains selectable for the browser-recipe CSV path.
 
 ## Context
 
