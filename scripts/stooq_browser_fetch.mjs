@@ -70,7 +70,11 @@ function stooqSymbol(ticker) {
 }
 
 function cdpBrowserUrl() {
-  const out = execFileSync("agent-browser", ["get", "cdp-url"], { encoding: "utf8" }).trim();
+  // Honor AGENT_BROWSER_SESSION so the recipe can run against a logged-in
+  // session (a free Stooq account lifts the per-ticker daily hit limit).
+  const session = process.env.AGENT_BROWSER_SESSION;
+  const cmd = session ? ["--session", session, "get", "cdp-url"] : ["get", "cdp-url"];
+  const out = execFileSync("agent-browser", cmd, { encoding: "utf8" }).trim();
   const line = out.split(/\s+/).find((w) => w.startsWith("ws://"));
   if (!line) throw new Error("agent-browser returned no CDP URL — is the daemon running?");
   return line;
