@@ -13,14 +13,53 @@ Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
 1. `uv sync` — install dependencies.
 2. `cp .env.example .env` and fill in `BOT_SEC_USER_AGENT` (your name + email) and
    `BOT_TIINGO_API_KEY` (a free token from [tiingo.com](https://www.tiingo.com/)). The default
-   provider is `edgar-tiingo` — SEC EDGAR for fundamentals (no key) + Tiingo for EOD prices
-   (free tier covers the S&P 500). See [ADR 0007](docs/adr/0007-free-data-stack-edgar-stooq.md).
+   provider is `edgar-tiingo` — SEC EDGAR for fundamentals (no key) + Tiingo for EOD prices.
+   See [ADR 0007](docs/adr/0007-free-data-stack-edgar-stooq.md).
 3. `uv run bot doctor` — verify setup.
 4. `uv run bot refresh --damodaran` — US sector benchmarks from Damodaran (once yearly).
-5. `uv run bot refresh --fundamentals && uv run bot refresh --prices` — load the S&P 500 universe.
+5. `uv run bot refresh --fundamentals && uv run bot refresh --prices` — load the universe.
    Fundamentals come from EDGAR (no key; its own throttling defers, not skips — the next run
-   resumes). Prices come from Tiingo; on the free tier a 429 raises `TiingoRateLimitError` and
-   the remaining tickers defer to the next run.
+   resumes). Prices come from Tiingo.
+
+   **Tiingo free tier is rate-capped** (~50 requests/hour, 500 unique symbols/month), so the
+   shipped universe is trimmed to 498 names to fit the monthly cap. Filling ~500 prices takes
+   several hourly windows the first time. Use **`--only-missing`** so each run skips tickers
+   that already have prices (no request spent) and advances through the unpriced remainder —
+   drive it hourly until full:
+
+   ```bash
+   uv run bot refresh --prices --only-missing   # ~50 new tickers/run; re-run each hour
+   ```
+
+   A `crontab -e` line automates it: `0 * * * * cd ~/Projects/investment-bot && uv run bot
+   refresh --prices --only-missing >> ~/bot-prices.log 2>&1`. Once the universe is filled,
+   plain `uv run bot refresh --prices` does cheap daily incremental updates (one bar/ticker).
+   For the full S&P 500 priced daily without the drip, Tiingo Power (~$30/mo) lifts the caps —
+   same `edgar-tiingo` provider, just a paid key, and re-add the trimmed names.
+
+   **Alternative price source — `edgar-stooq`.** Set `BOT_DATA_PROVIDER=edgar-stooq` to read
+   Stooq CSVs instead of Tiingo. Stooq's HTTP endpoint is behind a JavaScript anti-bot wall
+   (observed 2026-09-09) and its `db/` bulk archives require a paid subscription, so the only
+   free route is harvesting per-ticker CSVs through a real browser
+   ([agent-browser](https://www.npmjs.com/package/agent-browser) required) — slow and
+   daily-limited even when logged in, so `edgar-tiingo` is preferred:
+
+   ```bash
+   agent-browser open "https://stooq.com/q/d/?s=aapl.us" && agent-browser wait --load networkidle
+   node scripts/stooq_browser_fetch.mjs --universe src/bot/ingest/universe_default.csv
+   BOT_DATA_PROVIDER=edgar-stooq BOT_STOOQ_DIR=.cache/stooq uv run bot refresh --prices
+   ```
+
+   With `BOT_STOOQ_DIR` set, `refresh --prices` reads `<TICKER>.csv` files from that
+   directory; a ticker with no file fails individually with a message naming the recipe, and
+   the rest continue. Background in the "Real run (Task 8)" section of
+   `docs/superpowers/plans/2026-09-09-free-data-stack-edgar-stooq.md`. Under either provider,
+   SEC EDGAR's own throttling can
+   still cut a fundamentals run short, in which case the remaining tickers are deferred, not
+   skipped, and the next day's run continues from where it left off.
+   Use `--limit N` to cap a run at the first N universe tickers — useful for a first-day sanity
+   check, not for daily use (it always re-probes the same alphabetical head of the ticker list,
+   so it won't help you progress through the universe day over day).
 
    **Alternative price source — `edgar-stooq`.** Set `BOT_DATA_PROVIDER=edgar-stooq` to read
    Stooq CSVs instead of Tiingo. Stooq's HTTP endpoint is behind a JavaScript anti-bot wall

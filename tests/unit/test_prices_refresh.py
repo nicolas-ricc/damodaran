@@ -217,3 +217,31 @@ def test_price_refresh_uses_the_shared_provider_for_every_ticker() -> None:
     assert result.imported == 2
     price_calls = [c for c in provider.calls if c[0] == "daily_prices"]
     assert sorted(price_calls) == [("daily_prices", "AAA"), ("daily_prices", "BBB")]
+
+
+def test_only_missing_skips_tickers_that_already_have_prices() -> None:
+    conn = _db()
+    _seed_company(conn, "HAVE", "USD")
+    _seed_company(conn, "MISS", "USD")
+    conn.execute(
+        "INSERT INTO prices_daily (ticker, date, close, source) VALUES ('HAVE', ?, 5.0, 'x')",
+        [date(2026, 1, 2)],
+    )
+
+    class _RecordingProvider(FakeProvider):
+        def __init__(self) -> None:
+            super().__init__(prices={"MISS": _bar()})
+            self.requested: list[str] = []
+
+        def daily_prices(self, ticker, since):  # type: ignore[no-untyped-def]
+            self.requested.append(ticker.upper())
+            return super().daily_prices(ticker, since)
+
+    provider = _RecordingProvider()
+    result = refresh_prices(
+        conn, provider=provider, tickers=["HAVE", "MISS"], only_missing=True
+    )
+
+    assert provider.requested == ["MISS"]
+    assert result.imported == 1
+    assert result.total == 1
