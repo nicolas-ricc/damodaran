@@ -1,5 +1,9 @@
 # S&P 500 constituents — fuente: github.com/datasets/s-and-p-500-companies, 2026-08-17
 # Tickers en formato FMP (punto -> guion: BRK-B). Universo US-only de esta version.
+# 498 nombres: recortado de 503 para caber en el tope mensual de 500 simbolos del
+# tier gratuito de Tiingo (ADR 0007). Quitados: AVB, EQR (ausentes de la tabla de
+# tickers de SEC EDGAR) y las clases redundantes GOOG, FOX, NWS (se conservan
+# GOOGL, FOXA, NWSA — misma empresa). Con Tiingo de pago, re-agregarlos.
 ticker
 A
 AAPL
@@ -45,7 +49,6 @@ APTV
 ARE
 ARES
 ATO
-AVB
 AVGO
 AVY
 AWK
@@ -165,7 +168,6 @@ EME
 EMR
 EOG
 EQIX
-EQR
 EQT
 ERIE
 ES
@@ -195,7 +197,6 @@ FISV
 FITB
 FIX
 FLEX
-FOX
 FOXA
 FRT
 FSLR
@@ -213,7 +214,6 @@ GL
 GLW
 GM
 GNRC
-GOOG
 GOOGL
 GPC
 GPN
@@ -344,7 +344,6 @@ NTRS
 NUE
 NVDA
 NVR
-NWS
 NWSA
 NXPI
 O

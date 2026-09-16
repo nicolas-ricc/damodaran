@@ -135,6 +135,13 @@ def refresh(
         help="Process at most N tickers from --fmp/--prices (bounded slice; useful "
         "under provider rate limits).",
     ),
+    only_missing: bool = typer.Option(
+        False,
+        "--only-missing",
+        help="With --prices: skip tickers that already have prices (no request spent), "
+        "so repeated runs fill the unpriced remainder — the first-fill mode for a "
+        "rate-capped free tier like Tiingo.",
+    ),
 ) -> None:
     """Refresh data from external sources.
 
@@ -173,7 +180,7 @@ def refresh(
     if fmp:
         exit_code = max(exit_code, _refresh_fmp_universe(conn, settings, universe, limit))
     if prices:
-        exit_code = max(exit_code, _refresh_prices(conn, settings, universe, limit))
+        exit_code = max(exit_code, _refresh_prices(conn, settings, universe, limit, only_missing))
     if fx:
         exit_code = max(exit_code, _refresh_fx(conn, settings))
     raise typer.Exit(code=exit_code)
@@ -226,7 +233,7 @@ def _refresh_fmp_universe(
         typer.echo(f"Universe file {path} has no tickers.", err=True)
         return 2
 
-    typer.echo(f"Refreshing {len(tickers)} tickers from FMP (universe={path})...")
+    typer.echo(f"Refreshing {len(tickers)} tickers via the data provider (universe={path})...")
     with closing(_make_provider(settings)) as provider:
         result = refresh_universe(
             conn,
@@ -245,6 +252,7 @@ def _refresh_prices(
     settings: Settings,
     universe: Path | None,
     limit: int | None = None,
+    only_missing: bool = False,
 ) -> int:
     """Refresh EOD prices for the universe. Returns the exit code (0 ok, 2 data error)."""
     path, tickers = _universe_tickers(universe, limit)
@@ -252,9 +260,12 @@ def _refresh_prices(
         typer.echo(f"Universe file {path} has no tickers.", err=True)
         return 2
 
-    typer.echo(f"Refreshing prices for {len(tickers)} tickers from FMP...")
+    scope = "missing-price tickers" if only_missing else "tickers"
+    typer.echo(f"Refreshing prices for up to {len(tickers)} {scope} via the data provider...")
     with closing(_make_provider(settings)) as provider:
-        result = refresh_prices(conn, provider=provider, tickers=tickers)
+        result = refresh_prices(
+            conn, provider=provider, tickers=tickers, only_missing=only_missing
+        )
     _report_universe_refresh(result)
 
     return 0 if result.status == "success" else 2
@@ -262,7 +273,7 @@ def _refresh_prices(
 
 def _refresh_fx(conn: duckdb.DuckDBPyConnection, settings: Settings) -> int:
     """Refresh FX rates for the universe's currencies. Returns the exit code."""
-    typer.echo("Refreshing FX rates for the universe's currencies from FMP...")
+    typer.echo("Refreshing FX rates for the universe's currencies via the data provider...")
     with closing(_make_provider(settings)) as provider:
         result = refresh_fx(conn, provider=provider)
     _report_universe_refresh(result)
@@ -284,8 +295,8 @@ def _report_universe_refresh(result: UniverseRefreshResult) -> None:
             typer.echo(f"  {outcome.ticker}: {outcome.error_message}", err=True)
     if result.deferred:
         typer.echo(
-            f"NOTE — {result.deferred} tickers deferred (FMP daily quota); "
-            "re-run the same command tomorrow to continue.",
+            f"NOTE — {result.deferred} tickers deferred (provider rate limit); "
+            "re-run the same command to continue (add --only-missing for prices).",
         )
 
 

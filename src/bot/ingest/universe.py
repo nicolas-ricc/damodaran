@@ -105,7 +105,7 @@ class UniverseRefreshResult:
 
     @property
     def deferred(self) -> int:
-        """Tickers not attempted because FMP's daily quota was exhausted."""
+        """Tickers not attempted because the provider's rate limit was hit."""
         return sum(1 for o in self.outcomes if o.status == "deferred")
 
     @property
@@ -508,6 +508,7 @@ def refresh_prices(
     provider: MarketDataProvider,
     tickers: list[str],
     since_date: date | None = None,
+    only_missing: bool = False,
     progress_every: int = DEFAULT_PROGRESS_EVERY,
 ) -> UniverseRefreshResult:
     """Bulk-refresh EOD prices for ``tickers`` through ``provider`` (incremental
@@ -518,7 +519,14 @@ def refresh_prices(
     written to ``refresh_log``. Each ticker's currency is read from
     ``companies.currency`` and passed through so ``prices_daily.currency`` is set
     for the screener's USD market-cap conversion.
+
+    ``only_missing`` drops tickers that already have any stored price *before*
+    the run, so no provider request (and no rate-limit quota) is spent on them.
+    This is the first-fill mode for a rate-capped free tier: each run advances
+    through the unpriced remainder rather than re-probing the same head.
     """
+    if only_missing:
+        tickers = [t for t in tickers if _max_price_date(conn, t) is None]
     return _run_bulk_refresh(
         conn,
         items=tickers,
