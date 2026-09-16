@@ -43,6 +43,11 @@ class EdgarPricedProvider:
     run; ``close()`` resets so post-close use reopens.
     """
 
+    #: Key into ``industry_mapping.csv`` for the industry taxonomy this provider
+    #: emits. EDGAR-based providers share SIC-description vocabulary, so both
+    #: composites map under one key ("edgar") rather than their composite name.
+    industry_mapping_key = "edgar"
+
     def __init__(
         self,
         sec_user_agent: str,

@@ -70,3 +70,15 @@ def test_close_then_reuse_reopens() -> None:
     assert provider.lookup_company("AAPL") is not None
     provider.close()
     assert provider.lookup_company("AAPL") is not None
+
+
+def test_daily_prices_without_key_fails_with_a_clear_message() -> None:
+    import pytest as _pytest
+
+    provider = EdgarTiingoProvider(
+        sec_user_agent="Test test@example.com",
+        tiingo_api_key="",
+        sec_transport=httpx.MockTransport(_edgar_handler),
+    )
+    with _pytest.raises(RuntimeError, match="BOT_TIINGO_API_KEY"):
+        provider.daily_prices("AAPL", since=None)
