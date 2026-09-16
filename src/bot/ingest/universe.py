@@ -190,6 +190,7 @@ def _company_row(
     *,
     source: str,
     mapping: IndustryMapping,
+    mapping_key: str | None = None,
 ) -> dict[str, object]:
     """Build the ``companies`` row from the provider's profile (+ parsed currency
     fallback).
@@ -207,8 +208,13 @@ def _company_row(
     label is logged as a warning: it leaves every sector assumption ``unresolved``
     (so ``analyze`` raises) and ``is_financial_services`` ``False`` (so a bank
     slips past the §6.2 exclusion), and the only fix is a mapping-CSV row.
+
+    ``mapping_key`` names the industry-taxonomy the mapping keys off (e.g.
+    ``"edgar"`` shared by every EDGAR-based provider); it defaults to ``source``
+    for providers whose taxonomy id equals their name (e.g. FMP).
     """
     sym = ticker.upper()
+    resolve_key = mapping_key or source
     if info is None:
         return {
             "ticker": sym,
@@ -219,12 +225,12 @@ def _company_row(
             "industry_damodaran": None,
             "ipo_date": None,
         }
-    damodaran_industry = mapping.resolve(source, info.industry)
+    damodaran_industry = mapping.resolve(resolve_key, info.industry)
     if damodaran_industry is None and info.industry is not None:
         log.warning(
             "ingest.industry_mapping.unmapped",
             ticker=sym,
-            provider=source,
+            provider=resolve_key,
             provider_industry=info.industry,
         )
     return {
@@ -281,7 +287,12 @@ def import_company(
             else load_industry_mapping(resolve_mapping_path(mapping_path))
         )
         company = _company_row(
-            sym, bundle.info, currency, source=provider.name, mapping=resolved_mapping
+            sym,
+            bundle.info,
+            currency,
+            source=provider.name,
+            mapping=resolved_mapping,
+            mapping_key=getattr(provider, "industry_mapping_key", None),
         )
         with transaction(conn):
             upsert_company(conn, company)

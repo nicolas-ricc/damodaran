@@ -52,4 +52,9 @@ class EdgarTiingoProvider(EdgarPricedProvider):
             self._tiingo = None
 
     def _fetch_bars(self, sym: str, since: date | None) -> list[PriceBar]:
+        if not self._tiingo_api_key.strip():
+            raise RuntimeError(
+                "BOT_TIINGO_API_KEY is empty — refresh --prices needs it "
+                "(get a free key at tiingo.com). Fundamentals work without it."
+            )
         return self._prices().daily_prices(sym, since)
