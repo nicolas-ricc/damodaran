@@ -21,19 +21,27 @@ Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
    Fundamentals come from EDGAR (no key; its own throttling defers, not skips — the next run
    resumes). Prices come from Tiingo.
 
-   **Tiingo free tier is rate-capped** (~50 requests/hour, 500 unique symbols/month), so the
-   shipped universe is trimmed to 498 names to fit the monthly cap. Filling ~500 prices takes
-   several hourly windows the first time. Use **`--only-missing`** so each run skips tickers
-   that already have prices (no request spent) and advances through the unpriced remainder —
-   drive it hourly until full:
+   **Tiingo's free tier is rate-capped** (a few hundred requests per hourly window, 500 unique
+   symbols/month), so the shipped universe is trimmed to 498 names to fit the monthly cap, and a
+   full first fill may take one or two windows. Use **`--only-missing`** so each run skips
+   tickers that already have prices (no request spent) and advances through the unpriced
+   remainder:
 
    ```bash
-   uv run bot refresh --prices --only-missing   # ~50 new tickers/run; re-run each hour
+   uv run bot refresh --prices --only-missing   # fills the unpriced remainder; re-run per window
    ```
 
-   A `crontab -e` line automates it: `0 * * * * cd ~/Projects/investment-bot && uv run bot
-   refresh --prices --only-missing >> ~/bot-prices.log 2>&1`. Once the universe is filled,
-   plain `uv run bot refresh --prices` does cheap daily incremental updates (one bar/ticker).
+   `scripts/price_fill.sh` automates the drip — it runs `--only-missing`, logs to
+   `.cache/price_fill.log`, and stops once every ticker is priced. Arm it hourly (from your
+   checkout root):
+
+   ```bash
+   ( crontab -l 2>/dev/null; echo "7 * * * * $(pwd)/scripts/price_fill.sh # bot-price-fill" ) | crontab -
+   # remove when done:  crontab -l | grep -v 'bot-price-fill' | crontab -
+   ```
+
+   Once the universe is filled, plain `uv run bot refresh --prices` does cheap daily
+   incremental updates (one bar/ticker).
    For the full S&P 500 priced daily without the drip, Tiingo Power (~$30/mo) lifts the caps —
    same `edgar-tiingo` provider, just a paid key, and re-add the trimmed names.
 
