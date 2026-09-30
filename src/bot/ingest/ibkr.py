@@ -45,10 +45,6 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 7496
 DEFAULT_CLIENT_ID = 1
 
-# IBKR's ExecutionFilter expects ``yyyymmdd-HH:MM:SS`` (or ``yyyymmdd HH:MM:SS``)
-# in TWS local time; it is a coarse server-side pre-filter only.
-_EXEC_FILTER_TIME_FMT = "%Y%m%d-%H:%M:%S"
-
 # Account-value tags that represent a per-currency cash balance. ``CashBalance``
 # is reported once per held currency plus a summary ``BASE`` row we drop; the
 # aggregate ``TotalCashBalance`` rows are excluded so callers see one row per
@@ -181,6 +177,8 @@ class IbkrClient:
             log.info("ibkr_disconnect")
 
     def _ensure_connected(self) -> None:
+        # ib_async only notices a dropped socket while its event loop runs, so a
+        # drop is detected (and reconnected here) on the next call, not eagerly.
         if not self._ib.isConnected():
             self.connect()
 
@@ -237,13 +235,15 @@ class IbkrClient:
     ) -> list[TradeExecution]:
         """Return trade executions (fills) for *account_id*, optionally since a date.
 
-        ``since`` is pushed into the server-side ``ExecutionFilter`` as a coarse
-        pre-filter and also applied client-side so the boundary is exact. Note
+        ``since`` must be timezone-aware and is applied client-side only (exact),
+        because TWS documents no timezone for ``ExecutionFilter.time``. Note
         TWS only retains executions for a limited recent window; older history
         needs Flex (out of scope here).
         """
+        if since is not None and since.tzinfo is None:
+            raise ValueError("since must be timezone-aware")
         self._ensure_connected()
-        exec_filter = _build_exec_filter(account_id, since)
+        exec_filter = _build_exec_filter(account_id)
         fills = self._ib.reqExecutions(exec_filter)
         trades: list[TradeExecution] = []
         for fill in fills:
@@ -307,9 +307,8 @@ def _coerce_dt(value: Any) -> datetime:
     raise TypeError(f"expected datetime execution time, got {type(value).__name__}")
 
 
-def _build_exec_filter(account_id: str, since: datetime | None) -> object:
-    """Build an ``ib_async.ExecutionFilter`` scoped to the account / since date."""
+def _build_exec_filter(account_id: str) -> object:
+    """Build an ``ib_async.ExecutionFilter`` scoped to the account."""
     from ib_async import ExecutionFilter
 
-    time_str = since.strftime(_EXEC_FILTER_TIME_FMT) if since is not None else ""
-    return ExecutionFilter(acctCode=account_id, time=time_str)
+    return ExecutionFilter(acctCode=account_id)
