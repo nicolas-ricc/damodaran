@@ -31,6 +31,7 @@ directly.
 from __future__ import annotations
 
 import itertools
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -306,6 +307,93 @@ def load_assumption_inputs(
     )
 
 
+def bulk_load_assumption_inputs(
+    conn: duckdb.DuckDBPyConnection, tickers: Iterable[str]
+) -> dict[str, AssumptionInputs]:
+    """Load :func:`load_assumption_inputs` for many tickers in four queries.
+
+    Returns exactly what the per-ticker loader returns for each ticker, keyed by
+    upper-cased ticker. Tickers absent from ``companies`` are omitted rather than
+    raising, so a caller can pass a whole shortlist.
+    """
+    wanted = sorted({t.upper() for t in tickers})
+    if not wanted:
+        return {}
+    companies = {
+        t: _Company(country=c, industry_damodaran=i)
+        for t, c, i in conn.execute(
+            "SELECT ticker, country, industry_damodaran FROM companies "
+            "WHERE ticker IN (SELECT unnest(?::VARCHAR[]))",
+            [wanted],
+        ).fetchall()
+    }
+    countries = sorted({c.country for c in companies.values() if c.country is not None})
+    country_rows = {
+        r[0]: _CountryRow(region=r[1], risk_free_rate=r[2], erp=r[3], tax_rate=r[4])
+        for r in conn.execute(
+            "SELECT country, region, risk_free_rate, erp, tax_rate FROM damodaran_country "
+            "WHERE country IN (SELECT unnest(?::VARCHAR[])) "
+            "QUALIFY row_number() OVER (PARTITION BY country ORDER BY year DESC) = 1",
+            [countries],
+        ).fetchall()
+    }
+    industries = sorted({c.industry_damodaran for c in companies.values() if c.industry_damodaran})
+    # Rows arrive latest-year first, so the first seen per key is the latest one.
+    exact: dict[tuple[str, str], _SectorRow] = {}
+    fallback: dict[str, tuple[_SectorRow, str]] = {}
+    for industry, region, *values in conn.execute(
+        "SELECT industry, region, wacc, cost_of_equity, cost_of_debt, op_margin, "
+        "sales_to_capital, tax_rate, debt_to_equity FROM damodaran_industry "
+        "WHERE industry IN (SELECT unnest(?::VARCHAR[])) "
+        "ORDER BY industry, year DESC, region",
+        [industries],
+    ).fetchall():
+        row = _SectorRow(*values)
+        exact.setdefault((industry, region), row)
+        fallback.setdefault(industry, (row, region))
+    history: dict[str, list[tuple[Any, Any]]] = {}
+    for ticker, revenue, ebit in conn.execute(
+        "SELECT ticker, revenue, ebit FROM financials_annual "
+        "WHERE ticker IN (SELECT unnest(?::VARCHAR[])) AND is_restated = FALSE "
+        "ORDER BY ticker, fiscal_year",
+        [wanted],
+    ).fetchall():
+        history.setdefault(ticker, []).append((revenue, ebit))
+
+    result: dict[str, AssumptionInputs] = {}
+    for ticker, company in companies.items():
+        country = country_rows.get(company.country) if company.country is not None else None
+        region = dataset_region(company.country, country.region if country is not None else None)
+        industry = company.industry_damodaran
+        sector, cross_region = _pick_sector(
+            industry,
+            region,
+            exact.get((industry, region)) if industry is not None else None,
+            fallback.get(industry) if industry is not None else None,
+        )
+        rows = history.get(ticker, [])
+        margins = _margins_from_rows((e, r) for r, e in rows)
+        result[ticker] = AssumptionInputs(
+            company=company,
+            country=country,
+            sector=sector,
+            historical_growth_path=_growth_path_from_revenues(
+                [float(r) for r, _ in rows if r is not None]
+            ),
+            sector_is_cross_region=cross_region,
+            company_operating_margin=margins[-1] if margins else None,
+            operating_margin_history=margins,
+        )
+    return result
+
+
+def _margins_from_rows(rows: Iterable[tuple[Any, Any]]) -> tuple[float, ...]:
+    """EBIT / revenue per year; ``rows`` are ``(ebit, revenue)`` pairs, oldest first."""
+    return tuple(
+        float(e) / float(r) for e, r in rows if e is not None and r is not None and r != 0.0
+    )
+
+
 def _operating_margin_history(
     conn: duckdb.DuckDBPyConnection, ticker: str
 ) -> tuple[float, ...]:
@@ -319,9 +407,7 @@ def _operating_margin_history(
         "WHERE ticker = ? AND is_restated = FALSE ORDER BY fiscal_year",
         [ticker],
     ).fetchall()
-    return tuple(
-        float(e) / float(r) for e, r in rows if e is not None and r is not None and r != 0.0
-    )
+    return _margins_from_rows(rows)
 
 
 def _load_company(conn: duckdb.DuckDBPyConnection, ticker: str) -> _Company:
@@ -383,23 +469,62 @@ def _load_sector_with_fallback(
     report shows the substitution instead of hiding it.
     """
     exact = _load_sector(conn, industry, region)
-    if exact is not None or industry is None:
-        return exact, False
-    row = conn.execute(
-        "SELECT wacc, cost_of_equity, cost_of_debt, op_margin, sales_to_capital, "
-        "tax_rate, debt_to_equity, region FROM damodaran_industry "
-        "WHERE industry = ? ORDER BY year DESC LIMIT 1",
-        [industry],
-    ).fetchone()
-    if row is None:
+    fallback: tuple[_SectorRow, str] | None = None
+    if exact is None and industry is not None:
+        row = conn.execute(
+            "SELECT wacc, cost_of_equity, cost_of_debt, op_margin, sales_to_capital, "
+            "tax_rate, debt_to_equity, region FROM damodaran_industry "
+            "WHERE industry = ? ORDER BY year DESC, region LIMIT 1",
+            [industry],
+        ).fetchone()
+        if row is not None:
+            fallback = (_SectorRow(*row[:7]), row[7])
+    return _pick_sector(industry, region, exact, fallback)
+
+
+def _pick_sector(
+    industry: str | None,
+    region: str | None,
+    exact: _SectorRow | None,
+    fallback: tuple[_SectorRow, str] | None,
+) -> tuple[_SectorRow | None, bool]:
+    """Exact-region row, else the latest row for ``industry`` in any region (logged).
+
+    Shared by the per-ticker and bulk loaders so both apply the same precedence
+    and emit the same substitution warning. ``fallback`` is the row plus the
+    region it came from.
+    """
+    if industry is None or region is None:
         return None, False
+    if exact is not None:
+        return exact, False
+    if fallback is None:
+        return None, False
+    row, used_region = fallback
     log.warning(
         "assumptions.sector.cross_region_substitution",
         industry=industry,
         requested_region=region,
-        used_region=row[7],
+        used_region=used_region,
     )
-    return _SectorRow(*row[:7]), True
+    return row, True
+
+
+def _growth_path_from_revenues(revenues: Sequence[float]) -> tuple[float, ...] | None:
+    """Flat ``_HORIZON``-year path at the mean year-over-year growth of ``revenues``.
+
+    ``None`` when there is too little history (< 2 years, or no non-zero base).
+    """
+    if len(revenues) < 2:
+        return None
+    growths = [
+        (curr - prev) / prev
+        for prev, curr in itertools.pairwise(revenues)
+        if prev != 0.0
+    ]
+    if not growths:
+        return None
+    return (fmean(growths),) * _HORIZON
 
 
 def _historical_growth_path(
@@ -416,18 +541,7 @@ def _historical_growth_path(
         "ORDER BY fiscal_year",
         [ticker],
     ).fetchall()
-    revenues = [float(r[0]) for r in rows]
-    if len(revenues) < 2:
-        return None
-    growths = [
-        (curr - prev) / prev
-        for prev, curr in itertools.pairwise(revenues)
-        if prev != 0.0
-    ]
-    if not growths:
-        return None
-    average = fmean(growths)
-    return (average,) * _HORIZON
+    return _growth_path_from_revenues([float(r[0]) for r in rows])
 
 
 # --------------------------------------------------------------------------- #
