@@ -15,16 +15,23 @@ DB — writing the rendered report to disk is the CLI's job, not the pipeline's.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date as _date
 from pathlib import Path
+from typing import Any
 
 import duckdb
 
 from bot.reference.regions import dataset_region
 from bot.reference.sectors import is_cyclical
 from bot.utils.finance import cagr
-from bot.valuator.assumptions import AssumptionInputs, load_assumption_inputs, resolve_assumptions
+from bot.valuator.assumptions import (
+    AssumptionInputs,
+    bulk_load_assumption_inputs,
+    load_assumption_inputs,
+    resolve_assumptions,
+)
 from bot.valuator.assumptions import Assumptions as SourcedAssumptions
 from bot.valuator.dcf import DCFResult, Financials, dcf
 from bot.valuator.narrative_flags import NarrativeContext, NarrativeFlag, narrative_flags
@@ -146,18 +153,12 @@ def _load_company(conn: duckdb.DuckDBPyConnection, ticker: str) -> _CompanyRow:
     )
 
 
-def _load_latest_financials(
-    conn: duckdb.DuckDBPyConnection, ticker: str
-) -> _LatestFinancials:
-    row = conn.execute(
-        "SELECT revenue, ebit, net_income, interest_expense, total_debt, cash, "
-        "shares_diluted, total_equity FROM financials_annual "
-        "WHERE ticker = ? AND is_restated = FALSE "
-        "ORDER BY fiscal_year DESC LIMIT 1",
-        [ticker],
-    ).fetchone()
-    if row is None:
-        raise LookupError(f"no financials_annual rows for {ticker!r}")
+def _latest_from_row(row: tuple[Any, ...]) -> _LatestFinancials:
+    """Shape a ``financials_annual`` row.
+
+    ``row`` is ``(revenue, ebit, net_income, interest_expense, total_debt, cash,
+    shares_diluted, total_equity)``.
+    """
     revenue, ebit, net_income, interest_expense, total_debt, cash, shares, total_equity = row
     net_debt = None
     if total_debt is not None or cash is not None:
@@ -174,6 +175,21 @@ def _load_latest_financials(
     )
 
 
+def _load_latest_financials(
+    conn: duckdb.DuckDBPyConnection, ticker: str
+) -> _LatestFinancials:
+    row = conn.execute(
+        "SELECT revenue, ebit, net_income, interest_expense, total_debt, cash, "
+        "shares_diluted, total_equity FROM financials_annual "
+        "WHERE ticker = ? AND is_restated = FALSE "
+        "ORDER BY fiscal_year DESC LIMIT 1",
+        [ticker],
+    ).fetchone()
+    if row is None:
+        raise LookupError(f"no financials_annual rows for {ticker!r}")
+    return _latest_from_row(row)
+
+
 def _load_history(
     conn: duckdb.DuckDBPyConnection, ticker: str
 ) -> tuple[tuple[float, ...], tuple[float, ...], tuple[float, ...]]:
@@ -183,9 +199,20 @@ def _load_history(
         "WHERE ticker = ? AND is_restated = FALSE ORDER BY fiscal_year",
         [ticker],
     ).fetchall()
-    revenues = tuple(float(r[0]) for r in rows if r[0] is not None)
-    incomes = tuple(float(r[1]) for r in rows if r[1] is not None)
-    ebits = tuple(float(r[2]) for r in rows if r[2] is not None)
+    return _histories_from_rows(rows)
+
+
+def _histories_from_rows(
+    rows: Iterable[tuple[Any, Any, Any]],
+) -> tuple[tuple[float, ...], tuple[float, ...], tuple[float, ...]]:
+    """Revenue, net-income and EBIT histories from ``(revenue, net_income, ebit)`` rows.
+
+    ``rows`` must be oldest first; NULLs are dropped per series.
+    """
+    materialised = list(rows)
+    revenues = tuple(float(r[0]) for r in materialised if r[0] is not None)
+    incomes = tuple(float(r[1]) for r in materialised if r[1] is not None)
+    ebits = tuple(float(r[2]) for r in materialised if r[2] is not None)
     return revenues, incomes, ebits
 
 
@@ -210,34 +237,26 @@ class _SectorMultiples:
     erp: float | None
 
 
-def _load_sector_multiples(
-    conn: duckdb.DuckDBPyConnection, company: _CompanyRow
+def _sector_multiples_from(
+    company: _CompanyRow,
+    country_row: tuple[Any, Any] | None,
+    sector_row: tuple[Any, ...] | None,
 ) -> _SectorMultiples:
+    """Shape the Damodaran rows into the company's sector multiples.
+
+    ``country_row`` is ``(region, erp)``; ``sector_row`` is ``(pe, ev_sales,
+    op_margin, beta_levered)`` for the company's industry and dataset region.
+    """
     geographic_region: str | None = None
     erp: float | None = None
-    if company.country is not None:
-        country_row = conn.execute(
-            "SELECT region, erp FROM damodaran_country WHERE country = ? "
-            "ORDER BY year DESC LIMIT 1",
-            [company.country],
-        ).fetchone()
-        if country_row is not None:
-            geographic_region, erp = country_row[0], country_row[1]
+    if country_row is not None:
+        geographic_region, erp = country_row[0], country_row[1]
     # damodaran_country.region is a geographic grouping (e.g. "North America"),
     # not the damodaran_industry.region dataset key (e.g. "US") — the two
     # taxonomies share the name but not the values, so a raw join between them
     # never matches. Translate through the same reference mapping the assumptions
     # module uses.
     region = dataset_region(company.country, geographic_region)
-    if company.industry_damodaran is None or region is None:
-        return _SectorMultiples(
-            region=region, pe=None, ev_sales=None, op_margin=None, beta_levered=None, erp=erp
-        )
-    sector_row = conn.execute(
-        "SELECT pe, ev_sales, op_margin, beta_levered FROM damodaran_industry "
-        "WHERE industry = ? AND region = ? ORDER BY year DESC LIMIT 1",
-        [company.industry_damodaran, region],
-    ).fetchone()
     if sector_row is None:
         return _SectorMultiples(
             region=region, pe=None, ev_sales=None, op_margin=None, beta_levered=None, erp=erp
@@ -252,6 +271,27 @@ def _load_sector_multiples(
     )
 
 
+def _load_sector_multiples(
+    conn: duckdb.DuckDBPyConnection, company: _CompanyRow
+) -> _SectorMultiples:
+    country_row: tuple[Any, Any] | None = None
+    if company.country is not None:
+        country_row = conn.execute(
+            "SELECT region, erp FROM damodaran_country WHERE country = ? "
+            "ORDER BY year DESC LIMIT 1",
+            [company.country],
+        ).fetchone()
+    region = dataset_region(company.country, country_row[0] if country_row is not None else None)
+    sector_row: tuple[Any, ...] | None = None
+    if company.industry_damodaran is not None and region is not None:
+        sector_row = conn.execute(
+            "SELECT pe, ev_sales, op_margin, beta_levered FROM damodaran_industry "
+            "WHERE industry = ? AND region = ? ORDER BY year DESC LIMIT 1",
+            [company.industry_damodaran, region],
+        ).fetchone()
+    return _sector_multiples_from(company, country_row, sector_row)
+
+
 @dataclass(frozen=True)
 class ValuationInput:
     """Every DB row :func:`analyze` needs for one company, pre-loaded.
@@ -261,7 +301,8 @@ class ValuationInput:
     the company without re-issuing the per-ticker ``companies`` /
     ``financials_annual`` / ``prices_daily`` / Damodaran reads. This is the
     deferred valuator half of the F7 N+1 fix (#53). Build one with
-    :func:`load_valuation_input`.
+    :func:`load_valuation_input`, or many at once with
+    :func:`bulk_load_valuation_inputs`.
 
     Attributes:
         ticker: The (upper-cased) ticker these rows belong to.
@@ -290,8 +331,9 @@ def load_valuation_input(
     """Load every DB row :func:`analyze` needs for ``ticker`` in one place.
 
     Pure in the project sense (accepts the connection, reads only). The result
-    can be reused across calls (e.g. cached or bulk-built) so each company's
-    per-ticker reads happen exactly once.
+    can be reused across calls so each company's per-ticker reads happen exactly
+    once; :func:`bulk_load_valuation_inputs` builds the same bundles for many
+    tickers in a constant number of queries.
 
     Raises:
         LookupError: If ``ticker`` is unknown or has no annual financials.
@@ -313,6 +355,101 @@ def load_valuation_input(
         current_price=current_price,
         assumption_inputs=load_assumption_inputs(conn, ticker),
     )
+
+
+def bulk_load_valuation_inputs(
+    conn: duckdb.DuckDBPyConnection, tickers: Iterable[str]
+) -> dict[str, ValuationInput]:
+    """Load :func:`load_valuation_input` for many tickers in a constant number of queries.
+
+    Returns exactly what the per-ticker loader returns for each ticker, keyed by
+    upper-cased ticker. Tickers for which the per-ticker loader would raise
+    :class:`LookupError` (absent from ``companies``, or no non-restated annual
+    financials) are omitted, so a caller can pass a whole shortlist.
+    """
+    wanted = sorted({t.upper() for t in tickers})
+    if not wanted:
+        return {}
+    companies = {
+        t: _CompanyRow(name=n, country=c, currency=cur, industry_damodaran=i, ipo_date=d)
+        for t, n, c, cur, i, d in conn.execute(
+            "SELECT ticker, name, country, currency, industry_damodaran, ipo_date "
+            "FROM companies WHERE ticker IN (SELECT unnest(?::VARCHAR[]))",
+            [wanted],
+        ).fetchall()
+    }
+    # Oldest first per ticker, so the last row is the latest fiscal year.
+    financials: dict[str, list[tuple[Any, ...]]] = {}
+    for ticker, *values in conn.execute(
+        "SELECT ticker, revenue, ebit, net_income, interest_expense, total_debt, cash, "
+        "shares_diluted, total_equity FROM financials_annual "
+        "WHERE ticker IN (SELECT unnest(?::VARCHAR[])) AND is_restated = FALSE "
+        "ORDER BY ticker, fiscal_year",
+        [wanted],
+    ).fetchall():
+        financials.setdefault(ticker, []).append(tuple(values))
+    kept = [t for t in wanted if t in companies and t in financials]
+    if not kept:
+        return {}
+    prices = {
+        t: float(c)
+        for t, c in conn.execute(
+            "SELECT ticker, close FROM prices_daily "
+            "WHERE ticker IN (SELECT unnest(?::VARCHAR[])) AND close IS NOT NULL "
+            "QUALIFY row_number() OVER (PARTITION BY ticker ORDER BY date DESC) = 1",
+            [kept],
+        ).fetchall()
+    }
+    countries = sorted({c.country for t in kept if (c := companies[t]).country is not None})
+    country_rows = {
+        r[0]: (r[1], r[2])
+        for r in conn.execute(
+            "SELECT country, region, erp FROM damodaran_country "
+            "WHERE country IN (SELECT unnest(?::VARCHAR[])) "
+            "QUALIFY row_number() OVER (PARTITION BY country ORDER BY year DESC) = 1",
+            [countries],
+        ).fetchall()
+    }
+    regions: dict[str, str] = {}
+    for t in kept:
+        company = companies[t]
+        country_row = country_rows.get(company.country) if company.country is not None else None
+        regions[t] = dataset_region(company.country, country_row[0] if country_row else None)
+    industries = sorted({
+        i for t in kept if (i := companies[t].industry_damodaran) is not None
+    })
+    sector_rows = {
+        (r[0], r[1]): r[2:]
+        for r in conn.execute(
+            "SELECT industry, region, pe, ev_sales, op_margin, beta_levered "
+            "FROM damodaran_industry WHERE industry IN (SELECT unnest(?::VARCHAR[])) "
+            "QUALIFY row_number() OVER (PARTITION BY industry, region ORDER BY year DESC) = 1",
+            [industries],
+        ).fetchall()
+    }
+    assumption_inputs = bulk_load_assumption_inputs(conn, kept)
+
+    result: dict[str, ValuationInput] = {}
+    for t in kept:
+        company = companies[t]
+        industry, region = company.industry_damodaran, regions[t]
+        sector_row = sector_rows.get((industry, region)) if industry is not None else None
+        country_row = country_rows.get(company.country) if company.country is not None else None
+        revenue_history, income_history, ebit_history = _histories_from_rows(
+            (r[0], r[2], r[1]) for r in financials[t]
+        )
+        result[t] = ValuationInput(
+            ticker=t,
+            company=company,
+            latest=_latest_from_row(financials[t][-1]),
+            revenue_history=revenue_history,
+            income_history=income_history,
+            ebit_history=ebit_history,
+            sector=_sector_multiples_from(company, country_row, sector_row),
+            current_price=prices.get(t),
+            assumption_inputs=assumption_inputs[t],
+        )
+    return result
 
 
 # --------------------------------------------------------------------------- #
@@ -437,8 +574,9 @@ def analyze(
         age_years: Company age in years, if known (a high-growth signal).
         company: Pre-loaded DB rows for ``ticker`` (see
             :func:`load_valuation_input`). When supplied, every per-ticker read
-            is skipped and these rows are used verbatim, so a batched caller
-            issues zero DB queries (the F7 N+1 fix, #53). When ``None`` (the
+            is skipped and these rows are used verbatim, so ``analyze`` itself
+            issues zero DB queries; a batched caller builds the inputs with
+            :func:`bulk_load_valuation_inputs` (the F7 N+1 fix, #53). When ``None`` (the
             default) the rows are loaded from ``conn``. ``ticker`` must match
             ``company.ticker``.
 

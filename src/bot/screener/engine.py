@@ -42,7 +42,7 @@ from bot.screener.rules import Rule
 from bot.screener.types import CompanyData, IndustryBenchmarks
 from bot.utils.finance import cagr
 from bot.utils.fx import to_usd
-from bot.valuator.analysis import analyze, load_valuation_input
+from bot.valuator.analysis import analyze, bulk_load_valuation_inputs
 from bot.valuator.assumptions import conventional_override_path
 
 #: Damodaran region used when a company's country has no ``damodaran_country``
@@ -81,8 +81,9 @@ def _dcf_margin_of_safety(conn: duckdb.DuckDBPyConnection, ticker: str) -> float
 
 #: A batched valuator: given an open connection and the shortlist tickers, return
 #: each ticker's DCF margin of safety (``None`` when it cannot be valued). This is
-#: the second-pass seam (#53); the default :func:`_batch_dcf_margins` pre-loads
-#: every shortlisted company's DB rows once and issues **zero** per-ticker queries.
+#: the second-pass seam (#53); the default :func:`_batch_dcf_margins` loads
+#: every shortlisted company's DB rows with a fixed number of set-based scans, so
+#: the query count does not grow with the shortlist.
 type BatchValuator = Callable[[duckdb.DuckDBPyConnection, tuple[str, ...]], dict[str, float | None]]
 
 
@@ -93,26 +94,31 @@ def _batch_dcf_margins(
 ) -> dict[str, float | None]:
     """Real DCF margin of safety for every shortlisted ticker (the F7 N+1 fix).
 
-    Pre-loads each company's full :class:`~bot.valuator.analysis.ValuationInput`
-    (the per-ticker company / financials / price / Damodaran rows) once via
-    :func:`~bot.valuator.analysis.load_valuation_input`, then runs the valuator
-    over those pre-loaded inputs with ``analyze(company=...)`` — so the second
-    pass issues no redundant per-candidate DB queries. Per-ticker results are
-    identical to calling :func:`_dcf_margin_of_safety` one ticker at a time: a
-    company that cannot be valued (unknown ticker, missing data, or assumptions
-    too incomplete for the DCF) yields ``None`` so the caller falls back to the
-    neutral :data:`~bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY`.
+    Loads every company's full :class:`~bot.valuator.analysis.ValuationInput`
+    (the company / financials / price / Damodaran rows) with a fixed number of
+    set-based scans via
+    :func:`~bot.valuator.analysis.bulk_load_valuation_inputs`, then runs the
+    valuator over those pre-loaded inputs with ``analyze(company=...)`` — so the
+    second pass's query count is independent of the shortlist size. Per-ticker
+    results are identical to calling :func:`_dcf_margin_of_safety` one ticker at
+    a time: a company that cannot be valued (unknown ticker, missing data, or
+    assumptions too incomplete for the DCF) yields ``None`` so the caller falls
+    back to the neutral :data:`~bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY`.
 
     When ``assumptions_dir`` is given, each ticker with a matching
     ``<assumptions_dir>/<TICKER>.yaml`` is valued with that file as its override
     (spec §7.6), so the screener's second pass agrees with ``bot analyze`` for
     the same ticker.
     """
+    preloaded = bulk_load_valuation_inputs(conn, tickers)
     margins: dict[str, float | None] = {}
     for ticker in tickers:
+        inputs = preloaded.get(ticker.upper())
+        if inputs is None:
+            margins[ticker] = None
+            continue
         override_path = conventional_override_path(assumptions_dir, ticker)
         try:
-            inputs = load_valuation_input(conn, ticker)
             analysis = analyze(ticker, conn, override_path=override_path, company=inputs)
         except (LookupError, ValueError, ZeroDivisionError):
             margins[ticker] = None
@@ -746,9 +752,9 @@ def run_screen(
     # Second pass: value each shortlisted candidate and re-blend the composite
     # with the real MoS, keeping the full-universe percentiles (rescore does not
     # re-rank the sub-scores over the truncated subset). The default DCF valuator
-    # takes the batched path (one pre-load of each company's rows, then zero
-    # per-candidate DB queries — the F7 N+1 fix, #53); an injected per-ticker
-    # ``valuator`` keeps the legacy one-call-per-candidate seam.
+    # takes the batched path (the shortlist's rows loaded with a fixed number of
+    # set-based scans, not one query set per candidate — the F7 N+1 fix, #53); an
+    # injected per-ticker ``valuator`` keeps the legacy one-call-per-candidate seam.
     shortlist_tickers = tuple(s.ticker for s in first_pass)
     if valuator is _dcf_margin_of_safety:
         raw_margins = _batch_dcf_margins(conn, shortlist_tickers, assumptions_dir)

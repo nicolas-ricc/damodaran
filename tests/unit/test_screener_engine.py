@@ -28,6 +28,7 @@ from bot.screener.engine import (
 from bot.screener.rules import MinMarketCap
 from bot.screener.types import CompanyData, IndustryBenchmarks
 from bot.storage.db import apply_schema
+from tests.counting_conn import CountingConn
 
 
 @pytest.fixture
@@ -747,27 +748,6 @@ def test_run_screen_reranks_when_valuator_differs_from_placeholder(
 # --------------------------------------------------------------------------- #
 
 
-class _CountingConn:
-    """A connection proxy that counts ``execute`` calls (a query spy).
-
-    Delegates every attribute to the wrapped DuckDB connection so it is a
-    drop-in for the loaders/valuator, while tallying every query issued. Used to
-    prove the second pass issues no per-candidate DB queries once the
-    pre-loaded :class:`ValuationInput` is threaded through ``analyze``.
-    """
-
-    def __init__(self, conn: duckdb.DuckDBPyConnection) -> None:
-        self._conn = conn
-        self.executes = 0
-
-    def execute(self, *args: object, **kwargs: object) -> object:
-        self.executes += 1
-        return self._conn.execute(*args, **kwargs)
-
-    def __getattr__(self, name: str) -> object:
-        return getattr(self._conn, name)
-
-
 def _seed_valuable_sector(conn: duckdb.DuckDBPyConnection) -> None:
     """A Software sector row carrying every multiple the real DCF needs.
 
@@ -801,7 +781,7 @@ def test_analyze_with_preloaded_input_issues_zero_queries(
     _seed_company(conn, "TST")
 
     inputs = load_valuation_input(conn, "TST")
-    spy = _CountingConn(conn)
+    spy = CountingConn(conn)
     analysis = analyze("TST", spy, company=inputs)  # type: ignore[arg-type]
 
     # Zero per-ticker DB queries: the second pass valued the company purely from
@@ -853,7 +833,7 @@ def test_run_screen_second_pass_is_per_candidate_query_free(
         *args: object,
         **kwargs: object,
     ) -> object:
-        spy = _CountingConn(c)
+        spy = CountingConn(c)
         result = real_analyze(ticker, spy, *args, **kwargs)  # type: ignore[arg-type]
         analyze_executes.append(spy.executes)
         return result
@@ -919,3 +899,51 @@ def test_run_screen_honours_assumptions_dir_override(
     assert baseline_mos is not None
     assert overridden_mos is not None
     assert overridden_mos != baseline_mos
+
+
+def test_batch_dcf_margins_query_count_independent_of_shortlist(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """The second pass loads the shortlist with a fixed number of queries (#53)."""
+    from bot.screener.engine import _batch_dcf_margins
+
+    _seed_valuable_sector(conn)
+    for tkr in ("AAA", "BBB", "CCC"):
+        _seed_company(conn, tkr)
+
+    one, many = CountingConn(conn), CountingConn(conn)
+    single = _batch_dcf_margins(one, ("AAA",))  # type: ignore[arg-type]
+    several = _batch_dcf_margins(many, ("AAA", "BBB", "CCC", "NOPE"))  # type: ignore[arg-type]
+
+    assert one.executes == many.executes
+    assert single["AAA"] is not None
+    assert several["NOPE"] is None
+
+
+def test_batch_dcf_margins_empty_shortlist(conn: duckdb.DuckDBPyConnection) -> None:
+    from bot.screener.engine import _batch_dcf_margins
+
+    assert _batch_dcf_margins(conn, ()) == {}
+
+
+def test_run_screen_second_pass_never_calls_per_ticker_loader(
+    conn: duckdb.DuckDBPyConnection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """No per-ticker loader runs during the default second pass (#53)."""
+    from bot.screener.ranking import PLACEHOLDER_MARGIN_OF_SAFETY
+    from bot.valuator import analysis, assumptions
+
+    _seed_valuable_sector(conn)
+    for tkr in ("AAA", "BBB", "CCC"):
+        _seed_company(conn, tkr)
+
+    def forbidden(*_: object, **__: object) -> object:
+        raise AssertionError("per-ticker loader called in the second pass")
+
+    monkeypatch.setattr(analysis, "load_valuation_input", forbidden)
+    monkeypatch.setattr(assumptions, "load_assumption_inputs", forbidden)
+
+    result = run_screen(conn, _value_preset(), top=3)
+
+    assert len(result.shortlist) == 3
+    assert all(c.margin_of_safety != PLACEHOLDER_MARGIN_OF_SAFETY for c in result.shortlist)
