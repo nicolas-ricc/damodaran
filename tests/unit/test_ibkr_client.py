@@ -299,7 +299,6 @@ def test_connect_is_idempotent(client: IbkrClient, fake_ib: FakeIB) -> None:
 
 
 def test_reconnects_after_connection_drop(fake_ib: FakeIB) -> None:
-    """If TWS drops the socket between calls, the next read reconnects transparently."""
     fake_ib._managed = ["U1"]
     client = IbkrClient(host="127.0.0.1", port=7497, client_id=5, ib=fake_ib)
     assert client.accounts() == ["U1"]
@@ -316,13 +315,11 @@ def test_reconnects_after_connection_drop(fake_ib: FakeIB) -> None:
     }
 
 
-def test_connect_failure_propagates(fake_ib: FakeIB) -> None:
-    """TWS not running: the socket error reaches the caller instead of an empty result."""
-
+def test_connect_failure_propagates(fake_ib: FakeIB, monkeypatch: pytest.MonkeyPatch) -> None:
     def refuse(**kwargs: Any) -> None:
         raise ConnectionRefusedError("TWS not listening")
 
-    fake_ib.connect = refuse  # type: ignore[method-assign]
+    monkeypatch.setattr(fake_ib, "connect", refuse)
     client = IbkrClient(ib=fake_ib)
     with pytest.raises(ConnectionRefusedError):
         client.accounts()
