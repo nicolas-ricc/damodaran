@@ -253,3 +253,10 @@ def test_bulk_valuation_inputs_query_count_is_constant(
     bulk_load_valuation_inputs(one, ["USA"])  # type: ignore[arg-type]
     bulk_load_valuation_inputs(many, VALUABLE + ABSENT)  # type: ignore[arg-type]
     assert one.executes == many.executes
+
+
+def test_bulk_valuation_inputs_without_financials_returns_empty(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed(conn)
+    assert bulk_load_valuation_inputs(conn, ["NOFIN", "UNKNOWN"]) == {}

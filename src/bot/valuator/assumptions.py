@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Iterable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from enum import StrEnum
 from pathlib import Path
 from statistics import fmean
@@ -211,6 +211,12 @@ class _SectorRow:
     debt_to_equity: float | None
 
 
+#: The ``damodaran_industry`` columns behind :class:`_SectorRow`, in field order,
+#: so every query can build the row positionally without the SELECT drifting
+#: from the dataclass.
+_SECTOR_COLUMNS = ", ".join(f.name for f in fields(_SectorRow))
+
+
 @dataclass(frozen=True)
 class _SectorDefaults:
     """The sector row a company's defaults come from, plus where it came from.
@@ -337,13 +343,14 @@ def bulk_load_assumption_inputs(
             [countries],
         ).fetchall()
     }
-    industries = sorted({c.industry_damodaran for c in companies.values() if c.industry_damodaran})
+    industries = sorted(
+        {c.industry_damodaran for c in companies.values() if c.industry_damodaran is not None}
+    )
     # Rows arrive latest-year first, so the first seen per key is the latest one.
     exact: dict[tuple[str, str], _SectorRow] = {}
     fallback: dict[str, tuple[_SectorRow, str]] = {}
     for industry, region, *values in conn.execute(
-        "SELECT industry, region, wacc, cost_of_equity, cost_of_debt, op_margin, "
-        "sales_to_capital, tax_rate, debt_to_equity FROM damodaran_industry "
+        f"SELECT industry, region, {_SECTOR_COLUMNS} FROM damodaran_industry "
         "WHERE industry IN (SELECT unnest(?::VARCHAR[])) "
         "ORDER BY industry, year DESC, region",
         [industries],
@@ -439,22 +446,13 @@ def _load_sector(
     if industry is None or region is None:
         return None
     row = conn.execute(
-        "SELECT wacc, cost_of_equity, cost_of_debt, op_margin, sales_to_capital, "
-        "tax_rate, debt_to_equity FROM damodaran_industry "
+        f"SELECT {_SECTOR_COLUMNS} FROM damodaran_industry "
         "WHERE industry = ? AND region = ? ORDER BY year DESC LIMIT 1",
         [industry, region],
     ).fetchone()
     if row is None:
         return None
-    return _SectorRow(
-        wacc=row[0],
-        cost_of_equity=row[1],
-        cost_of_debt=row[2],
-        op_margin=row[3],
-        sales_to_capital=row[4],
-        tax_rate=row[5],
-        debt_to_equity=row[6],
-    )
+    return _SectorRow(*row)
 
 
 def _load_sector_with_fallback(
@@ -472,19 +470,18 @@ def _load_sector_with_fallback(
     fallback: tuple[_SectorRow, str] | None = None
     if exact is None and industry is not None:
         row = conn.execute(
-            "SELECT wacc, cost_of_equity, cost_of_debt, op_margin, sales_to_capital, "
-            "tax_rate, debt_to_equity, region FROM damodaran_industry "
+            f"SELECT {_SECTOR_COLUMNS}, region FROM damodaran_industry "
             "WHERE industry = ? ORDER BY year DESC, region LIMIT 1",
             [industry],
         ).fetchone()
         if row is not None:
-            fallback = (_SectorRow(*row[:7]), row[7])
+            fallback = (_SectorRow(*row[:-1]), row[-1])
     return _pick_sector(industry, region, exact, fallback)
 
 
 def _pick_sector(
     industry: str | None,
-    region: str | None,
+    region: str,
     exact: _SectorRow | None,
     fallback: tuple[_SectorRow, str] | None,
 ) -> tuple[_SectorRow | None, bool]:
@@ -494,7 +491,7 @@ def _pick_sector(
     and emit the same substitution warning. ``fallback`` is the row plus the
     region it came from.
     """
-    if industry is None or region is None:
+    if industry is None:
         return None, False
     if exact is not None:
         return exact, False

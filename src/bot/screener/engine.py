@@ -99,11 +99,11 @@ def _batch_dcf_margins(
     set-based scans via
     :func:`~bot.valuator.analysis.bulk_load_valuation_inputs`, then runs the
     valuator over those pre-loaded inputs with ``analyze(company=...)`` — so the
-    second pass's query count is independent of the shortlist size. Per-ticker results are
-    identical to calling :func:`_dcf_margin_of_safety` one ticker at a time: a
-    company that cannot be valued (unknown ticker, missing data, or assumptions
-    too incomplete for the DCF) yields ``None`` so the caller falls back to the
-    neutral :data:`~bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY`.
+    second pass's query count is independent of the shortlist size. Per-ticker
+    results are identical to calling :func:`_dcf_margin_of_safety` one ticker at
+    a time: a company that cannot be valued (unknown ticker, missing data, or
+    assumptions too incomplete for the DCF) yields ``None`` so the caller falls
+    back to the neutral :data:`~bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY`.
 
     When ``assumptions_dir`` is given, each ticker with a matching
     ``<assumptions_dir>/<TICKER>.yaml`` is valued with that file as its override
@@ -752,10 +752,9 @@ def run_screen(
     # Second pass: value each shortlisted candidate and re-blend the composite
     # with the real MoS, keeping the full-universe percentiles (rescore does not
     # re-rank the sub-scores over the truncated subset). The default DCF valuator
-    # takes the batched path (the shortlist's rows loaded with a fixed
-    # number of set-based scans, not one query set per candidate — the F7 N+1
-    # fix, #53); an injected per-ticker
-    # ``valuator`` keeps the legacy one-call-per-candidate seam.
+    # takes the batched path (the shortlist's rows loaded with a fixed number of
+    # set-based scans, not one query set per candidate — the F7 N+1 fix, #53); an
+    # injected per-ticker ``valuator`` keeps the legacy one-call-per-candidate seam.
     shortlist_tickers = tuple(s.ticker for s in first_pass)
     if valuator is _dcf_margin_of_safety:
         raw_margins = _batch_dcf_margins(conn, shortlist_tickers, assumptions_dir)

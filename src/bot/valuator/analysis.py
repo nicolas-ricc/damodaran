@@ -389,6 +389,8 @@ def bulk_load_valuation_inputs(
     ).fetchall():
         financials.setdefault(ticker, []).append(tuple(values))
     kept = [t for t in wanted if t in companies and t in financials]
+    if not kept:
+        return {}
     prices = {
         t: float(c)
         for t, c in conn.execute(
@@ -408,13 +410,13 @@ def bulk_load_valuation_inputs(
             [countries],
         ).fetchall()
     }
-    regions: dict[str, str | None] = {}
+    regions: dict[str, str] = {}
     for t in kept:
         company = companies[t]
         country_row = country_rows.get(company.country) if company.country is not None else None
         regions[t] = dataset_region(company.country, country_row[0] if country_row else None)
     industries = sorted({
-        i for t in kept if (i := companies[t].industry_damodaran) is not None and regions[t]
+        i for t in kept if (i := companies[t].industry_damodaran) is not None
     })
     sector_rows = {
         (r[0], r[1]): r[2:]
@@ -431,11 +433,7 @@ def bulk_load_valuation_inputs(
     for t in kept:
         company = companies[t]
         industry, region = company.industry_damodaran, regions[t]
-        sector_row = (
-            sector_rows.get((industry, region))
-            if industry is not None and region is not None
-            else None
-        )
+        sector_row = sector_rows.get((industry, region)) if industry is not None else None
         country_row = country_rows.get(company.country) if company.country is not None else None
         revenue_history, income_history, ebit_history = _histories_from_rows(
             (r[0], r[2], r[1]) for r in financials[t]
@@ -576,8 +574,9 @@ def analyze(
         age_years: Company age in years, if known (a high-growth signal).
         company: Pre-loaded DB rows for ``ticker`` (see
             :func:`load_valuation_input`). When supplied, every per-ticker read
-            is skipped and these rows are used verbatim, so a batched caller
-            issues zero DB queries (the F7 N+1 fix, #53). When ``None`` (the
+            is skipped and these rows are used verbatim, so ``analyze`` itself
+            issues zero DB queries; a batched caller builds the inputs with
+            :func:`bulk_load_valuation_inputs` (the F7 N+1 fix, #53). When ``None`` (the
             default) the rows are loaded from ``conn``. ``ticker`` must match
             ``company.ticker``.
 
