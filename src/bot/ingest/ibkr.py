@@ -177,6 +177,8 @@ class IbkrClient:
             log.info("ibkr_disconnect")
 
     def _ensure_connected(self) -> None:
+        # ib_async only notices a dropped socket while its event loop runs, so a
+        # drop is detected (and reconnected here) on the next call, not eagerly.
         if not self._ib.isConnected():
             self.connect()
 

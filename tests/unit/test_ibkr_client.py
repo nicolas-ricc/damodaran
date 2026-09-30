@@ -331,6 +331,7 @@ def test_connect_failure_propagates(fake_ib: FakeIB) -> None:
 def test_trades_since_non_utc_keeps_exact_boundary(client: IbkrClient, fake_ib: FakeIB) -> None:
     buenos_aires = timezone(timedelta(hours=-3))
     before = datetime(2026, 3, 1, 12, 59, tzinfo=UTC)
+    at = datetime(2026, 3, 1, 13, 0, tzinfo=UTC)
     after = datetime(2026, 3, 1, 13, 1, tzinfo=UTC)
     fake_ib._fills = [
         SimpleNamespace(
@@ -346,10 +347,11 @@ def test_trades_since_non_utc_keeps_exact_boundary(client: IbkrClient, fake_ib: 
             ),
             time=t,
         )
-        for exec_id, t in (("before", before), ("after", after))
+        for exec_id, t in (("before", before), ("at", at), ("after", after))
     ]
     out = client.trades("U1", since=datetime(2026, 3, 1, 10, 0, tzinfo=buenos_aires))
-    assert [t.exec_id for t in out] == ["after"]
+    # Inclusive: portfolio/trades.py re-fetches from its watermark and dedupes on exec_id.
+    assert [t.exec_id for t in out] == ["at", "after"]
 
 
 def test_trades_rejects_naive_since(client: IbkrClient, fake_ib: FakeIB) -> None:
