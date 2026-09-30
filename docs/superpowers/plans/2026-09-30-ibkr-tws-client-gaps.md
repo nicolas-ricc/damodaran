@@ -22,7 +22,7 @@
 | Manual smoke: `accounts()` against the live TWS | Human step, cannot run in CI | Listed as manual verification in the PR |
 | mypy --strict + ruff clean | Met | Kept green by every task |
 
-Additional defect found in the audit: `trades()` formats `since` into `ExecutionFilter.time` with the `yyyymmdd-HH:MM:SS` form. TWS reads that form as UTC, but the code formats the wall-clock time of whatever timezone `since` carries. With a `since` east of UTC, the server-side pre-filter starts too late and silently drops fills that the exact client-side filter would have kept. A naive `since` raises a bare `TypeError` deep inside the comparison with the UTC-aware `execution.time`. Task 2 fixes both.
+Additional defect found in the audit: `trades()` pushes `since` into `ExecutionFilter.time` as `since.strftime("%Y%m%d-%H:%M:%S")`, taking the wall-clock time of whatever zone `since` carries. IBKR's reference for `ExecutionFilter.Time` only says "Time from which the executions will be returned yyyymmdd hh:mm:ss. Only those executions reported after the specified time will be returned", and states no timezone. Whenever the zone TWS applies differs from the zone of `since`, the server-side pre-filter starts too late and silently drops fills that the exact client-side filter would have kept. A naive `since` raises a bare `TypeError` deep inside the comparison with the UTC-aware `execution.time`. Task 2 fixes both.
 
 ## Global Constraints
 
@@ -37,7 +37,7 @@ Additional defect found in the audit: `trades()` formats `since` into `Execution
 
 1. TWS is not running or refuses the socket: `ib.connect` raises `ConnectionRefusedError`. The caller must see that error and must not get an empty list (Task 1).
 2. TWS restarts or the socket drops between two calls: the next read reconnects transparently with the same host/port/clientId and `readonly=True` (Task 1).
-3. `since` is timezone-aware but not UTC (for example `-03:00`, the maintainer's zone, or `+09:00`): the filter string must be the UTC instant, and the client-side boundary stays exact (Task 2).
+3. `since` is timezone-aware but not UTC (for example `-03:00`, the maintainer's zone): no fill after the instant may be lost, and the boundary stays exact (Task 2).
 4. `since` is naive: the method fails fast with a clear `ValueError`, before any socket call (Task 2).
 5. A future dependency bump pulls `ibapi` in transitively: CI must fail (Task 3).
 
@@ -98,29 +98,33 @@ git add tests/unit/test_ibkr_client.py
 git commit -m "test(#25): pin IbkrClient reconnect-on-drop and connect-failure behaviour"
 ```
 
-### Task 2: Normalise `trades(since=...)` to UTC and reject a naive `since`
+### Task 2: Filter `trades(since=...)` client-side only and reject a naive `since`
 
 **Files:**
-- Modify: `src/bot/ingest/ibkr.py`: `IbkrClient.trades`, `_build_exec_filter`, and the `_EXEC_FILTER_TIME_FMT` comment.
-- Test: `tests/unit/test_ibkr_client.py` (append)
+- Modify: `src/bot/ingest/ibkr.py`: `IbkrClient.trades`, `_build_exec_filter`, and remove `_EXEC_FILTER_TIME_FMT`.
+- Test: `tests/unit/test_ibkr_client.py`: append new tests and update `test_trades_passes_account_to_exec_filter`.
 
 **Interfaces:**
 - Consumes: existing `IbkrClient.trades(self, account_id: str, since: datetime | None = None) -> list[TradeExecution]`. The signature is unchanged.
-- Produces: same signature. A naive `since` now raises `ValueError`.
+- Produces: same signature. A naive `since` now raises `ValueError`. `_build_exec_filter(account_id: str) -> object` no longer takes `since`.
 
 - [ ] **Step 1: Write the failing tests**
 
+Replace the body of `test_trades_passes_account_to_exec_filter` so that it asserts the account is scoped server-side and the time is not:
+
 ```python
-from datetime import timedelta, timezone
+def test_trades_passes_account_to_exec_filter(client: IbkrClient, fake_ib: FakeIB) -> None:
+    client.trades("U1", since=datetime(2026, 1, 1, tzinfo=UTC))
+    assert fake_ib.exec_filter is not None
+    assert fake_ib.exec_filter.acctCode == "U1"
+    # TWS documents no timezone for ExecutionFilter.time, so the since boundary is
+    # applied client-side only; a server-side time could silently drop fills.
+    assert fake_ib.exec_filter.time == ""
+```
 
+Append:
 
-def test_trades_exec_filter_time_is_utc(client: IbkrClient, fake_ib: FakeIB) -> None:
-    """The ``yyyymmdd-HH:MM:SS`` filter form is read by TWS as UTC."""
-    tokyo = timezone(timedelta(hours=9))
-    client.trades("U1", since=datetime(2026, 3, 1, 8, 0, tzinfo=tokyo))
-    assert fake_ib.exec_filter.time == "20260228-23:00:00"
-
-
+```python
 def test_trades_since_non_utc_keeps_exact_boundary(client: IbkrClient, fake_ib: FakeIB) -> None:
     buenos_aires = timezone(timedelta(hours=-3))
     before = datetime(2026, 3, 1, 12, 59, tzinfo=UTC)
@@ -143,32 +147,36 @@ def test_trades_since_non_utc_keeps_exact_boundary(client: IbkrClient, fake_ib: 
 def test_trades_rejects_naive_since(client: IbkrClient, fake_ib: FakeIB) -> None:
     with pytest.raises(ValueError, match="timezone-aware"):
         client.trades("U1", since=datetime(2026, 3, 1))
-    assert fake_ib.exec_filter is None  # failed before touching the socket
+    assert not fake_ib.isConnected()  # failed before touching the socket
 ```
+
+(Add `timedelta, timezone` to the existing `from datetime import ...` line.)
 
 - [ ] **Step 2: Run them to verify they fail**
 
-Run: `uv run pytest tests/unit/test_ibkr_client.py -q -k "utc or non_utc or naive"`
-Expected: `test_trades_exec_filter_time_is_utc` FAILS (it gets `20260301-08:00:00`), and `test_trades_rejects_naive_since` FAILS (no `ValueError`). `test_trades_since_non_utc_keeps_exact_boundary` may already pass; it guards the client-side boundary.
+Run: `uv run pytest tests/unit/test_ibkr_client.py -q -k "exec_filter or non_utc or naive"`
+Expected: `test_trades_passes_account_to_exec_filter` FAILS (time is `20260101-00:00:00`), and `test_trades_rejects_naive_since` FAILS (no `ValueError`). `test_trades_since_non_utc_keeps_exact_boundary` already passes; it guards the client-side boundary.
 
 - [ ] **Step 3: Implement**
 
-In `IbkrClient.trades`, before `self._ensure_connected()`:
+In `IbkrClient.trades`, as the first statement:
 
 ```python
         if since is not None and since.tzinfo is None:
             raise ValueError("since must be timezone-aware")
 ```
 
-In `_build_exec_filter`:
+Change the call to `exec_filter = _build_exec_filter(account_id)`, and change the helper to:
 
 ```python
-    time_str = (
-        since.astimezone(UTC).strftime(_EXEC_FILTER_TIME_FMT) if since is not None else ""
-    )
+def _build_exec_filter(account_id: str) -> object:
+    """Build an ``ib_async.ExecutionFilter`` scoped to the account."""
+    from ib_async import ExecutionFilter
+
+    return ExecutionFilter(acctCode=account_id)
 ```
 
-(Import `UTC` from `datetime`.) Update the `_EXEC_FILTER_TIME_FMT` comment: TWS reads the dash form `yyyymmdd-HH:MM:SS` as UTC, so `since` is converted to UTC first. The existing `test_trades_passes_account_to_exec_filter` (UTC `since`) must still pass.
+Delete `_EXEC_FILTER_TIME_FMT` and its comment. Update the `trades` docstring: `since` is applied client-side only (exact, timezone-aware), because TWS documents no timezone for `ExecutionFilter.time`, and it must be timezone-aware.
 
 - [ ] **Step 4: Run the file**
 
@@ -179,7 +187,7 @@ Expected: all green.
 
 ```bash
 git add src/bot/ingest/ibkr.py tests/unit/test_ibkr_client.py
-git commit -m "fix(#25): send trades() since filter as UTC and reject naive since"
+git commit -m "fix(#25): apply trades() since boundary client-side only; reject naive since"
 ```
 
 ### Task 3: Guard the dependency rule and mark ADR 0004 implemented
@@ -231,11 +239,9 @@ Replace the Status body with:
 
 ```markdown
 Accepted (2026-08-09). Supersedes [ADR 0003](0003-client-portal-api-over-tws.md).
-
-Implemented (#25): `src/bot/ingest/ibkr.py` connects read-only through `ib_async`
-to the configured `BOT_IBKR_HOST`/`BOT_IBKR_PORT`/`BOT_IBKR_CLIENT_ID`, and
-exposes only `accounts`, `positions`, `cash_balances` and `trades`.
-`tests/unit/test_ibkr_dependencies.py` keeps `ibapi` out of the lock file.
+Implemented (2026-09-30, #25: read-only client in `src/bot/ingest/ibkr.py`,
+configured by `BOT_IBKR_HOST`/`BOT_IBKR_PORT`/`BOT_IBKR_CLIENT_ID`;
+`tests/unit/test_ibkr_dependencies.py` keeps `ibapi` out of the lock file).
 ```
 
 `docs/plano/estado.py` needs no change: the `ibkr-pos` row is already `hecho`, and the `a-medias` status of `ibkr` comes from trade wiring and corporate actions, both outside #25.
@@ -247,8 +253,37 @@ git add tests/unit/test_ibkr_dependencies.py docs/adr/0004-tws-api-via-ib-async.
 git commit -m "docs(#25): mark ADR 0004 implemented; guard ibapi out of the lock"
 ```
 
+## Assumptions
+
+Technical decisions taken during plan grilling. Each one satisfies the brief whichever way it goes, and each is listed in the PR.
+
+- **The `since` boundary is client-side only** (Task 2). IBKR's `ExecutionFilter.Time` reference states no timezone, and the TWS docs portal could not be reached to settle it. Rejected alternative: convert `since` to UTC for the server filter. That would be correct only if TWS reads the string as UTC, and it drops fills otherwise. The cost of the chosen option is negligible, because the socket only returns the recent session's executions (ADR 0004, "Trade history is session-limited").
+- **A naive `since` raises `ValueError`.** Rejected alternative: assume UTC. The only production caller, `portfolio/trades.py:89`, passes a UTC-aware watermark (`_watermark` re-attaches `UTC`), so nothing breaks.
+- **Connect errors propagate unchanged, whatever their type** (`ConnectionRefusedError`, `TimeoutError`, `ConnectionError` for error 326 "client id in use"). `ib_async`'s `connectAsync` already calls `self.disconnect()` in its `except BaseException` path, so the client stays reconnectable. No retry or backoff is added: the brief asks for reconnect on drop, not retry policy.
+- **"CI never opens a socket" is a convention.** It is enforced by injecting `FakeIB` through `IbkrClient(..., ib=...)`, not by a socket guard in `conftest.py`.
+- **The manual verification in the PR covers `accounts()` and `trades(since=...)`** against the live TWS.
+- **The dependency test reads `uv.lock`**, which is committed (`git ls-files uv.lock`) and is `version = 1` with top-level `[[package]]` tables.
+
 ## Out of scope (per the brief)
 
 - Order placement, modification or cancellation.
 - DB persistence (#26) and corporate actions (Flex, #27).
 - The live `accounts()` smoke test: a human step, listed as manual verification in the PR.
+
+## Grilling
+
+Rounds run: 2 (the griller ran as `fable`). Questions: 16 in round 1 and 16 in round 2, 32 in total.
+
+Sources used for the answers:
+- **CODE:** 22. Examples: `src/bot/ingest/ibkr.py:183-185` (`_ensure_connected` consults `self._ib.isConnected()` on every call); `ibkr.py:251` (`executed_at < since` skips, so a fill at exactly `since` is kept and the watermark's own fill is re-seen and deduped on `exec_id`, per `portfolio/trades.py:1-8`); `tests/unit/test_ibkr_client.py:41-72` (`FakeIB` defines `_connected`, `_managed`, `connect_args`, `exec_filter=None`, and `connect` records kwargs and sets `_connected=True`); ib_async `ib.py:410-412` (`isConnected` -> `client.isReady()`); ib_async `connectAsync` (`except BaseException: self.disconnect(); raise`); ib_async `objects.py:86-94` (`ExecutionFilter.time: str = ""`, the same value the existing `test_trades_without_since_returns_all` already sends); ib_async `decoder.py:468-474` (`ex.time` is a tz-aware `datetime`); `pyproject.toml` `[tool.mypy] packages = ["bot"]` (tests are not type-checked, so the `type: ignore` comments in tests are inert); a grep for `.trades(` finds one production caller, `portfolio/trades.py:89`, passing an aware watermark; a grep for `_EXEC_FILTER_TIME_FMT` / `_build_exec_filter` finds uses only in `ibkr.py`; `docs/plano/estado.py:55-60` (the `ibkr-pos` row is `hecho`, `ibkr-trades` is `muerto`, `ibkr-corp` is `falta`).
+- **DOC:** 6. CONTEXT.md, "If a stage implements an ADR, say so in the ADR"; ADR 0006 Status format "Accepted (date). Implemented (date, where)", which the ADR 0004 edit copies; ADR 0004 "Trade history is session-limited"; IBKR `ExecutionFilter.Time` reference (states no timezone).
+- **ISSUE:** 2. Owner's brief: "Do **not** depend on IBKR's `ibapi`"; "Connection lifecycle (connect/disconnect, reconnect on drop) lives in the client".
+- **NO SOURCE:** 2 technical assumptions (see below), 0 spec ambiguities, 0 out of scope.
+
+Assumptions added: the six in `## Assumptions`, plus the two below.
+- Error 326 ("client id in use"): `ib_async` has no special handling for it (no match in its source). Whether it arrives as a raised error or asynchronously, the client adds no handling, because retry policy is not asked for.
+- Manual verification pass criterion: with TWS logged in, `accounts()` prints the real account ids, and `trades(acct, since=<today 00:00 local, aware>)` lists today's fills, if any. The live run is not used to settle how TWS interprets `ExecutionFilter.time`, because Task 2 removes the dependency on it.
+
+Issues opened: none.
+
+Status: ok.
