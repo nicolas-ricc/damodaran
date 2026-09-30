@@ -7,7 +7,7 @@ smoke test against a logged-in TWS is a documented manual step (see README).
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
 from typing import Any
 
@@ -261,8 +261,9 @@ def test_trades_passes_account_to_exec_filter(client: IbkrClient, fake_ib: FakeI
     client.trades("U1", since=datetime(2026, 1, 1, tzinfo=UTC))
     assert fake_ib.exec_filter is not None
     assert fake_ib.exec_filter.acctCode == "U1"
-    # The since date is pushed into the filter time (yyyymmdd-HH:MM:SS form).
-    assert fake_ib.exec_filter.time.startswith("20260101")
+    # TWS documents no timezone for ExecutionFilter.time, so the since boundary is
+    # applied client-side only; a server-side time could silently drop fills.
+    assert fake_ib.exec_filter.time == ""
 
 
 def test_trades_without_since_returns_all(client: IbkrClient, fake_ib: FakeIB) -> None:
@@ -295,3 +296,63 @@ def test_connect_is_idempotent(client: IbkrClient, fake_ib: FakeIB) -> None:
     client.connect()  # already connected -> no second connect call
     assert fake_ib.connect_args is None
     assert first is not None
+
+
+def test_reconnects_after_connection_drop(fake_ib: FakeIB) -> None:
+    """If TWS drops the socket between calls, the next read reconnects transparently."""
+    fake_ib._managed = ["U1"]
+    client = IbkrClient(host="127.0.0.1", port=7497, client_id=5, ib=fake_ib)
+    assert client.accounts() == ["U1"]
+
+    fake_ib._connected = False  # TWS restarted / socket dropped
+    fake_ib.connect_args = None
+
+    assert client.accounts() == ["U1"]
+    assert fake_ib.connect_args == {
+        "host": "127.0.0.1",
+        "port": 7497,
+        "clientId": 5,
+        "readonly": True,
+    }
+
+
+def test_connect_failure_propagates(fake_ib: FakeIB) -> None:
+    """TWS not running: the socket error reaches the caller instead of an empty result."""
+
+    def refuse(**kwargs: Any) -> None:
+        raise ConnectionRefusedError("TWS not listening")
+
+    fake_ib.connect = refuse  # type: ignore[method-assign]
+    client = IbkrClient(ib=fake_ib)
+    with pytest.raises(ConnectionRefusedError):
+        client.accounts()
+
+
+def test_trades_since_non_utc_keeps_exact_boundary(client: IbkrClient, fake_ib: FakeIB) -> None:
+    buenos_aires = timezone(timedelta(hours=-3))
+    before = datetime(2026, 3, 1, 12, 59, tzinfo=UTC)
+    after = datetime(2026, 3, 1, 13, 1, tzinfo=UTC)
+    fake_ib._fills = [
+        SimpleNamespace(
+            contract=_contract(conId=1, symbol="X", secType="STK", currency="USD"),
+            execution=SimpleNamespace(
+                execId=exec_id,
+                acctNumber="U1",
+                side="BOT",
+                shares=1.0,
+                price=1.0,
+                time=t,
+                permId=1,
+            ),
+            time=t,
+        )
+        for exec_id, t in (("before", before), ("after", after))
+    ]
+    out = client.trades("U1", since=datetime(2026, 3, 1, 10, 0, tzinfo=buenos_aires))
+    assert [t.exec_id for t in out] == ["after"]
+
+
+def test_trades_rejects_naive_since(client: IbkrClient, fake_ib: FakeIB) -> None:
+    with pytest.raises(ValueError, match="timezone-aware"):
+        client.trades("U1", since=datetime(2026, 3, 1))
+    assert not fake_ib.isConnected()  # failed before touching the socket
