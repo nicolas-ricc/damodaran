@@ -930,7 +930,6 @@ def test_run_screen_second_pass_never_calls_per_ticker_loader(
     conn: duckdb.DuckDBPyConnection, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """No per-ticker loader runs during the default second pass (#53)."""
-    from bot.screener import engine
     from bot.screener.ranking import PLACEHOLDER_MARGIN_OF_SAFETY
     from bot.valuator import analysis, assumptions
 
@@ -943,7 +942,6 @@ def test_run_screen_second_pass_never_calls_per_ticker_loader(
 
     monkeypatch.setattr(analysis, "load_valuation_input", forbidden)
     monkeypatch.setattr(assumptions, "load_assumption_inputs", forbidden)
-    monkeypatch.setattr(engine, "load_valuation_input", forbidden, raising=False)
 
     result = run_screen(conn, _value_preset(), top=3)
 
