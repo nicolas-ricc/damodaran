@@ -1,0 +1,8 @@
+# Read by factory from the run's fresh clone. Every key is optional.
+# Commit this file: uncommitted edits have no effect.
+
+# The suite is self-contained: unit tests use temporary DuckDB files and the
+# integration tests replay committed VCR cassettes, so no .env, API key or
+# bot.duckdb is needed (tests/conftest.py injects a dummy BOT_FMP_API_KEY).
+test = "uv run pytest -q"
+lint = "uv run ruff check . && uv run mypy src"
