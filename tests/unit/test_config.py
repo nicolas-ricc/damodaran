@@ -54,3 +54,25 @@ def test_settings_rejects_invalid_log_level(monkeypatch, tmp_path):
     monkeypatch.setenv("BOT_LOG_LEVEL", "VERBOSE")
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+def test_notifier_defaults_to_none(monkeypatch, tmp_path):
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "X Y x@y.com")
+    monkeypatch.delenv("BOT_NOTIFIER", raising=False)
+    s = Settings(_env_file=None)
+    assert s.notifier == "none"
+    assert s.smtp_port == 587
+    assert s.smtp_security == "starttls"
+
+
+def test_blank_notifier_is_none(monkeypatch):
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "X Y x@y.com")
+    monkeypatch.setenv("BOT_NOTIFIER", "  ")
+    assert Settings(_env_file=None).notifier == "none"
+
+
+def test_unknown_notifier_is_rejected(monkeypatch):
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "X Y x@y.com")
+    monkeypatch.setenv("BOT_NOTIFIER", "slack")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)

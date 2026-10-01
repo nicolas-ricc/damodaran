@@ -132,6 +132,42 @@ BOT_IBKR_PORT=7496        # default; live TWS. 7497 = paper TWS, 4001/4002 = IB 
 BOT_IBKR_CLIENT_ID=1      # default; each concurrent client needs a distinct id
 ```
 
+### Notifications
+
+`bot portfolio` can forward the day's `alerts.md` by email or Telegram. Set
+`BOT_NOTIFIER=email` or `BOT_NOTIFIER=telegram` (default `none`). The message is
+the contents of `alerts.md` as plain text; on a quiet day the file is empty and
+nothing is sent. On success the command prints `Sent alerts via <channel>`.
+
+```bash
+BOT_NOTIFIER=email
+BOT_SMTP_HOST=smtp.example.com   # required
+BOT_SMTP_PORT=587                # default; 465 with BOT_SMTP_SECURITY=ssl
+BOT_SMTP_SECURITY=starttls       # default; or ssl, none
+BOT_SMTP_USERNAME=""
+BOT_SMTP_PASSWORD=""
+BOT_SMTP_FROM=bot@example.com    # required
+BOT_SMTP_TO=me@example.com       # required; comma-separated
+
+BOT_NOTIFIER=telegram
+BOT_TELEGRAM_BOT_TOKEN=""        # required (from @BotFather)
+BOT_TELEGRAM_CHAT_ID=""          # required
+```
+
+`BOT_SMTP_SECURITY=none` is rejected when a username is set, because the
+password would travel in cleartext. Telegram messages longer than 4096 UTF-16
+units are split into several messages.
+
+Failure modes:
+
+- Missing or unsafe notifier settings: `Notifier misconfigured`, exit code 2,
+  before any sync or report work starts.
+- Send failure: `Alerts not sent`, exit code 1. The reports have already been
+  written by then.
+
+There is no automatic retry. Re-running `bot portfolio` the same day re-renders
+and re-sends that day's alerts.
+
 ### Manual smoke test (human, not CI)
 
 CI never opens a real socket — the mapping logic is unit-tested against mocked

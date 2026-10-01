@@ -153,6 +153,8 @@ INVENTARIO = {
   "Posiciones, efectivo y valuación con precios y tipo de cambio, idempotente por fecha y cuenta."),
  ("rep-portfolio", "El reporte de cartera", "hecho", "portfolio/report.py:241",
   "Resumen, posiciones, P&L, concentración y revisiones sugeridas (posiciones sobre el umbral); con --history agrega la historia y con --concentration el desglose. alerts.md se escribe siempre y queda vacío (cero bytes) en un día sin eventos. Si TWS no responde, bot portfolio sale con code 1 y un mensaje de una línea."),
+ ("notifier", "Notificador opcional", "hecho", "notifier/__init__.py; notifier/email.py; notifier/telegram.py; cli.py",
+  "BOT_NOTIFIER elige email o Telegram; bot portfolio manda alerts.md si no está vacío (config mal puesta sale con code 2 antes de sincronizar; si el envío falla, code 1 con los reportes ya escritos). Sin reintentos, y los tests usan transportes simulados."),
  ("rep-html", "El HTML con gráficos", "hecho", "reporting/html.py:78,131",
   "Supera lo que pide el spec: tornado real de Matplotlib inlineado como PNG, más un mapa de calor interactivo de Plotly con el JavaScript embebido. Abre sin conexión."),
  ("rep-index", "INDEX.md", "falta", "spec §9.1",

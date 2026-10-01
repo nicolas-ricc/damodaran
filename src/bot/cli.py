@@ -26,6 +26,7 @@ from bot.ingest.universe import (
     refresh_prices,
     refresh_universe,
 )
+from bot.notifier import NotificationError, NotifierConfigError, build_notifier, notify_alerts
 from bot.portfolio.command import run_portfolio
 from bot.reporting.analysis_report import render_analysis
 from bot.reporting.html import render_analysis_html
@@ -549,9 +550,15 @@ def portfolio(
     and an explicit concentration breakdown with ``--concentration``) and
     ``alerts.md`` (today's events only, always written, empty when there are none).
 
-    Sending notifications is out of scope (the notifier owns email/Telegram).
+    When ``BOT_NOTIFIER`` is ``email`` or ``telegram``, a non-empty ``alerts.md`` is then
+    sent through that channel.
     """
     settings = load_settings()
+    try:
+        notifier = build_notifier(settings)
+    except NotifierConfigError as exc:
+        typer.echo(f"Notifier misconfigured (BOT_NOTIFIER={settings.notifier}): {exc}", err=True)
+        raise typer.Exit(code=2) from exc
     preset_path = settings.presets_dir / "damodaran_value.yaml"
     if not preset_path.exists():
         typer.echo(f"Screener config not found: {preset_path}", err=True)
@@ -588,6 +595,13 @@ def portfolio(
     typer.echo(f"Recorded {result.trades_inserted} new trade(s)")
     typer.echo(f"Wrote {result.portfolio_path}")
     typer.echo(f"Wrote {result.alerts_path}")
+    try:
+        sent = notify_alerts(result.alerts_path, notifier)
+    except NotificationError as exc:
+        typer.echo(f"Alerts not sent: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    if sent:
+        typer.echo(f"Sent alerts via {settings.notifier}")
 
 
 @app.command()
