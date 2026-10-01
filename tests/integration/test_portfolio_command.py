@@ -15,10 +15,10 @@ from typing import cast
 
 import duckdb
 import pytest
-from bot.portfolio.marks import AnalyzeFn
 
 from bot.ingest.ibkr import CashBalance, PortfolioPosition, TradeExecution
 from bot.portfolio.command import run_portfolio
+from bot.portfolio.marks import AnalyzeFn
 from bot.screener.rules import Rule, RuleResult
 from bot.screener.types import CompanyData, IndustryBenchmarks
 from bot.storage.db import apply_schema
@@ -128,6 +128,11 @@ def _no_analyze(ticker: str, conn: duckdb.DuckDBPyConnection) -> object:
 def test_portfolio_writes_both_reports(
     conn: duckdb.DuckDBPyConnection, tmp_path: Path
 ) -> None:
+    # Priced book so P&L and concentration are real: AAPL 15,000 vs MSFT 3,000.
+    conn.executemany(
+        "INSERT INTO prices_daily (ticker, date, close, currency) VALUES (?, ?, ?, 'USD')",
+        [("AAPL", TODAY, 150.0), ("MSFT", TODAY, 300.0)],
+    )
     result = run_portfolio(
         conn,
         _client(),
@@ -145,18 +150,25 @@ def test_portfolio_writes_both_reports(
     assert result.alerts_path == alerts_md
 
     body = portfolio_md.read_text()
-    # Full-state sections.
-    assert "# Portfolio" in body
-    assert "## Positions" in body
-    assert "## Profit & loss" in body or "## Profit and loss" in body
-    assert "## Concentration" in body
+    for heading in (
+        "# Portfolio — 2026-06-01",
+        "## Positions",
+        "## Profit & loss",
+        "## Concentration",
+        "## Suggested reviews",
+    ):
+        assert heading in body
     assert "AAPL" in body
     assert "MSFT" in body
+    # AAPL is ~83% of the book: the concentration review must name it.
+    assert "- **AAPL** is" in body
 
     alerts = alerts_md.read_text()
+    assert "# Alerts — 2026-06-01" in alerts
+    assert "| Type | Ticker | Details |" in alerts
     # First snapshot -> every position opens.
-    assert "AAPL" in alerts
-    assert "MSFT" in alerts
+    assert "| position_opened | AAPL |" in alerts
+    assert "| position_opened | MSFT |" in alerts
 
 
 def test_alerts_present_but_empty_when_no_events(
@@ -183,10 +195,26 @@ def test_alerts_present_but_empty_when_no_events(
     alerts_md = tmp_path / TODAY.isoformat() / "alerts.md"
     assert alerts_md.exists()
     assert result.alerts_path == alerts_md
-    # Present, with no event rows.
-    body = alerts_md.read_text()
-    assert "No events detected today." in body
-    assert "AAA" not in body
+    assert alerts_md.read_text() == ""
+
+
+def test_quiet_day_writes_empty_alerts_after_busy_day(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    busy, quiet = date(2026, 5, 31), TODAY
+    run_portfolio(
+        conn, _diversified_client(), reports_dir=tmp_path, today=busy, analyze_fn=_no_analyze
+    )
+    assert (tmp_path / busy.isoformat() / "alerts.md").read_text() != ""
+    alerts_md = tmp_path / quiet.isoformat() / "alerts.md"
+    alerts_md.parent.mkdir(parents=True)
+    alerts_md.write_text("stale content from an earlier run")
+
+    run_portfolio(
+        conn, _diversified_client(), reports_dir=tmp_path, today=quiet, analyze_fn=_no_analyze
+    )
+
+    assert alerts_md.read_text() == ""
 
 
 def test_history_and_concentration_flags(
@@ -210,9 +238,10 @@ def test_history_and_concentration_flags(
     )
 
     body = result.portfolio_path.read_text()
-    assert "## P&L history" in body or "## History" in body
-    # Concentration breakdown section present with both days when --history.
-    assert "## Concentration" in body
+    assert "## P&L history" in body
+    assert "## Concentration breakdown" in body
+    assert "| 2026-05-31 |" in body
+    assert "| 2026-06-01 |" in body
 
 
 def test_run_portfolio_appends_new_trades(

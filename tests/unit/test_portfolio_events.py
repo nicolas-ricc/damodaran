@@ -10,7 +10,6 @@ from __future__ import annotations
 from datetime import date
 
 import pytest
-from bot.portfolio.marks import HoldingMark
 
 from bot.portfolio.events import (
     Event,
@@ -27,6 +26,7 @@ from bot.portfolio.events import (
     detect_position_changes,
     detect_sector_recalibration,
 )
+from bot.portfolio.marks import HoldingMark
 
 PREV = date(2026, 5, 1)
 CURR = date(2026, 5, 2)

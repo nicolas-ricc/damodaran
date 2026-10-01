@@ -362,10 +362,10 @@ def render_alerts(
 ) -> str:
     """Render *events* as today-only ``alerts.md`` (pure).
 
-    Always returns a non-empty *header*; the body lists the events, or a short
-    "no events" line when ``events`` is empty, so the file is present-but-quiet
-    rather than zero-length.
+    Returns an empty string when there are no events.
     """
+    if not events:
+        return ""
     template = _environment().get_template("alerts.md.j2")
     stamp = (generated_on or date.today()).isoformat()
     return template.render(
