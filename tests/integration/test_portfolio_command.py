@@ -15,10 +15,10 @@ from typing import cast
 
 import duckdb
 import pytest
-from bot.portfolio.marks import AnalyzeFn
 
 from bot.ingest.ibkr import CashBalance, PortfolioPosition, TradeExecution
 from bot.portfolio.command import run_portfolio
+from bot.portfolio.marks import AnalyzeFn
 from bot.screener.rules import Rule, RuleResult
 from bot.screener.types import CompanyData, IndustryBenchmarks
 from bot.storage.db import apply_schema
