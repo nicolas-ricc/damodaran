@@ -31,6 +31,7 @@
 - **Suggested reviews stay concentration-only** (rejected: derive them from today's §8.3 events). No source says which events suggest a review or with what action; that is a product decision, so it moved to #86.
 - **`AUDITADO_EN` / `AUDITADO_EL` are not bumped** (rejected: stamp the new HEAD). `docs/plano/README.md` ties them to a full re-audit of the code; this change re-checks one entry, so stamping would claim an audit that did not happen. `build_estado.py` only warns.
 - **Fallback text for "no reviews" stays as it is**; no wording change.
+- **The empty case lives in `render_alerts`, not in the template** (rejected: keep an `{% if events %}` wrapper in the template). The template is private to `render_alerts`, the only entry point, so it renders only the populated case and there is one place that decides "no events → empty".
 
 ## Review Focus
 
@@ -58,6 +59,7 @@
 **Files:**
 - Modify: `src/bot/portfolio/report.py` (`render_alerts`)
 - Modify: `src/bot/reporting/templates/alerts.md.j2` (drop the `{% else %}` branch)
+- Modify: `src/bot/portfolio/command.py` (module docstring only)
 - Test: `tests/unit/test_portfolio_report.py`, `tests/integration/test_portfolio_command.py`
 
 **Interfaces:** `render_alerts(events: list[Event], snapshot_date: date, *, generated_on: date | None = None) -> str` — unchanged signature; returns `""` when `events` is empty.
@@ -171,7 +173,7 @@ def test_portfolio_reports_unreachable_tws(
     assert not list(reports_dir.glob("*/*.md"))
 ```
 
-(Check `config.py` for the exact `ibkr_host` / `ibkr_port` setting names and env prefix before relying on `BOT_IBKR_PORT`.)
+(`src/bot/config.py:14` sets `env_prefix="BOT_"`; lines 52-56 define `ibkr_host` (default `127.0.0.1`) and `ibkr_port`. `_env()` sets no IBKR variable, and it already swaps `bot.cli.IbkrClient` for the fake (`tests/unit/test_cli_portfolio.py:95`), whose `connect` is what `sync_portfolio` calls first (`src/bot/portfolio/sync.py:162`).)
 - [ ] **Step 2:** run — FAIL (exception propagates, exit code 1 but message missing).
 - [ ] **Step 3: implement** in `portfolio()`: wrap the `run_portfolio(...)` call:
 
@@ -197,3 +199,12 @@ def test_portfolio_reports_unreachable_tws(
 - [ ] **Step 1:** Update the `rep-portfolio` evidence text: summary, positions, P&L, concentration and suggested reviews (over-threshold positions), optional history (`--history`) and breakdown (`--concentration`); `alerts.md` always written, and empty (zero bytes) on a day without events; `bot portfolio` exits 1 with a one-line message when TWS is unreachable. Keep the evidence pointer at `portfolio/report.py` `build_report`.
 - [ ] **Step 2:** Run both builds; they must succeed.
 - [ ] **Step 3:** Commit `docs(#29): record portfolio report state in the plans`.
+
+## Grilling
+
+- Rounds: 2 (griller model: fable).
+- Round 1: 18 questions. Sources: CODE 14, ISSUE 3, DOC 3 (some answers cite more than one), NO SOURCE 2. Q2 ("are suggested reviews derived from events?") had no source and was a product decision, so event-driven reviews left the plan and moved to #86 (out of scope). Q11 (inconsistent ordering rule) went away with that task. Q17 (`AUDITADO_*`) became a technical assumption.
+- Round 2: 17 questions. Sources: CODE 14, ISSUE 1, DOC 3, NO SOURCE 1 (Q14, where the empty case lives: technical assumption).
+- Assumptions: empty alerts = zero bytes; catch only `ConnectionError`/`TimeoutError`; suggested reviews stay concentration-only; `AUDITADO_*` not bumped; "no reviews" text unchanged; the empty case lives in `render_alerts`.
+- Issues opened: #86 (suggested reviews and a detected-events section from §8.3 events).
+- Status: ok.
