@@ -7,7 +7,9 @@
    client to write today's snapshot (idempotent per day);
 2. appends the executions newer than the stored watermark via
    :func:`~bot.portfolio.trades.sync_trades` (de-duped on ``exec_id``);
-3. computes the §8.3 event stream against the previous snapshot via
+3. marks each holding (valuation + quality gates) via
+   :func:`~bot.portfolio.marks.mark_holdings`, then computes the §8.3 event
+   stream against the previous snapshot via
    :func:`~bot.portfolio.events.compute_events` and persists it
    (:func:`~bot.portfolio.events.persist_events`);
 4. builds + renders the full-state ``portfolio.md`` and the today-only
@@ -20,6 +22,7 @@ out of scope (#32 owns email/Telegram).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -36,6 +39,7 @@ if TYPE_CHECKING:
     import duckdb
 
     from bot.portfolio.marks import AnalyzeFn
+    from bot.screener.rules import Rule
 
 log = get_logger(__name__)
 
@@ -79,6 +83,7 @@ def run_portfolio(
     history: bool = False,
     concentration: bool = False,
     analyze_fn: AnalyzeFn | None = None,
+    quality_gates: Sequence[Rule] = (),
 ) -> PortfolioRunResult:
     """Run the full sync -> diff -> report cycle and write both report files.
 
@@ -89,8 +94,10 @@ def run_portfolio(
         today: Calendar day to key the run on; defaults to today.
         history: Include the P&L time series in ``portfolio.md`` (``--history``).
         concentration: Include the concentration breakdown (``--concentration``).
-        analyze_fn: Optional valuator override threaded into ``compute_events``;
+        analyze_fn: Optional valuator override threaded into ``mark_holdings``;
             defaults to the real :func:`bot.valuator.analysis.analyze`.
+        quality_gates: Screener rules (quality gates + trap detection) applied
+            by ``mark_holdings`` when marking each holding; empty means no gating.
 
     Returns:
         A :class:`PortfolioRunResult` with the run summary and the two file paths.
@@ -103,9 +110,9 @@ def run_portfolio(
     # 2. Append the executions newer than the stored watermark (de-duped).
     trades = sync_trades(conn, client)
 
-    # 3. Diff against the previous snapshot and persist the event stream.
+    # 3. Mark holdings, then diff against the previous snapshot and persist events.
     prev_date = _previous_snapshot_date(conn, run_day)
-    mark_holdings(conn, run_day, analyze_fn=analyze_fn)
+    mark_holdings(conn, run_day, analyze_fn=analyze_fn, quality_gates=quality_gates)
     events = compute_events(conn, prev_date, run_day)
     persist_events(conn, events)
 

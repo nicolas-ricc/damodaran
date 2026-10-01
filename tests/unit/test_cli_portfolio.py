@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
@@ -145,3 +146,36 @@ def test_portfolio_records_trades(
     conn = connect(tmp_path / "bot.duckdb")
     assert conn.execute("SELECT exec_id FROM trades").fetchall() == [("E1",)]
     conn.close()
+
+
+def test_portfolio_passes_preset_gates_including_trap_detection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _env(tmp_path, monkeypatch)
+    captured: dict[str, object] = {}
+    real_run_portfolio = bot.cli.run_portfolio
+
+    def _spy(*args: Any, **kwargs: Any) -> Any:
+        captured.update(kwargs)
+        return real_run_portfolio(*args, **kwargs)
+
+    monkeypatch.setattr(bot.cli, "run_portfolio", _spy)
+
+    result = CliRunner().invoke(app, ["portfolio"])
+
+    assert result.exit_code == 0, result.stdout
+    gates = captured["quality_gates"]
+    assert isinstance(gates, list)
+    assert gates
+    assert "roic_above_sector_wacc" in {g.name for g in gates}
+
+
+def test_portfolio_fails_when_preset_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _env(tmp_path, monkeypatch)
+    monkeypatch.setenv("BOT_PRESETS_DIR", str(tmp_path / "nope"))
+
+    result = CliRunner().invoke(app, ["portfolio"])
+
+    assert result.exit_code != 0

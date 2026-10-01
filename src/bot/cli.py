@@ -553,6 +553,8 @@ def portfolio(
     """
     conn, settings = _open_db()
     client = IbkrClient.from_settings(settings)
+    preset = load_screener_config(settings.presets_dir / "damodaran_value.yaml")
+    gates = [*preset.quality_gates.build(), *preset.trap_detection.build()]
     result = run_portfolio(
         conn,
         client,
@@ -560,6 +562,7 @@ def portfolio(
         today=date.today(),
         history=history,
         concentration=concentration,
+        quality_gates=gates,
     )
     typer.echo(
         f"Synced snapshot {result.snapshot_date.isoformat()} "
