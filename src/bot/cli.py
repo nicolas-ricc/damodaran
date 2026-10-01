@@ -542,7 +542,8 @@ def portfolio(
 
     Connects to the read-only IBKR client, writes today's snapshot, computes the
     §8.3 event stream versus the previous snapshot (persisting it to
-    ``events_log``), then writes two artefacts under
+    ``events_log``), appends the executions newer than the last stored one to
+    ``trades``, then writes two artefacts under
     ``<reports_dir>/YYYY-MM-DD/``: ``portfolio.md`` (full state — positions, P&L,
     concentration, suggested reviews; plus a P&L time series with ``--history``
     and an explicit concentration breakdown with ``--concentration``) and
@@ -565,6 +566,7 @@ def portfolio(
         f"(prev {result.prev_snapshot_date.isoformat() if result.prev_snapshot_date else 'none'}) "
         f"→ {result.events} event(s)"
     )
+    typer.echo(f"Recorded {result.trades_inserted} new trade(s)")
     typer.echo(f"Wrote {result.portfolio_path}")
     typer.echo(f"Wrote {result.alerts_path}")
 
