@@ -16,7 +16,7 @@
    ``alerts.md`` under ``reports/YYYY-MM-DD/`` (the same dated-directory
    convention as the other commands).
 
-``alerts.md`` is always written, even with zero events. Sending notifications is
+``alerts.md`` is always written, but is empty (zero bytes) when there are no events. Sending notifications is
 out of scope (#32 owns email/Telegram).
 """
 

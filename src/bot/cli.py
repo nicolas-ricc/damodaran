@@ -547,7 +547,7 @@ def portfolio(
     ``<reports_dir>/YYYY-MM-DD/``: ``portfolio.md`` (full state — positions, P&L,
     concentration, suggested reviews; plus a P&L time series with ``--history``
     and an explicit concentration breakdown with ``--concentration``) and
-    ``alerts.md`` (today's events only, always written even when there are none).
+    ``alerts.md`` (today's events only, always written, empty when there are none).
 
     Sending notifications is out of scope (the notifier owns email/Telegram).
     """
