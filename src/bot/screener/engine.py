@@ -19,7 +19,7 @@ is the caller's job (``bot.screener.persist`` / ``bot.reporting.screen_report``)
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -522,6 +522,50 @@ def build_company_data(
         net_income=net_income,
         operating_cashflow=operating_cashflow,
     )
+
+
+def load_holding_inputs(
+    conn: duckdb.DuckDBPyConnection, tickers: Iterable[str]
+) -> dict[str, tuple[CompanyData, IndustryBenchmarks | None]]:
+    """Screener inputs (snapshot + sector benchmarks) for specific tickers.
+
+    Built exactly as :func:`run_screen` builds them, so a held ticker is gated
+    on the same facts a candidate would be. Tickers absent from ``companies``
+    are omitted.
+    """
+    wanted = sorted(set(tickers))
+    if not wanted:
+        return {}
+    placeholders = ", ".join("?" for _ in wanted)
+    rows = conn.execute(
+        "SELECT ticker, name, country, industry, industry_damodaran FROM companies "
+        f"WHERE ticker IN ({placeholders}) ORDER BY ticker",
+        wanted,
+    ).fetchall()
+    all_annual = _load_all_annual(conn)
+    all_prices = _load_latest_prices(conn)
+    out: dict[str, tuple[CompanyData, IndustryBenchmarks | None]] = {}
+    for r in rows:
+        row = _CompanyRow(
+            ticker=r[0], name=r[1], country=r[2], industry=r[3], industry_damodaran=r[4]
+        )
+        price = all_prices.get(row.ticker)
+        company = build_company_data(
+            conn,
+            row,
+            all_annual.get(row.ticker, []),
+            market_cap=price.market_cap if price else None,
+            close=price.close if price else None,
+            currency=price.currency if price else None,
+            as_of=price.as_of if price else None,
+        )
+        benchmarks = load_industry_benchmarks(
+            conn,
+            industry=company.industry,
+            region=company.region or DEFAULT_REGION,
+        )
+        out[row.ticker] = (company, benchmarks)
+    return out
 
 
 # --------------------------------------------------------------------------- #
