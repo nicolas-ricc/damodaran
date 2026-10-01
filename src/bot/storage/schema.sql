@@ -234,8 +234,8 @@ CREATE TABLE IF NOT EXISTS trades (
 -- any reliable form (see #27 addendum). They come from IBKR's Flex Web Service
 -- (a Flex Query + token fetched over HTTP) or downloaded account statements —
 -- a separate integration with its own auth that is out of scope here. This
--- table is created so the schema is ready, but nothing populates it yet; a
--- follow-up issue will add a Flex importer. `details` is a JSON blob holding
+-- table is created so the schema is ready, but nothing populates it yet; #56
+-- will add a Flex importer. `details` is a JSON blob holding
 -- the fields that vary by action type (split ratio, merger terms, etc.).
 CREATE TABLE IF NOT EXISTS corporate_actions (
     action_id       VARCHAR PRIMARY KEY,

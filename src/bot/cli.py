@@ -540,10 +540,10 @@ def portfolio(
 ) -> None:
     """Sync the portfolio, diff it against the last snapshot, and write reports.
 
-    Connects to the read-only IBKR client, writes today's snapshot, computes the
-    §8.3 event stream versus the previous snapshot (persisting it to
-    ``events_log``), appends the executions newer than the last stored one to
-    ``trades``, then writes two artefacts under
+    Connects to the read-only IBKR client, writes today's snapshot, appends the
+    executions newer than the last stored one to ``trades``, computes the §8.3
+    event stream versus the previous snapshot (persisting it to ``events_log``),
+    then writes two artefacts under
     ``<reports_dir>/YYYY-MM-DD/``: ``portfolio.md`` (full state — positions, P&L,
     concentration, suggested reviews; plus a P&L time series with ``--history``
     and an explicit concentration breakdown with ``--concentration``) and

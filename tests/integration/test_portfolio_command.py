@@ -227,6 +227,7 @@ def test_run_portfolio_appends_new_trades(
     rows = conn.execute("SELECT exec_id FROM trades ORDER BY exec_id").fetchall()
     assert rows == [("E1",), ("E2",)]
     assert client.since_calls == [None]
+    assert client.connected is False
 
 
 def test_run_portfolio_same_day_rerun_does_not_duplicate_trades(
