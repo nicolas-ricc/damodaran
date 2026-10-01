@@ -203,3 +203,19 @@ def test_portfolio_reports_unreachable_tws(
     assert result.exit_code == 1
     assert "Cannot reach TWS / IB Gateway at 127.0.0.1:4002" in result.output
     assert not list(reports_dir.glob("*/*.md"))
+
+
+def test_portfolio_names_timeout_when_tws_does_not_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _env(tmp_path, monkeypatch)
+
+    def _hang(self: _FakeIbkrClient) -> None:
+        raise TimeoutError()
+
+    monkeypatch.setattr(_FakeIbkrClient, "connect", _hang)
+
+    result = CliRunner().invoke(app, ["portfolio"])
+
+    assert result.exit_code == 1
+    assert "127.0.0.1:7496: TimeoutError." in result.output

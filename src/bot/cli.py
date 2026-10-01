@@ -572,8 +572,10 @@ def portfolio(
             assumptions_dir=settings.assumptions_dir,
         )
     except (ConnectionError, TimeoutError) as exc:
+        # asyncio's TimeoutError carries no message; name the type instead.
+        reason = str(exc) or type(exc).__name__
         typer.echo(
-            f"Cannot reach TWS / IB Gateway at {settings.ibkr_host}:{settings.ibkr_port}: {exc}. "
+            f"Cannot reach TWS / IB Gateway at {settings.ibkr_host}:{settings.ibkr_port}: {reason}. "
             "Start it with the API enabled, or set BOT_IBKR_HOST / BOT_IBKR_PORT.",
             err=True,
         )

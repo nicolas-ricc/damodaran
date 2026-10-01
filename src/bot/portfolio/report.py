@@ -362,8 +362,7 @@ def render_alerts(
 ) -> str:
     """Render *events* as today-only ``alerts.md`` (pure).
 
-    Returns an empty string when there are no events; the file is still written,
-    empty, so a quiet day is distinguishable from a missing run.
+    Returns an empty string when there are no events.
     """
     if not events:
         return ""
