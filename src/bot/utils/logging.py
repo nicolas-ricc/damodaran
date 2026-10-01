@@ -27,6 +27,8 @@ def configure_logging(level: str = "INFO", json_output: bool = True) -> None:
         stream=sys.stdout,
         level=numeric_level,
     )
+    # httpx logs every request URL at INFO; some APIs (Telegram) carry secrets in the path.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
 
     processors: list[Any] = [
         structlog.contextvars.merge_contextvars,

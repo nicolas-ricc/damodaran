@@ -82,7 +82,7 @@ class TelegramNotifier:
                             f"Telegram sendMessage HTTP {response.status_code}: "
                             f"{_description(response)}"
                         )
-        except httpx.HTTPError as exc:
+        except (httpx.HTTPError, httpx.InvalidURL) as exc:
             raise NotificationError(f"Telegram request failed: {type(exc).__name__}") from None
 
 

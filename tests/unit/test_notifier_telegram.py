@@ -1,9 +1,12 @@
 import json
+import logging
 
 import httpx
 import pytest
+
 from bot.notifier import NotificationError
 from bot.notifier.telegram import MAX_MESSAGE_LEN, TelegramNotifier, split_message
+from bot.utils.logging import configure_logging
 
 TOKEN = "123456:SECRET-token"
 
@@ -76,3 +79,26 @@ def test_transport_error_raises_without_leaking_token() -> None:
     with pytest.raises(NotificationError) as exc:
         _notifier(handler).send("hello")
     assert TOKEN not in str(exc.value)
+
+
+def test_send_does_not_log_token_through_httpx(caplog: pytest.LogCaptureFixture) -> None:
+    configure_logging("INFO")
+    caplog.set_level(logging.INFO)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"ok": True, "result": {}})
+
+    _notifier(handler).send("hello")
+    assert TOKEN not in caplog.text
+
+
+def test_malformed_token_raises_without_leaking_token() -> None:
+    bad = "12 3\n:SECRET"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"ok": True})
+
+    notifier = TelegramNotifier(bot_token=bad, chat_id="-100", transport=httpx.MockTransport(handler))
+    with pytest.raises(NotificationError) as exc:
+        notifier.send("hello")
+    assert "SECRET" not in str(exc.value)
