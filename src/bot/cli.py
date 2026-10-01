@@ -551,8 +551,15 @@ def portfolio(
 
     Sending notifications is out of scope (the notifier owns email/Telegram).
     """
+    settings = load_settings()
+    preset_path = settings.presets_dir / "damodaran_value.yaml"
+    if not preset_path.exists():
+        typer.echo(f"Screener config not found: {preset_path}", err=True)
+        raise typer.Exit(code=2)
+    preset = load_screener_config(preset_path)
     conn, settings = _open_db()
     client = IbkrClient.from_settings(settings)
+    gates = [*preset.quality_gates.build(), *preset.trap_detection.build()]
     result = run_portfolio(
         conn,
         client,
@@ -560,6 +567,8 @@ def portfolio(
         today=date.today(),
         history=history,
         concentration=concentration,
+        quality_gates=gates,
+        assumptions_dir=settings.assumptions_dir,
     )
     typer.echo(
         f"Synced snapshot {result.snapshot_date.isoformat()} "

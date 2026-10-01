@@ -13,8 +13,8 @@ Cuatro estados, y el tercero es el que importa:
 """
 from html import escape as esc
 
-AUDITADO_EN = "f8d2337"
-AUDITADO_EL = "9 de septiembre de 2026"
+AUDITADO_EN = "8e1fe66"
+AUDITADO_EL = "1 de octubre de 2026"
 
 ESTADOS = [
     ("hecho", "hecho", "existe, algo lo llama, y tiene tests"),
@@ -137,18 +137,18 @@ INVENTARIO = {
 ]),
 
 "salida": ("Salida", "reportes y vigilancia", [
- ("ev-vivos", "Seis eventos que sí disparan", "hecho", "portfolio/events.py:143,386",
-  "Posición abierta, cerrada, cambio de tamaño, filing nuevo, bandera roja y concentración."),
- ("ev-corp", "Dividendo y split", "muerto", "portfolio/events.py:235",
-  "El detector está cableado y lee una tabla que nadie escribe."),
- ("ev-cruce", "El valor intrínseco cruzó el precio", "muerto", "portfolio/command.py:96",
-  "El evento estrella del producto. El detector es correcto y está cableado, pero necesita la valuación anterior y el único productor en producción llama sin pasarla, así que devuelve nulo siempre. Los tests de integración lo cubren inyectando la línea de base a mano, y por eso el hueco queda invisible en verde."),
- ("ev-huerfanos", "Caída de quality gate y recalibración sectorial", "muerto", "portfolio/events.py:419,448",
-  "Dos detectores escritos, documentados y con tests unitarios que compute_events nunca invoca. No les falta un insumo: nadie los llama."),
- ("ev-ruido", "Bandera roja nueva", "a-medias", "portfolio/events.py:366",
-  "Sin línea de base, toda bandera roja se reporta como nueva en cada corrida. Su propio docstring dice que evita justamente eso."),
- ("ev-ventana", "Filing nuevo", "a-medias", "portfolio/events.py:288",
-  "La ventana filtra por fecha de presentación y no por fecha de ingesta. Un 10-K presentado hace tres semanas e importado hoy no dispara nunca, y no vuelve a caer en una ventana futura."),
+ ("ev-vivos", "Diez eventos que sí disparan", "hecho", "portfolio/events.py:125,188,251,302,346,377,410,439,573",
+  "Posición abierta, cerrada y cambio de tamaño (los tres salen de detect_position_changes, events.py:125), cambio de moneda, filing nuevo, cruce del valor intrínseco, bandera roja, caída de quality gate, recalibración sectorial y concentración. compute_events los saca de las posiciones, los filings y la diferencia entre las marcas de dos días."),
+ ("ev-corp", "Dividendo y split", "muerto", "portfolio/events.py:217,544",
+  "El detector está cableado y lee corporate_actions, una tabla que nadie escribe."),
+ ("ev-cruce", "El valor intrínseco cruzó el precio", "hecho", "portfolio/marks.py:105; portfolio/events.py:302,666",
+  "El evento estrella del producto. mark_holdings guarda en holding_marks el valor intrínseco y el precio de cada posición en cada corrida de bot portfolio, antes de calcular eventos; compute_events compara la marca de hoy con la anterior y dispara en las dos direcciones. Límites: la primera corrida tras el cambio no tiene marca previa, así que ese día no hay cruce; y un día en que el valuador falla deja la marca en nulo y rompe la cadena de línea de base. Ver también #83 (repetir la corrida el mismo día duplica eventos) y #84 (símbolo de IBKR contra ticker)."),
+ ("ev-huerfanos", "Caída de quality gate y recalibración sectorial", "hecho", "portfolio/events.py:439,410,683,691; portfolio/command.py:115; cli.py:562",
+  "Los dos detectores ya los llama compute_events. Las marcas guardan los gates que falló cada posición (quality_gates y trap_detection del preset damodaran_value, que bot portfolio carga) y el WACC sectorial. Límites: sin marca previa el primer día no hay evento, y la cadena se corta cuando un ticker no tiene datos de screener (failed_gates nulo) o su sector no tiene benchmark (sector_wacc nulo); estos dos campos no dependen de que el valuador ande. Ver #83 y #84."),
+ ("ev-ruido", "Bandera roja nueva", "hecho", "portfolio/events.py:346,675",
+  "Solo dispara si la bandera es roja hoy y no lo era en la marca anterior; ya no se repite en cada corrida. Sin marca previa (primer día, o ticker recién comprado) todas cuentan como nuevas. Es a propósito: una marca previa sin banderas conocidas (día con el valuador caído) cuenta como vacía, así que tras un día sin valuación las rojas vigentes vuelven a salir como nuevas; si el nulo es el de hoy, no hay eventos. Ver #83 y #84."),
+ ("ev-ventana", "Filing nuevo", "hecho", "portfolio/events.py:251,498,526; ingest/sec_edgar.py:472",
+  "La ventana usa también la fecha de ingesta, inclusiva (filings_log.fetched_at, que upsert_filings conserva en los conflictos), y se deduplica contra events_log. Un 10-K presentado hace semanas e importado hoy dispara una vez. Ver #83 y #84."),
  ("sync", "Sincronización de la cartera", "hecho", "portfolio/sync.py:135",
   "Posiciones, efectivo y valuación con precios y tipo de cambio, idempotente por fecha y cuenta."),
  ("rep-portfolio", "El reporte de cartera", "hecho", "portfolio/report.py:241",

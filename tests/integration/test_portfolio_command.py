@@ -8,15 +8,21 @@ sections.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import cast
 
 import duckdb
 import pytest
+from bot.portfolio.marks import AnalyzeFn
 
 from bot.ingest.ibkr import CashBalance, PortfolioPosition, TradeExecution
 from bot.portfolio.command import run_portfolio
+from bot.screener.rules import Rule, RuleResult
+from bot.screener.types import CompanyData, IndustryBenchmarks
 from bot.storage.db import apply_schema
+from bot.valuator.narrative_flags import NarrativeFlag
 
 TODAY = date(2026, 6, 1)
 
@@ -265,3 +271,79 @@ def test_run_portfolio_without_fills_records_no_trades(
 
     assert result.trades_inserted == 0
     assert conn.execute("SELECT count(*) FROM trades").fetchone() == (0,)
+
+
+@dataclass(frozen=True)
+class _DCF:
+    intrinsic_value: float
+
+
+@dataclass(frozen=True)
+class _Analysis:
+    ticker: str
+    dcf_result: _DCF
+    current_price: float | None
+    narrative_flags: tuple[NarrativeFlag, ...] = ()
+
+
+def _valued_at(iv: float) -> AnalyzeFn:
+    def fn(ticker: str, _conn: duckdb.DuckDBPyConnection) -> _Analysis:
+        return _Analysis(ticker, _DCF(iv), current_price=100.0)
+
+    return cast(AnalyzeFn, fn)
+
+
+class _ToggleGate(Rule):
+    """A quality gate whose verdict the test flips between runs."""
+
+    name = "toggle_gate"
+
+    def __init__(self) -> None:
+        self.fail = False
+
+    def evaluate(self, company: CompanyData, benchmarks: IndustryBenchmarks) -> RuleResult:
+        return RuleResult(passed=not self.fail)
+
+
+def _logged(conn: duckdb.DuckDBPyConnection, day: date) -> set[tuple[str, str]]:
+    rows = conn.execute(
+        "SELECT event_type, ticker FROM events_log WHERE curr_snapshot_date = ?", [day]
+    ).fetchall()
+    return {(str(r[0]), str(r[1])) for r in rows}
+
+
+def test_run_portfolio_emits_valuation_events_across_two_runs(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    day1, day2 = date(2026, 6, 1), date(2026, 6, 2)
+    conn.execute("INSERT INTO companies (ticker, name, source) VALUES ('AAPL', 'Apple', 'fmp')")
+    gate = _ToggleGate()
+
+    run_portfolio(
+        conn,
+        _client(),
+        reports_dir=tmp_path,
+        today=day1,
+        analyze_fn=_valued_at(90.0),  # IV below the 100 price
+        quality_gates=[gate],
+    )
+    gate.fail = True
+    run_portfolio(
+        conn,
+        _client(),
+        reports_dir=tmp_path,
+        today=day2,
+        analyze_fn=_valued_at(120.0),  # IV now above price
+        quality_gates=[gate],
+    )
+
+    logged = _logged(conn, day2)
+    assert ("intrinsic_value_crossed_price", "AAPL") in logged
+    assert ("intrinsic_value_crossed_price", "MSFT") in logged
+    assert ("below_quality_gate", "AAPL") in logged
+    # MSFT is not in companies: no gate verdict, so no gate event.
+    assert ("below_quality_gate", "MSFT") not in logged
+    marked = conn.execute(
+        "SELECT snapshot_date, COUNT(*) FROM holding_marks GROUP BY 1 ORDER BY 1"
+    ).fetchall()
+    assert marked == [(day1, 2), (day2, 2)]

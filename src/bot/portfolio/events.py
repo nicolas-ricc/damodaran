@@ -17,54 +17,30 @@ Explicitly **not** events (anti-noise, spec §8.3): raw price moves and news.
 
 Design: every event type has its own *pure* detector taking plain inputs, so the
 threshold arithmetic (>10% size, >15% concentration, IV-crosses-price, a newly
-red flag) is isolated and unit-testable at its boundaries. :func:`compute_events`
-is the reader-orchestrator: it gathers snapshot/filing/valuation inputs off the
-connection, fans them through the detectors, and returns the events. It never
-writes — persistence (and running auto-analyze) is the caller's job.
+red flag) is isolated and unit-testable at its boundaries. The valuation-derived
+detectors diff two :class:`~bot.portfolio.marks.HoldingMark` values, one per
+snapshot, read back from ``holding_marks``: the baseline is what was persisted
+on the previous run, never a recomputation, so an event fires once on the diff
+where the state changes. :func:`compute_events` is the reader-orchestrator: it
+gathers snapshot/filing/mark inputs off the connection, fans them through the
+detectors, and returns the events. It never writes — persisting marks (via
+``mark_holdings``) before calling it, and persisting events after, is the
+caller's job.
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
-from bot.utils.logging import get_logger
+from bot.portfolio.marks import HoldingMark, load_marks
 
 if TYPE_CHECKING:
     import duckdb
-
-    from bot.valuator.analysis import Analysis
-    from bot.valuator.narrative_flags import NarrativeFlag
-
-log = get_logger(__name__)
-
-
-class _DCFLike(Protocol):
-    @property
-    def intrinsic_value(self) -> float: ...
-
-
-class _AnalysisLike(Protocol):
-    """The structural slice of :class:`~bot.valuator.analysis.Analysis` the
-    valuation detectors read. A Protocol of read-only members so the real
-    (frozen) ``Analysis`` and a lightweight test stub both satisfy it under
-    ``mypy --strict``.
-    """
-
-    @property
-    def ticker(self) -> str: ...
-
-    @property
-    def current_price(self) -> float | None: ...
-
-    @property
-    def dcf_result(self) -> _DCFLike: ...
-
-    @property
-    def narrative_flags(self) -> tuple[NarrativeFlag, ...]: ...
 
 
 #: Default fractional position-size change that counts as an event (spec §8.3).
@@ -127,12 +103,18 @@ class Position:
 
 @dataclass(frozen=True)
 class Filing:
-    """A filing-log entry for a held ticker (subset of ``filings_log``)."""
+    """A filing-log entry for a held ticker (subset of ``filings_log``).
+
+    ``fetched_on`` is the day we first ingested the row. It, not ``filing_date``,
+    decides whether the filing is new to the user: filings are often ingested
+    days after they are filed, or backfilled long after.
+    """
 
     ticker: str
     filing_type: str
     filing_date: date
     accession_number: str | None
+    fetched_on: date
 
 
 # --------------------------------------------------------------------------- #
@@ -270,16 +252,22 @@ def detect_new_filings(
     filings: list[Filing],
     *,
     held_tickers: set[str],
+    reported: set[tuple[str, str, str]],
     window_start: date | None,
     window_end: date,
     snapshot_date: date,
     prev_date: date | None,
 ) -> list[Event]:
-    """New filings for held tickers in ``(window_start, window_end]`` (spec §8.3).
+    """New filings for held tickers, by ingestion date, each reported once (spec §8.3).
 
-    Emits one ``NEW_FILING`` event per qualifying filing. The CLI (#29) turns
-    this into an auto-analyze; we only emit the signal. A ``window_start`` of
-    ``None`` (first snapshot) admits everything up to and including ``window_end``.
+    A filing qualifies when it is filed on or before ``window_end``, is not in
+    ``reported``, and either was filed after ``window_start`` or was ingested on
+    or after it. The ingestion bound is inclusive so a fetch later on the previous
+    run's day is not lost; ``reported`` (``(ticker, filing_type, filing_date ISO)``
+    triples already in ``events_log``) absorbs the resulting double-count and
+    re-runs of the same window. A ``window_start`` of ``None`` (first snapshot)
+    admits every unreported filing up to ``window_end``. The CLI (#29) turns
+    this into an auto-analyze; we only emit the signal.
     """
     events: list[Event] = []
     for filing in filings:
@@ -287,7 +275,13 @@ def detect_new_filings(
             continue
         if filing.filing_date > window_end:
             continue
-        if window_start is not None and filing.filing_date <= window_start:
+        if (filing.ticker.upper(), filing.filing_type, filing.filing_date.isoformat()) in reported:
+            continue
+        if (
+            window_start is not None
+            and filing.filing_date <= window_start
+            and filing.fetched_on < window_start
+        ):
             continue
         events.append(
             Event(
@@ -306,81 +300,78 @@ def detect_new_filings(
 
 
 def detect_intrinsic_value_cross(
-    prev_analysis: _AnalysisLike | None,
-    curr_analysis: _AnalysisLike,
+    prev: HoldingMark | None,
+    curr: HoldingMark,
     *,
     snapshot_date: date,
     prev_date: date | None,
 ) -> Event | None:
-    """Intrinsic value crossed the current price in either direction (spec §8.3).
+    """Intrinsic value crossed the price in either direction (spec §8.3).
 
-    A cross fires when the sign of ``intrinsic_value - current_price`` flips
-    between the two analyses (under -> over or over -> under). Equal-to is not a
-    cross. Needs both analyses' prices and intrinsic values; returns ``None``
-    when any is missing or there is no prior analysis to compare against.
+    A cross fires when the sign of ``intrinsic_value - price`` flips between the
+    two marks (under -> over or over -> under). Equal-to is not a cross. Needs
+    both marks' prices and intrinsic values; returns ``None`` when any is
+    unknown or there is no prior mark to compare against.
     """
-    if prev_analysis is None:
+    if prev is None:
         return None
-    prev_iv = prev_analysis.dcf_result.intrinsic_value
-    curr_iv = curr_analysis.dcf_result.intrinsic_value
-    prev_price = prev_analysis.current_price
-    curr_price = curr_analysis.current_price
-    if prev_price is None or curr_price is None:
+    if (
+        prev.intrinsic_value is None
+        or prev.price is None
+        or curr.intrinsic_value is None
+        or curr.price is None
+    ):
         return None
-    prev_gap = prev_iv - prev_price
-    curr_gap = curr_iv - curr_price
+    prev_gap = prev.intrinsic_value - prev.price
+    curr_gap = curr.intrinsic_value - curr.price
     crossed_up = prev_gap < 0.0 <= curr_gap and curr_gap != 0.0
     crossed_down = prev_gap > 0.0 >= curr_gap and curr_gap != 0.0
     if not (crossed_up or crossed_down):
         return None
     return Event(
         event_type=EventType.INTRINSIC_VALUE_CROSSED_PRICE,
-        ticker=curr_analysis.ticker.upper(),
+        ticker=curr.ticker.upper(),
         curr_snapshot_date=snapshot_date,
         prev_snapshot_date=prev_date,
         details={
             "direction": "above_price" if crossed_up else "below_price",
-            "prev_intrinsic_value": prev_iv,
-            "prev_price": prev_price,
-            "intrinsic_value": curr_iv,
-            "price": curr_price,
+            "prev_intrinsic_value": prev.intrinsic_value,
+            "prev_price": prev.price,
+            "intrinsic_value": curr.intrinsic_value,
+            "price": curr.price,
         },
     )
 
 
 def detect_new_red_flags(
-    prev_analysis: _AnalysisLike | None,
-    curr_analysis: _AnalysisLike,
+    prev: HoldingMark | None,
+    curr: HoldingMark,
     *,
     snapshot_date: date,
     prev_date: date | None,
 ) -> list[Event]:
     """Narrative flags that newly turned red on a held position (spec §8.3).
 
-    A flag fires only if it is red now *and* was not red in the prior analysis
-    (so a persistently-red flag is not re-reported every run). With no prior
-    analysis, any currently-red flag is new.
+    A flag fires only if it is red now *and* was not red in the prior mark (so a
+    persistently-red flag is not re-reported every run). With no prior mark, or
+    one whose flags are unknown (``None``), every currently-red flag is new. A
+    current mark with unknown flags yields nothing: it is not an all-clear, but
+    there is nothing to report either.
     """
-    from bot.valuator.narrative_flags import FlagColor
-
-    prev_red = (
-        {f.name for f in prev_analysis.narrative_flags if f.color is FlagColor.RED}
-        if prev_analysis is not None
-        else set()
-    )
-    events: list[Event] = []
-    for flag in curr_analysis.narrative_flags:
-        if flag.color is FlagColor.RED and flag.name not in prev_red:
-            events.append(
-                Event(
-                    event_type=EventType.NEW_RED_FLAG,
-                    ticker=curr_analysis.ticker.upper(),
-                    curr_snapshot_date=snapshot_date,
-                    prev_snapshot_date=prev_date,
-                    details={"flag": flag.name, "reason": flag.reason},
-                )
-            )
-    return events
+    if curr.red_flags is None:
+        return []
+    prev_red = set(prev.red_flags) if prev is not None and prev.red_flags else set()
+    return [
+        Event(
+            event_type=EventType.NEW_RED_FLAG,
+            ticker=curr.ticker.upper(),
+            curr_snapshot_date=snapshot_date,
+            prev_snapshot_date=prev_date,
+            details={"flag": name, "reason": reason},
+        )
+        for name, reason in curr.red_flags.items()
+        if name not in prev_red
+    ]
 
 
 def detect_concentration(
@@ -446,7 +437,8 @@ def detect_sector_recalibration(
 
 
 def detect_below_quality_gate(
-    failed_gates: list[str],
+    prev_failed: Sequence[str] | None,
+    curr_failed: Sequence[str] | None,
     ticker: str,
     *,
     snapshot_date: date,
@@ -454,9 +446,14 @@ def detect_below_quality_gate(
 ) -> list[Event]:
     """A held position newly tripped one or more screener quality gates (§8.3).
 
-    ``failed_gates`` is the list of gate names the position now fails (e.g.
-    ``max_net_debt_to_ebitda``). One event per failed gate.
+    Fires one event per gate in ``curr_failed`` that was not in ``prev_failed``
+    (e.g. ``max_net_debt_to_ebitda``). ``None`` on either side means the gates
+    could not be evaluated: with no baseline a standing failure is not "new", and
+    with no current evaluation there is nothing to report.
     """
+    if prev_failed is None or curr_failed is None:
+        return []
+    already_failing = set(prev_failed)
     return [
         Event(
             event_type=EventType.BELOW_QUALITY_GATE,
@@ -465,19 +462,14 @@ def detect_below_quality_gate(
             prev_snapshot_date=prev_date,
             details={"gate": gate},
         )
-        for gate in failed_gates
+        for gate in curr_failed
+        if gate not in already_failing
     ]
 
 
 # --------------------------------------------------------------------------- #
 # DB reader-orchestrator                                                        #
 # --------------------------------------------------------------------------- #
-
-
-class _AnalyzeFn(Protocol):
-    def __call__(
-        self, ticker: str, conn: duckdb.DuckDBPyConnection
-    ) -> Analysis: ...
 
 
 def _load_positions(
@@ -506,31 +498,47 @@ def _load_positions(
 def _load_filings(
     conn: duckdb.DuckDBPyConnection,
     held_tickers: set[str],
-    window_start: date | None,
     window_end: date,
 ) -> list[Filing]:
+    """Held filings up to ``window_end``; the detector applies the lower bound."""
     if not held_tickers:
         return []
     placeholders = ", ".join("?" for _ in held_tickers)
-    params: list[object] = [*sorted(held_tickers), window_end]
-    sql = (
-        f"SELECT ticker, filing_type, filing_date, accession_number "
+    rows = conn.execute(
+        f"SELECT ticker, filing_type, filing_date, accession_number, "
+        f"COALESCE(CAST(fetched_at AS DATE), filing_date) "
         f"FROM filings_log WHERE UPPER(ticker) IN ({placeholders}) "
-        f"AND filing_date <= ?"
-    )
-    if window_start is not None:
-        sql += " AND filing_date > ?"
-        params.append(window_start)
-    rows = conn.execute(sql, params).fetchall()
+        f"AND filing_date <= ?",
+        [*sorted(held_tickers), window_end],
+    ).fetchall()
     return [
         Filing(
             ticker=str(r[0]),
             filing_type=str(r[1]),
             filing_date=r[2],
             accession_number=str(r[3]) if r[3] is not None else None,
+            fetched_on=r[4],
         )
         for r in rows
     ]
+
+
+def _load_reported_filings(
+    conn: duckdb.DuckDBPyConnection,
+    held_tickers: set[str],
+) -> set[tuple[str, str, str]]:
+    """``(ticker, filing_type, filing_date ISO)`` of filings already reported."""
+    if not held_tickers:
+        return set()
+    placeholders = ", ".join("?" for _ in held_tickers)
+    rows = conn.execute(
+        f"SELECT UPPER(ticker), json_extract_string(details, '$.filing_type'), "
+        f"json_extract_string(details, '$.filing_date') "
+        f"FROM events_log WHERE event_type = 'new_filing' "
+        f"AND UPPER(ticker) IN ({placeholders})",
+        sorted(held_tickers),
+    ).fetchall()
+    return {(str(r[0]), str(r[1]), str(r[2])) for r in rows}
 
 
 def _load_corporate_actions(
@@ -567,36 +575,24 @@ def compute_events(
     prev_snapshot_date: date | None,
     curr_snapshot_date: date,
     *,
-    analyze_fn: _AnalyzeFn | None = None,
-    prev_analyses: dict[str, _AnalysisLike] | None = None,
     size_change_threshold: float = DEFAULT_SIZE_CHANGE_THRESHOLD,
     concentration_threshold: float = DEFAULT_CONCENTRATION_THRESHOLD,
 ) -> list[Event]:
     """Diff two portfolio snapshots into the §8.3 event stream.
 
-    Reads positions, filings and corporate actions off ``conn`` and fans them
-    through the pure detectors. Derived (capa A/B/C) events reuse the valuator
-    entrypoint (``analyze_fn``, defaulting to :func:`bot.valuator.analysis.analyze`)
-    rather than re-deriving valuation logic, and the filings log rather than
-    re-fetching. A ticker that cannot be valued (no data / incomplete
-    assumptions) is skipped for derived events but still produces its broker
-    events. ``prev_snapshot_date`` of ``None`` treats ``curr`` as the first
-    snapshot: every current position is "opened" and no diff-based events fire.
+    Reads positions, filings, corporate actions and the persisted holding marks
+    off ``conn`` and fans them through the pure detectors. Valuation-derived
+    events (IV cross, new red flag, quality gate, sector recalibration) diff the
+    ``holding_marks`` of the two snapshots, so the caller must have persisted the
+    current snapshot's marks (``mark_holdings``) first; a held ticker with no
+    current mark still produces its broker events. ``prev_snapshot_date`` of
+    ``None`` treats ``curr`` as the first snapshot: every current position is
+    "opened" and there is no baseline mark, so only red flags (all new) fire.
 
     This function is a pure reader: it never writes to ``events_log`` — the
     caller persists the returned events (and may run auto-analyze on
     ``NEW_FILING``, which is the CLI's job per #29).
     """
-    if analyze_fn is None:
-        from bot.valuator.analysis import analyze as _analyze
-
-        def analyze_fn_default(
-            ticker: str, conn: duckdb.DuckDBPyConnection
-        ) -> Analysis:
-            return _analyze(ticker, conn)
-
-        analyze_fn = analyze_fn_default
-
     curr_positions = _load_positions(conn, curr_snapshot_date)
     prev_positions = (
         _load_positions(conn, prev_snapshot_date)
@@ -649,8 +645,9 @@ def compute_events(
     # --- New filings for held tickers --------------------------------------
     events.extend(
         detect_new_filings(
-            _load_filings(conn, held_tickers, prev_snapshot_date, curr_snapshot_date),
+            _load_filings(conn, held_tickers, curr_snapshot_date),
             held_tickers=held_tickers,
+            reported=_load_reported_filings(conn, held_tickers),
             window_start=prev_snapshot_date,
             window_end=curr_snapshot_date,
             snapshot_date=curr_snapshot_date,
@@ -658,27 +655,17 @@ def compute_events(
         )
     )
 
-    # --- Valuation-derived (intrinsic-value cross, new red flag) -----------
-    #
-    # The valuator reads *current* DB state, so a single connection only yields
-    # the current :class:`Analysis`; the prior valuation is recovered from the
-    # events already persisted (``prev_analyses`` injected by the caller / CLI,
-    # #29). When no prior valuation is available we treat every currently-red
-    # flag as new and report an IV-below/above-price standing as a cross only if
-    # a prior baseline was supplied. Detectors stay pure and are unit-tested on
-    # synthetic before/after pairs; here we wire current analyses through with a
-    # ``None`` baseline by default so the orchestrator never fabricates a cross
-    # it cannot substantiate.
+    # --- Valuation-derived (diff of persisted holding marks) ---------------
+    prev_marks = load_marks(conn, prev_snapshot_date) if prev_snapshot_date else {}
+    curr_marks = load_marks(conn, curr_snapshot_date)
     for ticker in sorted(held_tickers):
-        try:
-            curr_analysis = analyze_fn(ticker, conn)
-        except (LookupError, ValueError) as exc:
-            log.debug("events.analyze_skipped", ticker=ticker, error=str(exc))
+        curr_mark = curr_marks.get(ticker)
+        if curr_mark is None:
             continue
-        prev_analysis = prev_analyses.get(ticker) if prev_analyses else None
+        prev_mark = prev_marks.get(ticker)
         cross = detect_intrinsic_value_cross(
-            prev_analysis,
-            curr_analysis,
+            prev_mark,
+            curr_mark,
             snapshot_date=curr_snapshot_date,
             prev_date=prev_snapshot_date,
         )
@@ -686,12 +673,30 @@ def compute_events(
             events.append(cross)
         events.extend(
             detect_new_red_flags(
-                prev_analysis,
-                curr_analysis,
+                prev_mark,
+                curr_mark,
                 snapshot_date=curr_snapshot_date,
                 prev_date=prev_snapshot_date,
             )
         )
+        events.extend(
+            detect_below_quality_gate(
+                prev_mark.failed_gates if prev_mark is not None else None,
+                curr_mark.failed_gates,
+                ticker,
+                snapshot_date=curr_snapshot_date,
+                prev_date=prev_snapshot_date,
+            )
+        )
+        recalibration = detect_sector_recalibration(
+            prev_mark.sector_wacc if prev_mark is not None else None,
+            curr_mark.sector_wacc,
+            ticker,
+            snapshot_date=curr_snapshot_date,
+            prev_date=prev_snapshot_date,
+        )
+        if recalibration is not None:
+            events.append(recalibration)
 
     return events
 

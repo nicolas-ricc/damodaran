@@ -267,6 +267,20 @@ CREATE TABLE IF NOT EXISTS events_log (
     detected_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Per-snapshot valuation facts for each held ticker (spec §8.3). The derived
+-- portfolio events diff two snapshots' marks, so the baseline a cross or a
+-- newly red flag needs is always read back from here (#28).
+CREATE TABLE IF NOT EXISTS holding_marks (
+    snapshot_date   DATE NOT NULL,
+    ticker          VARCHAR NOT NULL,
+    intrinsic_value DOUBLE,
+    price           DOUBLE,
+    red_flags       JSON,
+    failed_gates    VARCHAR[],
+    sector_wacc     DOUBLE,
+    PRIMARY KEY (snapshot_date, ticker)
+);
+
 CREATE TABLE IF NOT EXISTS screener_candidates (
     run_id          VARCHAR NOT NULL,
     preset          VARCHAR NOT NULL,
