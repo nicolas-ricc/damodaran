@@ -4,7 +4,7 @@
 
 **Goal:** After `bot portfolio` writes `alerts.md`, optionally forward its contents to email or Telegram, chosen by `BOT_NOTIFIER=email|telegram|none` (default `none`).
 
-**Architecture:** New package `src/bot/notifier/` with two backends (`email.py` over stdlib `smtplib`, `telegram.py` over `httpx`) that share one structural interface, `send(text: str) -> None`. The package `__init__.py` owns the interface, the error types, `build_notifier(settings)` (env → backend) and `notify_alerts(path, notifier)` (read file, skip when empty, send). The CLI command `bot portfolio` is the composition root: it builds the notifier before touching TWS (fail fast on misconfiguration) and calls `notify_alerts` after both reports are written. `run_portfolio` stays unchanged — the library keeps writing files; sending is a CLI concern.
+**Architecture:** New package `src/bot/notifier/` with two backends (`email.py` over stdlib `smtplib`, `telegram.py` over `httpx`) that share one structural interface, `send(text: str) -> None`. `base.py` owns the interface and the error types; the package `__init__.py` re-exports them and owns `build_notifier(settings)` (env → backend) and `notify_alerts(path, notifier)` (read file, skip when empty, send). The CLI command `bot portfolio` is the composition root: it builds the notifier before touching TWS (fail fast on misconfiguration) and calls `notify_alerts` after both reports are written. `run_portfolio` stays unchanged — the library keeps writing files; sending is a CLI concern.
 
 **Tech Stack:** Python 3.12, pydantic-settings, stdlib `smtplib`/`email.message`, `httpx` (already a dependency; `httpx.MockTransport` in tests), Typer, pytest, ruff, mypy --strict.
 
@@ -34,6 +34,19 @@
 - **`BOT_NOTIFIER=` (blank) means `none`**, mirroring the `industry_mapping_path` blank-is-unset validator.
 - **`AUDITADO_EN`/`AUDITADO_EL` are not bumped**: this change adds one inventory entry, not a full re-audit (same rule as `2026-10-01-portfolio-cli-close-gaps.md`).
 
+## Assumptions
+
+Recorded by plan grilling (round 1). Each names the rejected alternative.
+
+- **Errors/protocol in `notifier/base.py`** (rejected: define them in `__init__.py` and import backends lazily inside `build_notifier`). Backends importing from the package `__init__` while it imports them is a cycle; a leaf module removes it with top-level imports only.
+- **Exit codes** follow spec §9 ("Exit codes: 0 OK, 1 error operativo, 2 data error") and the existing CLI precedent for a missing config (`cli.py:558`, preset not found → 2): misconfigured notifier → 2; failed delivery (an operational error) → 1 (rejected: warn and exit 0 — spec §12 "degrade gracefully, alert loudly").
+- **Hook in the CLI, not in `run_portfolio`** (rejected: a `notifier` parameter on `run_portfolio`). The AC says "Hook in `bot portfolio`"; the CLI already is the composition root that builds the IBKR client and gates (`cli.py:532-591`), and `run_portfolio`'s contract is "write both report files" (`portfolio/command.py:69-161`).
+- **No retry, no 429 `retry_after` handling** (rejected: retry loop). One user, at most a handful of messages per day; the issue asks for "no fancy UX". A failed send exits 1; re-running `bot portfolio` the same day re-renders the same `alerts.md` (same previous snapshot, `command.py:111`) and re-sends it, possibly duplicating chunks already delivered — documented in the README.
+- **`BOT_SMTP_SECURITY=none` exists for local relays** (rejected: only `starttls`/`ssl`), but combined with a username it is rejected by `build_notifier` so a password never travels in cleartext.
+- **Text encoding:** `notify_alerts` reads with the same default encoding `run_portfolio` writes with (`command.py:142-143`, `write_text` without encoding) (rejected: force UTF-8 on one side only, which would make them disagree on a non-UTF-8 locale).
+- **No new ADR.** CONTEXT.md asks ADRs to record architecture decisions and to be closed when implemented; this module is the one spec §15 already prescribes ("módulo `notifier` aparte que lea `alerts.md`").
+- **Secrets as plain `str`** like `fmp_api_key`/`tiingo_api_key` (rejected: `SecretStr`). No code path serialises `Settings` (`grep model_dump|repr(settings)` over `src/` is empty); `bot doctor` prints keys as `set`/`MISSING` only (`cli.py:611`).
+
 ## Review Focus
 
 1. Quiet day: `alerts.md` is zero bytes → nothing is sent and the CLI prints no notifier line — pinned in Task 1 (`notify_alerts`) and Task 4 (CLI).
@@ -48,6 +61,7 @@
 
 **Files:**
 - Modify: `src/bot/config.py` (new fields + blank-notifier validator)
+- Create: `src/bot/notifier/base.py` (`Notifier`, `NotifierConfigError`, `NotificationError`)
 - Create: `src/bot/notifier/__init__.py`
 - Create: `src/bot/notifier/email.py`, `src/bot/notifier/telegram.py` (constructors only in this task; `send` raises `NotImplementedError` until Tasks 2/3)
 - Test: `tests/unit/test_notifier.py`, `tests/unit/test_config.py`
@@ -63,7 +77,7 @@
 - Produces (backend constructors, keyword-only):
   - `EmailNotifier(*, host: str, port: int, sender: str, recipients: Sequence[str], username: str = "", password: str = "", security: Literal["starttls", "ssl", "none"] = "starttls", timeout: float = 30.0, smtp_factory: SmtpFactory | None = None)` with public read-only attributes `host`, `port`, `sender`, `recipients` (tuple), `username`, `security`.
   - `TelegramNotifier(*, bot_token: str, chat_id: str, transport: httpx.BaseTransport | None = None, timeout: float = 30.0)` with public attribute `chat_id`.
-  - `NotificationError`/`NotifierConfigError` live in `bot/notifier/__init__.py`; backends import them from `bot.notifier`. To avoid an import cycle, `__init__.py` imports the backends lazily inside `build_notifier`.
+  - `Notifier`, `NotificationError`, `NotifierConfigError` live in `bot/notifier/base.py`; backends import them from `bot.notifier.base`; `bot/notifier/__init__.py` imports the backends at module top and re-exports the three names (`__all__`), so callers and tests use `from bot.notifier import ...`.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -167,6 +181,21 @@ def test_build_notifier_email_missing_fields_names_env_vars() -> None:
     assert "BOT_SMTP_HOST" in msg and "BOT_SMTP_FROM" in msg and "BOT_SMTP_TO" in msg
 
 
+def test_build_notifier_rejects_cleartext_login() -> None:
+    with pytest.raises(NotifierConfigError) as exc:
+        build_notifier(
+            _settings(
+                notifier="email",
+                smtp_host="h",
+                smtp_from="f@x.com",
+                smtp_to="t@x.com",
+                smtp_security="none",
+                smtp_username="u",
+            )
+        )
+    assert "BOT_SMTP_SECURITY" in str(exc.value)
+
+
 def test_build_notifier_telegram() -> None:
     n = build_notifier(_settings(notifier="telegram", telegram_bot_token="123:abc", telegram_chat_id="-100"))
     assert isinstance(n, TelegramNotifier)
@@ -194,6 +223,26 @@ def test_build_notifier_telegram_missing_fields() -> None:
         return value
 ```
 
+`src/bot/notifier/base.py`:
+
+```python
+"""The interface every notifier backend implements, and its two errors."""
+
+from typing import Protocol
+
+
+class Notifier(Protocol):
+    def send(self, text: str) -> None: ...
+
+
+class NotifierConfigError(ValueError):
+    """``BOT_NOTIFIER`` names a channel whose required settings are missing or unsafe."""
+
+
+class NotificationError(RuntimeError):
+    """A backend could not deliver; the message never contains credentials."""
+```
+
 `src/bot/notifier/__init__.py`:
 
 ```python
@@ -202,26 +251,19 @@ def test_build_notifier_telegram_missing_fields() -> None:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
+from bot.notifier.base import NotificationError, Notifier, NotifierConfigError
+from bot.notifier.email import EmailNotifier
+from bot.notifier.telegram import TelegramNotifier
 from bot.utils.logging import get_logger
 
 if TYPE_CHECKING:
     from bot.config import Settings
 
+__all__ = ["NotificationError", "Notifier", "NotifierConfigError", "build_notifier", "notify_alerts"]
+
 log = get_logger(__name__)
-
-
-class Notifier(Protocol):
-    def send(self, text: str) -> None: ...
-
-
-class NotifierConfigError(ValueError):
-    """``BOT_NOTIFIER`` names a channel whose required settings are missing."""
-
-
-class NotificationError(RuntimeError):
-    """A backend could not deliver; the message never contains credentials."""
 
 
 def _require(pairs: list[tuple[str, str]]) -> None:
@@ -234,14 +276,17 @@ def build_notifier(settings: Settings) -> Notifier | None:
     if settings.notifier == "none":
         return None
     if settings.notifier == "email":
-        from bot.notifier.email import EmailNotifier
-
         recipients = [r.strip() for r in settings.smtp_to.split(",") if r.strip()]
         _require([
             ("BOT_SMTP_HOST", settings.smtp_host),
             ("BOT_SMTP_FROM", settings.smtp_from),
             ("BOT_SMTP_TO", ",".join(recipients)),
         ])
+        if settings.smtp_security == "none" and settings.smtp_username.strip():
+            raise NotifierConfigError(
+                "BOT_SMTP_SECURITY=none would send BOT_SMTP_PASSWORD in cleartext; "
+                "use starttls or ssl, or drop BOT_SMTP_USERNAME"
+            )
         return EmailNotifier(
             host=settings.smtp_host,
             port=settings.smtp_port,
@@ -251,8 +296,6 @@ def build_notifier(settings: Settings) -> Notifier | None:
             password=settings.smtp_password,
             security=settings.smtp_security,
         )
-    from bot.notifier.telegram import TelegramNotifier
-
     _require([
         ("BOT_TELEGRAM_BOT_TOKEN", settings.telegram_bot_token),
         ("BOT_TELEGRAM_CHAT_ID", settings.telegram_chat_id),
@@ -284,7 +327,7 @@ Backend skeletons: constructors storing the arguments as attributes (`recipients
 - Test: `tests/unit/test_notifier_telegram.py`
 
 **Interfaces:**
-- Consumes: `NotificationError` from `bot.notifier`; constructor from Task 1.
+- Consumes: `NotificationError` from `bot.notifier.base`; constructor from Task 1.
 - Produces: `TelegramNotifier.send(text: str) -> None`; module constants `API_BASE = "https://api.telegram.org"`, `MAX_MESSAGE_LEN = 4096`; `split_message(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]`.
 
 - [ ] **Step 1: Write the failing tests** (`httpx.MockTransport`, no network):
@@ -388,10 +431,10 @@ def test_transport_error_raises_without_leaking_token() -> None:
 - Test: `tests/unit/test_notifier_email.py`
 
 **Interfaces:**
-- Consumes: `NotificationError` from `bot.notifier`; constructor from Task 1.
+- Consumes: `NotificationError` from `bot.notifier.base`; constructor from Task 1.
 - Produces: `SmtpFactory = Callable[[str, int, float], smtplib.SMTP]` (host, port, timeout → connected client); `EmailNotifier.send(text: str) -> None`.
 
-- [ ] **Step 1: Write the failing tests** with a fake `smtplib.SMTP` subclass (constructing `smtplib.SMTP()` without a host does not connect):
+- [ ] **Step 1: Write the failing tests** with a fake `smtplib.SMTP` subclass (constructing `smtplib.SMTP()` without a host does not connect; on leaving the `with` block, `smtplib.SMTP.__exit__` sends `QUIT` via `docmd`, which raises `SMTPServerDisconnected` on the unconnected fake and is swallowed, then `close()` — so no `quit` call is recorded):
 
 ```python
 import smtplib
@@ -426,10 +469,6 @@ class FakeSMTP(smtplib.SMTP):
         self.messages.append(msg)
         return {}
 
-    def quit(self):  # type: ignore[override]
-        self.calls.append("quit")
-        return (221, b"bye")
-
 
 @pytest.fixture(autouse=True)
 def _reset() -> None:
@@ -449,7 +488,7 @@ def test_send_starttls_login_and_message() -> None:
     _notifier().send(text)
     smtp = FakeSMTP.instances[0]
     assert smtp.args[:2] == ("smtp.example.com", 587)
-    assert smtp.calls == ["starttls", "login:u", "send_message", "quit"]
+    assert smtp.calls == ["starttls", "login:u", "send_message"]
     msg = smtp.messages[0]
     assert msg["Subject"] == "Alerts — 2026-06-01"
     assert msg["From"] == "bot@example.com"
@@ -459,7 +498,7 @@ def test_send_starttls_login_and_message() -> None:
 
 def test_no_login_without_username_and_no_starttls_when_security_none() -> None:
     _notifier(username="", password="", security="none").send("hi")
-    assert FakeSMTP.instances[0].calls == ["send_message", "quit"]
+    assert FakeSMTP.instances[0].calls == ["send_message"]
 
 
 def test_subject_falls_back_when_text_has_no_heading_text() -> None:
@@ -490,7 +529,7 @@ def test_connection_failure_raises_notification_error() -> None:
 - [ ] **Step 3: Implement.**
   - Default factory: `smtplib.SMTP_SSL(host, port, timeout=timeout)` when `security == "ssl"`, else `smtplib.SMTP(host, port, timeout=timeout)`; for `starttls` use `ssl.create_default_context()`.
   - `send`: build `EmailMessage` (`Subject` from first non-empty line, `lstrip("#").strip()`, fallback `"bot alerts"`; `From` = sender; `To` = `", ".join(recipients)`; `set_content(text)`); `with factory(host, port, timeout) as smtp:` → `starttls` if security is `starttls` → `login` if `username` → `send_message(msg)`.
-  - Wrap `(smtplib.SMTPException, OSError)` → `raise NotificationError(f"SMTP send to {host}:{port} failed: {exc}") from exc`. `smtplib` exceptions carry the server reply, never the password.
+  - Wrap `(smtplib.SMTPException, OSError)` → `raise NotificationError(f"SMTP send to {host}:{port} failed: {exc}") from None`. `smtplib` exceptions carry the server reply (`SMTPAuthenticationError(code, resp)`), never the client's credentials; `from None` keeps both backends uniform.
 
 - [ ] **Step 4:** `uv run pytest tests/unit/test_notifier_email.py tests/unit/test_notifier.py -q && uv run ruff check . && uv run mypy src` — PASS / clean.
 - [ ] **Step 5:** Commit `feat(#32): email notifier backend`.
@@ -502,7 +541,7 @@ def test_connection_failure_raises_notification_error() -> None:
 - Test: `tests/unit/test_cli_portfolio.py`
 
 **Interfaces:**
-- Consumes: `build_notifier`, `notify_alerts`, `NotifierConfigError`, `NotificationError` from `bot.notifier` (imported into `bot.cli` by name so tests can monkeypatch `bot.cli.build_notifier`).
+- Consumes: `build_notifier`, `notify_alerts`, `NotifierConfigError`, `NotificationError` from `bot.notifier` (imported into `bot.cli` by name so tests can monkeypatch `bot.cli.build_notifier`). The test file already has `import bot.cli` and `from typing import Any`; add `from bot.notifier import NotificationError`.
 
 - [ ] **Step 1: Write the failing tests** (append; reuse the file's `_env` fixture helper and `_FakeIbkrClient`, whose first run emits `position_opened` events so `alerts.md` is non-empty):
 
@@ -530,7 +569,7 @@ def test_portfolio_sends_alerts_when_notifier_configured(tmp_path, monkeypatch) 
 
 def test_portfolio_default_notifier_sends_nothing(tmp_path, monkeypatch) -> None:
     _env(tmp_path, monkeypatch)
-    monkeypatch.delenv("BOT_NOTIFIER", raising=False)
+    monkeypatch.setenv("BOT_NOTIFIER", "none")  # process env beats a developer's .env
 
     result = CliRunner().invoke(app, ["portfolio"])
 
@@ -561,8 +600,8 @@ def test_portfolio_skips_empty_alerts(tmp_path, monkeypatch) -> None:
 def test_portfolio_misconfigured_notifier_fails_before_sync(tmp_path, monkeypatch) -> None:
     reports_dir = _env(tmp_path, monkeypatch)
     monkeypatch.setenv("BOT_NOTIFIER", "telegram")
-    monkeypatch.delenv("BOT_TELEGRAM_BOT_TOKEN", raising=False)
-    monkeypatch.delenv("BOT_TELEGRAM_CHAT_ID", raising=False)
+    monkeypatch.setenv("BOT_TELEGRAM_BOT_TOKEN", "")  # empty env beats a developer's .env
+    monkeypatch.setenv("BOT_TELEGRAM_CHAT_ID", "")
 
     result = CliRunner().invoke(app, ["portfolio"])
 
@@ -640,7 +679,34 @@ def test_portfolio_send_failure_exits_1_and_keeps_reports(tmp_path, monkeypatch)
 # BOT_TELEGRAM_CHAT_ID=""         # telegram: required
 ```
 
-- [ ] **Step 2:** README subsection: what is sent (contents of `alerts.md`, plain text, nothing on quiet days), the env vars, the two failure exit codes (2 misconfigured before sync, 1 send failure after reports are written).
+- [ ] **Step 2:** README subsection: what is sent (contents of `alerts.md`, plain text, nothing on quiet days), the env vars, the two failure exit codes (2 misconfigured before sync, 1 send failure after reports are written), and that there is no automatic retry — re-running `bot portfolio` the same day re-renders and re-sends the day's alerts.
 - [ ] **Step 3:** `python3 docs/plano/build.py && python3 docs/plano/build_estado.py` — expected: both build (the estado "old snapshot" warning is acceptable). If `build.py` reports a new dependency tension or unknown symbol, fix the plano sources, not the code.
 - [ ] **Step 4:** `uv run pytest -q && uv run ruff check . && uv run mypy src` — all green.
 - [ ] **Step 5:** Commit `docs(#32): document the notifier`.
+
+## Grilling
+
+One round (griller: `fable`); 16 questions. Revisions were local (a leaf `base.py`, test fixes, one guard), not a different seam, so no second round.
+
+| # | Answer source |
+|---|---|
+| 1 | CODE: `/usr/lib/python3.12/smtplib.py` `SMTP.__exit__` — `docmd("QUIT")`, swallows `SMTPServerDisconnected`, `close()`; never `quit()`. Test fixed: no `quit` in the expected calls. |
+| 2 | CODE: `src/bot/config.py:13-18` (`env_file=".env"`), `:98-100` (`load_settings` → `Settings()`); `tests/unit/test_cli_portfolio.py:85-98` (`_env` sets env only). Process env beats `.env` in pydantic-settings, so the CLI tests now `setenv` (`BOT_NOTIFIER=none`, empty token/chat id) instead of `delenv`. |
+| 3 | CODE: `src/bot/cli.py:553` `load_settings()`, `:554-558` preset check (exit 2), `:560` `_open_db()`, `:564-583` `run_portfolio` (TWS connect inside), `:590` `Wrote {alerts_path}`; `src/bot/portfolio/command.py:60` `PortfolioRunResult.alerts_path`. |
+| 4 | NO SOURCE → technical assumption (no retry; same-day rerun re-sends, `command.py:111`). |
+| 5 | DOC: spec §9 "Exit codes: 0 OK, 1 error operativo, 2 data error"; CODE: `cli.py:558` missing preset → 2. |
+| 6 | CODE: `command.py:141-143` always writes `alerts.md` before returning; if `run_portfolio` raises, the CLI exits before `notify_alerts`. Test id confirmed: `tests/integration/test_portfolio_command.py:174`. |
+| 7 | CODE: `tests/unit/test_cli_portfolio.py:12,17` (`Any`, `import bot.cli`), `:85-98` (`_env` does not create `reports_dir`); `tests/integration/test_portfolio_command.py:145-171` (first snapshot → `position_opened`). |
+| 8 | CODE: `pyproject.toml:58` ruff `select` has `TID`, no `PLC`. Cycle removed via `base.py` → assumption. |
+| 9 | CODE: `src/bot/utils/logging.py:50-52` returns `structlog.stdlib.BoundLogger`; same style at `command.py:144`. |
+| 10 | CODE: `smtplib.SMTP.login` raises `SMTPAuthenticationError(code, resp)` with the server reply. Email now uses `from None` as well. |
+| 11 | CODE: no `model_dump`/`repr(settings)` in `src/`; `cli.py:611` prints keys as `set`/`MISSING`. |
+| 12 | NO SOURCE → technical assumption (`none` kept for local relays; `none` + username rejected). |
+| 13 | CODE: `command.py:142-143` `write_text` default encoding → assumption (read with the same default). |
+| 14 | CODE: `config.py:21-24` only `sec_user_agent` is required (`...`); `test_blank_notifier_is_none` feeds the value through the env, so it exercises the `mode="before"` validator on the env path. |
+| 15 | DOC: `docs/plano/README.md` "Por qué falla el build a propósito" (build checks symbols cited in fichas and dependency tensions; the estado inventory is free text) and step 3 (`AUDITADO_EN` = commit of a real re-audit). |
+| 16 | ISSUE: "Hook in `bot portfolio` that sends the alerts file when notifier is configured"; exit codes and hook location → assumptions; DOC: spec §12 "degrade gracefully, alert loudly". |
+
+Per source type: CODE 12, DOC 3 (with CODE overlap), ISSUE 1, NO SOURCE 3 (all technical assumptions; none spec ambiguity, none out of scope).
+
+Assumptions: see `## Assumptions`. Issues opened: none.
