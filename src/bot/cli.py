@@ -560,16 +560,24 @@ def portfolio(
     conn, settings = _open_db()
     client = IbkrClient.from_settings(settings)
     gates = [*preset.quality_gates.build(), *preset.trap_detection.build()]
-    result = run_portfolio(
-        conn,
-        client,
-        reports_dir=settings.reports_dir,
-        today=date.today(),
-        history=history,
-        concentration=concentration,
-        quality_gates=gates,
-        assumptions_dir=settings.assumptions_dir,
-    )
+    try:
+        result = run_portfolio(
+            conn,
+            client,
+            reports_dir=settings.reports_dir,
+            today=date.today(),
+            history=history,
+            concentration=concentration,
+            quality_gates=gates,
+            assumptions_dir=settings.assumptions_dir,
+        )
+    except (ConnectionError, TimeoutError) as exc:
+        typer.echo(
+            f"Cannot reach TWS / IB Gateway at {settings.ibkr_host}:{settings.ibkr_port}: {exc}. "
+            "Start it with the API enabled, or set BOT_IBKR_HOST / BOT_IBKR_PORT.",
+            err=True,
+        )
+        raise typer.Exit(code=1) from exc
     typer.echo(
         f"Synced snapshot {result.snapshot_date.isoformat()} "
         f"(prev {result.prev_snapshot_date.isoformat() if result.prev_snapshot_date else 'none'}) "
