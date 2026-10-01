@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Bring the already-wired `bot portfolio` command (da2e068) up to issue #29's acceptance criteria: an empty `alerts.md` on quiet days, suggested reviews driven by today's events, a clean CLI failure when TWS is unreachable, a strict integration test, and a clean `ruff check .`.
+**Goal:** Bring the already-wired `bot portfolio` command (da2e068) up to issue #29's acceptance criteria: an empty `alerts.md` on quiet days, a strict integration test, a clean `ruff check .`, and a clean CLI failure when TWS is unreachable.
 
-**Architecture:** No new modules. `bot.portfolio.report` keeps its shape (pure `build_report` reader + pure Jinja2 renderers); it gains a `Review` row type and takes today's events as input. `bot.portfolio.command.run_portfolio` passes the events it already computes into `build_report`. `bot.cli.portfolio` catches connection failures at the composition root.
+**Architecture:** No new modules. `bot.portfolio.report` keeps its shape (pure `build_report` reader + pure Jinja2 renderers); only `render_alerts` and `alerts.md.j2` change. `bot.cli.portfolio` catches connection failures at the composition root.
 
 **Tech Stack:** Python 3.12, Typer, DuckDB, Jinja2, pytest, ruff, mypy --strict.
 
@@ -22,16 +22,23 @@
 ## Decisions (technical assumptions, declared)
 
 - **Empty means zero bytes.** With no events `render_alerts` returns `""`; the file is still written. A notifier (#32, spec §10 "módulo notifier aparte que lea alerts.md") can then use "file is empty" as "nothing to send".
-- **Which events suggest a review.** Spec §8.3 calls the layer-A/B/C events "lo valioso": `intrinsic_value_crossed_price`, `new_red_flag`, `below_quality_gate`, `sector_recalibrated`, `new_filing`. Each produces one review line. IBKR-observed events (opened/closed/size/dividend/split/currency) are the user's own actions or bookkeeping and do not. The `concentration` *event* is skipped because the concentration rows already produce the trimming review (avoids a duplicate line for the same ticker).
 - **TWS unreachable** = `ConnectionError` (incl. `ConnectionRefusedError`) or `TimeoutError` raised from `IbkrClient.connect`. Only those are caught; disk `OSError`s still surface.
+
+## Assumptions
+
+- **Empty alerts = zero bytes** rather than a header with a "no events" line (rejected: keep the header). Sourced by the issue ("empty file if none"), the brief ("empty content, file present") and spec §8.4 ("vacío si no hay"); the literal reading lets the notifier (#32) treat an empty file as "nothing to send".
+- **TWS-unreachable handling** catches only `ConnectionError` (incl. `ConnectionRefusedError`) and `TimeoutError` around `run_portfolio` (rejected: catch `OSError`, which would swallow disk errors). ib_async raises exactly these (`ib_async/ib.py` `connectAsync`: `raise ConnectionError(...)`, `asyncio.TimeoutError` is builtin `TimeoutError` on Python >= 3.11; the repo pins >= 3.12). All IBKR calls happen in `run_portfolio` steps 1-2 (`sync_portfolio`, `sync_trades`), before any file is written, so a connection failure leaves no report behind.
+- **Suggested reviews stay concentration-only** (rejected: derive them from today's §8.3 events). No source says which events suggest a review or with what action; that is a product decision, so it moved to #86.
+- **`AUDITADO_EN` / `AUDITADO_EL` are not bumped** (rejected: stamp the new HEAD). `docs/plano/README.md` ties them to a full re-audit of the code; this change re-checks one entry, so stamping would claim an audit that did not happen. `build_estado.py` only warns.
+- **Fallback text for "no reviews" stays as it is**; no wording change.
 
 ## Review Focus
 
-1. A quiet day after a busy one: `alerts.md` must be overwritten to empty, not left with yesterday's content — pinned in Task 2's integration test (run with events, then a run with none, file size 0).
-2. An event for a ticker that is not in today's positions (e.g. a filing for a just-closed position) must still produce its review line — pinned in Task 3 unit test (`test_suggested_reviews_include_ticker_without_position`).
-3. Several events of different types for one ticker each get their own line, in a stable order (positions' ticker order, then event order) — pinned in Task 3 unit test.
-4. TWS down: exit code 1, one-line message naming host:port, no traceback, no report files written — pinned in Task 4.
-5. `--history` on the second run lists both snapshot days — pinned in Task 3's integration test.
+1. A quiet day after a busy one: `alerts.md` must end up empty even if a stale file already sits at that path — pinned in Task 2's integration test.
+2. TWS down: exit code 1, one-line message naming host:port, no traceback, no report files written — pinned in Task 4.
+3. `--history` on the second run lists both snapshot days — pinned in Task 3.
+4. A run whose first snapshot opens every position must show each opening in `alerts.md` as a table row, not just mention the ticker — pinned in Task 3.
+5. A concentrated book must name the over-threshold position under Suggested reviews — pinned in Task 3.
 
 ---
 
@@ -91,103 +98,51 @@ def test_quiet_day_writes_empty_alerts_after_busy_day(
 - [ ] **Step 4:** rerun tests — PASS.
 - [ ] **Step 5:** Commit `fix(#29): write alerts.md empty on days without events`.
 
-### Task 3: suggested reviews driven by today's events
+### Task 3: the full-cycle integration test pins every expected section
+
+AC: "Integration test: full cycle against a **mocked `IbkrClient`** asserts both `.md` files are produced with the expected sections." Today the test accepts alternatives (`"## Profit & loss" in body or "## Profit and loss" in body`) and never checks `## Suggested reviews`, the alerts table or the history rows.
 
 **Files:**
-- Modify: `src/bot/portfolio/report.py` (`Review`, `_suggested_reviews`, `PortfolioReport.reviews`, `build_report(..., events=...)`)
-- Modify: `src/bot/reporting/templates/portfolio.md.j2` (Suggested reviews section)
-- Modify: `src/bot/portfolio/command.py` (pass `events` to `build_report`)
-- Test: `tests/unit/test_portfolio_report.py`, `tests/integration/test_portfolio_command.py`
+- Test: `tests/integration/test_portfolio_command.py`
 
-**Interfaces:**
-- Produces:
+- [ ] **Step 1: tighten** `test_portfolio_writes_both_reports`:
 
 ```python
-@dataclass(frozen=True)
-class Review:
-    """One position the report suggests revisiting, and why."""
-    ticker: str
-    reason: str
+    body = portfolio_md.read_text()
+    for heading in (
+        "# Portfolio — 2026-06-01",
+        "## Positions",
+        "## Profit & loss",
+        "## Concentration",
+        "## Suggested reviews",
+    ):
+        assert heading in body
+    assert "AAPL" in body
+    assert "MSFT" in body
+    # AAPL is ~83% of the book: the concentration review must name it.
+    assert "- **AAPL** is" in body
 
-# PortfolioReport gains (after `unpriced`): reviews: tuple[Review, ...] = ()
-
-def build_report(
-    conn, snapshot_date, *, include_history=False, include_concentration=False,
-    concentration_threshold=DEFAULT_CONCENTRATION_THRESHOLD,
-    events: Sequence[Event] = (),
-) -> PortfolioReport
+    alerts = alerts_md.read_text()
+    assert "# Alerts — 2026-06-01" in alerts
+    assert "| Type | Ticker | Details |" in alerts
+    # First snapshot -> every position opens.
+    assert "| position_opened | AAPL |" in alerts
+    assert "| position_opened | MSFT |" in alerts
 ```
 
-- Reason text per type (exact):
-  - concentration row flagged: `f"{weight:.1%} of the portfolio, above the {threshold:.1%} concentration threshold; consider trimming."`
-  - `intrinsic_value_crossed_price`, direction `above_price`: `"Intrinsic value rose above the price; revisit the valuation before adding."`; `below_price`: `"Intrinsic value fell below the price; revisit the thesis."`
-  - `new_red_flag`: `f"New red narrative flag `{flag}`; check the story still holds."`
-  - `below_quality_gate`: `f"Now fails the `{gate}` quality gate; revisit the thesis."`
-  - `sector_recalibrated`: `f"Sector WACC moved {delta:+.2%}; re-run the valuation."`
-  - `new_filing`: `f"New {filing_type} filed {filing_date}; re-run `bot analyze {ticker}`."`
-- Ordering: concentration reviews first (weight desc, as rows already are), then event reviews in the order `compute_events` returned them.
-
-- [ ] **Step 1: failing unit tests** in `tests/unit/test_portfolio_report.py`:
+and `test_history_and_concentration_flags`:
 
 ```python
-def test_suggested_reviews_from_derived_events(conn: duckdb.DuckDBPyConnection) -> None:
-    _insert(conn, D2, [("AAPL", 1, 10.0, 100.0, 1000.0, "USD")] + [
-        (t, i, 10.0, 100.0, 1000.0, "USD") for i, t in enumerate("BCDEFGHI", 2)
-    ])
-    events = [
-        Event(EventType.POSITION_OPENED, "AAPL", D2, D1, {"qty": 10.0}),
-        Event(EventType.INTRINSIC_VALUE_CROSSED_PRICE, "AAPL", D2, D1,
-              {"direction": "below_price", "intrinsic_value": 90.0, "price": 100.0}),
-        Event(EventType.BELOW_QUALITY_GATE, "AAPL", D2, D1, {"gate": "max_net_debt_to_ebitda"}),
-        Event(EventType.NEW_RED_FLAG, "B", D2, D1, {"flag": "margin_jump", "reason": "x"}),
-        Event(EventType.SECTOR_RECALIBRATED, "C", D2, D1, {"prev_wacc": 0.08, "wacc": 0.095, "delta": 0.015}),
-        Event(EventType.NEW_FILING, "D", D2, D1,
-              {"filing_type": "10-K", "filing_date": "2026-05-01", "accession_number": "1"}),
-    ]
-    report = build_report(conn, D2, events=events)
-    assert [(r.ticker, r.reason) for r in report.reviews] == [
-        ("AAPL", "Intrinsic value fell below the price; revisit the thesis."),
-        ("AAPL", "Now fails the `max_net_debt_to_ebitda` quality gate; revisit the thesis."),
-        ("B", "New red narrative flag `margin_jump`; check the story still holds."),
-        ("C", "Sector WACC moved +1.50%; re-run the valuation."),
-        ("D", "New 10-K filed 2026-05-01; re-run `bot analyze D`."),
-    ]
-
-
-def test_suggested_reviews_include_ticker_without_position(conn: duckdb.DuckDBPyConnection) -> None:
-    events = [Event(EventType.NEW_FILING, "GONE", D2, D1,
-                    {"filing_type": "8-K", "filing_date": "2026-05-02", "accession_number": "9"})]
-    report = build_report(conn, D2, events=events)
-    assert [r.ticker for r in report.reviews] == ["GONE"]
-
-
-def test_concentration_event_does_not_duplicate_trim_review(conn: duckdb.DuckDBPyConnection) -> None:
-    _insert(conn, D2, [("AAPL", 1, 100.0, 120.0, 15000.0, "USD"), ("MSFT", 2, 10.0, 300.0, 3000.0, "USD")])
-    events = [Event(EventType.CONCENTRATION, "AAPL", D2, D1, {"weight": 0.83})]
-    report = build_report(conn, D2, events=events)
-    assert [r.ticker for r in report.reviews] == ["AAPL", "MSFT"]
-    assert all("consider trimming" in r.reason for r in report.reviews)
+    body = result.portfolio_path.read_text()
+    assert "## P&L history" in body
+    assert "## Concentration breakdown" in body
+    # Both snapshot days appear in the time series.
+    assert "| 2026-05-31 |" in body
+    assert "| 2026-06-01 |" in body
 ```
 
-Update `test_render_portfolio_sections` to pass `reviews=(Review("AAPL", "x; consider trimming."),)` and assert `"- **AAPL**: x; consider trimming." in out`; `test_render_portfolio_no_history_section_by_default` keeps asserting `"No reviews suggested"`.
-
-- [ ] **Step 2: tighten the integration test** `test_portfolio_writes_both_reports`: assert each of `"# Portfolio — 2026-06-01"`, `"## Positions"`, `"## Profit & loss"`, `"## Concentration"`, `"## Suggested reviews"` is in `portfolio.md`, and `"# Alerts — 2026-06-01"`, `"| Type | Ticker | Details |"`, `"position_opened"` in `alerts.md`. In `test_history_and_concentration_flags` assert `"## P&L history"`, `"## Concentration breakdown"`, `"| 2026-05-31 |"` and `"| 2026-06-01 |"`. In `test_run_portfolio_emits_valuation_events_across_two_runs` add: `body = (tmp_path / day2.isoformat() / "portfolio.md").read_text()` and assert `"Now fails the `toggle_gate` quality gate" in body` and `"Intrinsic value rose above the price" in body`.
-- [ ] **Step 3:** run both test files — expected FAIL (`events` kwarg / `reviews` missing).
-- [ ] **Step 4: implement.** In `report.py`: add `Review`, `_REVIEW_EVENTS` and `_suggested_reviews(concentration: Sequence[ConcentrationRow], events: Sequence[Event], *, threshold: float) -> list[Review]` per the reason table; `build_report` takes `events` and fills `reviews=tuple(...)`. In the template replace the `selectattr("flagged")` block with:
-
-```jinja
-{% if r.reviews %}
-{% for review in r.reviews %}
-- **{{ review.ticker }}**: {{ review.reason }}
-{% endfor %}
-{% else %}
-- No positions exceed the concentration threshold and no events call for a review today. No reviews suggested.
-{% endif %}
-```
-
-In `command.py` pass `events=events` to `build_report`.
-- [ ] **Step 5:** run tests — PASS; `uv run mypy src`.
-- [ ] **Step 6:** Commit `feat(#29): suggest reviews from today's derived portfolio events`.
+- [ ] **Step 2:** `uv run pytest tests/integration/test_portfolio_command.py -q` — these are assertions on existing behaviour; they must PASS. If one fails, it is a real gap: fix the template, not the assertion.
+- [ ] **Step 3:** Commit `test(#29): pin every expected report section in the integration test`.
 
 ### Task 4: clean CLI failure when TWS is unreachable
 
@@ -236,9 +191,9 @@ def test_portfolio_reports_unreachable_tws(
 ### Task 5: plans (estado / plano)
 
 **Files:**
-- Modify: `docs/plano/estado.py` (`rep-portfolio` entry; `AUDITADO_EN` / `AUDITADO_EL` if the README's procedure requires it for this change)
+- Modify: `docs/plano/estado.py` (`rep-portfolio` entry only; `AUDITADO_EN` / `AUDITADO_EL` stay as they are, see Assumptions)
 - Regenerate: `python3 docs/plano/build.py && python3 docs/plano/build_estado.py`
 
-- [ ] **Step 1:** Update the `rep-portfolio` evidence text: positions, P&L, concentration, suggested reviews from concentration and today's derived events (§8.3 layer A/B/C), optional history and breakdown; `alerts.md` always written, empty on a day without events. Point the evidence at `portfolio/report.py` line of `build_report`.
+- [ ] **Step 1:** Update the `rep-portfolio` evidence text: summary, positions, P&L, concentration and suggested reviews (over-threshold positions), optional history (`--history`) and breakdown (`--concentration`); `alerts.md` always written, and empty (zero bytes) on a day without events; `bot portfolio` exits 1 with a one-line message when TWS is unreachable. Keep the evidence pointer at `portfolio/report.py` `build_report`.
 - [ ] **Step 2:** Run both builds; they must succeed.
 - [ ] **Step 3:** Commit `docs(#29): record portfolio report state in the plans`.
