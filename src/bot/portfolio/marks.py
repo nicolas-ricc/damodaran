@@ -5,9 +5,11 @@ gate failing, a sector WACC recalibration) are diffs between two snapshots, so
 each snapshot persists a :class:`HoldingMark` per held ticker and the baseline
 is always read back from ``holding_marks`` rather than recomputed.
 
-``None`` fields mean "unknown", never "clean": ``red_flags=None`` is a ticker
-that could not be valued, ``failed_gates=None`` one the gates could not be
-evaluated for. Detectors must not read either as an all-clear.
+``None`` fields mean "unknown": ``red_flags=None`` is a ticker that could not
+be valued, ``failed_gates=None`` one the gates could not be evaluated for. An
+unknown *current* value never fires an event. An unknown *prior* red-flag set
+counts as empty, by design, so standing red flags re-fire after a day without a
+valuation; an unknown prior gate set or WACC yields no event.
 """
 
 from __future__ import annotations

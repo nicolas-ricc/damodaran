@@ -408,7 +408,7 @@ BROKER_EVENTS = [
     ("currency_changed", ""),
 ]
 DERIVED_EVENTS = [
-    ("new_filing", "y vuelve a correr el análisis solo"),
+    ("new_filing", "pide volver a correr el análisis"),
     ("intrinsic_value_crossed_price", "en cualquiera de las dos direcciones"),
     ("new_red_flag", "una bandera narrativa se puso en rojo"),
     ("below_quality_gate", "se cayó de un filtro que antes pasaba"),
