@@ -240,7 +240,6 @@ def test_history_and_concentration_flags(
     body = result.portfolio_path.read_text()
     assert "## P&L history" in body
     assert "## Concentration breakdown" in body
-    # Both snapshot days appear in the time series.
     assert "| 2026-05-31 |" in body
     assert "| 2026-06-01 |" in body
 
