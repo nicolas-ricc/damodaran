@@ -220,3 +220,36 @@ Expected: both builds succeed (outputs are gitignored), suite green.
 git add src/bot/portfolio/sync.py src/bot/portfolio/__init__.py docs/plano/estado.py
 git commit -m "docs(#27): status plan and docstrings reflect wired trade sync"
 ```
+
+## Assumptions
+
+- **A1 — Trade sync runs inside `bot portfolio`, after the snapshot.** The brief says "On each sync, fetch only executions newer than what is already stored"; `run_portfolio` is the only production sync. Rejected: a separate `bot trades` command (a second cron entry, and "each sync" would no longer hold); running it before the snapshot (no difference to the result, and the snapshot is the step the reports depend on).
+- **A2 — Errors from `trades()` propagate.** Same policy as `sync_portfolio` (`try/finally` only, `src/bot/portfolio/sync.py`). With no transaction (statements autocommit), a failure leaves the day's snapshot written and no events/report; a re-run is idempotent for snapshots (`_replace_account_day`) and trades (`ON CONFLICT (exec_id) DO NOTHING`). Rejected: swallowing and reporting a partial run, which would hide a dropped socket.
+- **A3 — The CLI prints the count.** Not in the acceptance criteria; it is the only signal a cron user gets that the log advanced. Rejected: log line only.
+- **A4 — Targeted status-plan update.** CLAUDE.md asks for both plans to be updated after a stage; only the entries this change invalidates are edited, and `AUDITADO_EN`/`AUDITADO_EL` stay because they record a full audit, which this is not.
+- **A5 — Each task is independently shippable.** Task 1 alone records trades (visible in the `portfolio_report_written` log); Tasks 2 and 3 add output and docs.
+
+## Grilling
+
+Rounds: 1 (plan changed only by adding Assumptions; no steps added or removed). Griller model: fable. Questions: 16.
+
+| # | Source | Answer |
+|---|---|---|
+| 1 | CODE | `src/bot/portfolio/command.py`, `sync.py`, `trades.py`: no `BEGIN`/transaction anywhere (grep); DuckDB autocommits each statement, so the snapshot survives a failing `trades()`. See A2. |
+| 2 | ISSUE + CODE | Brief (nicolas-ricc): "derive the watermark from `max(executed date)` in `trades` … only insert executions after the watermark". Per-account scoping: `trades.py` `_watermark` (`WHERE account = ?`), pinned by `tests/unit/test_trade_sync.py:195 test_watermark_is_per_account`. |
+| 3 | CODE | `src/bot/portfolio/trades.py:37-60` (`TradeSource`, `TradeSyncSummary(accounts, inserted)`), `:63-96` (`sync_trades` iterates `client.accounts()`). |
+| 4 | CODE | `src/bot/storage/schema.sql:216` (`trades`), `:240` (`corporate_actions`); `tests/integration/test_portfolio_command.py` `conn` fixture calls `apply_schema`; `tests/unit/test_cli_portfolio.py` `_env` calls `apply_schema` on the file DB. |
+| 5 | DOC + assumption | Task 3: CLAUDE.md "After a stage, both get updated." Task 2: A3. |
+| 6 | ISSUE | Brief, out of scope: "Reconciling trades against positions, or deriving realized P&L (belongs to reporting #29)." Nothing asks for a per-account breakdown or trades in the report. |
+| 7 | CODE | `PortfolioSource` (`sync.py`) and `TradeSource` (`trades.py`) declare `connect`, `disconnect`, `accounts` with identical signatures; `IbkrClient` (`src/bot/ingest/ibkr.py`) implements all five methods. mypy --strict in Task 1 Step 4 checks it. |
+| 8 | CODE | `schema.sql`: `exec_id VARCHAR PRIMARY KEY`, comment: "`exec_id` is IBKR's globally-unique execution id and is the primary key." |
+| 9 | CODE | `trades.py` `_watermark`: stored naive UTC, returned with `.replace(tzinfo=UTC)`. |
+| 10 | CODE | `tests/unit/test_cli_portfolio.py` `_env`: `monkeypatch.setattr(bot.cli, "IbkrClient", _FakeIbkrClient)`. |
+| 11 | assumption | A2. |
+| 12 | ISSUE + assumption | "On each sync…" (brief); ordering is A1. |
+| 13 | CODE | `PortfolioRunResult` is built only in `command.py` (keyword args) and read by attribute in `cli.py` (grep); the log event has no documented schema. |
+| 14 | CODE | `docs/plano/estado.py:70` "Trece se escriben"; `build_estado.py` does not validate evidence strings (grep); `trades.py` is not modified, so `:63` stays valid. |
+| 15 | DOC + assumption | CLAUDE.md "Working with the plans"; A4. |
+| 16 | assumption | A5. |
+
+Source counts: ISSUE 3, CODE 11, DOC 2, technical assumptions 5 (A1–A5). Spec ambiguities: 0. Out-of-scope issues opened: 0.
