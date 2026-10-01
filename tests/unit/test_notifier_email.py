@@ -3,6 +3,7 @@ from email.message import EmailMessage
 from typing import ClassVar
 
 import pytest
+
 from bot.notifier import NotificationError
 from bot.notifier.email import EmailNotifier
 
