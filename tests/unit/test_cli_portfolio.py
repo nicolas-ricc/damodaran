@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from bot.notifier import NotificationError
 from typer.testing import CliRunner
 
 import bot.cli
@@ -219,3 +220,84 @@ def test_portfolio_names_timeout_when_tws_does_not_answer(
 
     assert result.exit_code == 1
     assert "127.0.0.1:7496: TimeoutError." in result.output
+
+
+class _RecordingNotifier:
+    def __init__(self) -> None:
+        self.sent: list[str] = []
+
+    def send(self, text: str) -> None:
+        self.sent.append(text)
+
+
+def test_portfolio_sends_alerts_when_notifier_configured(tmp_path, monkeypatch) -> None:
+    reports_dir = _env(tmp_path, monkeypatch)
+    rec = _RecordingNotifier()
+    monkeypatch.setattr(bot.cli, "build_notifier", lambda settings: rec)
+
+    result = CliRunner().invoke(app, ["portfolio"])
+
+    assert result.exit_code == 0, result.output
+    alerts = next(reports_dir.glob("*/alerts.md")).read_text()
+    assert rec.sent == [alerts]
+    assert "Sent alerts via" in result.stdout
+
+
+def test_portfolio_default_notifier_sends_nothing(tmp_path, monkeypatch) -> None:
+    _env(tmp_path, monkeypatch)
+    monkeypatch.setenv("BOT_NOTIFIER", "none")  # process env beats a developer's .env
+
+    result = CliRunner().invoke(app, ["portfolio"])
+
+    assert result.exit_code == 0, result.output
+    assert "Sent alerts" not in result.stdout
+
+
+def test_portfolio_skips_empty_alerts(tmp_path, monkeypatch) -> None:
+    _env(tmp_path, monkeypatch)
+    rec = _RecordingNotifier()
+    monkeypatch.setattr(bot.cli, "build_notifier", lambda settings: rec)
+    real_run_portfolio = bot.cli.run_portfolio
+
+    def _quiet_day(*args: Any, **kwargs: Any) -> Any:
+        result = real_run_portfolio(*args, **kwargs)
+        result.alerts_path.write_text("")  # what run_portfolio writes on a day with no events
+        return result
+
+    monkeypatch.setattr(bot.cli, "run_portfolio", _quiet_day)
+
+    result = CliRunner().invoke(app, ["portfolio"])
+
+    assert result.exit_code == 0, result.output
+    assert rec.sent == []
+    assert "Sent alerts" not in result.stdout
+
+
+def test_portfolio_misconfigured_notifier_fails_before_sync(tmp_path, monkeypatch) -> None:
+    reports_dir = _env(tmp_path, monkeypatch)
+    monkeypatch.setenv("BOT_NOTIFIER", "telegram")
+    monkeypatch.setenv("BOT_TELEGRAM_BOT_TOKEN", "")  # empty env beats a developer's .env
+    monkeypatch.setenv("BOT_TELEGRAM_CHAT_ID", "")
+
+    result = CliRunner().invoke(app, ["portfolio"])
+
+    assert result.exit_code == 2
+    assert "Notifier misconfigured" in result.output
+    assert "BOT_TELEGRAM_BOT_TOKEN" in result.output
+    assert not list(reports_dir.glob("*/*.md"))
+
+
+def test_portfolio_send_failure_exits_1_and_keeps_reports(tmp_path, monkeypatch) -> None:
+    reports_dir = _env(tmp_path, monkeypatch)
+
+    class _Failing:
+        def send(self, text: str) -> None:
+            raise NotificationError("Telegram sendMessage HTTP 400: chat not found")
+
+    monkeypatch.setattr(bot.cli, "build_notifier", lambda settings: _Failing())
+
+    result = CliRunner().invoke(app, ["portfolio"])
+
+    assert result.exit_code == 1
+    assert "Alerts not sent: Telegram sendMessage HTTP 400: chat not found" in result.output
+    assert len(list(reports_dir.glob("*/alerts.md"))) == 1
