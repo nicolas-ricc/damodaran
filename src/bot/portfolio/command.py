@@ -5,10 +5,12 @@
 
 1. runs :func:`~bot.portfolio.sync.sync_portfolio` against the read-only IBKR
    client to write today's snapshot (idempotent per day);
-2. computes the §8.3 event stream against the previous snapshot via
+2. appends the executions newer than the stored watermark via
+   :func:`~bot.portfolio.trades.sync_trades` (de-duped on ``exec_id``);
+3. computes the §8.3 event stream against the previous snapshot via
    :func:`~bot.portfolio.events.compute_events` and persists it
    (:func:`~bot.portfolio.events.persist_events`);
-3. builds + renders the full-state ``portfolio.md`` and the today-only
+4. builds + renders the full-state ``portfolio.md`` and the today-only
    ``alerts.md`` under ``reports/YYYY-MM-DD/`` (the same dated-directory
    convention as the other commands).
 
@@ -21,11 +23,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 from bot.portfolio.events import compute_events, persist_events
 from bot.portfolio.report import build_report, render_alerts, render_portfolio
 from bot.portfolio.sync import PortfolioSource, sync_portfolio
+from bot.portfolio.trades import TradeSource, sync_trades
 from bot.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -36,6 +39,10 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 
+class PortfolioClient(PortfolioSource, TradeSource, Protocol):
+    """The read-only IBKR slice a full portfolio run needs: snapshot + fills."""
+
+
 @dataclass(frozen=True)
 class PortfolioRunResult:
     """What a single :func:`run_portfolio` invocation produced."""
@@ -43,6 +50,7 @@ class PortfolioRunResult:
     snapshot_date: date
     prev_snapshot_date: date | None
     events: int
+    trades_inserted: int
     portfolio_path: Path
     alerts_path: Path
 
@@ -63,7 +71,7 @@ def _previous_snapshot_date(
 
 def run_portfolio(
     conn: duckdb.DuckDBPyConnection,
-    client: PortfolioSource,
+    client: PortfolioClient,
     *,
     reports_dir: Path,
     today: date | None = None,
@@ -75,7 +83,7 @@ def run_portfolio(
 
     Args:
         conn: Open DuckDB connection with the schema applied.
-        client: A read-only IBKR client (or any :class:`PortfolioSource`).
+        client: A read-only IBKR client (or any :class:`PortfolioClient`).
         reports_dir: Root reports directory; the dated subdir is created under it.
         today: Calendar day to key the run on; defaults to today.
         history: Include the P&L time series in ``portfolio.md`` (``--history``).
@@ -91,12 +99,15 @@ def run_portfolio(
     # 1. Sync today's snapshot (idempotent per day).
     sync_portfolio(conn, client, snapshot_date=run_day)
 
-    # 2. Diff against the previous snapshot and persist the event stream.
+    # 2. Append the executions newer than the stored watermark (de-duped).
+    trades = sync_trades(conn, client)
+
+    # 3. Diff against the previous snapshot and persist the event stream.
     prev_date = _previous_snapshot_date(conn, run_day)
     events = compute_events(conn, prev_date, run_day, analyze_fn=analyze_fn)
     persist_events(conn, events)
 
-    # 3. Build + render reports under the dated directory.
+    # 4. Build + render reports under the dated directory.
     report = build_report(
         conn,
         run_day,
@@ -118,6 +129,7 @@ def run_portfolio(
         snapshot_date=run_day.isoformat(),
         prev_snapshot_date=prev_date.isoformat() if prev_date else None,
         events=len(events),
+        trades_inserted=trades.inserted,
         portfolio=str(portfolio_path),
         alerts=str(alerts_path),
     )
@@ -125,6 +137,7 @@ def run_portfolio(
         snapshot_date=run_day,
         prev_snapshot_date=prev_date,
         events=len(events),
+        trades_inserted=trades.inserted,
         portfolio_path=portfolio_path,
         alerts_path=alerts_path,
     )

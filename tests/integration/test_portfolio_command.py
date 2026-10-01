@@ -8,13 +8,13 @@ sections.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import duckdb
 import pytest
 
-from bot.ingest.ibkr import CashBalance, PortfolioPosition
+from bot.ingest.ibkr import CashBalance, PortfolioPosition, TradeExecution
 from bot.portfolio.command import run_portfolio
 from bot.storage.db import apply_schema
 
@@ -24,10 +24,17 @@ TODAY = date(2026, 6, 1)
 class _FakeIbkrClient:
     """A lightweight in-memory stand-in for :class:`IbkrClient`."""
 
-    def __init__(self, positions: list[PortfolioPosition], cash: list[CashBalance]) -> None:
+    def __init__(
+        self,
+        positions: list[PortfolioPosition],
+        cash: list[CashBalance],
+        fills: list[TradeExecution] | None = None,
+    ) -> None:
         self._positions = positions
         self._cash = cash
+        self._fills = fills or []
         self.connected = False
+        self.since_calls: list[datetime | None] = []
 
     def connect(self) -> None:
         self.connected = True
@@ -43,6 +50,13 @@ class _FakeIbkrClient:
 
     def cash_balances(self, account_id: str) -> list[CashBalance]:
         return list(self._cash)
+
+    def trades(
+        self, account_id: str, since: datetime | None = None
+    ) -> list[TradeExecution]:
+        # Unfiltered on purpose: the sync layer de-dupes on exec_id.
+        self.since_calls.append(since)
+        return list(self._fills)
 
 
 @pytest.fixture
@@ -62,6 +76,22 @@ def _position(symbol: str, con_id: int, qty: float, avg_cost: float) -> Portfoli
         exchange="NASDAQ",
         quantity=qty,
         avg_cost=avg_cost,
+    )
+
+
+def _fill(exec_id: str, symbol: str, when: datetime) -> TradeExecution:
+    return TradeExecution(
+        account="DU1",
+        exec_id=exec_id,
+        con_id=1,
+        symbol=symbol,
+        sec_type="STK",
+        currency="USD",
+        side="BOT",
+        quantity=10.0,
+        price=100.0,
+        executed_at=when,
+        perm_id=1,
     )
 
 
@@ -177,3 +207,61 @@ def test_history_and_concentration_flags(
     assert "## P&L history" in body or "## History" in body
     # Concentration breakdown section present with both days when --history.
     assert "## Concentration" in body
+
+
+def test_run_portfolio_appends_new_trades(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    fills = [
+        _fill("E1", "AAPL", datetime(2026, 6, 1, 14, 0, tzinfo=UTC)),
+        # Bought and sold the same day: no position, still a trade.
+        _fill("E2", "TSLA", datetime(2026, 6, 1, 15, 0, tzinfo=UTC)),
+    ]
+    client = _FakeIbkrClient([_position("AAPL", 1, 10.0, 100.0)], [], fills)
+
+    result = run_portfolio(
+        conn, client, reports_dir=tmp_path, today=TODAY, analyze_fn=_no_analyze
+    )
+
+    assert result.trades_inserted == 2
+    rows = conn.execute("SELECT exec_id FROM trades ORDER BY exec_id").fetchall()
+    assert rows == [("E1",), ("E2",)]
+    assert client.since_calls == [None]
+    assert client.connected is False
+
+
+def test_run_portfolio_same_day_rerun_does_not_duplicate_trades(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    fills = [_fill("E1", "AAPL", datetime(2026, 6, 1, 14, 0, tzinfo=UTC))]
+    run_portfolio(
+        conn,
+        _FakeIbkrClient([], [], fills),
+        reports_dir=tmp_path,
+        today=TODAY,
+        analyze_fn=_no_analyze,
+    )
+    again = _FakeIbkrClient([], [], fills)
+
+    result = run_portfolio(
+        conn, again, reports_dir=tmp_path, today=TODAY, analyze_fn=_no_analyze
+    )
+
+    assert result.trades_inserted == 0
+    assert conn.execute("SELECT count(*) FROM trades").fetchone() == (1,)
+    assert again.since_calls == [datetime(2026, 6, 1, 14, 0, tzinfo=UTC)]
+
+
+def test_run_portfolio_without_fills_records_no_trades(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    result = run_portfolio(
+        conn,
+        _FakeIbkrClient([], []),
+        reports_dir=tmp_path,
+        today=TODAY,
+        analyze_fn=_no_analyze,
+    )
+
+    assert result.trades_inserted == 0
+    assert conn.execute("SELECT count(*) FROM trades").fetchone() == (0,)

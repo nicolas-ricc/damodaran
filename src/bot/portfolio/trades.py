@@ -11,8 +11,8 @@ Corporate actions are **deliberately out of scope** here. The live TWS socket
 does not expose dividends/splits/mergers in any reliable form — they come from
 IBKR's Flex Web Service, a separate HTTP integration with its own auth (see the
 #27 addendum). The ``corporate_actions`` table is created by the schema so the
-shape is ready, but nothing in this module populates it; a follow-up issue will
-add a Flex importer.
+shape is ready, but nothing in this module populates it; #56 will add a Flex
+importer.
 
 Follows the ingest convention: an open connection and a client go in, plain
 data comes out; no global state.

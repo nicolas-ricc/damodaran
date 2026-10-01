@@ -54,8 +54,8 @@ INVENTARIO = {
   "Implementa el mismo puerto MarketDataProvider componiendo SecEdgarClient (fundamentals, profile, dei shares) y StooqClient (EOD). Es el proveedor por defecto (BOT_DATA_PROVIDER=edgar-stooq); ver ADR 0007. La corrida real de esta tarea confirmó fundamentals (25/25 importados, dos pasadas) pero encontró que Stooq ahora antepone un reto JS anti-bot (proof-of-work) a las peticiones sin navegador — 404/200-con-reto en vez del límite diario documentado (StooqRateLimitError). El código clasifica esa falla correctamente como fallo de proveedor (no como un crash), pero no hay forma de superar el reto sin un navegador real; queda registrado como riesgo operativo del proveedor, no como bug de ingest."),
  ("ibkr-pos", "IBKR: posiciones y efectivo", "hecho", "ingest/ibkr.py:205,211",
   None),
- ("ibkr-trades", "IBKR: historial de operaciones", "muerto", "portfolio/trades.py:63",
-  "168 líneas con marca de agua incremental, deduplicación por id de ejecución y siete tests. Cero llamadores en producción. La tabla trades nunca se escribe en un uso real."),
+ ("ibkr-trades", "IBKR: historial de operaciones", "hecho", "portfolio/trades.py:63; portfolio/command.py",
+  "run_portfolio lo llama en cada bot portfolio, después del snapshot: marca de agua incremental por cuenta, deduplicación por id de ejecución. Tests unitarios con cliente simulado y de integración sobre run_portfolio. Solo ve los fills de la sesión de TWS: el historial se acumula corrida a corrida."),
  ("ibkr-corp", "IBKR: dividendos y splits", "falta", "docs/adr/0004:43",
   "El socket de TWS no trae corporate actions; haría falta el Flex Web Service. La tabla existe y alguien la lee, pero nadie la escribe."),
  ("universo", "El universo", "hecho", "ingest/universe_default.csv:1-3; tests/unit/test_universe_csv.py",
@@ -67,7 +67,7 @@ INVENTARIO = {
  ("storage", "Conexión y esquema", "a-medias", "storage/db.py:24",
   "Sin versionado ni migraciones. Agregar una columna a una base existente es una operación nula que revienta después, en ejecución."),
  ("tablas", "Las quince tablas", "a-medias", "storage/schema.sql",
-  "Trece se escriben. corporate_actions no tiene ningún escritor y trades tiene uno que nadie llama. Tres columnas quedan siempre nulas: reinvestment_rate, payout_ratio e isin."),
+  "Catorce se escriben; corporate_actions sigue sin escritor (Flex, #56). Tres columnas quedan siempre nulas: reinvestment_rate, payout_ratio e isin."),
 ]),
 
 "capa-b": ("Capa B · screener", "dieciséis reglas, cero subjetividad", [
@@ -160,7 +160,7 @@ INVENTARIO = {
  ("rep-repro", "El encabezado de reproducibilidad", "falta", "spec §13.3",
   "Los reportes llevan fecha de generación y nada más. Sin versión del dataset ni fecha del último filing, dos corridas distintas producen encabezados indistinguibles."),
  ("cli-8", "Los ocho comandos", "hecho", "cli.py:56-479",
-  "Los ocho responden y tienen al menos un test que los ejecuta. analyze acepta un solo ticker y portfolio no sincroniza operaciones."),
+  "Los ocho responden y tienen al menos un test que los ejecuta. analyze acepta un solo ticker."),
  ("cli-falta", "Comandos y opciones que faltan", "a-medias", "cli.py:332-369; spec §9.2",
   "El analyze variádico y --from-screen ya existen (cli.py:332-369: uno o más tickers, o el shortlist del último screen persistido ordenado por rank). Lo que sigue faltando: config validate, config edit, --json global, --dry-run, refresh --portfolio. BOT_DATA_PROVIDER (edgar-stooq por defecto, fmp opcional) ya existe como variable de entorno pero no como opción de CLI expuesta ni validada por config validate, porque ese comando no existe."),
  ("doctor", "bot doctor", "hecho", "cli.py:507-558; storage/db.py:30-33; tests/unit/test_cli_doctor.py",
@@ -173,7 +173,7 @@ INVENTARIO = {
   "El universo ya es real: 503 tickers del S&P 500 en vez de 451 sintéticos, y ya hubo dos corridas reales contra la red (FMP el 2026-09-02, el stack gratis edgar-stooq el 2026-09-09; ver datos-reales). El proveedor por defecto pasó de FMP a la composición SEC EDGAR + Stooq ($0/mes, ADR 0007); FMP queda disponible detrás de BOT_DATA_PROVIDER=fmp para cuando M2 reabra la expansión global — sigue siendo US-only por naturaleza (EDGAR no cubre fuera de EE.UU.) y una sola región de Damodaran, ambas decisiones de alcance explícitas (ver ADR 0006) y no límites ocultos."),
  ("m3", "M3 · screener", "hecho", "screener/", "La compuerta de cobertura (ADR 0006) ya está implementada."),
  ("m4", "M4 · valuador", "hecho", "valuator/", "El story type ya rama crecimiento y margen; le sigue faltando sales-to-capital, crecimiento terminal y valuación condicional a supervivencia."),
- ("m5", "M5 · IBKR", "a-medias", "portfolio/", "Falta cablear las operaciones (diferido por decisión de alcance, no un olvido); las corporate actions requieren otro servicio."),
+ ("m5", "M5 · IBKR", "a-medias", "portfolio/", "Las operaciones ya se sincronizan en cada bot portfolio (#27); las corporate actions siguen sin escritor: requieren el Flex Web Service (#56)."),
  ("adr-ok", "ADR 0001, 0002 y 0004", "hecho", "docs/adr/",
   "DuckDB, SEC antes que FMP, y TWS solo lectura: las tres implementadas. La 0003 fue revertida limpiamente por la 0004."),
  ("adr-0005", "ADR 0005 · moneda de valuación", "falta", "docs/adr/0005",
@@ -211,8 +211,6 @@ BRECHAS = [
   "Sin bootstrap, sin instalador, sin log a archivo, sin respaldo. La ADR 0004 eligió TWS justamente por la compatibilidad con cron."),
  ("Cree que sus reportes son reproducibles.",
   "Llevan fecha de generación y nada más. Dos corridas distintas producen encabezados idénticos."),
- ("Cree que M5 sincroniza operaciones.",
-  "sync_trades está escrito, tipado y cubierto por siete tests. Nadie lo llama — diferido por decisión de alcance de este plan, no un olvido nuevo."),
 ]
 
 

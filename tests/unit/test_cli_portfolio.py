@@ -7,6 +7,7 @@ report artefacts are written under the dated directory.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -14,7 +15,7 @@ from typer.testing import CliRunner
 
 import bot.cli
 from bot.cli import app
-from bot.ingest.ibkr import CashBalance, PortfolioPosition
+from bot.ingest.ibkr import CashBalance, PortfolioPosition, TradeExecution
 from bot.storage.db import apply_schema, connect
 
 
@@ -59,6 +60,25 @@ class _FakeIbkrClient:
 
     def cash_balances(self, account_id: str) -> list[CashBalance]:
         return [CashBalance(account="DU1", currency="USD", amount=5000.0)]
+
+    def trades(
+        self, account_id: str, since: datetime | None = None
+    ) -> list[TradeExecution]:
+        return [
+            TradeExecution(
+                account="DU1",
+                exec_id="E1",
+                con_id=1,
+                symbol="AAPL",
+                sec_type="STK",
+                currency="USD",
+                side="BOT",
+                quantity=100.0,
+                price=120.0,
+                executed_at=datetime(2026, 6, 1, 14, 0, tzinfo=UTC),
+                perm_id=1,
+            )
+        ]
 
 
 def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -111,3 +131,17 @@ def test_portfolio_history_and_concentration_flags(
     body = next(reports_dir.glob("*/portfolio.md")).read_text()
     assert "## P&L history" in body
     assert "## Concentration breakdown" in body
+
+
+def test_portfolio_records_trades(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _env(tmp_path, monkeypatch)
+
+    result = CliRunner().invoke(app, ["portfolio"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "Recorded 1 new trade(s)" in result.stdout
+    conn = connect(tmp_path / "bot.duckdb")
+    assert conn.execute("SELECT exec_id FROM trades").fetchall() == [("E1",)]
+    conn.close()
