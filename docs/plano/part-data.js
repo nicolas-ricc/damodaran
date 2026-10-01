@@ -346,7 +346,7 @@ events:{role:"vigila",titulo:"Eventos",lead:"Doce tipos, y una lista explícita 
    "Derivados: filing nuevo, el valor intrínseco cruzó el precio, bandera roja nueva, caída por debajo de un quality gate, industria recalibrada (el WACC sectorial se movió más de 100 pb), concentración por encima del 15%."]}},
 
 reports:{role:"vigila",titulo:"Reportes",lead:"Una carpeta por día, inmutable.",
- idea:["Toda la salida es archivo en disco: sin mail, sin Telegram, sin dashboard. Cada día es una carpeta autocontenida que no se vuelve a tocar.",
+ idea:["La salida es un archivo en disco, sin dashboard; un notificador opcional reenvía alerts.md por mail o Telegram. Cada día es una carpeta autocontenida que no se vuelve a tocar.",
   "Que sean inmutables y fechados es lo que permite mirar hacia atrás y preguntarse qué pensaba el modelo en marzo, en vez de solo qué piensa hoy. Un sistema que sobrescribe su propio estado no se puede auditar."],
  code:{where:[["ruta","reports/YYYY-MM-DD/"],["primario","Markdown"],["opcional","HTML con gráficos, CSV"]],
   notes:["Cada reporte lleva en el encabezado las versiones de datos que usó: fecha del último filing, versión del dataset de Damodaran, snapshot de la cartera. Con el mismo cache, la corrida se reproduce.",
