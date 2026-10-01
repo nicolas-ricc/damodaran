@@ -86,7 +86,7 @@
   - a round trip that preserves every field, including `None`s and an empty `red_flags` dict;
   - `persist_marks` twice for the same date replaces the rows (count unchanged, latest values win);
   - `load_marks` for a date with no rows returns `{}`.
-- [ ] **Step 3: Implement** `persist_marks`: `DELETE FROM holding_marks WHERE snapshot_date = ?`, then `executemany` INSERT, with `red_flags` passed as `json.dumps(...)` or NULL and `failed_gates` as a list or NULL. Implement `load_marks`: parse the JSON (DuckDB returns a str), and turn `failed_gates` into a tuple, or None.
+- [ ] **Step 3: Implement** `persist_marks`. Inside `with transaction(conn):` (from `bot.ingest.base`, so a failure cannot leave the date half-written): `DELETE FROM holding_marks WHERE snapshot_date = ?`, then `executemany` INSERT, with `red_flags` passed as `json.dumps(...)` or NULL and `failed_gates` as a list or NULL. Implement `load_marks`: parse the JSON (DuckDB returns a str), and turn `failed_gates` into a tuple, or None.
 - [ ] **Step 4: Run** `uv run pytest tests/unit/test_portfolio_marks.py -q` → PASS. Run mypy.
 - [ ] **Step 5: Commit** `feat(#28): holding_marks table and mark persistence`.
 
@@ -121,6 +121,7 @@
   - The `analyze_fn` raising `LookupError` gives a mark with `intrinsic_value=None`, `price=None`, and `red_flags=None`. No exception escapes.
   - A gate that fails (not skipped) appears in `failed_gates`. A gate that is skipped does not. A ticker missing from `companies` gets `failed_gates=None`.
   - `sector_wacc` equals `benchmarks.wacc`, or None when there is no benchmark.
+  - A ticker with no benchmark, evaluated with `roic_above_sector_wacc`, does **not** list that rule in `failed_gates`: the rule skips when `wacc` is None (`rules.py:614-620`).
   - Only tickers with non-zero aggregate qty in `portfolio_snapshots` for `snapshot_date` are marked.
 - [ ] **Step 2: Run** them → FAIL (ImportError).
 - [ ] **Step 3: Implement** `load_holding_inputs`:
@@ -177,8 +178,9 @@
   - Delete `_DCFLike`, `_AnalysisLike`, `_AnalyzeFn` and the `analyze_fn`/`prev_analyses` params.
   - In `compute_events`: load `prev_marks = load_marks(conn, prev) if prev else {}` and `curr_marks = load_marks(conn, curr)`. For each held ticker that has a curr mark, run the four derived detectors (cross, red flags, gates, recalibration) against `prev_marks.get(ticker)`.
   - Update the module and function docstrings.
-- [ ] **Step 5: Run** the events tests → PASS. Run mypy.
-- [ ] **Step 6: Commit** `feat(#28): derive valuation events from holding marks`.
+- [ ] **Step 5: Keep the tree green.** Move the analyze-callable Protocol out of `events.py`: `command.py` imports `AnalyzeFn` from `bot.portfolio.marks`. In `command.py`, call `mark_holdings(conn, run_day, analyze_fn=analyze_fn)` before `compute_events(conn, prev_date, run_day)`. That way this commit leaves `uv run pytest -q` and `uv run mypy src` green. Task 5 adds the gates and the two-run test.
+- [ ] **Step 6: Run** the full suite plus mypy → PASS.
+- [ ] **Step 7: Commit** `feat(#28): derive valuation events from holding marks`.
 
 ### Task 4: New filing by ingestion date, reported once
 
@@ -232,11 +234,12 @@
   - Assert that day 2 has an `intrinsic_value_crossed_price` row in `events_log` for AAPL, and that `holding_marks` has rows for both days.
   - Use a stub analysis object (dataclass with `dcf_result`, `current_price`, `narrative_flags`). Type it with a `cast`, or with a Protocol in the test.
 - [ ] **Step 2: Run** → FAIL.
-- [ ] **Step 3: Implement.** In `run_portfolio`, between the trades step and the diff, call `mark_holdings(conn, run_day, analyze_fn=analyze_fn, quality_gates=quality_gates)`. Then call `compute_events(conn, prev_date, run_day)`. Import `AnalyzeFn` from `bot.portfolio.marks`. In `cli.portfolio`:
+- [ ] **Step 3: Implement.** Add the `quality_gates` param to `run_portfolio` and thread it into the `mark_holdings` call that Task 3 added. Import `AnalyzeFn` from `bot.portfolio.marks`. In `cli.portfolio`:
   ```python
-  gates = load_screener_config(settings.presets_dir / "damodaran_value.yaml").quality_gates.build()
+  preset = load_screener_config(settings.presets_dir / "damodaran_value.yaml")
+  gates = [*preset.quality_gates.build(), *preset.trap_detection.build()]
   ```
-  and pass `quality_gates=gates`. The CLI unit test must still pass: check that `presets_dir` resolves in its env, and if not, the test env needs `BOT_PRESETS_DIR` pointing at the repo `config/presets`.
+  and pass `quality_gates=gates`. A missing or invalid preset raises, the same way it does for `bot screen`. The CLI unit test must still pass: check that `presets_dir` resolves in its env, and if not, the test env needs `BOT_PRESETS_DIR` pointing at the repo `config/presets`.
 - [ ] **Step 4: Run** the full suite plus lint → PASS.
 - [ ] **Step 5: Commit** `feat(#28): bot portfolio marks holdings before diffing`.
 
@@ -257,6 +260,18 @@
 
 ---
 
+## Assumptions
+
+Decided during grilling. Each one is a technical choice that does not change the product the issue describes.
+
+- **Baseline = previous snapshot's mark only.** The issue says "Compare today's snapshot vs the previous". A day on which the valuator failed (null mark) breaks the chain: there is no cross that day, and the next day compares against the null mark, so there is no cross then either. Rejected: walking back to the last non-null mark, which the issue does not ask for.
+- **First run after this change.** Previous snapshots have no marks, so IV cross and gate events cannot fire, and red flags fire once as "new" (the existing documented semantics: `events.py` `detect_new_red_flags` docstring, test `test_all_red_new_when_no_prior_analysis`). Rejected: backfilling marks for old snapshots, since the valuator reads only current DB state.
+- **Red flags vs gates baseline asymmetry.** A newly opened position with a red flag is news (spec §8.3 "Narrative flag nuevo en rojo sobre una posición"). A gate event needs a transition (spec "Caída debajo de quality gate (ej: Net Debt/EBITDA cruzó 4×…)"), so no baseline means no event.
+- **"Quality gate" = the preset's eliminatory rules: `quality_gates` + `trap_detection`.** The spec's own example "ROIC cayó debajo de WACC" is the `roic_above_sector_wacc` rule, which the `damodaran_value` preset lists under trap detection. Rejected: quality gates only, which would miss the spec's example. Value indicators are not floors, so they are excluded.
+- **A missing preset fails `bot portfolio` loudly**, matching `bot screen` and CONTEXT's "fails loudly at load time". Rejected: silently running without gates.
+- **Filing dedupe spans the whole `events_log` history per ticker**, so a ticker that is sold and re-bought does not re-report an old filing.
+- **`persist_marks` runs in a transaction.** An unexpected exception from `analyze` (not `LookupError`/`ValueError`) propagates before any write, as it did in the existing `compute_events`.
+
 ## Self-review
 
 - Spec coverage. Each acceptance criterion maps to a task:
@@ -268,3 +283,21 @@
   - mypy and ruff: every task.
 - Dividend/split stay unreachable in production. Their input table has no writer, and that is outside this issue (ADR 0004, `ibkr-corp`).
 - Types: `HoldingMark` is used consistently in T1–T3. `AnalyzeFn` is defined in T2 and consumed in T5.
+
+## Grilling
+
+- Rounds: 1. The revision moved a step between tasks and added tests and assumptions. It did not change the seam, so no second round was run.
+- Questions: 18. Sources used, some answers citing more than one:
+  - CODE: 11, covering Q3, 4, 5, 7, 8, 9, 11, 13, 16, 17 and part of 12;
+  - ISSUE: 2, Q1 and Q13;
+  - DOC: 2, Q12 (spec §8.3) and Q17 (`docs/plano/README.md`);
+  - NO SOURCE resolved as technical assumptions: 5, Q1, 2, 6, 10 and 14;
+  - out of scope: 2, Q15 and Q18.
+- Assumptions: see `## Assumptions`. There are seven, the six from the NO SOURCE answers plus the "quality gate = quality_gates + trap_detection" reading taken from the spec's own example.
+- Plan changes:
+  - Task 3 now also rewires `command.py`, so every commit stays green (Q16).
+  - `persist_marks` runs in a transaction (Q10).
+  - Task 2 gets a test that a missing benchmark does not produce a spurious gate failure (Q7).
+  - The CLI gates now include trap detection, and a missing preset fails loudly (Q14).
+- Issues opened: #83 (a same-day rerun duplicates `events_log` rows), #84 (IBKR symbol vs SEC ticker mapping).
+- Status: ok.
