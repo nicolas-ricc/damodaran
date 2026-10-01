@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from bot.portfolio.events import compute_events, persist_events
+from bot.portfolio.marks import mark_holdings
 from bot.portfolio.report import build_report, render_alerts, render_portfolio
 from bot.portfolio.sync import PortfolioSource, sync_portfolio
 from bot.portfolio.trades import TradeSource, sync_trades
@@ -34,7 +35,7 @@ from bot.utils.logging import get_logger
 if TYPE_CHECKING:
     import duckdb
 
-    from bot.portfolio.events import _AnalyzeFn
+    from bot.portfolio.marks import AnalyzeFn
 
 log = get_logger(__name__)
 
@@ -77,7 +78,7 @@ def run_portfolio(
     today: date | None = None,
     history: bool = False,
     concentration: bool = False,
-    analyze_fn: _AnalyzeFn | None = None,
+    analyze_fn: AnalyzeFn | None = None,
 ) -> PortfolioRunResult:
     """Run the full sync -> diff -> report cycle and write both report files.
 
@@ -104,7 +105,8 @@ def run_portfolio(
 
     # 3. Diff against the previous snapshot and persist the event stream.
     prev_date = _previous_snapshot_date(conn, run_day)
-    events = compute_events(conn, prev_date, run_day, analyze_fn=analyze_fn)
+    mark_holdings(conn, run_day, analyze_fn=analyze_fn)
+    events = compute_events(conn, prev_date, run_day)
     persist_events(conn, events)
 
     # 4. Build + render reports under the dated directory.

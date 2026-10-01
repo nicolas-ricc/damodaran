@@ -131,4 +131,4 @@ def test_count_create_tables_ignores_case_spacing_and_comments() -> None:
 def test_schema_table_count_matches_the_shipped_schema() -> None:
     sql = resources.files("bot.storage").joinpath("schema.sql").read_text()
     expected = len(re.findall(r"(?im)^\s*create\s+table\b", sql))
-    assert schema_table_count() == expected == 15
+    assert schema_table_count() == expected == 16
