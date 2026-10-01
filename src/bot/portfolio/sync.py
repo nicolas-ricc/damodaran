@@ -12,8 +12,8 @@ a fresh snapshot. Only accounts present in *this* run are touched — a snapshot
 from another account on the same day is left intact.
 
 Follows the ingest convention: an open connection and a client go in, plain
-data comes out; no global state. Diffing snapshots, trades and CLI wiring are
-deliberately out of scope (#27, #28, #29).
+data comes out; no global state. Diffing snapshots and trade sync live beside
+this module (#28, #27); CLI wiring is in :mod:`bot.portfolio.command` (#29).
 """
 
 from __future__ import annotations
