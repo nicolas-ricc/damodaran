@@ -1,11 +1,11 @@
 from pathlib import Path
 
 import pytest
+
+from bot.config import Settings
 from bot.notifier import NotifierConfigError, build_notifier, notify_alerts
 from bot.notifier.email import EmailNotifier
 from bot.notifier.telegram import TelegramNotifier
-
-from bot.config import Settings
 
 
 class _Recorder:

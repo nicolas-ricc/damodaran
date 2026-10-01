@@ -69,6 +69,9 @@ class TelegramNotifier:
                 base_url=API_BASE, transport=self._transport, timeout=self._timeout
             ) as client:
                 for chunk in split_message(text):
+                    if not chunk.strip():
+                        # Telegram rejects whitespace-only messages with a 400.
+                        continue
                     response = client.post(
                         f"/bot{self._bot_token}/sendMessage",
                         json={

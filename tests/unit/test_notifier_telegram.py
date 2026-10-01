@@ -102,3 +102,18 @@ def test_malformed_token_raises_without_leaking_token() -> None:
     with pytest.raises(NotificationError) as exc:
         notifier.send("hello")
     assert "SECRET" not in str(exc.value)
+
+
+def test_whitespace_only_chunk_is_not_sent() -> None:
+    texts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        texts.append(json.loads(request.content)["text"])
+        return httpx.Response(200, json={"ok": True, "result": {}})
+
+    # The first line fills a whole message, leaving a lone "\n" chunk that
+    # Telegram would reject as empty.
+    text = "a" * (MAX_MESSAGE_LEN - 1) + "\n\n"
+    _notifier(handler).send(text)
+
+    assert texts == ["a" * (MAX_MESSAGE_LEN - 1) + "\n"]

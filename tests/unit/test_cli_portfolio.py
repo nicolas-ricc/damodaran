@@ -12,12 +12,12 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from bot.notifier import NotificationError
 from typer.testing import CliRunner
 
 import bot.cli
 from bot.cli import app
 from bot.ingest.ibkr import CashBalance, PortfolioPosition, TradeExecution
+from bot.notifier import NotificationError
 from bot.storage.db import apply_schema, connect
 
 

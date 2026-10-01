@@ -84,3 +84,24 @@ def test_connection_failure_raises_notification_error() -> None:
 
     with pytest.raises(NotificationError):
         _notifier(smtp_factory=refuse).send("hi")
+
+
+@pytest.mark.parametrize(
+    ("security", "factory_name", "calls"),
+    [
+        ("ssl", "SMTP_SSL", ["login:u", "send_message"]),
+        ("starttls", "SMTP", ["starttls", "login:u", "send_message"]),
+    ],
+)
+def test_default_factory_picks_smtp_class_by_security(
+    monkeypatch: pytest.MonkeyPatch, security: str, factory_name: str, calls: list[str]
+) -> None:
+    class Recording(FakeSMTP):
+        def __init__(self, host: str, port: int, timeout: float, **kwargs: object) -> None:
+            super().__init__(host, port, timeout)
+
+    monkeypatch.setattr(smtplib, factory_name, Recording)
+    _notifier(security=security, smtp_factory=None).send("hi")
+
+    assert FakeSMTP.instances[0].args == ("smtp.example.com", 587, 30.0)
+    assert FakeSMTP.instances[0].calls == calls

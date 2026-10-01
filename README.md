@@ -160,7 +160,7 @@ units are split into several messages.
 
 Failure modes:
 
-- Missing or invalid notifier settings: `Notifier misconfigured`, exit code 2,
+- Missing or unsafe notifier settings: `Notifier misconfigured`, exit code 2,
   before any sync or report work starts.
 - Send failure: `Alerts not sent`, exit code 1. The reports have already been
   written by then.
