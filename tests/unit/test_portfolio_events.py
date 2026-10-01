@@ -7,10 +7,10 @@ broker or the network.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from datetime import date
 
 import pytest
+from bot.portfolio.marks import HoldingMark
 
 from bot.portfolio.events import (
     Event,
@@ -27,7 +27,6 @@ from bot.portfolio.events import (
     detect_position_changes,
     detect_sector_recalibration,
 )
-from bot.valuator.narrative_flags import FlagColor, NarrativeFlag
 
 PREV = date(2026, 5, 1)
 CURR = date(2026, 5, 2)
@@ -37,26 +36,13 @@ def _pos(ticker: str, qty: float, mv: float | None = None, ccy: str | None = "US
     return Position(ticker=ticker, qty=qty, market_value=mv, currency=ccy)
 
 
-# --------------------------------------------------------------------------- #
-# Stub Analysis (only the fields the valuation detectors read).                #
-# --------------------------------------------------------------------------- #
-
-
-@dataclass(frozen=True)
-class _DCF:
-    intrinsic_value: float
-
-
-@dataclass(frozen=True)
-class _Analysis:
-    ticker: str
-    dcf_result: _DCF
-    current_price: float | None
-    narrative_flags: tuple[NarrativeFlag, ...] = field(default_factory=tuple)
-
-
-def _an(ticker: str, iv: float, price: float | None, flags: tuple[NarrativeFlag, ...] = ()) -> _Analysis:
-    return _Analysis(ticker=ticker, dcf_result=_DCF(iv), current_price=price, narrative_flags=flags)
+def _mark(
+    ticker: str = "AAPL",
+    iv: float | None = 100.0,
+    price: float | None = 100.0,
+    red: dict[str, str] | None = None,
+) -> HoldingMark:
+    return HoldingMark(ticker=ticker, intrinsic_value=iv, price=price, red_flags=red)
 
 
 # --------------------------------------------------------------------------- #
@@ -168,20 +154,25 @@ def test_dividend_and_split_detected_other_ignored() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_new_filing_in_window_for_held_ticker() -> None:
-    filings = [
-        Filing("AAPL", "10-Q", date(2026, 5, 2), "0001"),
-        Filing("AAPL", "10-K", date(2026, 4, 1), "0000"),  # before window
-        Filing("TSLA", "10-Q", date(2026, 5, 2), "0002"),  # not held
-    ]
-    events = detect_new_filings(
+def _filings(filings: list[Filing], reported: set[tuple[str, str, str]] | None = None) -> list[Event]:
+    return detect_new_filings(
         filings,
         held_tickers={"AAPL"},
+        reported=reported or set(),
         window_start=PREV,
         window_end=CURR,
         snapshot_date=CURR,
         prev_date=PREV,
     )
+
+
+def test_new_filing_in_window_for_held_ticker() -> None:
+    filings = [
+        Filing("AAPL", "10-Q", date(2026, 5, 2), "0001", fetched_on=CURR),
+        Filing("AAPL", "10-K", date(2026, 4, 1), "0000", fetched_on=date(2026, 4, 2)),
+        Filing("TSLA", "10-Q", date(2026, 5, 2), "0002", fetched_on=CURR),  # not held
+    ]
+    events = _filings(filings)
     assert len(events) == 1
     assert events[0].event_type is EventType.NEW_FILING
     assert events[0].ticker == "AAPL"
@@ -190,18 +181,49 @@ def test_new_filing_in_window_for_held_ticker() -> None:
 
 def test_filing_on_window_start_excluded_on_end_included() -> None:
     filings = [
-        Filing("AAPL", "8-K", PREV, "a"),  # == window_start -> excluded
-        Filing("AAPL", "8-K", CURR, "b"),  # == window_end -> included
+        Filing("AAPL", "8-K", PREV, "a", fetched_on=date(2026, 4, 30)),  # old news
+        Filing("AAPL", "8-K", CURR, "b", fetched_on=CURR),
+    ]
+    assert {e.details["accession_number"] for e in _filings(filings)} == {"b"}
+
+
+def test_old_filing_ingested_in_window_fires() -> None:
+    # A 10-K filed weeks ago but only imported today is news today.
+    events = _filings([Filing("AAPL", "10-K", date(2026, 4, 10), "k", fetched_on=CURR)])
+    assert [e.details["accession_number"] for e in events] == ["k"]
+
+
+def test_filing_fetched_on_window_start_fires() -> None:
+    # Fetched on the previous snapshot's day, possibly after that run: not lost.
+    events = _filings([Filing("AAPL", "10-K", date(2026, 4, 10), "k", fetched_on=PREV)])
+    assert [e.details["accession_number"] for e in events] == ["k"]
+
+
+def test_already_reported_filing_does_not_fire_again() -> None:
+    filing = Filing("AAPL", "10-K", date(2026, 4, 10), "k", fetched_on=CURR)
+    assert _filings([filing], reported={("AAPL", "10-K", "2026-04-10")}) == []
+
+
+def test_filing_after_window_end_excluded() -> None:
+    late = Filing("AAPL", "8-K", date(2026, 5, 3), "z", fetched_on=CURR)
+    assert _filings([late]) == []
+
+
+def test_first_snapshot_admits_every_unreported_filing() -> None:
+    filings = [
+        Filing("AAPL", "10-K", date(2025, 1, 1), "old", fetched_on=date(2025, 1, 2)),
+        Filing("AAPL", "10-Q", date(2025, 4, 1), "seen", fetched_on=date(2025, 4, 2)),
     ]
     events = detect_new_filings(
         filings,
         held_tickers={"AAPL"},
-        window_start=PREV,
+        reported={("AAPL", "10-Q", "2025-04-01")},
+        window_start=None,
         window_end=CURR,
         snapshot_date=CURR,
-        prev_date=PREV,
+        prev_date=None,
     )
-    assert {e.details["accession_number"] for e in events} == {"b"}
+    assert [e.details["accession_number"] for e in events] == ["old"]
 
 
 # --------------------------------------------------------------------------- #
@@ -210,8 +232,8 @@ def test_filing_on_window_start_excluded_on_end_included() -> None:
 
 
 def test_iv_crosses_above_price() -> None:
-    prev = _an("AAPL", iv=90.0, price=100.0)  # IV below price
-    curr = _an("AAPL", iv=110.0, price=100.0)  # IV above price
+    prev = _mark(iv=90.0, price=100.0)  # IV below price
+    curr = _mark(iv=110.0, price=100.0)  # IV above price
     event = detect_intrinsic_value_cross(prev, curr, snapshot_date=CURR, prev_date=PREV)
     assert event is not None
     assert event.event_type is EventType.INTRINSIC_VALUE_CROSSED_PRICE
@@ -219,27 +241,33 @@ def test_iv_crosses_above_price() -> None:
 
 
 def test_iv_crosses_below_price() -> None:
-    prev = _an("AAPL", iv=110.0, price=100.0)
-    curr = _an("AAPL", iv=90.0, price=100.0)
+    prev = _mark(iv=110.0, price=100.0)
+    curr = _mark(iv=90.0, price=100.0)
     event = detect_intrinsic_value_cross(prev, curr, snapshot_date=CURR, prev_date=PREV)
     assert event is not None
     assert event.details["direction"] == "below_price"
 
 
 def test_iv_no_cross_when_same_side() -> None:
-    prev = _an("AAPL", iv=120.0, price=100.0)
-    curr = _an("AAPL", iv=130.0, price=100.0)  # still above
+    prev = _mark(iv=120.0, price=100.0)
+    curr = _mark(iv=130.0, price=100.0)  # still above
     assert detect_intrinsic_value_cross(prev, curr, snapshot_date=CURR, prev_date=PREV) is None
 
 
-def test_iv_cross_needs_prior_analysis() -> None:
-    curr = _an("AAPL", iv=130.0, price=100.0)
+def test_iv_cross_needs_prior_mark() -> None:
+    curr = _mark(iv=130.0, price=100.0)
     assert detect_intrinsic_value_cross(None, curr, snapshot_date=CURR, prev_date=PREV) is None
 
 
 def test_iv_cross_needs_prices() -> None:
-    prev = _an("AAPL", iv=90.0, price=None)
-    curr = _an("AAPL", iv=110.0, price=100.0)
+    prev = _mark(iv=90.0, price=None)
+    curr = _mark(iv=110.0, price=100.0)
+    assert detect_intrinsic_value_cross(prev, curr, snapshot_date=CURR, prev_date=PREV) is None
+
+
+def test_iv_cross_needs_intrinsic_values() -> None:
+    prev = _mark(iv=90.0, price=100.0)
+    curr = _mark(iv=None, price=100.0)  # valuator failed today
     assert detect_intrinsic_value_cross(prev, curr, snapshot_date=CURR, prev_date=PREV) is None
 
 
@@ -248,31 +276,29 @@ def test_iv_cross_needs_prices() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _flag(name: str, color: FlagColor) -> NarrativeFlag:
-    return NarrativeFlag(name=name, color=color, reason=f"{name} {color}")
-
-
 def test_newly_red_flag_fires_persistent_red_does_not() -> None:
-    prev = _an(
-        "AAPL",
-        iv=100.0,
-        price=100.0,
-        flags=(_flag("story_margin", FlagColor.RED), _flag("beta_risk", FlagColor.GREEN)),
-    )
-    curr = _an(
-        "AAPL",
-        iv=100.0,
-        price=100.0,
-        flags=(_flag("story_margin", FlagColor.RED), _flag("beta_risk", FlagColor.RED)),
-    )
+    prev = _mark(red={"story_margin": "high"})
+    curr = _mark(red={"story_margin": "high", "beta_risk": "levered"})
     events = detect_new_red_flags(prev, curr, snapshot_date=CURR, prev_date=PREV)
     assert [e.details["flag"] for e in events] == ["beta_risk"]
+    assert events[0].details["reason"] == "levered"
 
 
-def test_all_red_new_when_no_prior_analysis() -> None:
-    curr = _an("AAPL", iv=100.0, price=100.0, flags=(_flag("story_margin", FlagColor.RED),))
+def test_all_red_new_when_no_prior_mark() -> None:
+    curr = _mark(red={"story_margin": "high"})
     events = detect_new_red_flags(None, curr, snapshot_date=CURR, prev_date=None)
     assert [e.details["flag"] for e in events] == ["story_margin"]
+
+
+def test_all_red_new_when_prior_mark_unvalued() -> None:
+    curr = _mark(red={"story_margin": "high"})
+    events = detect_new_red_flags(_mark(red=None), curr, snapshot_date=CURR, prev_date=PREV)
+    assert [e.details["flag"] for e in events] == ["story_margin"]
+
+
+def test_no_red_flag_event_when_current_unvalued() -> None:
+    prev = _mark(red={})
+    assert detect_new_red_flags(prev, _mark(red=None), snapshot_date=CURR, prev_date=PREV) == []
 
 
 # --------------------------------------------------------------------------- #
@@ -332,18 +358,31 @@ def test_sector_recalibration_at_100bps_excluded() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_below_quality_gate_one_event_per_gate() -> None:
+def test_below_quality_gate_only_newly_failed_gates() -> None:
     events = detect_below_quality_gate(
-        ["max_net_debt_to_ebitda", "min_interest_coverage"],
+        ["min_interest_coverage"],
+        ["max_net_debt_to_ebitda", "min_interest_coverage", "min_market_cap"],
         "AAPL",
         snapshot_date=CURR,
         prev_date=PREV,
     )
-    assert [e.details["gate"] for e in events] == [
-        "max_net_debt_to_ebitda",
-        "min_interest_coverage",
-    ]
+    assert [e.details["gate"] for e in events] == ["max_net_debt_to_ebitda", "min_market_cap"]
     assert all(e.event_type is EventType.BELOW_QUALITY_GATE for e in events)
+
+
+def test_below_quality_gate_needs_baseline() -> None:
+    assert (
+        detect_below_quality_gate(
+            None, ["max_net_debt_to_ebitda"], "AAPL", snapshot_date=CURR, prev_date=PREV
+        )
+        == []
+    )
+
+
+def test_below_quality_gate_needs_current_verdict() -> None:
+    assert (
+        detect_below_quality_gate([], None, "AAPL", snapshot_date=CURR, prev_date=PREV) == []
+    )
 
 
 def test_event_is_frozen() -> None:

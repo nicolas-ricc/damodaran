@@ -1,17 +1,18 @@
 """Integration test for ``compute_events`` (§8.3 portfolio monitor, M5, #28).
 
-Seeds two consecutive portfolio snapshots plus a fixture filings-log entry and a
-corporate action, then asserts the exact set of events emitted by the
-reader-orchestrator — and that a price-only move produces no event.
+Seeds two consecutive portfolio snapshots, their holding marks, a fixture
+filings-log entry and a corporate action, then asserts the exact set of events
+emitted by the reader-orchestrator — and that a price-only move produces no
+event.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 
 import duckdb
 import pytest
+from bot.portfolio.marks import HoldingMark, persist_marks
 
 from bot.portfolio.events import (
     EventType,
@@ -19,23 +20,9 @@ from bot.portfolio.events import (
     persist_events,
 )
 from bot.storage.db import apply_schema
-from bot.valuator.narrative_flags import FlagColor, NarrativeFlag
 
 PREV = date(2026, 5, 1)
 CURR = date(2026, 5, 2)
-
-
-@dataclass(frozen=True)
-class _DCF:
-    intrinsic_value: float
-
-
-@dataclass(frozen=True)
-class _Analysis:
-    ticker: str
-    dcf_result: _DCF
-    current_price: float | None
-    narrative_flags: tuple[NarrativeFlag, ...] = field(default_factory=tuple)
 
 
 @pytest.fixture
@@ -57,6 +44,22 @@ def _insert_snapshot(
             "VALUES (?, 'DU1', ?, ?, ?, ?, ?)",
             [snapshot_date, ticker, hash(ticker) & 0xFFFF, qty, mv, ccy],
         )
+
+
+def _insert_filing(
+    conn: duckdb.DuckDBPyConnection,
+    ticker: str,
+    filing_type: str,
+    filing_date: date,
+    accession: str,
+    fetched_on: date,
+) -> None:
+    conn.execute(
+        "INSERT INTO filings_log "
+        "(ticker, filing_type, filing_date, accession_number, source, fetched_at) "
+        "VALUES (?, ?, ?, ?, 'sec-edgar', ?)",
+        [ticker, filing_type, filing_date, accession, datetime.combine(fetched_on, datetime.min.time())],
+    )
 
 
 def test_compute_events_end_to_end(conn: duckdb.DuckDBPyConnection) -> None:
@@ -82,20 +85,10 @@ def test_compute_events_end_to_end(conn: duckdb.DuckDBPyConnection) -> None:
         ],
     )
 
-    # Fixture filing for a held ticker, inside the window.
-    conn.execute(
-        "INSERT INTO filings_log "
-        "(ticker, filing_type, filing_date, accession_number, source) "
-        "VALUES ('AAPL', '10-Q', ?, '0001', 'sec-edgar')",
-        [CURR],
-    )
-    # Filing before the window must NOT fire.
-    conn.execute(
-        "INSERT INTO filings_log "
-        "(ticker, filing_type, filing_date, accession_number, source) "
-        "VALUES ('AAPL', '10-K', ?, '0000', 'sec-edgar')",
-        [date(2026, 4, 1)],
-    )
+    # Fixture filing for a held ticker, ingested inside the window.
+    _insert_filing(conn, "AAPL", "10-Q", CURR, "0001", fetched_on=CURR)
+    # Filing filed and ingested before the window must NOT fire.
+    _insert_filing(conn, "AAPL", "10-K", date(2026, 4, 1), "0000", fetched_on=date(2026, 4, 2))
     # Corporate action: a dividend in the window.
     conn.execute(
         "INSERT INTO corporate_actions "
@@ -104,36 +97,35 @@ def test_compute_events_end_to_end(conn: duckdb.DuckDBPyConnection) -> None:
         [CURR],
     )
 
-    # An intrinsic-value cross for AAPL, supplied via prev_analyses baseline.
-    prev_analyses = {
-        "AAPL": _Analysis(
-            "AAPL",
-            _DCF(90.0),
-            current_price=100.0,  # IV below price previously
-            narrative_flags=(NarrativeFlag("story_margin", FlagColor.GREEN, "ok"),),
-        )
-    }
-
-    def fake_analyze(ticker: str, _conn: duckdb.DuckDBPyConnection) -> _Analysis:
-        flags: tuple[NarrativeFlag, ...]
-        if ticker == "AAPL":
-            # IV now above price -> cross; story_margin newly red.
-            return _Analysis(
-                "AAPL",
-                _DCF(120.0),
-                current_price=100.0,
-                narrative_flags=(NarrativeFlag("story_margin", FlagColor.RED, "now red"),),
-            )
-        flags = ()
-        return _Analysis(ticker, _DCF(10.0), current_price=10.0, narrative_flags=flags)
-
-    events = compute_events(
+    # Holding marks: AAPL's IV crosses above price, story_margin turns red and
+    # it newly fails a gate; MSFT's sector WACC moves 150bps.
+    persist_marks(
         conn,
         PREV,
-        CURR,
-        analyze_fn=fake_analyze,
-        prev_analyses=prev_analyses,
+        [
+            HoldingMark("AAPL", 90.0, 100.0, red_flags={}, failed_gates=(), sector_wacc=0.08),
+            HoldingMark("MSFT", 10.0, 10.0, red_flags={}, failed_gates=(), sector_wacc=0.08),
+            HoldingMark("GOOG", 10.0, 10.0, red_flags={}, failed_gates=(), sector_wacc=0.08),
+        ],
     )
+    persist_marks(
+        conn,
+        CURR,
+        [
+            HoldingMark(
+                "AAPL",
+                120.0,
+                100.0,
+                red_flags={"story_margin": "now red"},
+                failed_gates=("max_net_debt_to_ebitda",),
+                sector_wacc=0.08,
+            ),
+            HoldingMark("MSFT", 10.0, 10.0, red_flags={}, failed_gates=(), sector_wacc=0.095),
+            HoldingMark("NVDA", 10.0, 10.0, red_flags={}, failed_gates=(), sector_wacc=0.08),
+        ],
+    )
+
+    events = compute_events(conn, PREV, CURR)
 
     got = {(e.event_type, e.ticker) for e in events}
 
@@ -148,6 +140,8 @@ def test_compute_events_end_to_end(conn: duckdb.DuckDBPyConnection) -> None:
     assert (EventType.INTRINSIC_VALUE_CROSSED_PRICE, "AAPL") in got
     assert (EventType.NEW_RED_FLAG, "AAPL") in got
     assert (EventType.CONCENTRATION, "NVDA") in got
+    assert (EventType.BELOW_QUALITY_GATE, "AAPL") in got
+    assert (EventType.SECTOR_RECALIBRATED, "MSFT") in got
 
     # AAPL qty did NOT change (only its price/market value did) -> no size event.
     assert (EventType.POSITION_SIZE_CHANGED, "AAPL") not in got
@@ -177,28 +171,26 @@ def test_price_move_only_emits_nothing(conn: duckdb.DuckDBPyConnection) -> None:
     _insert_snapshot(conn, PREV, [(t, 100.0, 1000.0, "USD") for t in tickers])
     _insert_snapshot(conn, CURR, [(t, 100.0, 1200.0, "USD") for t in tickers])
 
-    def fake_analyze(ticker: str, _conn: duckdb.DuckDBPyConnection) -> _Analysis:
-        # Valuation unchanged: IV stays below price, no new flags.
-        return _Analysis(
-            ticker,
-            _DCF(80.0),
-            current_price=100.0,
-            narrative_flags=(NarrativeFlag("story_margin", FlagColor.GREEN, "ok"),),
+    # Valuation unchanged (IV still below price, the same flag still red, the
+    # same gate still failed, same sector WACC) while the price moved.
+    for day, price in ((PREV, 90.0), (CURR, 100.0)):
+        persist_marks(
+            conn,
+            day,
+            [
+                HoldingMark(
+                    t,
+                    80.0,
+                    price,
+                    red_flags={"story_margin": "high"},
+                    failed_gates=("min_interest_coverage",),
+                    sector_wacc=0.08,
+                )
+                for t in tickers
+            ],
         )
 
-    prev_analyses = {
-        t: _Analysis(
-            t,
-            _DCF(80.0),
-            current_price=90.0,
-            narrative_flags=(NarrativeFlag("story_margin", FlagColor.GREEN, "ok"),),
-        )
-        for t in tickers
-    }
-
-    events = compute_events(
-        conn, PREV, CURR, analyze_fn=fake_analyze, prev_analyses=prev_analyses
-    )
+    events = compute_events(conn, PREV, CURR)
     assert events == []
 
 
@@ -208,10 +200,46 @@ def test_first_snapshot_opens_all_positions(conn: duckdb.DuckDBPyConnection) -> 
     tickers = [f"T{i:02d}" for i in range(10)]
     _insert_snapshot(conn, CURR, [(t, 100.0, 1000.0, "USD") for t in tickers])
 
-    def fake_analyze(ticker: str, _conn: duckdb.DuckDBPyConnection) -> _Analysis:
-        return _Analysis(ticker, _DCF(80.0), current_price=100.0)
+    persist_marks(conn, CURR, [HoldingMark(t, 80.0, 100.0, red_flags={}) for t in tickers])
 
-    events = compute_events(conn, None, CURR, analyze_fn=fake_analyze)
+    events = compute_events(conn, None, CURR)
     assert {(e.event_type, e.ticker) for e in events} == {
         (EventType.POSITION_OPENED, t) for t in tickers
     }
+
+
+def test_persistent_red_flag_reported_once(conn: duckdb.DuckDBPyConnection) -> None:
+    days = [date(2026, 5, 1), date(2026, 5, 2), date(2026, 5, 3)]
+    tickers = [f"T{i:02d}" for i in range(10)]
+    for day in days:
+        _insert_snapshot(conn, day, [(t, 100.0, 1000.0, "USD") for t in tickers])
+    persist_marks(conn, days[0], [HoldingMark(t, 80.0, 100.0, red_flags={}) for t in tickers])
+    for day in days[1:]:
+        persist_marks(
+            conn,
+            day,
+            [
+                HoldingMark(t, 80.0, 100.0, red_flags={"story_margin": "high"} if t == "T00" else {})
+                for t in tickers
+            ],
+        )
+
+    second = compute_events(conn, days[0], days[1])
+    third = compute_events(conn, days[1], days[2])
+
+    assert {(e.event_type, e.ticker) for e in second} == {(EventType.NEW_RED_FLAG, "T00")}
+    assert third == []
+
+
+def test_new_filing_reported_once(conn: duckdb.DuckDBPyConnection) -> None:
+    tickers = [f"T{i:02d}" for i in range(10)]
+    for day in (PREV, CURR):
+        _insert_snapshot(conn, day, [(t, 100.0, 1000.0, "USD") for t in tickers])
+    # Filed weeks ago, ingested today.
+    _insert_filing(conn, "T00", "10-K", date(2026, 4, 10), "k", fetched_on=CURR)
+
+    first = compute_events(conn, PREV, CURR)
+    assert [(e.event_type, e.ticker) for e in first] == [(EventType.NEW_FILING, "T00")]
+    persist_events(conn, first)
+
+    assert compute_events(conn, PREV, CURR) == []
