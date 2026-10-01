@@ -38,12 +38,9 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from bot.portfolio.marks import HoldingMark, load_marks
-from bot.utils.logging import get_logger
 
 if TYPE_CHECKING:
     import duckdb
-
-log = get_logger(__name__)
 
 
 #: Default fractional position-size change that counts as an event (spec §8.3).
@@ -106,12 +103,18 @@ class Position:
 
 @dataclass(frozen=True)
 class Filing:
-    """A filing-log entry for a held ticker (subset of ``filings_log``)."""
+    """A filing-log entry for a held ticker (subset of ``filings_log``).
+
+    ``fetched_on`` is the day we first ingested the row. It, not ``filing_date``,
+    decides whether the filing is new to the user: filings are often ingested
+    days after they are filed, or backfilled long after.
+    """
 
     ticker: str
     filing_type: str
     filing_date: date
     accession_number: str | None
+    fetched_on: date
 
 
 # --------------------------------------------------------------------------- #
@@ -249,16 +252,22 @@ def detect_new_filings(
     filings: list[Filing],
     *,
     held_tickers: set[str],
+    reported: set[tuple[str, str, str]],
     window_start: date | None,
     window_end: date,
     snapshot_date: date,
     prev_date: date | None,
 ) -> list[Event]:
-    """New filings for held tickers in ``(window_start, window_end]`` (spec §8.3).
+    """New filings for held tickers, by ingestion date, each reported once (spec §8.3).
 
-    Emits one ``NEW_FILING`` event per qualifying filing. The CLI (#29) turns
-    this into an auto-analyze; we only emit the signal. A ``window_start`` of
-    ``None`` (first snapshot) admits everything up to and including ``window_end``.
+    A filing qualifies when it is filed on or before ``window_end``, is not in
+    ``reported``, and either was filed after ``window_start`` or was ingested on
+    or after it. The ingestion bound is inclusive so a fetch later on the previous
+    run's day is not lost; ``reported`` (``(ticker, filing_type, filing_date ISO)``
+    triples already in ``events_log``) absorbs the resulting double-count and
+    re-runs of the same window. A ``window_start`` of ``None`` (first snapshot)
+    admits every unreported filing up to ``window_end``. The CLI (#29) turns
+    this into an auto-analyze; we only emit the signal.
     """
     events: list[Event] = []
     for filing in filings:
@@ -266,7 +275,13 @@ def detect_new_filings(
             continue
         if filing.filing_date > window_end:
             continue
-        if window_start is not None and filing.filing_date <= window_start:
+        if (filing.ticker.upper(), filing.filing_type, filing.filing_date.isoformat()) in reported:
+            continue
+        if (
+            window_start is not None
+            and filing.filing_date <= window_start
+            and filing.fetched_on < window_start
+        ):
             continue
         events.append(
             Event(
@@ -483,31 +498,47 @@ def _load_positions(
 def _load_filings(
     conn: duckdb.DuckDBPyConnection,
     held_tickers: set[str],
-    window_start: date | None,
     window_end: date,
 ) -> list[Filing]:
+    """Held filings up to ``window_end``; the detector applies the lower bound."""
     if not held_tickers:
         return []
     placeholders = ", ".join("?" for _ in held_tickers)
-    params: list[object] = [*sorted(held_tickers), window_end]
-    sql = (
-        f"SELECT ticker, filing_type, filing_date, accession_number "
+    rows = conn.execute(
+        f"SELECT ticker, filing_type, filing_date, accession_number, "
+        f"CAST(fetched_at AS DATE) "
         f"FROM filings_log WHERE UPPER(ticker) IN ({placeholders}) "
-        f"AND filing_date <= ?"
-    )
-    if window_start is not None:
-        sql += " AND filing_date > ?"
-        params.append(window_start)
-    rows = conn.execute(sql, params).fetchall()
+        f"AND filing_date <= ?",
+        [*sorted(held_tickers), window_end],
+    ).fetchall()
     return [
         Filing(
             ticker=str(r[0]),
             filing_type=str(r[1]),
             filing_date=r[2],
             accession_number=str(r[3]) if r[3] is not None else None,
+            fetched_on=r[4],
         )
         for r in rows
     ]
+
+
+def _load_reported_filings(
+    conn: duckdb.DuckDBPyConnection,
+    held_tickers: set[str],
+) -> set[tuple[str, str, str]]:
+    """``(ticker, filing_type, filing_date ISO)`` of filings already reported."""
+    if not held_tickers:
+        return set()
+    placeholders = ", ".join("?" for _ in held_tickers)
+    rows = conn.execute(
+        f"SELECT UPPER(ticker), json_extract_string(details, '$.filing_type'), "
+        f"json_extract_string(details, '$.filing_date') "
+        f"FROM events_log WHERE event_type = 'new_filing' "
+        f"AND UPPER(ticker) IN ({placeholders})",
+        sorted(held_tickers),
+    ).fetchall()
+    return {(str(r[0]), str(r[1]), str(r[2])) for r in rows}
 
 
 def _load_corporate_actions(
@@ -614,8 +645,9 @@ def compute_events(
     # --- New filings for held tickers --------------------------------------
     events.extend(
         detect_new_filings(
-            _load_filings(conn, held_tickers, prev_snapshot_date, curr_snapshot_date),
+            _load_filings(conn, held_tickers, curr_snapshot_date),
             held_tickers=held_tickers,
+            reported=_load_reported_filings(conn, held_tickers),
             window_start=prev_snapshot_date,
             window_end=curr_snapshot_date,
             snapshot_date=curr_snapshot_date,
