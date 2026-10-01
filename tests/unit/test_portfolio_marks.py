@@ -5,10 +5,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
+from pathlib import Path
 from typing import cast
 
 import duckdb
 import pytest
+
 from bot.portfolio.marks import (
     AnalyzeFn,
     HoldingMark,
@@ -16,7 +18,6 @@ from bot.portfolio.marks import (
     mark_holdings,
     persist_marks,
 )
-
 from bot.screener.engine import load_holding_inputs
 from bot.screener.rules import MinMarketCap, ROICAboveSectorWACC
 from bot.storage.db import apply_schema
@@ -231,3 +232,28 @@ def test_mark_holdings_unknown_company_has_no_gate_verdict(
         conn, DAY, analyze_fn=_analyze_with({}), quality_gates=[MinMarketCap()]
     )
     assert mark.failed_gates is None
+
+
+def test_mark_holdings_values_with_the_conventional_override(
+    conn: duckdb.DuckDBPyConnection,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The same <TICKER>.yaml that `bot analyze` and `bot screen` pick up.
+    override = tmp_path / "AAPL.yaml"
+    override.write_text("story_type: mature-stable\n")
+    seen: dict[str, Path | None] = {}
+
+    def fake_analyze(
+        ticker: str, _conn: duckdb.DuckDBPyConnection, override_path: Path | None = None
+    ) -> _Analysis:
+        seen[ticker] = override_path
+        return _Analysis(ticker, _DCF(1.0), current_price=1.0)
+
+    monkeypatch.setattr("bot.valuator.analysis.analyze", fake_analyze)
+    _hold(conn, "AAPL")
+    _hold(conn, "MSFT")
+
+    mark_holdings(conn, DAY, assumptions_dir=tmp_path)
+
+    assert seen == {"AAPL": override, "MSFT": None}

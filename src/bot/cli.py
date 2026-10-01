@@ -568,6 +568,7 @@ def portfolio(
         history=history,
         concentration=concentration,
         quality_gates=gates,
+        assumptions_dir=settings.assumptions_dir,
     )
     typer.echo(
         f"Synced snapshot {result.snapshot_date.isoformat()} "

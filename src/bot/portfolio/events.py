@@ -506,7 +506,7 @@ def _load_filings(
     placeholders = ", ".join("?" for _ in held_tickers)
     rows = conn.execute(
         f"SELECT ticker, filing_type, filing_date, accession_number, "
-        f"CAST(fetched_at AS DATE) "
+        f"COALESCE(CAST(fetched_at AS DATE), filing_date) "
         f"FROM filings_log WHERE UPPER(ticker) IN ({placeholders}) "
         f"AND filing_date <= ?",
         [*sorted(held_tickers), window_end],

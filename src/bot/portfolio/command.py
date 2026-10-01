@@ -84,6 +84,7 @@ def run_portfolio(
     concentration: bool = False,
     analyze_fn: AnalyzeFn | None = None,
     quality_gates: Sequence[Rule] = (),
+    assumptions_dir: Path | None = None,
 ) -> PortfolioRunResult:
     """Run the full sync -> diff -> report cycle and write both report files.
 
@@ -98,6 +99,8 @@ def run_portfolio(
             defaults to the real :func:`bot.valuator.analysis.analyze`.
         quality_gates: Screener rules (quality gates + trap detection) applied
             by ``mark_holdings`` when marking each holding; empty means no gating.
+        assumptions_dir: ``config/assumptions`` directory (spec §7.6); the default
+            valuator applies a holding's ``<TICKER>.yaml`` as ``bot analyze`` does.
 
     Returns:
         A :class:`PortfolioRunResult` with the run summary and the two file paths.
@@ -112,7 +115,13 @@ def run_portfolio(
 
     # 3. Mark holdings, then diff against the previous snapshot and persist events.
     prev_date = _previous_snapshot_date(conn, run_day)
-    mark_holdings(conn, run_day, analyze_fn=analyze_fn, quality_gates=quality_gates)
+    mark_holdings(
+        conn,
+        run_day,
+        analyze_fn=analyze_fn,
+        quality_gates=quality_gates,
+        assumptions_dir=assumptions_dir,
+    )
     events = compute_events(conn, prev_date, run_day)
     persist_events(conn, events)
 

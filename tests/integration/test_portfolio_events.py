@@ -12,13 +12,13 @@ from datetime import date, datetime
 
 import duckdb
 import pytest
-from bot.portfolio.marks import HoldingMark, persist_marks
 
 from bot.portfolio.events import (
     EventType,
     compute_events,
     persist_events,
 )
+from bot.portfolio.marks import HoldingMark, persist_marks
 from bot.storage.db import apply_schema
 
 PREV = date(2026, 5, 1)
@@ -242,4 +242,41 @@ def test_new_filing_reported_once(conn: duckdb.DuckDBPyConnection) -> None:
     assert [(e.event_type, e.ticker) for e in first] == [(EventType.NEW_FILING, "T00")]
     persist_events(conn, first)
 
+    assert compute_events(conn, PREV, CURR) == []
+
+
+def test_lower_case_snapshot_ticker_still_gets_derived_events(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    tickers = [f"t{i:02d}" for i in range(10)]
+    for day in (PREV, CURR):
+        _insert_snapshot(conn, day, [(t, 100.0, 1000.0, "USD") for t in tickers])
+    persist_marks(conn, PREV, [HoldingMark(t.upper(), 90.0, 100.0) for t in tickers])
+    persist_marks(
+        conn,
+        CURR,
+        [HoldingMark(t.upper(), 120.0 if t == "t00" else 90.0, 100.0) for t in tickers],
+    )
+
+    events = compute_events(conn, PREV, CURR)
+
+    assert [(e.event_type, e.ticker) for e in events] == [
+        (EventType.INTRINSIC_VALUE_CROSSED_PRICE, "T00")
+    ]
+
+
+def test_filing_without_fetched_at_falls_back_to_filing_date(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    tickers = [f"T{i:02d}" for i in range(10)]
+    for day in (PREV, CURR):
+        _insert_snapshot(conn, day, [(t, 100.0, 1000.0, "USD") for t in tickers])
+    conn.execute(
+        "INSERT INTO filings_log "
+        "(ticker, filing_type, filing_date, accession_number, source, fetched_at) "
+        "VALUES ('T00', '8-K', ?, 'n', 'sec-edgar', NULL)",
+        [date(2026, 4, 1)],
+    )
+
+    # Filed before the window with no ingestion time: old news, and no crash.
     assert compute_events(conn, PREV, CURR) == []

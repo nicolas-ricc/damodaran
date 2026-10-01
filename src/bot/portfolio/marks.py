@@ -18,6 +18,7 @@ import json
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 import duckdb
@@ -27,6 +28,7 @@ from bot.screener.engine import load_holding_inputs
 from bot.screener.rules import Rule
 from bot.screener.types import IndustryBenchmarks
 from bot.utils.logging import get_logger
+from bot.valuator.assumptions import conventional_override_path
 from bot.valuator.narrative_flags import FlagColor
 
 if TYPE_CHECKING:
@@ -110,13 +112,21 @@ def mark_holdings(
     *,
     analyze_fn: AnalyzeFn | None = None,
     quality_gates: Sequence[Rule] = (),
+    assumptions_dir: Path | None = None,
 ) -> list[HoldingMark]:
-    """Value and gate every ticker held on ``snapshot_date``, and persist the marks."""
+    """Value and gate every ticker held on ``snapshot_date``, and persist the marks.
+
+    The default valuator picks up ``<assumptions_dir>/<TICKER>.yaml`` the way
+    ``bot analyze`` does, so a holding's mark agrees with its analysis report.
+    Persisting opens its own transaction: do not call this inside another one.
+    """
     if analyze_fn is None:
-        from bot.valuator.analysis import analyze as _analyze
+        from bot.valuator import analysis as valuator
 
         def analyze_fn_default(ticker: str, conn: duckdb.DuckDBPyConnection) -> Analysis:
-            return _analyze(ticker, conn)
+            return valuator.analyze(
+                ticker, conn, conventional_override_path(assumptions_dir, ticker)
+            )
 
         analyze_fn = analyze_fn_default
 
