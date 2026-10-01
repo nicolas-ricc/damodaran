@@ -15,8 +15,6 @@ SmtpFactory = Callable[[str, int, float], smtplib.SMTP]
 
 
 class EmailNotifier:
-    """Sends the alerts text as an email via SMTP."""
-
     def __init__(
         self,
         *,
@@ -63,9 +61,7 @@ class EmailNotifier:
                     smtp.login(self.username, self._password)
                 smtp.send_message(msg)
         except (smtplib.SMTPException, OSError) as exc:
-            raise NotificationError(
-                f"SMTP send to {self.host}:{self.port} failed: {exc}"
-            ) from None
+            raise NotificationError(f"SMTP send to {self.host}:{self.port} failed: {exc}") from None
 
 
 def _subject(text: str) -> str:

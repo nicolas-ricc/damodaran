@@ -35,7 +35,7 @@ def split_message(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
             continue
         piece, piece_len = "", 0
         for ch in line:
-            width = 2 if ord(ch) > 0xFFFF else 1
+            width = _units(ch)
             if piece_len + width > limit:
                 chunks.append(piece)
                 piece, piece_len = "", 0
@@ -48,8 +48,6 @@ def split_message(text: str, limit: int = MAX_MESSAGE_LEN) -> list[str]:
 
 
 class TelegramNotifier:
-    """Sends the alerts text to a Telegram chat."""
-
     def __init__(
         self,
         *,
