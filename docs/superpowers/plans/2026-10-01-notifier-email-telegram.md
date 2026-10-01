@@ -692,7 +692,7 @@ One round (griller: `fable`); 16 questions. Revisions were local (a leaf `base.p
 |---|---|
 | 1 | CODE: `/usr/lib/python3.12/smtplib.py` `SMTP.__exit__` — `docmd("QUIT")`, swallows `SMTPServerDisconnected`, `close()`; never `quit()`. Test fixed: no `quit` in the expected calls. |
 | 2 | CODE: `src/bot/config.py:13-18` (`env_file=".env"`), `:98-100` (`load_settings` → `Settings()`); `tests/unit/test_cli_portfolio.py:85-98` (`_env` sets env only). Process env beats `.env` in pydantic-settings, so the CLI tests now `setenv` (`BOT_NOTIFIER=none`, empty token/chat id) instead of `delenv`. |
-| 3 | CODE: `src/bot/cli.py:553` `load_settings()`, `:554-558` preset check (exit 2), `:560` `_open_db()`, `:564-583` `run_portfolio` (TWS connect inside), `:590` `Wrote {alerts_path}`; `src/bot/portfolio/command.py:60` `PortfolioRunResult.alerts_path`. |
+| 3 | CODE: `src/bot/cli.py:554` `load_settings()`, `:555-558` preset check (exit 2), `:560` `_open_db()`, `:564-583` `run_portfolio` (TWS connect inside), `:590` `Wrote {alerts_path}`; `src/bot/portfolio/command.py:60` `PortfolioRunResult.alerts_path`. |
 | 4 | NO SOURCE → technical assumption (no retry; same-day rerun re-sends, `command.py:111`). |
 | 5 | DOC: spec §9 "Exit codes: 0 OK, 1 error operativo, 2 data error"; CODE: `cli.py:558` missing preset → 2. |
 | 6 | CODE: `command.py:141-143` always writes `alerts.md` before returning; if `run_portfolio` raises, the CLI exits before `notify_alerts`. Test id confirmed: `tests/integration/test_portfolio_command.py:174`. |
