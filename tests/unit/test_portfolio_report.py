@@ -265,10 +265,8 @@ def test_render_alerts_with_events() -> None:
     assert "NVDA" in out
 
 
-def test_render_alerts_empty_is_present_but_quiet() -> None:
-    out = render_alerts([], D2, generated_on=D2)
-    assert "# Alerts — 2026-05-02" in out
-    assert "No events detected today." in out
+def test_render_alerts_empty_when_no_events() -> None:
+    assert render_alerts([], D2, generated_on=D2) == ""
 
 
 def test_render_alerts_singular_event() -> None:

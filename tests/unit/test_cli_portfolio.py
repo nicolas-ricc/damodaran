@@ -185,3 +185,21 @@ def test_portfolio_fails_when_preset_missing(
 
     assert result.exit_code == 2
     assert "Screener config not found" in result.output
+
+
+def test_portfolio_reports_unreachable_tws(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reports_dir = _env(tmp_path, monkeypatch)
+
+    def _refuse(self: _FakeIbkrClient) -> None:
+        raise ConnectionRefusedError(111, "Connect call failed")
+
+    monkeypatch.setattr(_FakeIbkrClient, "connect", _refuse)
+    monkeypatch.setenv("BOT_IBKR_PORT", "4002")
+
+    result = CliRunner().invoke(app, ["portfolio"])
+
+    assert result.exit_code == 1
+    assert "Cannot reach TWS / IB Gateway at 127.0.0.1:4002" in result.output
+    assert not list(reports_dir.glob("*/*.md"))
