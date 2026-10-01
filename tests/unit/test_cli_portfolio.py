@@ -89,6 +89,9 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("BOT_REPORTS_DIR", str(reports_dir))
     monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
     monkeypatch.setenv("BOT_FMP_API_KEY", "test-key")
+    monkeypatch.setenv(
+        "BOT_PRESETS_DIR", str(Path(__file__).resolve().parents[2] / "config" / "presets")
+    )
     monkeypatch.setattr(bot.cli, "IbkrClient", _FakeIbkrClient)
     conn = connect(db_path)
     apply_schema(conn)
@@ -167,7 +170,9 @@ def test_portfolio_passes_preset_gates_including_trap_detection(
     gates = captured["quality_gates"]
     assert isinstance(gates, list)
     assert gates
-    assert "roic_above_sector_wacc" in {g.name for g in gates}
+    names = {g.name for g in gates}
+    assert "roic_above_sector_wacc" in names
+    assert "min_market_cap" in names
 
 
 def test_portfolio_fails_when_preset_missing(
@@ -178,4 +183,5 @@ def test_portfolio_fails_when_preset_missing(
 
     result = CliRunner().invoke(app, ["portfolio"])
 
-    assert result.exit_code != 0
+    assert result.exit_code == 2
+    assert "Screener config not found" in result.output
