@@ -40,6 +40,8 @@ from bot.storage.db import apply_schema, connect, schema_table_count
 from bot.utils.logging import configure_logging, get_logger
 from bot.valuator.analysis import analyze as run_analysis
 from bot.valuator.assumptions import conventional_override_path
+from bot.web.site import build as build_site
+from bot.web.site import normalize_base_url
 
 app = typer.Typer(
     help="Personal investment bot — value screener + portfolio monitor.",
@@ -83,9 +85,7 @@ def _make_provider(settings: Settings) -> MarketDataProvider:
         return EdgarTiingoProvider(
             sec_user_agent=settings.sec_user_agent, tiingo_api_key=settings.tiingo_api_key
         )
-    return EdgarStooqProvider(
-        sec_user_agent=settings.sec_user_agent, stooq_dir=settings.stooq_dir
-    )
+    return EdgarStooqProvider(sec_user_agent=settings.sec_user_agent, stooq_dir=settings.stooq_dir)
 
 
 @app.command()
@@ -106,8 +106,7 @@ def refresh(
     prices: bool = typer.Option(
         False,
         "--prices",
-        help="Refresh EOD prices for the universe via the configured data provider "
-        "(incremental).",
+        help="Refresh EOD prices for the universe via the configured data provider (incremental).",
     ),
     fx: bool = typer.Option(
         False, "--fx", help="Refresh FX rates for the currencies held in the universe."
@@ -265,9 +264,7 @@ def _refresh_prices(
     scope = "missing-price tickers" if only_missing else "tickers"
     typer.echo(f"Refreshing prices for up to {len(tickers)} {scope} via the data provider...")
     with closing(_make_provider(settings)) as provider:
-        result = refresh_prices(
-            conn, provider=provider, tickers=tickers, only_missing=only_missing
-        )
+        result = refresh_prices(conn, provider=provider, tickers=tickers, only_missing=only_missing)
     _report_universe_refresh(result)
 
     return 0 if result.status == "success" else 2
@@ -398,9 +395,7 @@ def analyze(
         typer.echo("Specify one or more tickers, or use --from-screen.", err=True)
         raise typer.Exit(code=2)
     if override is not None and len(tickers) != 1:
-        typer.echo(
-            "--override is only valid with exactly one ticker.", err=True
-        )
+        typer.echo("--override is only valid with exactly one ticker.", err=True)
         raise typer.Exit(code=2)
 
     conn, settings = _open_db()
@@ -416,8 +411,7 @@ def analyze(
             )
             raise typer.Exit(code=2)
         rows = conn.execute(
-            "SELECT ticker FROM screener_candidates "
-            "WHERE passed AND run_id = ? ORDER BY rank",
+            "SELECT ticker FROM screener_candidates WHERE passed AND run_id = ? ORDER BY rank",
             [latest_run[0]],
         ).fetchall()
         if not rows:
@@ -640,8 +634,7 @@ def doctor() -> None:
             # Not a hard failure: EDGAR fundamentals work without it. Only
             # refresh --prices needs the key, so this is a warning, not an issue.
             typer.echo(
-                "Tiingo API key:   MISSING (refresh --prices needs it; "
-                "free key at tiingo.com)"
+                "Tiingo API key:   MISSING (refresh --prices needs it; free key at tiingo.com)"
             )
     elif settings.stooq_dir is not None:
         if settings.stooq_dir.is_dir():
@@ -710,3 +703,24 @@ def status() -> None:
         typer.echo(
             f"{source:<14}{last_finished.strftime('%Y-%m-%d %H:%M:%S'):<22}{status_str:<10}{rows_affected:>8}"
         )
+
+
+@app.command()
+def site(
+    out: Path = typer.Option(  # noqa: B008
+        ..., "--out", help="Directory to write the static site into."
+    ),
+    reports_dir: Path = typer.Option(  # noqa: B008
+        Path("reports"), "--reports-dir", help="Directory holding the analysis sidecars."
+    ),
+    base_url: str = typer.Option(
+        "/", "--base-url", help="URL prefix the site is served under, e.g. /damodaran/."
+    ),
+) -> None:
+    """Build the static analysis viewer from the `bot analyze` JSON sidecars."""
+    try:
+        count = build_site(reports_dir, out, normalize_base_url(base_url))
+    except ValueError as e:
+        typer.echo(f"ERROR: {e}", err=True)
+        raise typer.Exit(code=2) from e
+    typer.echo(f"Built {count} companies → {out}")

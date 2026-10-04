@@ -320,10 +320,7 @@ class FmpProvider:
 
     def fx_rates(self, currency: str, since: date | None) -> list[FxRate]:
         rows = self._fmp().historical_fx(currency.upper(), start=since, end=None)
-        return [
-            FxRate(date=_as_date(r["date"]), rate_to_usd=float(r["rate_to_usd"]))
-            for r in rows
-        ]
+        return [FxRate(date=_as_date(r["date"]), rate_to_usd=float(r["rate_to_usd"])) for r in rows]
 
     def latest_filing_date(self, ticker: str) -> date | None:
         sym = ticker.upper()
@@ -363,9 +360,7 @@ def _latest_filing_from_rows(rows: Iterable[dict[str, object]]) -> date | None:
     for entry in rows:
         if not isinstance(entry, dict):
             continue
-        filed_raw = (
-            entry.get("filingDate") or entry.get("fillingDate") or entry.get("acceptedDate")
-        )
+        filed_raw = entry.get("filingDate") or entry.get("fillingDate") or entry.get("acceptedDate")
         if not filed_raw:
             continue
         filed = coerce_date(filed_raw)
@@ -746,4 +741,3 @@ def _collect_fmp_filings(
                 }
             )
     return out
-

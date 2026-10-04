@@ -51,9 +51,7 @@ def coerce_date(value: object) -> date | None:
         return None
 
 
-def _log_refresh(
-    conn: duckdb.DuckDBPyConnection, result: IngestResult, run_id: str
-) -> None:
+def _log_refresh(conn: duckdb.DuckDBPyConnection, result: IngestResult, run_id: str) -> None:
     conn.execute(
         """
         INSERT INTO refresh_log

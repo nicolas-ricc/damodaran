@@ -285,9 +285,7 @@ class AssumptionInputs:
     operating_margin_history: tuple[float, ...] = ()
 
 
-def load_assumption_inputs(
-    conn: duckdb.DuckDBPyConnection, ticker: str
-) -> AssumptionInputs:
+def load_assumption_inputs(conn: duckdb.DuckDBPyConnection, ticker: str) -> AssumptionInputs:
     """Load every DB row :func:`resolve_assumptions` needs for ``ticker``.
 
     Pure in the project sense (accepts the connection, reads only). The result
@@ -401,9 +399,7 @@ def _margins_from_rows(rows: Iterable[tuple[Any, Any]]) -> tuple[float, ...]:
     )
 
 
-def _operating_margin_history(
-    conn: duckdb.DuckDBPyConnection, ticker: str
-) -> tuple[float, ...]:
+def _operating_margin_history(conn: duckdb.DuckDBPyConnection, ticker: str) -> tuple[float, ...]:
     """The company's own EBIT / revenue ratio for every year of history.
 
     Feeds the high-growth margin ramp's starting point (most recent year) and
@@ -514,11 +510,7 @@ def _growth_path_from_revenues(revenues: Sequence[float]) -> tuple[float, ...] |
     """
     if len(revenues) < 2:
         return None
-    growths = [
-        (curr - prev) / prev
-        for prev, curr in itertools.pairwise(revenues)
-        if prev != 0.0
-    ]
+    growths = [(curr - prev) / prev for prev, curr in itertools.pairwise(revenues) if prev != 0.0]
     if not growths:
         return None
     return (fmean(growths),) * _HORIZON
@@ -592,8 +584,7 @@ def _load_override(override_path: Path | None) -> dict[str, Any]:
     if unknown:
         valid = ", ".join(sorted(_OVERRIDE_KEYS))
         raise ValueError(
-            f"{override_path}: unknown override key(s): {', '.join(unknown)}. "
-            f"Valid keys: {valid}"
+            f"{override_path}: unknown override key(s): {', '.join(unknown)}. Valid keys: {valid}"
         )
     return loaded
 
@@ -657,9 +648,7 @@ def resolve_assumptions(
     if db_inputs is None:
         db_inputs = load_assumption_inputs(conn, ticker)
     country = db_inputs.country
-    sector = _SectorDefaults(
-        row=db_inputs.sector, cross_region=db_inputs.sector_is_cross_region
-    )
+    sector = _SectorDefaults(row=db_inputs.sector, cross_region=db_inputs.sector_is_cross_region)
     override = _load_override(override_path)
 
     story_label = _resolve_story_type(override, auto_story_type)
@@ -713,9 +702,7 @@ def resolve_assumptions(
     )
 
 
-def _resolve_story_type(
-    override: dict[str, Any], auto_story_type: StoryType | None
-) -> str | None:
+def _resolve_story_type(override: dict[str, Any], auto_story_type: StoryType | None) -> str | None:
     """Manual ``story_type`` wins; else the classifier's verdict (spec §7.6)."""
     manual = override.get("story_type")
     if manual is not None:
@@ -815,9 +802,7 @@ def _resolve_operating_margin(
         )
     if story_type is StoryType.CYCLICAL and len(margin_history) >= _MIN_CYCLE_YEARS:
         cycle_avg = fmean(margin_history)
-        return Sourced(
-            value=(cycle_avg,) * _HORIZON, source=AssumptionSource.HISTORICAL_AVERAGE
-        )
+        return Sourced(value=(cycle_avg,) * _HORIZON, source=AssumptionSource.HISTORICAL_AVERAGE)
     if sector_margin is None:
         return Sourced(value=None, source=AssumptionSource.UNRESOLVED)
     return Sourced(value=(sector_margin,) * _HORIZON, source=sector.source)

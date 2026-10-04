@@ -278,9 +278,7 @@ def import_company(
     ) as run:
         run.details = {"ticker": sym}
         bundle = provider.fundamentals(sym)
-        currency = (
-            bundle.annual.company.get("currency") or bundle.quarterly.company.get("currency")
-        )
+        currency = bundle.annual.company.get("currency") or bundle.quarterly.company.get("currency")
         resolved_mapping = (
             mapping
             if mapping is not None

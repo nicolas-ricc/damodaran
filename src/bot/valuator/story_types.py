@@ -158,9 +158,7 @@ def _is_cyclical(financials: ClassificationFinancials, sector: SectorContext) ->
     return cv is not None and cv >= _CYCLICAL_EARNINGS_CV
 
 
-def classify(
-    financials: ClassificationFinancials, sector_data: SectorContext
-) -> StoryType:
+def classify(financials: ClassificationFinancials, sector_data: SectorContext) -> StoryType:
     """Assign a Damodaran story type from §7.1 signals.
 
     The rules are evaluated in priority order:

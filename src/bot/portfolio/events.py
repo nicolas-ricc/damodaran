@@ -197,11 +197,7 @@ def detect_currency_changes(
     events: list[Event] = []
     for position in curr:
         before = prev_ccy.get(position.ticker)
-        if (
-            before is not None
-            and position.currency is not None
-            and before != position.currency
-        ):
+        if before is not None and position.currency is not None and before != position.currency:
             events.append(
                 Event(
                     event_type=EventType.CURRENCY_CHANGED,
@@ -472,9 +468,7 @@ def detect_below_quality_gate(
 # --------------------------------------------------------------------------- #
 
 
-def _load_positions(
-    conn: duckdb.DuckDBPyConnection, snapshot_date: date
-) -> list[Position]:
+def _load_positions(conn: duckdb.DuckDBPyConnection, snapshot_date: date) -> list[Position]:
     """Aggregate a snapshot's rows into one :class:`Position` per ticker."""
     rows = conn.execute(
         "SELECT ticker, SUM(qty) AS qty, "
@@ -595,9 +589,7 @@ def compute_events(
     """
     curr_positions = _load_positions(conn, curr_snapshot_date)
     prev_positions = (
-        _load_positions(conn, prev_snapshot_date)
-        if prev_snapshot_date is not None
-        else []
+        _load_positions(conn, prev_snapshot_date) if prev_snapshot_date is not None else []
     )
     held_tickers = {p.ticker for p in curr_positions if p.qty != 0.0}
 
@@ -624,9 +616,7 @@ def compute_events(
         )
     events.extend(
         detect_corporate_action_events(
-            _load_corporate_actions(
-                conn, held_tickers, prev_snapshot_date, curr_snapshot_date
-            ),
+            _load_corporate_actions(conn, held_tickers, prev_snapshot_date, curr_snapshot_date),
             snapshot_date=curr_snapshot_date,
             prev_date=prev_snapshot_date,
         )

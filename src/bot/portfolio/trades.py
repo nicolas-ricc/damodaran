@@ -47,9 +47,7 @@ class TradeSource(Protocol):
 
     def accounts(self) -> list[str]: ...
 
-    def trades(
-        self, account_id: str, since: datetime | None = None
-    ) -> list[TradeExecution]: ...
+    def trades(self, account_id: str, since: datetime | None = None) -> list[TradeExecution]: ...
 
 
 @dataclass(frozen=True)
@@ -95,9 +93,7 @@ def sync_trades(
     return TradeSyncSummary(accounts=len(accounts), inserted=inserted)
 
 
-def _watermark(
-    conn: duckdb.DuckDBPyConnection, account: str
-) -> datetime | None:
+def _watermark(conn: duckdb.DuckDBPyConnection, account: str) -> datetime | None:
     """Return ``max(executed_at)`` stored for *account* as UTC, or ``None``.
 
     ``executed_at`` is stored naive-UTC (see schema NOTE); we re-attach UTC so

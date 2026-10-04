@@ -262,8 +262,7 @@ def beta_business_risk_flag(
             name=name,
             color=FlagColor.UNKNOWN,
             reason=(
-                "not evaluated: sector beta, operating leverage or company "
-                "leverage unavailable"
+                "not evaluated: sector beta, operating leverage or company leverage unavailable"
             ),
         )
     if (
