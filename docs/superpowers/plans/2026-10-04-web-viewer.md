@@ -91,7 +91,7 @@
 
 ### Task 5: Templates, CSS, assets
 
-**Files:** `src/bot/web/templates/{base,list,_rows,detail,_marks}.html`, `src/bot/web/static/{app.css,htmx.min.js,fonts/*.woff2}`, `pyproject.toml` (force-include)
+**Files:** `src/bot/web/templates/{base,list,_rows,detail}.html`, `src/bot/web/static/{app.css,htmx.min.js,fonts/*.woff2}`, `pyproject.toml` (force-include)
 
 - [ ] Leer `craft-floor.md` de impeccable antes de editar UI.
 - [ ] Decodificar `docs/plano/fonts/*.b64` a `static/fonts/*.woff2`; `@font-face` local.

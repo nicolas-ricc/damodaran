@@ -189,7 +189,7 @@ src/bot/web/
   views.py      # dict JSON → view-models tipados (VerdictView, ValueLine, ScenarioGrid…)
   svg.py        # value line, grilla, tornado, marks; jitter determinista; puro
   site.py       # build(reports_dir, out_dir, base_url): render Jinja → archivos
-  templates/    # base.html, list.html, _rows.html, detail.html, _marks.html
+  templates/    # base.html, list.html, _rows.html, detail.html
   static/       # app.css, htmx.min.js (2.x, vendorizado), fonts/*.woff2
 ```
 
