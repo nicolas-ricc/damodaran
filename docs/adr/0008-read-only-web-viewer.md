@@ -35,7 +35,7 @@ excludes an operating dashboard).
 - **Verdict.** One reading of the MoS, from `margin_verdict` (single source), shared by
   the reports and the site.
 - **Safety.** `bot site` never deletes `out_dir` itself, only its children, and refuses a
-  non-site directory or one that contains `--reports-dir`. The file stem is the ticker
+  non-empty directory that is not a previous site output, or one that contains `--reports-dir`. The file stem is the ticker
   identity; a sidecar whose `analysis.ticker` disagrees is skipped.
 
 ## Consequences
