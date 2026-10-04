@@ -1,0 +1,80 @@
+{% set latest = detail.history | max %}
+<header class="detail-head">
+  <h1><span class="big-ticker">{{ detail.ticker }}</span> <span class="co-name">{{ detail.name }}</span></h1>
+  <p class="meta"><time datetime="{{ detail.date }}">{{ detail.date }}</time> <span class="story">{{ detail.story }}</span></p>
+  {% if detail.history | length > 1 %}
+  <p class="history">
+    {% for d in detail.history %}
+    {% set path = "c/" ~ detail.ticker ~ ".html" if d == latest else "c/" ~ detail.ticker ~ "/" ~ d ~ ".html" %}
+    {% set frag = "f/" ~ detail.ticker ~ ".html" if d == latest else "f/" ~ detail.ticker ~ "/" ~ d ~ ".html" %}
+    <a href="{{ base_url }}{{ path }}" hx-get="{{ base_url }}{{ frag }}" hx-target="#detail" hx-push-url="{{ base_url }}{{ path }}"{% if d == detail.date %} aria-current="true"{% endif %}>{{ d }}</a>
+    {% endfor %}
+  </p>
+  {% endif %}
+</header>
+
+<p class="verdict">{{ verdict_mark(detail.verdict) }} <span class="verdict-text">{{ detail.verdict_text }}</span> <span class="mos">MoS {{ detail.mos }}</span></p>
+
+{% if detail.value_line %}
+<div class="value-line-wrap">{{ value_line_svg(detail.value_line, mini=False, seed=seed_of(detail.ticker)) }}</div>
+{% endif %}
+
+<div class="charts">
+  {% if detail.grid %}
+  <section class="scenarios">
+    <h2>Scenarios <span class="num">{{ detail.grid.matching }}/{{ detail.grid.total }}</span></h2>
+    {{ scenario_grid_svg(detail.grid, seed=seed_of(detail.ticker ~ "grid")) }}
+  </section>
+  {% endif %}
+  {% if detail.tornado %}
+  <section class="drivers">
+    <h2>Drivers</h2>
+    {{ tornado_svg(detail.tornado, price=detail.price, seed=seed_of(detail.ticker ~ "tornado")) }}
+  </section>
+  {% endif %}
+</div>
+
+<div class="columns">
+  <section class="assumptions">
+    <h2>Assumptions</h2>
+    <table>
+      <tbody>
+      {% for a in detail.assumptions %}
+        <tr><th scope="row" class="id">{{ a.label }}</th><td class="num">{{ a.value }}</td><td class="id src">{{ a.source }}</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </section>
+  <section class="flag-list">
+    <h2>Flags</h2>
+    <ul>
+    {% for f in detail.flags %}
+      <li>{{ flag_mark(f.color) }} <span class="id">{{ f.name }}</span> <span class="reason">{{ f.reason }}</span></li>
+    {% endfor %}
+    </ul>
+  </section>
+</div>
+
+{% if detail.sanity %}
+<section class="sanity">
+  <h2>Sanity</h2>
+  <p>{% for s in detail.sanity %}<span class="pair"><span class="id">{{ s.label }}</span> <span class="num">{{ s.value }}</span></span> {% endfor %}</p>
+</section>
+{% endif %}
+
+<details class="dcf">
+  <summary>DCF</summary>
+  <table>
+    <thead><tr><th scope="col">Year</th><th scope="col">Revenue</th><th scope="col">EBIT</th><th scope="col">FCFF</th><th scope="col">PV</th></tr></thead>
+    <tbody>
+    {% for row in detail.dcf_rows %}
+      <tr>{% for cell in row %}<td class="num">{{ cell }}</td>{% endfor %}</tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <dl class="totals">
+    {% for t in detail.dcf_totals %}
+    <div><dt>{{ t.label }}</dt><dd class="num">{{ t.value }}</dd></div>
+    {% endfor %}
+  </dl>
+</details>
