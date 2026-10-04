@@ -28,6 +28,7 @@ from bot.ingest.universe import (
 )
 from bot.notifier import NotificationError, NotifierConfigError, build_notifier, notify_alerts
 from bot.portfolio.command import run_portfolio
+from bot.reporting.analysis_json import render_analysis_json
 from bot.reporting.analysis_report import render_analysis
 from bot.reporting.html import render_analysis_html
 from bot.reporting.screen_report import render_csv, render_markdown
@@ -39,6 +40,7 @@ from bot.storage.db import apply_schema, connect, schema_table_count
 from bot.utils.logging import configure_logging, get_logger
 from bot.valuator.analysis import analyze as run_analysis
 from bot.valuator.assumptions import conventional_override_path
+from bot.web.site import build as build_site
 
 app = typer.Typer(
     help="Personal investment bot — value screener + portfolio monitor.",
@@ -463,15 +465,19 @@ def _analyze_one(
     today = date.today()
     report_md = render_analysis(analysis, generated_on=today)
     report_html = render_analysis_html(analysis, generated_on=today)
+    report_json = render_analysis_json(analysis, generated_on=today)
     out_dir = settings.reports_dir / today.isoformat() / "analysis"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{ticker}.md"
     html_path = out_dir / f"{ticker}.html"
+    json_path = out_dir / f"{ticker}.json"
     out_path.write_text(report_md)
     html_path.write_text(report_html)
+    json_path.write_text(report_json)
 
     typer.echo(f"Wrote {out_path}")
     typer.echo(f"Wrote {html_path}")
+    typer.echo(f"Wrote {json_path}")
     if analysis.margin_of_safety is not None:
         typer.echo(
             f"Intrinsic {analysis.dcf_result.intrinsic_value:,.2f} "
@@ -705,3 +711,24 @@ def status() -> None:
         typer.echo(
             f"{source:<14}{last_finished.strftime('%Y-%m-%d %H:%M:%S'):<22}{status_str:<10}{rows_affected:>8}"
         )
+
+
+@app.command()
+def site(
+    out: Path = typer.Option(  # noqa: B008
+        ..., "--out", help="Directory to write the static site into."
+    ),
+    reports_dir: Path = typer.Option(  # noqa: B008
+        Path("reports"), "--reports-dir", help="Directory holding the analysis sidecars."
+    ),
+    base_url: str = typer.Option(
+        "/", "--base-url", help="URL prefix the site is served under, e.g. /damodaran/."
+    ),
+) -> None:
+    """Build the static analysis viewer from the `bot analyze` JSON sidecars."""
+    try:
+        count = build_site(reports_dir, out, base_url)
+    except ValueError as e:
+        typer.echo(f"ERROR: {e}", err=True)
+        raise typer.Exit(code=2) from e
+    typer.echo(f"Built {count} companies → {out}")

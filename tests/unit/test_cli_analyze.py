@@ -345,3 +345,32 @@ def test_analyze_explicit_override_wins_over_convention(
     md = next(reports_dir.glob("*/analysis/AAPL.md")).read_text()
     assert "explicit override" in md
     assert "convention override" not in md
+
+
+def test_analyze_writes_json_sidecar(tmp_path: Path, monkeypatch) -> None:
+    """Issue #92: a ``<TICKER>.json`` sidecar lands next to the ``.md``/``.html``."""
+    import json
+
+    from bot.reporting.analysis_report import margin_verdict
+
+    db_path = tmp_path / "bot.duckdb"
+    reports_dir = tmp_path / "reports"
+    monkeypatch.setenv("BOT_DB_PATH", str(db_path))
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(reports_dir))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+
+    conn = connect(db_path)
+    apply_schema(conn)
+    _seed(conn)
+    conn.close()
+
+    result = CliRunner().invoke(app, ["analyze", "AAPL"])
+    assert result.exit_code == 0, result.stdout
+
+    sidecars = list(reports_dir.glob("*/analysis/AAPL.json"))
+    assert len(sidecars) == 1
+    assert sidecars[0].with_suffix(".md").exists()
+    payload = json.loads(sidecars[0].read_text())
+    assert payload["schema_version"] == 1
+    assert payload["verdict"] == margin_verdict(payload["analysis"]["margin_of_safety"])
+    assert "AAPL.json" in result.stdout

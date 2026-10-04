@@ -19,7 +19,7 @@ CAPA = {
     'cli': 'orquestador', 'config': 'compartido', 'storage': 'capa-a',
     'ingest': 'capa-a', 'reference': 'compartido', 'utils': 'compartido',
     'screener': 'capa-b', 'valuator': 'capa-c',
-    'portfolio': 'salida', 'reporting': 'salida', 'notifier': 'salida',
+    'portfolio': 'salida', 'reporting': 'salida', 'web': 'salida', 'notifier': 'salida',
 }
 
 # dirección esperada: cada paquete solo debería depender de los de abajo

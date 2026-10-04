@@ -227,12 +227,12 @@ def test_tornado_path_axes_are_labelled_year_one(analysis: Analysis) -> None:
 
 
 def test_per_share_values_are_not_scaled_to_thousands() -> None:
-    from bot.reporting.analysis_report import _fmt_per_share
+    from bot.reporting.analysis_report import fmt_per_share
 
     # A per-share price of 1500 is 1500, not "1.50K".
-    assert _fmt_per_share(1500.0) == "1500.00"
-    assert _fmt_per_share(12.3456) == "12.35"
-    assert _fmt_per_share(None) == "—"
+    assert fmt_per_share(1500.0) == "1500.00"
+    assert fmt_per_share(12.3456) == "12.35"
+    assert fmt_per_share(None) == "—"
 
 
 def test_report_renders_per_share_values_unscaled(

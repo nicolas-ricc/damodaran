@@ -515,7 +515,7 @@ Part-time: ~2-3 meses. Full-time: ~4-6 semanas.
 - **LLM analyst (Capa D)**: lectura automatizada de 10-K / earnings calls con resumen tipo *Narrative and Numbers*. Diferido a Fase 2.
 - **Ejecución de órdenes vía IBKR**: solo lectura en Fase 1.
 - **Backtesting** del screener contra histórico. Estructura de datos (survivorship-aware) lo permite, pero el motor de backtest no es parte del MVP.
-- **Dashboard web**: si después de meses de uso se justifica más interactividad, se evalúa entonces.
+- **Dashboard web operativo**: si después de meses de uso se justifica más interactividad, se evalúa entonces. Lo que sí entró es un visor web de solo lectura de los análisis (sitio estático en GitHub Pages, ADR 0008); no opera el bot.
 - **Notificaciones push** (email, Telegram): toda la salida es archivo en disco. Si se quiere push, módulo `notifier` aparte que lea `alerts.md`.
 - **Análisis de bancos / aseguradoras**: contabilidad lo bastante distinta como para necesitar screener separado. Excluidos por default; configurable.
 
