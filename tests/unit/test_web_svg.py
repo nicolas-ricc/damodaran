@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 import pytest
+
 from bot.web.svg import (
     flag_mark,
     jitter_path,
@@ -158,10 +159,12 @@ def test_flag_marks_have_a_title(color: str) -> None:
 
 
 def test_marks_differ_in_shape_not_only_colour() -> None:
-    shapes = {re.sub(r'var\(--[a-z-]+\)|<title>.*?</title>', "", str(verdict_mark(v))) for v in Verdict}
+    shapes = {
+        re.sub(r"var\(--[a-z-]+\)|<title>.*?</title>", "", str(verdict_mark(v))) for v in Verdict
+    }
     assert len(shapes) == len(Verdict)
     flags = {
-        re.sub(r'var\(--[a-z-]+\)|<title>.*?</title>', "", str(flag_mark(c)))
+        re.sub(r"var\(--[a-z-]+\)|<title>.*?</title>", "", str(flag_mark(c)))
         for c in ("red", "yellow", "green", "unknown")
     }
     assert len(flags) == 4
@@ -180,3 +183,34 @@ def test_no_hardcoded_colours() -> None:
         assert not re.search(r"#[0-9a-fA-F]{3,8}\b", svg.replace("url(#", "url("))
         assert "oklch(" not in svg
         assert "rgb(" not in svg
+
+
+def _texts(svg: str) -> list[tuple[float, float]]:
+    return [
+        (float(m.group(1)), float(m.group(2)))
+        for m in re.finditer(r'<text x="(-?[\d.]+)" y="(-?[\d.]+)"', svg)
+    ]
+
+
+def test_tornado_labels_stay_in_viewbox_and_clear_of_bar_labels() -> None:
+    bars = [TornadoBar("discount rate", 80.0, 140.0), TornadoBar("growth", 95.0, 120.0)]
+    svg = str(tornado_svg(bars, price=100.0, seed=1))
+    assert all(0 <= x <= 640 for x, _ in _texts(svg))
+    label_x = _texts(svg)[0][0]
+    low_x = _texts(svg)[1][0]
+    assert low_x > label_x
+
+
+def test_tornado_keeps_input_order() -> None:
+    svg = str(
+        tornado_svg(
+            [TornadoBar("narrow", 1.0, 2.0), TornadoBar("wide", 0.0, 9.0)], price=None, seed=1
+        )
+    )
+    assert svg.index("narrow") < svg.index("wide")
+
+
+def test_value_line_labels_stay_inside_viewbox() -> None:
+    for vl in (_vl(100.0, 1000.0), _vl(100.0, 150.0)):
+        svg = str(value_line_svg(vl, mini=False, seed=1))
+        assert all(0 <= x <= 640 and 0 <= y < 96 for x, y in _texts(svg))

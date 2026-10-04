@@ -104,6 +104,13 @@ def _text(x: float, y: float, content: str, anchor: str = "middle", cls: str = "
     )
 
 
+def _anchor(x: float, width: float, margin: float = 60.0) -> str:
+    """Text anchor that keeps a label inside the viewBox near either edge."""
+    if x < margin:
+        return "start"
+    return "end" if x > width - margin else "middle"
+
+
 def _num(value: float) -> str:
     return f"{value:,.2f}" if math.isfinite(value) else "n/a"
 
@@ -152,10 +159,10 @@ def value_line_svg(vl: ValueLine, *, mini: bool, seed: int) -> Markup:
     body = f"{group}{''.join(parts)}</g>"
     if not mini:
         body += (
-            _text(fair_x, mid - 20, "1.0\u00d7")
-            + _text(under_x, mid - 20, "1.3\u00d7")
-            + _text(px, mid + 34, f"price {_num(vl.price)}")
-            + _text(ix, mid + 48, f"intrinsic {_num(vl.intrinsic)}")
+            _text(fair_x, mid - 20, "1.0\u00d7", _anchor(fair_x, width))
+            + _text(under_x, mid - 32, "1.3\u00d7", _anchor(under_x, width))
+            + _text(px, mid + 30, f"price {_num(vl.price)}", _anchor(px, width))
+            + _text(ix, mid + 42, f"intrinsic {_num(vl.intrinsic)}", _anchor(ix, width))
         )
     return Markup(
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {_n(width)} {_n(height)}" '
@@ -177,8 +184,10 @@ def _shape(verdict: Verdict) -> str:
         return f'<circle cx="8" cy="8" r="5" fill="none" stroke="{color}" stroke-width="2"/>'
     if verdict is Verdict.OVERVALUED:
         return (
-            f'<rect x="3" y="3" width="10" height="10" fill="url(#hatch)" stroke="{color}" '
+            f'<rect x="2" y="3" width="8" height="10" fill="url(#hatch)" stroke="{color}" '
             'stroke-width="1.6"/>'
+            f'<path d="M10 10 L14 10 L14 14" fill="none" stroke="{color}" stroke-width="1.6" '
+            'stroke-linecap="round" stroke-linejoin="round"/>'
         )
     return f'<path d="M4 8 L12 8" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round"/>'
 
@@ -249,13 +258,13 @@ def scenario_grid_svg(grid: ScenarioGrid, *, seed: int) -> Markup:
 
 
 def tornado_svg(bars: Sequence[TornadoBar], *, price: float | None, seed: int) -> Markup:
-    """One horizontal low-high bar per input, widest first, on a shared axis."""
-    ordered = sorted(bars, key=lambda b: -(b.high - b.low))
+    """One horizontal low-high bar per input (input order) on a shared axis."""
+    ordered = list(bars)
     values = [v for b in ordered for v in (b.low, b.high)]
     if price is not None:
         values.append(price)
     finite = [v for v in values if math.isfinite(v)] or [0.0, 1.0]
-    left, right, row_h, top = 150.0, 610.0, 28.0, 8.0
+    left, right, row_h, top = 200.0, 580.0, 28.0, 8.0
     scale = _scaler(min(finite), max(finite), left, right)
     height = top + row_h * len(ordered) + 8
     drawn: list[str] = []
@@ -276,7 +285,7 @@ def tornado_svg(bars: Sequence[TornadoBar], *, price: float | None, seed: int) -
             (x0, y - h / 2),
         ]
         drawn.append(_stroke(outline, seed + i, _INK, 1.2))
-        labels.append(_text(left - 8, y + 4, bar.label, anchor="end"))
+        labels.append(_text(150, y + 4, bar.label, anchor="end"))
         labels.append(_text(x0 - 4, y + 4, _num(bar.low), anchor="end", cls="val"))
         labels.append(_text(x1 + 4, y + 4, _num(bar.high), anchor="start", cls="val"))
     if price is not None:
