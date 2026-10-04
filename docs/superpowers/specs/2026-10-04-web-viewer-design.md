@@ -1,18 +1,20 @@
 # Web viewer de análisis — design
 
-**Goal.** Una interfaz web local, de solo lectura, para recorrer las compañías
-analizadas por `bot analyze` y ver de un vistazo por qué cada una recibió su
-veredicto.
+**Goal.** Un sitio estático, de solo lectura, publicado en GitHub Pages en cada
+push a `main`, para recorrer las compañías analizadas por `bot analyze` y ver de
+un vistazo por qué cada una recibió su veredicto.
 
 **Status.** Decisiones del usuario (2026-10-04): stack htmx; fuente = archivos en
-`reports/`; veredicto = solo margin of safety; mundo visual = `docs/DESIGN.md`
+`reports/`; sin servidor ni DB en el deploy (export estático a GitHub Pages, solo
+en push a `main`); veredicto = solo margin of safety; mundo visual = `docs/DESIGN.md`
 completo, trazo a mano incluido; UI en inglés. Diseño vía impeccable (modo
 *Operate*). Contrato de dirección en
 `.impeccable/surfaces/src-bot-web-templates-base-html.md`.
 
 **Cambio de alcance.** Spec §15 dejaba el dashboard web fuera de Fase 1 y
 `PRODUCT.md` dice "el bot es CLI y así se queda". Esto no lo contradice del todo:
-el viewer no opera nada (no corre screen/analyze, no escribe). Igual se registra
+el viewer no opera nada (no corre screen/analyze, no escribe). El sitio es
+público (repo público + Pages): los análisis commiteados quedan visibles. Igual se registra
 en ADR 0008 y se enmienda `PRODUCT.md`.
 
 ## Principio rector
@@ -42,10 +44,12 @@ Parsear el `.md` es frágil, así que `analyze` pasa a escribir además
 - `verdict` sale de la función que ya usa el reporte (`_margin_verdict`, que pasa
   a pública como `margin_verdict`), así web y `.md` nunca discrepan.
 - Reportes previos sin `.json` no aparecen; se regeneran con `bot analyze`.
+- Los `.json` se commitean (`.gitignore` deja pasar solo
+  `reports/*/analysis/*.json`). Son la única entrada del build: CI no necesita
+  DuckDB, EDGAR ni Tiingo. `.md`/`.html` siguen ignorados.
 - JSON malformado o `schema_version` desconocido → se omite y se loguea warning;
   no rompe el listado.
-- Índice: un escaneo de `reports_dir/*/analysis/*.json` por request (decenas de
-  archivos; sin caché). Por ticker vale el más reciente; los anteriores forman su
+- Índice: un escaneo de `reports_dir/*/analysis/*.json` por build. Por ticker vale el más reciente; los anteriores forman su
   historial.
 
 ### Veredicto
@@ -68,17 +72,19 @@ sector), proyección DCF (colapsada).
 
 ## Superficies
 
-Dos rutas, una plantilla base. Cada ruta devuelve página completa o fragmento
-según `HX-Request`.
+Todo se pre-renderiza a HTML. htmx carga fragmentos estáticos; sin JS, cada link
+apunta a una página completa equivalente (progressive enhancement).
 
-| Ruta | Devuelve |
+| Archivo | Contenido |
 |---|---|
-| `GET /` | Lista + panel de detalle vacío (o el primero en desktop). |
-| `GET /companies?q=&verdict=&sort=&dir=` | `<tbody>` filtrado/ordenado. |
-| `GET /c/{ticker}` | Detalle (último análisis). |
-| `GET /c/{ticker}/{date}` | Detalle de un análisis anterior. |
-| `GET /reports/{date}/{ticker}.html` | El reporte HTML existente, tal cual. |
-| `GET /static/*` | CSS, htmx, fuentes. |
+| `index.html` | Lista (todos, MoS desc) + detalle del primero. |
+| `rows/{verdict}-{sort}-{dir}.html` | `<tbody>` pre-generado: verdict ∈ all/undervalued/fair/overvalued/na × sort ∈ ticker/mos/date × asc/desc (30 fragmentos). |
+| `c/{TICKER}.html` | Detalle, página completa (último análisis). |
+| `c/{TICKER}/{date}.html` | Detalle de un análisis anterior. |
+| `f/{TICKER}.html`, `f/{TICKER}/{date}.html` | Mismo detalle como fragmento para `#detail`. |
+| `static/*` | CSS, htmx, fuentes. |
+
+URLs relativas a `--base-url` (Pages de proyecto sirve bajo `/damodaran/`).
 
 ### Lista
 
@@ -87,12 +93,14 @@ Columnas: `Ticker` · `Name` · verdict mark · `MoS` (número + mini value line
 `Date`.
 
 Controles (únicos de la app):
-- Búsqueda por ticker/nombre: `hx-get /companies`, `hx-trigger="input changed delay:200ms"`.
-- Filtro de veredicto: 4 toggles (`undervalued` `fair` `overvalued` `n/a`) con conteo.
-- Orden: headers clicables (`MoS` desc por defecto); `aria-sort`.
-- Fila = link a `/c/{ticker}`; en desktop `hx-target="#detail"` + `hx-push-url`.
+- Filtro de veredicto: selección única (`all` `undervalued` `fair` `overvalued`
+  `n/a`) con conteo; `hx-get rows/…` sobre el `<tbody>`.
+- Orden: headers `Ticker` `MoS` `Date` clicables (`MoS` desc por defecto); `aria-sort`.
+- Sin búsqueda: requiere servidor y la shortlist es corta (~20).
+- Fila = link a `c/{ticker}.html`; en desktop `hx-get f/{ticker}.html`,
+  `hx-target="#detail"`, `hx-push-url` a la página completa.
 
-Vacío: `No analyses in <reports_dir>` y la línea `bot analyze --from-screen`.
+Vacío: `No analyses` y la línea `bot analyze --from-screen`.
 Filtro sin resultados: `0 of N`.
 
 ### Detalle (primer viewport, de arriba abajo)
@@ -105,7 +113,8 @@ Filtro sin resultados: `0 of N`.
 6. Dos columnas: `Assumptions` (value · source) | `Flags` (marca · name · reason).
 7. `Sanity`: `P/E 18.2 / 24.1` · `EV/Sales 4.1 / 3.8` (implied / sector).
 8. `<details>` `DCF` (tabla de proyección + EV/equity/net debt).
-9. Link único: `Full report`.
+
+Sin link a `Full report`: el `.html` con Plotly inline pesa MB y no se commitea.
 
 ## Dirección visual
 
@@ -176,22 +185,36 @@ explicativo, banners, botones "View details", modales.
 ```
 src/bot/web/
   __init__.py
-  app.py        # create_app(settings) -> FastAPI; rutas; HX-Request → fragmento
   index.py      # escaneo de reports_dir → CompanyEntry (puro sobre Path)
   views.py      # dict JSON → view-models tipados (VerdictView, ValueLine, ScenarioGrid…)
   svg.py        # value line, grilla, tornado, marks; jitter determinista; puro
+  site.py       # build(reports_dir, out_dir, base_url): render Jinja → archivos
   templates/    # base.html, list.html, _rows.html, detail.html, _marks.html
   static/       # app.css, htmx.min.js (2.x, vendorizado), fonts/*.woff2
 ```
 
-- CLI: `bot web [--host 127.0.0.1] [--port 8000]` → uvicorn. Bind local por
-  defecto.
-- Deps nuevas: `fastapi`, `uvicorn`. Jinja2 ya está. Sin CDN: htmx vendorizado.
-- `index`, `views`, `svg` son puros (Path/dict → dataclass/str); `app` es el
-  único borde. Mismo patrón que `reporting/`.
-- Seguridad: `ticker` validado `^[A-Z0-9.\-]{1,12}$`, `date` como ISO; paths
-  resueltos y verificados dentro de `reports_dir`; autoescape Jinja activo.
-- `reports_dir` sale de `Settings`, igual que el resto del bot.
+- CLI: `bot site --out site/ [--base-url /]`. No abre la DB ni lee `.env`
+  obligatorios. Vista local: `python -m http.server -d site`.
+- Sin deps nuevas: Jinja2 ya está. Sin servidor, sin CDN.
+- `index`, `views`, `svg` son puros; `site.build` es el único borde (escribe a
+  `out_dir`, que se vacía antes).
+- Tickers validados `^[A-Z0-9.\-]{1,12}$` antes de usarse en nombres de archivo;
+  autoescape Jinja activo.
+
+## CI / deploy
+
+`.github/workflows/site.yml`, solo `on: push: branches: [main]`.
+
+1. `checkout` → `astral-sh/setup-uv` → `uv sync --frozen`.
+2. Gate: `ruff check`, `mypy src`, `pytest -q`. Si falla, no se deploya.
+3. `uv run bot site --out site --base-url /${{ github.event.repository.name }}/`.
+4. `actions/upload-pages-artifact` → `actions/deploy-pages` (environment
+   `github-pages`; permisos `pages: write`, `id-token: write`).
+5. `concurrency: pages`, `cancel-in-progress: true`.
+
+CI no corre `bot analyze`: sin DB ni APIs no hay qué analizar. Flujo:
+`bot analyze` local → commit de los `.json` → push a `main` → CI construye y
+publica. Requisito único: Settings → Pages → Source = *GitHub Actions*.
 
 ## Accesibilidad
 
@@ -204,12 +227,14 @@ en `#detail` y en el conteo del filtro. Foco visible dibujado.
 - `index`: último por ticker, historial, JSON roto omitido, versión desconocida omitida.
 - `views`/`svg`: posiciones de la value line, conteo de escenarios (incluye celdas
   `None`), sin precio → `n/a` sin value line, jitter determinista.
-- `app` con `TestClient`: lista completa vs fragmento, filtro/orden/búsqueda,
-  detalle, historial, 404, path traversal rechazado.
+- `site.build` sobre `tmp_path`: genera los 30 `rows/*`, `c/` y `f/` por ticker e
+  historial; `base-url` aplicado a todos los links; dir vacío → `index.html` con
+  estado vacío; ticker inválido omitido.
 - Sidecar: round-trip `Analysis → JSON → view-model`.
 - `ruff`, `mypy --strict`, `pytest`; `impeccable detect` sobre templates/CSS al final.
 
 ## Fuera de alcance
 
-Ejecutar comandos del bot desde la web, edición de overrides, auth, multi-usuario,
-gráficos interactivos (Plotly), portfolio/alerts, dark mode (DESIGN.md fuerza claro).
+Ejecutar comandos del bot desde la web o en CI, servidor/búsqueda, edición de
+overrides, auth, multi-usuario, gráficos interactivos (Plotly), portfolio/alerts,
+dark mode (DESIGN.md fuerza claro), deploy programado.

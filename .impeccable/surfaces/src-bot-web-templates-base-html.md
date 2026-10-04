@@ -17,7 +17,7 @@ OWN-WORLD: `docs/DESIGN.md` unchanged: tonal sheet on kraft desk, bistre ink, ea
 
 STORY: Visitor sees the shortlist sorted by MoS, opens one, reads price vs intrinsic, scenario robustness n/25, drivers, assumption sources, flags. No prose.
 
-FIRST VIEWPORT: Desktop split: list ≈40% left (search, 4 verdict toggles with counts, sortable table with mini value lines); right detail: ticker + name in Shantell, verdict mark + MoS, full-width value line, 5×5 scenario grid beside tornado. Only link: Full report.
+FIRST VIEWPORT: Desktop split: list ≈40% left (single-select verdict filter with counts, sortable table with mini value lines); right detail: ticker + name in Shantell, verdict mark + MoS, full-width value line, 5×5 scenario grid beside tornado. No CTAs. Static export, htmx swaps pre-rendered fragments.
 
 FORM: list-detail split, standard table and controls; signature move = value line (full in detail, mini in list). Seed key: 07bd6c47 (composition pinned by spec; world pinned by user).
 

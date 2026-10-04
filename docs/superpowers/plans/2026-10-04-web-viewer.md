@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** `bot web` sirve una interfaz htmx local, de solo lectura, que lista las compañías analizadas y muestra por qué cada una recibió su veredicto de MoS.
+**Goal:** `bot site` genera un sitio htmx estático que lista las compañías analizadas y muestra por qué cada una recibió su veredicto de MoS; cada push a `main` lo construye y publica en GitHub Pages.
 
-**Architecture:** `bot analyze` escribe un sidecar `<TICKER>.json` junto a los `.md/.html`. Nuevo paquete `src/bot/web/` con tres módulos puros (`index`, `views`, `svg`) y un borde (`app`, FastAPI + Jinja2). htmx vendorizado, fuentes locales.
+**Architecture:** `bot analyze` escribe un sidecar `<TICKER>.json` junto a los `.md/.html`. Los `.json` se commitean. Nuevo paquete `src/bot/web/` con tres módulos puros (`index`, `views`, `svg`) y un borde (`site`, Jinja2 → archivos). htmx vendorizado, fuentes locales. Workflow de Actions: gate de calidad → `bot site` → Pages.
 
-**Tech Stack:** Python 3.12, FastAPI, uvicorn, Jinja2, htmx 2.x, pytest + `fastapi.testclient`, ruff, mypy --strict.
+**Tech Stack:** Python 3.12, Jinja2, htmx 2.x, GitHub Actions + Pages, pytest, ruff, mypy --strict.
 
 **Spec:** `docs/superpowers/specs/2026-10-04-web-viewer-design.md`. Dirección visual: `.impeccable/surfaces/src-bot-web-templates-base-html.md` + `docs/DESIGN.md`.
 
@@ -15,7 +15,7 @@
 - Solo lectura: la web nunca escribe ni invoca el pipeline.
 - Cero texto que no sea dato: sin párrafos, sin CTAs, sin tooltips explicativos.
 - Color nunca codifica solo (pigmento + forma).
-- Sin CDN; bind `127.0.0.1` por defecto.
+- Sin CDN, sin servidor, sin deps nuevas. CI nunca toca DuckDB ni APIs externas.
 - `uv run ruff check . && uv run mypy src && uv run pytest -q` verde en cada task.
 - Conventional Commits, scope `web` (`feat(web): …`).
 
@@ -24,8 +24,9 @@
 1. Web y `.md` muestran el mismo veredicto → una sola función `margin_verdict` (Task 1).
 2. Un JSON roto no tumba el listado (Task 2).
 3. Análisis sin precio: `n/a`, sin value line, sin conteo de escenarios (Tasks 3–4).
-4. Path traversal en `/c/{ticker}/{date}` y `/reports/...` (Task 6).
+4. Ticker/fecha inválidos nunca llegan a un nombre de archivo (Tasks 2, 6).
 5. La lista con 500 filas no usa filtros SVG (Task 4).
+6. Un push a `main` con tests rojos no deploya (Task 7).
 
 ---
 
@@ -37,6 +38,16 @@
 - [ ] `render_analysis_json(analysis, *, generated_on) -> str`: `{"schema_version": 1, "generated_on", "verdict", "analysis": asdict(analysis)}`; enums/tuplas/fechas serializados con `default` explícito (no `str` genérico).
 - [ ] `_analyze_one` escribe `<TICKER>.json` junto a `.md/.html` y lo imprime en `Wrote …`.
 - [ ] Tests: claves presentes, `verdict == margin_verdict(mos)`, sin precio → `"n/a"` y `current_price: null`, celdas `None` del grid preservadas, JSON válido.
+- [ ] `.gitignore`: reemplazar `reports/` por
+  ```
+  reports/*
+  !reports/*/
+  reports/*/*
+  !reports/*/analysis/
+  reports/*/analysis/*
+  !reports/*/analysis/*.json
+  ```
+  y verificar con `git check-ignore -v` que `.md/.html` siguen ignorados y `.json` no.
 - [ ] Commit `feat(web): analyze writes a JSON sidecar per ticker`.
 
 ### Task 2: `web/index.py` — escaneo de reports
@@ -60,8 +71,8 @@
 - [ ] `ScenarioGrid` (axis_a, axis_b, labels, cells[verdict|None], matching: int, total: int): `matching` = celdas con el mismo veredicto que la base; `total` excluye `None`.
 - [ ] `DetailView` agrupa: header, verdict, value line, grid, tornado, assumptions (label, value formateado, source), flags, sanity, dcf, history.
 - [ ] Formateo reutiliza los formatters de `analysis_report` (exponer los necesarios, no duplicar).
-- [ ] `filter_sort(rows, q, verdicts, sort, dir)` puro.
-- [ ] Tests: umbrales 1.0/1.3 exactos, sin precio, grid con `None`, orden con `None` al final, búsqueda case-insensitive en ticker y nombre.
+- [ ] `filter_sort(rows, verdict, sort, dir)` puro (verdict ∈ all/…; sort ∈ ticker/mos/date).
+- [ ] Tests: umbrales 1.0/1.3 exactos, sin precio, grid con `None`, orden con `None` al final en ambas direcciones.
 - [ ] Commit.
 
 ### Task 4: `web/svg.py` — gráficos a mano
@@ -84,36 +95,81 @@
 - [ ] Decodificar `docs/plano/fonts/*.b64` a `static/fonts/*.woff2`; `@font-face` local.
 - [ ] Vendorizar htmx 2.x (`htmx.min.js`, versión anotada en `static/VERSIONS`).
 - [ ] `app.css`: tokens de DESIGN.md en `:root` (OKLCH), escala tipográfica ≥1.25, `tabular-nums`, layout split ≥1100px, foco visible, `prefers-reduced-motion`, crossfade 120ms en `#detail.htmx-swapping/settling`, overlay de grano 5%.
-- [ ] `base.html`: defs `wobble-1..4` + grano; `list.html` (búsqueda, toggles con conteo, tabla con `aria-sort`), `_rows.html` (tbody), `detail.html` (orden del spec), estados vacío y `0 of N`.
+- [ ] `base.html`: defs `wobble-1..4` + grano; `list.html` (filtro de selección única con conteo, tabla con `aria-sort`), `_rows.html` (tbody), `detail.html` (orden del spec, sin `Full report`), estados vacío y `0 of N`. Todos los links con `{{ base_url }}` y `href` real además de `hx-get`.
 - [ ] Copy: solo etiquetas del spec. Revisar cada string: si no es dato o etiqueta, se borra.
 - [ ] Incluir `templates/` y `static/` en el wheel (`force-include`).
 - [ ] Commit.
 
-### Task 6: `web/app.py` + `bot web`
+### Task 6: `web/site.py` + `bot site`
 
-**Files:** `src/bot/web/app.py`, `src/bot/cli.py`, `pyproject.toml`, `tests/web/test_app.py`
+**Files:** `src/bot/web/site.py`, `src/bot/cli.py`, `tests/web/test_site.py`
 
-- [ ] `uv add fastapi uvicorn`.
-- [ ] `create_app(reports_dir: Path) -> FastAPI`; rutas del spec; `HX-Request` → fragmento, si no → página completa.
-- [ ] Validación `ticker` `^[A-Z0-9.\-]{1,12}$`, `date` `date.fromisoformat`; `/reports/{date}/{ticker}.html` resuelto y verificado con `is_relative_to(reports_dir)`; si no existe → 404.
-- [ ] `bot web --host 127.0.0.1 --port 8000` → `uvicorn.run(create_app(settings.reports_dir))`.
-- [ ] Tests `TestClient`: `/` completo; `/companies` con `HX-Request` devuelve solo `<tr>`; `verdict=`/`q=`/`sort=`; `/c/AAPL` y `/c/AAPL/2026-09-01`; ticker desconocido 404; `../` y ticker inválido → 404/422; vacío muestra `bot analyze --from-screen`.
-- [ ] Commit `feat(web): bot web serves the analysis viewer`.
+- [ ] `build(reports_dir: Path, out_dir: Path, base_url: str) -> int` (devuelve nº de compañías): vacía `out_dir`, copia `static/`, escribe `index.html`, `rows/{verdict}-{sort}-{dir}.html` (30), `c/{T}.html`, `c/{T}/{date}.html`, `f/{T}.html`, `f/{T}/{date}.html`.
+- [ ] `base_url` normalizado a `/…/`; ticker validado `^[A-Z0-9.\-]{1,12}$` (si no, warning y se omite).
+- [ ] `bot site --out site --base-url /`: usa `settings.reports_dir`; no llama `_open_db`; imprime `Built N companies → site/`.
+- [ ] Tests (`tmp_path`, fixtures JSON): conteo de archivos, fragmentos sin `<html>`, páginas completas con `<html>`, todos los `href`/`hx-get` empiezan con `base_url`, historial, dir vacío → `index.html` con `bot analyze --from-screen`, ticker inválido omitido, re-build limpia archivos viejos.
+- [ ] Commit `feat(web): bot site builds the static analysis viewer`.
 
-### Task 7: Verificación visual (impeccable, pasada acotada)
+### Task 7: Workflow de CI → GitHub Pages
 
-- [ ] Generar 3 sidecars de fixture (undervalued, overvalued con flag rojo, sin precio) y levantar `bot web`.
+**Files:** `.github/workflows/site.yml`
+
+- [ ] Crear:
+  ```yaml
+  name: site
+  on:
+    push:
+      branches: [main]
+  permissions:
+    contents: read
+    pages: write
+    id-token: write
+  concurrency:
+    group: pages
+    cancel-in-progress: true
+  jobs:
+    build:
+      runs-on: ubuntu-latest
+      steps:
+        - uses: actions/checkout@v4
+        - uses: astral-sh/setup-uv@v6
+        - run: uv sync --frozen
+        - run: uv run ruff check .
+        - run: uv run mypy src
+        - run: uv run pytest -q
+        - run: uv run bot site --out site --base-url "/${{ github.event.repository.name }}/"
+        - uses: actions/upload-pages-artifact@v3
+          with:
+            path: site
+    deploy:
+      needs: build
+      runs-on: ubuntu-latest
+      environment:
+        name: github-pages
+        url: ${{ steps.deployment.outputs.page_url }}
+      steps:
+        - id: deployment
+          uses: actions/deploy-pages@v4
+  ```
+- [ ] Verificar localmente que el comando del paso `bot site` corre con un entorno sin `.env` (`env -i PATH=$PATH HOME=$HOME uv run bot site …`): CI no tiene secrets.
+- [ ] Verificar que la suite pasa sin red (tests de integración usan cassettes VCR).
+- [ ] Manual (dueño del repo): Settings → Pages → Source = *GitHub Actions*.
+- [ ] Commit `ci(web): build and deploy the viewer to GitHub Pages on push to main`.
+
+### Task 8: Verificación visual (impeccable, pasada acotada)
+
+- [ ] Generar 3 sidecars de fixture (undervalued, overvalued con flag rojo, sin precio), `bot site --out site` y `python -m http.server -d site`.
 - [ ] Una ronda de screenshots Playwright desktop 1440 + mobile 390 (lista, detalle, vacío, filtro 0).
 - [ ] `impeccable detect --json src/bot/web/templates src/bot/web/static/app.css`; corregir todo en un lote; una ronda de confirmación como máximo.
-- [ ] Checklist: contraste AA, marks legibles en escala de grises, ningún texto filtrado por wobble, cero CTAs aparte de `Full report`.
+- [ ] Checklist: contraste AA, marks legibles en escala de grises, ningún texto filtrado por wobble, cero CTAs, navegación funciona con JS deshabilitado.
 - [ ] Commit fixes.
 
-### Task 8: Docs y planos
+### Task 9: Docs y planos
 
-- [ ] ADR `docs/adr/0008-read-only-web-viewer.md` (Implemented): web de solo lectura sobre `reports/`, por qué sidecar JSON y no DB.
+- [ ] ADR `docs/adr/0008-read-only-web-viewer.md` (Implemented): sitio estático público sobre `reports/*.json` commiteados; por qué sidecar JSON y no DB; por qué CI no corre `analyze`.
 - [ ] Spec principal §15: nota que el viewer read-only entra; dashboard operativo sigue fuera.
 - [ ] `docs/PRODUCT.md`: Product Purpose admite el viewer como superficie *Operate* de solo lectura.
-- [ ] `README.md`: paso `uv run bot web`.
+- [ ] `README.md`: flujo `bot analyze` → commit `reports/*/analysis/*.json` → push a `main` → Pages; vista local con `bot site` + `http.server`.
 - [ ] `CONTEXT.md`: término **Verdict** (lectura del MoS, umbrales).
 - [ ] `python3 docs/plano/build.py` (agregar nodo `web/` si falla) y entrada nueva en `estado.py` INVENTARIO; `build_estado.py`.
 - [ ] Surface brief: descargar FINISH (verdict del review + DESIGN.md si cambió algún token).
