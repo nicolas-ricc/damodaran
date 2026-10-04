@@ -57,7 +57,9 @@ class Rule(ABC):
     name: str
 
     @abstractmethod
-    def evaluate(self, company: CompanyData, benchmarks: IndustryBenchmarks) -> RuleResult:
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
         """Evaluate ``company`` against ``benchmarks`` and return a verdict."""
         raise NotImplementedError
 
@@ -124,7 +126,9 @@ class MinMarketCap(Rule):
     def __init__(self, minimum_usd: float = 100_000_000.0) -> None:
         self.minimum_usd = minimum_usd
 
-    def evaluate(self, company: CompanyData, benchmarks: IndustryBenchmarks) -> RuleResult:
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
         if company.market_cap is None:
             return RuleResult(passed=False, reason="market_cap unavailable")
         passed = company.market_cap >= self.minimum_usd
@@ -144,7 +148,9 @@ class MinYearsHistory(Rule):
     def __init__(self, minimum_years: int = 5) -> None:
         self.minimum_years = minimum_years
 
-    def evaluate(self, company: CompanyData, benchmarks: IndustryBenchmarks) -> RuleResult:
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
         passed = company.years_of_financials >= self.minimum_years
         reason = (
             f"years_of_financials {company.years_of_financials} "
@@ -166,7 +172,9 @@ class ExcludeSectors(Rule):
     def __init__(self, excluded: tuple[str, ...] = DEFAULT_EXCLUDED_SECTORS) -> None:
         self.excluded = tuple(s.lower() for s in excluded)
 
-    def evaluate(self, company: CompanyData, benchmarks: IndustryBenchmarks) -> RuleResult:
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
         if company.is_financial_services:
             return RuleResult(passed=False, reason="flagged as financial services")
         industry = (company.industry or "").lower()
@@ -176,7 +184,9 @@ class ExcludeSectors(Rule):
                     passed=False,
                     reason=f"industry {company.industry!r} matches excluded {token!r}",
                 )
-        return RuleResult(passed=True, reason=f"industry {company.industry!r} not excluded")
+        return RuleResult(
+            passed=True, reason=f"industry {company.industry!r} not excluded"
+        )
 
 
 @register
@@ -193,16 +203,23 @@ class MaxNetDebtToEBITDA(Rule):
     def __init__(self, maximum: float = 4.0) -> None:
         self.maximum = maximum
 
-    def evaluate(self, company: CompanyData, benchmarks: IndustryBenchmarks) -> RuleResult:
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
         if company.net_debt is None or company.ebitda is None:
             return RuleResult(passed=False, reason="net_debt or ebitda unavailable")
         if company.net_debt <= 0:
             return RuleResult(passed=True, reason="net cash position")
         if company.ebitda <= 0:
-            return RuleResult(passed=False, reason="positive net debt with non-positive EBITDA")
+            return RuleResult(
+                passed=False, reason="positive net debt with non-positive EBITDA"
+            )
         ratio = company.net_debt / company.ebitda
         passed = ratio <= self.maximum
-        reason = f"net_debt/ebitda {ratio:.2f} {'<=' if passed else '>'} maximum {self.maximum:.2f}"
+        reason = (
+            f"net_debt/ebitda {ratio:.2f} "
+            f"{'<=' if passed else '>'} maximum {self.maximum:.2f}"
+        )
         return RuleResult(passed=passed, reason=reason)
 
 
@@ -219,15 +236,20 @@ class MinInterestCoverage(Rule):
     def __init__(self, minimum: float = 2.0) -> None:
         self.minimum = minimum
 
-    def evaluate(self, company: CompanyData, benchmarks: IndustryBenchmarks) -> RuleResult:
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
         if company.ebit is None or company.interest_expense is None:
-            return RuleResult(passed=False, reason="ebit or interest_expense unavailable")
+            return RuleResult(
+                passed=False, reason="ebit or interest_expense unavailable"
+            )
         if company.interest_expense <= 0:
             return RuleResult(passed=True, reason="no interest expense")
         coverage = company.ebit / company.interest_expense
         passed = coverage >= self.minimum
         reason = (
-            f"interest_coverage {coverage:.2f} {'>=' if passed else '<'} minimum {self.minimum:.2f}"
+            f"interest_coverage {coverage:.2f} "
+            f"{'>=' if passed else '<'} minimum {self.minimum:.2f}"
         )
         return RuleResult(passed=passed, reason=reason)
 
@@ -246,12 +268,17 @@ class PositiveOperatingCashflow(Rule):
         self.min_positive = min_positive
         self.window = window
 
-    def evaluate(self, company: CompanyData, benchmarks: IndustryBenchmarks) -> RuleResult:
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
         recent = company.operating_cashflow_history[-self.window :]
         if len(recent) < self.window:
             return RuleResult(
                 passed=False,
-                reason=(f"insufficient history: {len(recent)} years (need {self.window})"),
+                reason=(
+                    f"insufficient history: {len(recent)} years "
+                    f"(need {self.window})"
+                ),
             )
         positive = sum(1 for cf in recent if cf > 0)
         passed = positive >= self.min_positive
@@ -274,9 +301,13 @@ class MaxGoodwillToAssets(Rule):
     def __init__(self, maximum: float = 0.5) -> None:
         self.maximum = maximum
 
-    def evaluate(self, company: CompanyData, benchmarks: IndustryBenchmarks) -> RuleResult:
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
         if company.goodwill is None or company.total_assets is None:
-            return RuleResult(passed=False, reason="goodwill or total_assets unavailable")
+            return RuleResult(
+                passed=False, reason="goodwill or total_assets unavailable"
+            )
         if company.total_assets <= 0:
             return RuleResult(passed=False, reason="non-positive total_assets")
         ratio = company.goodwill / company.total_assets
@@ -326,9 +357,13 @@ class PEBelowIndustryMultiple(Rule):
     def __init__(self, multiple: float = 0.7) -> None:
         self.multiple = multiple
 
-    def evaluate(self, company: CompanyData, benchmarks: IndustryBenchmarks) -> RuleResult:
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
         if benchmarks.pe is None or benchmarks.pe <= 0:
-            return RuleResult(passed=False, skipped=True, reason="no sector PE median available")
+            return RuleResult(
+                passed=False, skipped=True, reason="no sector PE median available"
+            )
         if company.pe is None or company.pe <= 0:
             return RuleResult(
                 passed=False, skipped=True, reason="company PE unavailable or non-positive"
@@ -357,7 +392,9 @@ class EVEBITDABelowIndustryMultiple(Rule):
     def __init__(self, multiple: float = 0.7) -> None:
         self.multiple = multiple
 
-    def evaluate(self, company: CompanyData, benchmarks: IndustryBenchmarks) -> RuleResult:
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
         if benchmarks.ev_ebitda is None or benchmarks.ev_ebitda <= 0:
             return RuleResult(
                 passed=False,
@@ -395,7 +432,9 @@ class PBVBelowIndustryMultipleWithROEAboveMedian(Rule):
     def __init__(self, multiple: float = 0.7) -> None:
         self.multiple = multiple
 
-    def evaluate(self, company: CompanyData, benchmarks: IndustryBenchmarks) -> RuleResult:
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
         if benchmarks.pbv is None or benchmarks.pbv <= 0 or benchmarks.roe is None:
             return RuleResult(
                 passed=False,
@@ -436,9 +475,13 @@ class FCFYieldAbove(Rule):
     def __init__(self, minimum: float = 0.08) -> None:
         self.minimum = minimum
 
-    def evaluate(self, company: CompanyData, benchmarks: IndustryBenchmarks) -> RuleResult:
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
         if company.fcf_yield is None:
-            return RuleResult(passed=False, skipped=True, reason="company FCF yield unavailable")
+            return RuleResult(
+                passed=False, skipped=True, reason="company FCF yield unavailable"
+            )
         passed = company.fcf_yield > self.minimum
         score = min(1.0, company.fcf_yield / self.minimum) if passed else 0.0
         reason = (
@@ -491,18 +534,23 @@ class RevenueNotDeclining(Rule):
         self.max_decline = max_decline
         self.window = window
 
-    def evaluate(self, company: CompanyData, benchmarks: IndustryBenchmarks) -> RuleResult:
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
         recent = company.revenue_history[-(self.window + 1) :]
         if len(recent) < self.window + 1:
             return RuleResult(
                 passed=False,
                 reason=(
-                    f"insufficient revenue history: {len(recent)} years (need {self.window + 1})"
+                    f"insufficient revenue history: {len(recent)} years "
+                    f"(need {self.window + 1})"
                 ),
             )
         avg_growth = _avg_growth_rate(recent)
         if avg_growth is None:
-            return RuleResult(passed=False, reason="non-positive revenue base; growth undefined")
+            return RuleResult(
+                passed=False, reason="non-positive revenue base; growth undefined"
+            )
         passed = avg_growth > self.max_decline
         reason = (
             f"avg revenue growth {avg_growth:.3f} over last {self.window}y "
@@ -527,12 +575,17 @@ class OperatingMarginNotContracting(Rule):
         self.max_contraction_bps = max_contraction_bps
         self.window = window
 
-    def evaluate(self, company: CompanyData, benchmarks: IndustryBenchmarks) -> RuleResult:
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
         recent = company.operating_margin_history[-(self.window + 1) :]
         if len(recent) < 2:
             return RuleResult(
                 passed=False,
-                reason=(f"insufficient operating-margin history: {len(recent)} years (need >= 2)"),
+                reason=(
+                    f"insufficient operating-margin history: {len(recent)} years "
+                    "(need >= 2)"
+                ),
             )
         change_bps = (recent[-1] - recent[0]) * 10_000.0
         passed = change_bps >= self.max_contraction_bps
@@ -558,14 +611,19 @@ class ROICAboveSectorWACC(Rule):
 
     name = "roic_above_sector_wacc"
 
-    def evaluate(self, company: CompanyData, benchmarks: IndustryBenchmarks) -> RuleResult:
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
         if benchmarks.wacc is None:
-            return RuleResult(passed=False, skipped=True, reason="no sector WACC median available")
+            return RuleResult(
+                passed=False, skipped=True, reason="no sector WACC median available"
+            )
         if company.roic is None:
             return RuleResult(passed=False, reason="company ROIC unavailable")
         passed = company.roic > benchmarks.wacc
         reason = (
-            f"ROIC {company.roic:.3f} {'>' if passed else '<='} sector WACC {benchmarks.wacc:.3f}"
+            f"ROIC {company.roic:.3f} {'>' if passed else '<='} "
+            f"sector WACC {benchmarks.wacc:.3f}"
         )
         return RuleResult(passed=passed, reason=reason)
 
@@ -586,7 +644,9 @@ class SloanAccrualsBelow(Rule):
     def __init__(self, maximum: float = 0.10) -> None:
         self.maximum = maximum
 
-    def evaluate(self, company: CompanyData, benchmarks: IndustryBenchmarks) -> RuleResult:
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
         if (
             company.net_income is None
             or company.operating_cashflow is None
@@ -600,7 +660,10 @@ class SloanAccrualsBelow(Rule):
             return RuleResult(passed=False, reason="non-positive total_assets")
         ratio = (company.net_income - company.operating_cashflow) / company.total_assets
         passed = ratio < self.maximum
-        reason = f"Sloan accruals {ratio:.3f} {'<' if passed else '>='} maximum {self.maximum:.3f}"
+        reason = (
+            f"Sloan accruals {ratio:.3f} "
+            f"{'<' if passed else '>='} maximum {self.maximum:.3f}"
+        )
         return RuleResult(passed=passed, reason=reason)
 
 
@@ -622,16 +685,23 @@ class ShareCountNotDiluting(Rule):
     def __init__(self, max_annual_growth: float = 0.05) -> None:
         self.max_annual_growth = max_annual_growth
 
-    def evaluate(self, company: CompanyData, benchmarks: IndustryBenchmarks) -> RuleResult:
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
         series = company.share_count_history
         if len(series) < 2:
             return RuleResult(
                 passed=False,
-                reason=(f"insufficient share-count history: {len(series)} years (need >= 2)"),
+                reason=(
+                    f"insufficient share-count history: {len(series)} years "
+                    "(need >= 2)"
+                ),
             )
         avg_growth = _avg_growth_rate(series)
         if avg_growth is None:
-            return RuleResult(passed=False, reason="non-positive share count; growth undefined")
+            return RuleResult(
+                passed=False, reason="non-positive share count; growth undefined"
+            )
         if avg_growth <= self.max_annual_growth:
             return RuleResult(
                 passed=True,
@@ -643,6 +713,7 @@ class ShareCountNotDiluting(Rule):
         return RuleResult(
             passed=False,
             reason=(
-                f"avg share-count growth {avg_growth:.3f} > maximum {self.max_annual_growth:.3f}"
+                f"avg share-count growth {avg_growth:.3f} > maximum "
+                f"{self.max_annual_growth:.3f}"
             ),
         )

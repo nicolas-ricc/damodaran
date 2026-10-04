@@ -110,7 +110,9 @@ class PortfolioReport:
         return self.total_market_value - self.total_cost_basis
 
 
-def _load_position_rows(conn: duckdb.DuckDBPyConnection, snapshot_date: date) -> list[PositionRow]:
+def _load_position_rows(
+    conn: duckdb.DuckDBPyConnection, snapshot_date: date
+) -> list[PositionRow]:
     """Aggregate a snapshot's rows into one :class:`PositionRow` per ticker."""
     rows = conn.execute(
         "SELECT ticker, SUM(qty) AS qty, "
@@ -130,7 +132,11 @@ def _load_position_rows(conn: duckdb.DuckDBPyConnection, snapshot_date: date) ->
         # If *any* leg of a ticker is unpriced, the SUM(market_value) would
         # silently understate (DuckDB drops NULLs from the sum), so report the
         # whole position as unpriced rather than a misleading partial value.
-        mv = None if (unpriced_legs or 0) > 0 or market_value is None else float(market_value)
+        mv = (
+            None
+            if (unpriced_legs or 0) > 0 or market_value is None
+            else float(market_value)
+        )
         out.append(
             PositionRow(
                 ticker=str(ticker).upper(),
@@ -143,14 +149,17 @@ def _load_position_rows(conn: duckdb.DuckDBPyConnection, snapshot_date: date) ->
     return out
 
 
-def _load_cash(conn: duckdb.DuckDBPyConnection, snapshot_date: date) -> list[tuple[str, float]]:
+def _load_cash(
+    conn: duckdb.DuckDBPyConnection, snapshot_date: date
+) -> list[tuple[str, float]]:
     rows = conn.execute(
         "SELECT currency, SUM(amount) AS amount FROM cash_balances "
         "WHERE snapshot_date = ? GROUP BY currency ORDER BY currency",
         [snapshot_date],
     ).fetchall()
     return [
-        (str(currency), float(amount) if amount is not None else 0.0) for currency, amount in rows
+        (str(currency), float(amount) if amount is not None else 0.0)
+        for currency, amount in rows
     ]
 
 
@@ -165,7 +174,9 @@ _MARKET_VALUE_SQL = "SUM(COALESCE(market_value, qty * avg_cost))"
 _COST_BASIS_SQL = "SUM(qty * avg_cost)"
 
 
-def _snapshot_totals(conn: duckdb.DuckDBPyConnection, snapshot_date: date) -> tuple[float, float]:
+def _snapshot_totals(
+    conn: duckdb.DuckDBPyConnection, snapshot_date: date
+) -> tuple[float, float]:
     """Return ``(total_market_value, total_cost_basis)`` for one snapshot.
 
     The single source of truth for the headline totals; the latest
@@ -204,9 +215,13 @@ def _load_history(conn: duckdb.DuckDBPyConnection) -> list[HistoryRow]:
     ]
 
 
-def _concentration(positions: list[PositionRow], *, threshold: float) -> list[ConcentrationRow]:
+def _concentration(
+    positions: list[PositionRow], *, threshold: float
+) -> list[ConcentrationRow]:
     """Weight each position by market value; flag those over ``threshold``."""
-    valued = [p for p in positions if p.market_value is not None and p.market_value > 0.0]
+    valued = [
+        p for p in positions if p.market_value is not None and p.market_value > 0.0
+    ]
     total = sum(p.market_value or 0.0 for p in valued)
     if total <= 0.0:
         return []

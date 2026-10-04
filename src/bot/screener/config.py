@@ -161,7 +161,9 @@ def load_screener_config(path: Path) -> ScreenerConfig:
     """
     raw: Any = yaml.safe_load(path.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
-        raise ValueError(f"screener config {path} must be a YAML mapping, got {type(raw).__name__}")
+        raise ValueError(
+            f"screener config {path} must be a YAML mapping, got {type(raw).__name__}"
+        )
     config = ScreenerConfig.model_validate(raw)
     config.resolve_rules()
     return config

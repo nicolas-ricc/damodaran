@@ -85,7 +85,9 @@ def _make_provider(settings: Settings) -> MarketDataProvider:
         return EdgarTiingoProvider(
             sec_user_agent=settings.sec_user_agent, tiingo_api_key=settings.tiingo_api_key
         )
-    return EdgarStooqProvider(sec_user_agent=settings.sec_user_agent, stooq_dir=settings.stooq_dir)
+    return EdgarStooqProvider(
+        sec_user_agent=settings.sec_user_agent, stooq_dir=settings.stooq_dir
+    )
 
 
 @app.command()
@@ -106,7 +108,8 @@ def refresh(
     prices: bool = typer.Option(
         False,
         "--prices",
-        help="Refresh EOD prices for the universe via the configured data provider (incremental).",
+        help="Refresh EOD prices for the universe via the configured data provider "
+        "(incremental).",
     ),
     fx: bool = typer.Option(
         False, "--fx", help="Refresh FX rates for the currencies held in the universe."
@@ -264,7 +267,9 @@ def _refresh_prices(
     scope = "missing-price tickers" if only_missing else "tickers"
     typer.echo(f"Refreshing prices for up to {len(tickers)} {scope} via the data provider...")
     with closing(_make_provider(settings)) as provider:
-        result = refresh_prices(conn, provider=provider, tickers=tickers, only_missing=only_missing)
+        result = refresh_prices(
+            conn, provider=provider, tickers=tickers, only_missing=only_missing
+        )
     _report_universe_refresh(result)
 
     return 0 if result.status == "success" else 2
@@ -395,7 +400,9 @@ def analyze(
         typer.echo("Specify one or more tickers, or use --from-screen.", err=True)
         raise typer.Exit(code=2)
     if override is not None and len(tickers) != 1:
-        typer.echo("--override is only valid with exactly one ticker.", err=True)
+        typer.echo(
+            "--override is only valid with exactly one ticker.", err=True
+        )
         raise typer.Exit(code=2)
 
     conn, settings = _open_db()
@@ -411,7 +418,8 @@ def analyze(
             )
             raise typer.Exit(code=2)
         rows = conn.execute(
-            "SELECT ticker FROM screener_candidates WHERE passed AND run_id = ? ORDER BY rank",
+            "SELECT ticker FROM screener_candidates "
+            "WHERE passed AND run_id = ? ORDER BY rank",
             [latest_run[0]],
         ).fetchall()
         if not rows:
@@ -634,7 +642,8 @@ def doctor() -> None:
             # Not a hard failure: EDGAR fundamentals work without it. Only
             # refresh --prices needs the key, so this is a warning, not an issue.
             typer.echo(
-                "Tiingo API key:   MISSING (refresh --prices needs it; free key at tiingo.com)"
+                "Tiingo API key:   MISSING (refresh --prices needs it; "
+                "free key at tiingo.com)"
             )
     elif settings.stooq_dir is not None:
         if settings.stooq_dir.is_dir():

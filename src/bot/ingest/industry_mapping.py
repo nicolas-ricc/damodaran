@@ -154,7 +154,9 @@ def load_industry_mapping(path: Path | None = None) -> IndustryMapping:
             if not provider or not provider_industry or not damodaran:
                 continue
             if damodaran not in DAMODARAN_INDUSTRIES:
-                raise ValueError(f"{target}:{lineno}: {damodaran!r} is not a Damodaran industry")
+                raise ValueError(
+                    f"{target}:{lineno}: {damodaran!r} is not a Damodaran industry"
+                )
             key = (provider, normalize_industry_label(provider_industry))
             if key in entries:
                 raise ValueError(

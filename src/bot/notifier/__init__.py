@@ -13,13 +13,7 @@ from bot.utils.logging import get_logger
 if TYPE_CHECKING:
     from bot.config import Settings
 
-__all__ = [
-    "NotificationError",
-    "Notifier",
-    "NotifierConfigError",
-    "build_notifier",
-    "notify_alerts",
-]
+__all__ = ["NotificationError", "Notifier", "NotifierConfigError", "build_notifier", "notify_alerts"]
 
 log = get_logger(__name__)
 
@@ -64,9 +58,7 @@ def build_notifier(settings: Settings) -> Notifier | None:
             ("BOT_TELEGRAM_CHAT_ID", settings.telegram_chat_id),
         ]
     )
-    return TelegramNotifier(
-        bot_token=settings.telegram_bot_token, chat_id=settings.telegram_chat_id
-    )
+    return TelegramNotifier(bot_token=settings.telegram_bot_token, chat_id=settings.telegram_chat_id)
 
 
 def notify_alerts(alerts_path: Path, notifier: Notifier | None) -> bool:

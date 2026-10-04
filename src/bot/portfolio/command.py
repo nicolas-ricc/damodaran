@@ -60,7 +60,9 @@ class PortfolioRunResult:
     alerts_path: Path
 
 
-def _previous_snapshot_date(conn: duckdb.DuckDBPyConnection, before: date) -> date | None:
+def _previous_snapshot_date(
+    conn: duckdb.DuckDBPyConnection, before: date
+) -> date | None:
     """The most recent snapshot strictly before *before*, or ``None``."""
     row = conn.execute(
         "SELECT MAX(snapshot_date) FROM portfolio_snapshots WHERE snapshot_date < ?",

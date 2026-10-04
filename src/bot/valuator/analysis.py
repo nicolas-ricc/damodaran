@@ -175,7 +175,9 @@ def _latest_from_row(row: tuple[Any, ...]) -> _LatestFinancials:
     )
 
 
-def _load_latest_financials(conn: duckdb.DuckDBPyConnection, ticker: str) -> _LatestFinancials:
+def _load_latest_financials(
+    conn: duckdb.DuckDBPyConnection, ticker: str
+) -> _LatestFinancials:
     row = conn.execute(
         "SELECT revenue, ebit, net_income, interest_expense, total_debt, cash, "
         "shares_diluted, total_equity FROM financials_annual "
@@ -214,7 +216,9 @@ def _histories_from_rows(
     return revenues, incomes, ebits
 
 
-def _load_latest_price(conn: duckdb.DuckDBPyConnection, ticker: str) -> float | None:
+def _load_latest_price(
+    conn: duckdb.DuckDBPyConnection, ticker: str
+) -> float | None:
     row = conn.execute(
         "SELECT close FROM prices_daily WHERE ticker = ? AND close IS NOT NULL "
         "ORDER BY date DESC LIMIT 1",
@@ -321,7 +325,9 @@ class ValuationInput:
     assumption_inputs: AssumptionInputs
 
 
-def load_valuation_input(conn: duckdb.DuckDBPyConnection, ticker: str) -> ValuationInput:
+def load_valuation_input(
+    conn: duckdb.DuckDBPyConnection, ticker: str
+) -> ValuationInput:
     """Load every DB row :func:`analyze` needs for ``ticker`` in one place.
 
     Pure in the project sense (accepts the connection, reads only). The result
@@ -409,7 +415,9 @@ def bulk_load_valuation_inputs(
         company = companies[t]
         country_row = country_rows.get(company.country) if company.country is not None else None
         regions[t] = dataset_region(company.country, country_row[0] if country_row else None)
-    industries = sorted({i for t in kept if (i := companies[t].industry_damodaran) is not None})
+    industries = sorted({
+        i for t in kept if (i := companies[t].industry_damodaran) is not None
+    })
     sector_rows = {
         (r[0], r[1]): r[2:]
         for r in conn.execute(
@@ -642,7 +650,9 @@ def analyze(
     dcf_result = dcf(financials, dcf_assumptions)
     tornado_entries = tuple(tornado(financials, dcf_assumptions))
     axis_a, axis_b = _two_widest_axes(tornado_entries)
-    grid = grid_2d(financials, dcf_assumptions, axis_a, axis_b, reference_price=current_price)
+    grid = grid_2d(
+        financials, dcf_assumptions, axis_a, axis_b, reference_price=current_price
+    )
 
     # The company's own capital structure, not the sector's (which drives WACC).
     company_debt_weight: float | None = None

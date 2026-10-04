@@ -111,12 +111,18 @@ def value_positions(
     ]
 
 
-def _market_value(pos: PortfolioPosition, quote: _PriceQuote | None, fx: FxLookup) -> float | None:
+def _market_value(
+    pos: PortfolioPosition, quote: _PriceQuote | None, fx: FxLookup
+) -> float | None:
     if quote is None or quote.close <= 0.0:
         return None
     price_ccy = quote.currency
     pos_ccy = pos.currency
-    if price_ccy is None or pos_ccy is None or price_ccy.upper() == pos_ccy.upper():
+    if (
+        price_ccy is None
+        or pos_ccy is None
+        or price_ccy.upper() == pos_ccy.upper()
+    ):
         return pos.quantity * quote.close
     rate_price = fx(price_ccy)
     rate_pos = fx(pos_ccy)
@@ -199,7 +205,9 @@ def sync_portfolio(
     )
 
 
-def _load_latest_prices(conn: duckdb.DuckDBPyConnection, *, as_of: date) -> dict[str, _PriceQuote]:
+def _load_latest_prices(
+    conn: duckdb.DuckDBPyConnection, *, as_of: date
+) -> dict[str, _PriceQuote]:
     """Latest non-null close (and its currency) per ticker on or before ``as_of``.
 
     One windowed scan resolves the most recent priced row for every ticker —
@@ -229,7 +237,9 @@ def _fx_lookup(conn: duckdb.DuckDBPyConnection, as_of: date) -> FxLookup:
     return lambda ccy: get_fx_rate(conn, ccy, as_of)
 
 
-def _replace_account_day(conn: duckdb.DuckDBPyConnection, snap: date, account: str) -> None:
+def _replace_account_day(
+    conn: duckdb.DuckDBPyConnection, snap: date, account: str
+) -> None:
     """Clear any existing snapshot rows for ``(snap, account)`` before re-inserting."""
     conn.execute(
         "DELETE FROM portfolio_snapshots WHERE snapshot_date = ? AND account = ?",

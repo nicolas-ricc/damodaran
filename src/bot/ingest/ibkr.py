@@ -230,7 +230,9 @@ class IbkrClient:
             )
         return balances
 
-    def trades(self, account_id: str, since: datetime | None = None) -> list[TradeExecution]:
+    def trades(
+        self, account_id: str, since: datetime | None = None
+    ) -> list[TradeExecution]:
         """Return trade executions (fills) for *account_id*, optionally since a date.
 
         ``since`` must be timezone-aware and is applied client-side only (exact),

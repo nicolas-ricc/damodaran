@@ -88,12 +88,8 @@ class Settings(BaseSettings):
             "BOT_TELEGRAM_CHAT_ID), or 'none' (default)."
         ),
     )
-    smtp_host: str = Field(
-        default="", description="SMTP server host. Required only when BOT_NOTIFIER=email."
-    )
-    smtp_port: int = Field(
-        default=587, description="SMTP server port (587 for starttls, 465 for ssl)."
-    )
+    smtp_host: str = Field(default="", description="SMTP server host. Required only when BOT_NOTIFIER=email.")
+    smtp_port: int = Field(default=587, description="SMTP server port (587 for starttls, 465 for ssl).")
     smtp_security: Literal["starttls", "ssl", "none"] = Field(
         default="starttls",
         description="SMTP transport security. 'none' is refused when BOT_SMTP_USERNAME is set.",
@@ -101,23 +97,17 @@ class Settings(BaseSettings):
     smtp_username: str = Field(
         default="", description="SMTP login user. Optional; leave blank for unauthenticated relays."
     )
-    smtp_password: str = Field(
-        default="", description="SMTP login password. Used only with BOT_SMTP_USERNAME."
-    )
-    smtp_from: str = Field(
-        default="", description="Sender address. Required only when BOT_NOTIFIER=email."
-    )
+    smtp_password: str = Field(default="", description="SMTP login password. Used only with BOT_SMTP_USERNAME.")
+    smtp_from: str = Field(default="", description="Sender address. Required only when BOT_NOTIFIER=email.")
     smtp_to: str = Field(
         default="",
         description="Comma-separated recipient addresses. Required only when BOT_NOTIFIER=email.",
     )
     telegram_bot_token: str = Field(
-        default="",
-        description="Telegram bot token from @BotFather. Required only when BOT_NOTIFIER=telegram.",
+        default="", description="Telegram bot token from @BotFather. Required only when BOT_NOTIFIER=telegram."
     )
     telegram_chat_id: str = Field(
-        default="",
-        description="Telegram chat id to message. Required only when BOT_NOTIFIER=telegram.",
+        default="", description="Telegram chat id to message. Required only when BOT_NOTIFIER=telegram."
     )
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")
 
