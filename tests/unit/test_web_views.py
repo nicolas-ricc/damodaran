@@ -6,6 +6,7 @@ from datetime import date
 from typing import Any
 
 import pytest
+
 from bot.web.index import AnalysisRef, CompanyEntry
 from bot.web.views import (
     FILTERS,
@@ -19,7 +20,6 @@ from bot.web.views import (
     verdict_from_text,
     verdict_of,
 )
-
 from tests.web_sidecars import make_sidecar, real_sidecar
 
 

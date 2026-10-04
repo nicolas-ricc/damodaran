@@ -7,8 +7,9 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from bot.web.index import TICKER_RE, read_sidecar, scan
 from structlog.testing import capture_logs
+
+from bot.web.index import TICKER_RE, read_sidecar, scan
 
 
 def _write(reports: Path, day: str, ticker: str, payload: Any = None) -> Path:

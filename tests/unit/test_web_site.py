@@ -6,8 +6,8 @@ import re
 from pathlib import Path
 
 import pytest
-from bot.web.site import build, normalize_base_url
 
+from bot.web.site import build, normalize_base_url
 from tests.web_sidecars import make_sidecar, write_sidecar
 
 _FILTERS = ("all", "undervalued", "fair", "overvalued", "na")

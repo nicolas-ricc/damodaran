@@ -8,8 +8,8 @@ from datetime import date
 from typing import Any
 
 import pytest
-from bot.reporting.analysis_json import SCHEMA_VERSION, render_analysis_json
 
+from bot.reporting.analysis_json import SCHEMA_VERSION, render_analysis_json
 from bot.reporting.analysis_report import margin_verdict
 from bot.storage.db import apply_schema, connect
 from bot.valuator.analysis import Analysis, analyze
