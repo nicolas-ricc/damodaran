@@ -1,12 +1,12 @@
 # Web viewer de análisis — design
 
 **Goal.** Un sitio estático, de solo lectura, publicado en GitHub Pages en cada
-push a `main`, para recorrer las compañías analizadas por `bot analyze` y ver de
+push a `master`, para recorrer las compañías analizadas por `bot analyze` y ver de
 un vistazo por qué cada una recibió su veredicto.
 
 **Status.** Decisiones del usuario (2026-10-04): stack htmx; fuente = archivos en
 `reports/`; sin servidor ni DB en el deploy (export estático a GitHub Pages, solo
-en push a `main`); veredicto = solo margin of safety; mundo visual = `docs/DESIGN.md`
+en push a `master`); veredicto = solo margin of safety; mundo visual = `docs/DESIGN.md`
 completo, trazo a mano incluido; UI en inglés. Diseño vía impeccable (modo
 *Operate*). Contrato de dirección en
 `.impeccable/surfaces/src-bot-web-templates-base-html.md`.
@@ -193,8 +193,10 @@ src/bot/web/
   static/       # app.css, htmx.min.js (2.x, vendorizado), fonts/*.woff2
 ```
 
-- CLI: `bot site --out site/ [--base-url /]`. No abre la DB ni lee `.env`
-  obligatorios. Vista local: `python -m http.server -d site`.
+- CLI: `bot site --out site/ [--reports-dir reports/] [--base-url /]`. No llama
+  `load_settings()` (exige `BOT_SEC_USER_AGENT`, que CI no tiene) ni abre la DB.
+  Vista local: `python -m http.server -d site`.
+- Fuentes OFL: se copia `OFL.txt` de cada familia a `static/fonts/`.
 - Sin deps nuevas: Jinja2 ya está. Sin servidor, sin CDN.
 - `index`, `views`, `svg` son puros; `site.build` es el único borde (escribe a
   `out_dir`, que se vacía antes).
@@ -203,7 +205,7 @@ src/bot/web/
 
 ## CI / deploy
 
-`.github/workflows/site.yml`, solo `on: push: branches: [main]`.
+`.github/workflows/site.yml`, solo `on: push: branches: [master]`.
 
 1. `checkout` → `astral-sh/setup-uv` → `uv sync --frozen`.
 2. Gate: `ruff check`, `mypy src`, `pytest -q`. Si falla, no se deploya.
@@ -213,7 +215,7 @@ src/bot/web/
 5. `concurrency: pages`, `cancel-in-progress: true`.
 
 CI no corre `bot analyze`: sin DB ni APIs no hay qué analizar. Flujo:
-`bot analyze` local → commit de los `.json` → push a `main` → CI construye y
+`bot analyze` local → commit de los `.json` → push a `master` → CI construye y
 publica. Requisito único: Settings → Pages → Source = *GitHub Actions*.
 
 ## Accesibilidad

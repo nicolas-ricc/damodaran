@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** `bot site` genera un sitio htmx estático que lista las compañías analizadas y muestra por qué cada una recibió su veredicto de MoS; cada push a `main` lo construye y publica en GitHub Pages.
+**Goal:** `bot site` genera un sitio htmx estático que lista las compañías analizadas y muestra por qué cada una recibió su veredicto de MoS; cada push a `master` lo construye y publica en GitHub Pages.
 
 **Architecture:** `bot analyze` escribe un sidecar `<TICKER>.json` junto a los `.md/.html`. Los `.json` se commitean. Nuevo paquete `src/bot/web/` con tres módulos puros (`index`, `views`, `svg`) y un borde (`site`, Jinja2 → archivos). htmx vendorizado, fuentes locales. Workflow de Actions: gate de calidad → `bot site` → Pages.
 
@@ -26,7 +26,7 @@
 3. Análisis sin precio: `n/a`, sin value line, sin conteo de escenarios (Tasks 3–4).
 4. Ticker/fecha inválidos nunca llegan a un nombre de archivo (Tasks 2, 6).
 5. La lista con 500 filas no usa filtros SVG (Task 4).
-6. Un push a `main` con tests rojos no deploya (Task 7).
+6. Un push a `master` con tests rojos no deploya (Task 7).
 
 ---
 
@@ -93,6 +93,7 @@
 
 - [ ] Leer `craft-floor.md` de impeccable antes de editar UI.
 - [ ] Decodificar `docs/plano/fonts/*.b64` a `static/fonts/*.woff2`; `@font-face` local.
+- [ ] Copiar la licencia OFL de cada familia (Shantell Sans, Literata, Sometype Mono) a `static/fonts/OFL-<familia>.txt`.
 - [ ] Vendorizar htmx 2.x (`htmx.min.js`, versión anotada en `static/VERSIONS`).
 - [ ] `app.css`: tokens de DESIGN.md en `:root` (OKLCH), escala tipográfica ≥1.25, `tabular-nums`, layout split ≥1100px, foco visible, `prefers-reduced-motion`, crossfade 120ms en `#detail.htmx-swapping/settling`, overlay de grano 5%.
 - [ ] `base.html`: defs `wobble-1..4` + grano; `list.html` (filtro de selección única con conteo, tabla con `aria-sort`), `_rows.html` (tbody), `detail.html` (orden del spec, sin `Full report`), estados vacío y `0 of N`. Todos los links con `{{ base_url }}` y `href` real además de `hx-get`.
@@ -106,7 +107,7 @@
 
 - [ ] `build(reports_dir: Path, out_dir: Path, base_url: str) -> int` (devuelve nº de compañías): vacía `out_dir`, copia `static/`, escribe `index.html`, `rows/{verdict}-{sort}-{dir}.html` (30), `c/{T}.html`, `c/{T}/{date}.html`, `f/{T}.html`, `f/{T}/{date}.html`.
 - [ ] `base_url` normalizado a `/…/`; ticker validado `^[A-Z0-9.\-]{1,12}$` (si no, warning y se omite).
-- [ ] `bot site --out site --base-url /`: usa `settings.reports_dir`; no llama `_open_db`; imprime `Built N companies → site/`.
+- [ ] `bot site --out site --reports-dir reports --base-url /`: NO llama `load_settings()` ni `_open_db` (Settings exige `BOT_SEC_USER_AGENT`); imprime `Built N companies → site/`.
 - [ ] Tests (`tmp_path`, fixtures JSON): conteo de archivos, fragmentos sin `<html>`, páginas completas con `<html>`, todos los `href`/`hx-get` empiezan con `base_url`, historial, dir vacío → `index.html` con `bot analyze --from-screen`, ticker inválido omitido, re-build limpia archivos viejos.
 - [ ] Commit `feat(web): bot site builds the static analysis viewer`.
 
@@ -119,7 +120,7 @@
   name: site
   on:
     push:
-      branches: [main]
+      branches: [master]
   permissions:
     contents: read
     pages: write
@@ -133,6 +134,8 @@
       steps:
         - uses: actions/checkout@v4
         - uses: astral-sh/setup-uv@v6
+          with:
+            python-version: "3.12"
         - run: uv sync --frozen
         - run: uv run ruff check .
         - run: uv run mypy src
@@ -154,7 +157,7 @@
 - [ ] Verificar localmente que el comando del paso `bot site` corre con un entorno sin `.env` (`env -i PATH=$PATH HOME=$HOME uv run bot site …`): CI no tiene secrets.
 - [ ] Verificar que la suite pasa sin red (tests de integración usan cassettes VCR).
 - [ ] Manual (dueño del repo): Settings → Pages → Source = *GitHub Actions*.
-- [ ] Commit `ci(web): build and deploy the viewer to GitHub Pages on push to main`.
+- [ ] Commit `ci(web): build and deploy the viewer to GitHub Pages on push to master`.
 
 ### Task 8: Verificación visual (impeccable, pasada acotada)
 
@@ -169,7 +172,7 @@
 - [ ] ADR `docs/adr/0008-read-only-web-viewer.md` (Implemented): sitio estático público sobre `reports/*.json` commiteados; por qué sidecar JSON y no DB; por qué CI no corre `analyze`.
 - [ ] Spec principal §15: nota que el viewer read-only entra; dashboard operativo sigue fuera.
 - [ ] `docs/PRODUCT.md`: Product Purpose admite el viewer como superficie *Operate* de solo lectura.
-- [ ] `README.md`: flujo `bot analyze` → commit `reports/*/analysis/*.json` → push a `main` → Pages; vista local con `bot site` + `http.server`.
+- [ ] `README.md`: flujo `bot analyze` → commit `reports/*/analysis/*.json` → push a `master` → Pages; vista local con `bot site` + `http.server`.
 - [ ] `CONTEXT.md`: término **Verdict** (lectura del MoS, umbrales).
 - [ ] `python3 docs/plano/build.py` (agregar nodo `web/` si falla) y entrada nueva en `estado.py` INVENTARIO; `build_estado.py`.
 - [ ] Surface brief: descargar FINISH (verdict del review + DESIGN.md si cambió algún token).
