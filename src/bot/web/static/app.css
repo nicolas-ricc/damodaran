@@ -88,22 +88,35 @@ body.page-detail .back{display:inline-block;margin-bottom:var(--gap)}
 
 /* list table */
 table{border-collapse:collapse;width:100%}
-.list{font-size:0.9rem}
-.list th,.list td{padding:0.4rem 0.5rem;text-align:left;vertical-align:middle;border-bottom:1px solid var(--sheet-deep)}
+.list{font-size:0.85rem}
+.list th,.list td{padding:0.4rem 0.35rem;text-align:left;vertical-align:middle;border-bottom:1px solid var(--sheet-deep)}
 .list thead th{font-family:var(--font-hand);font-weight:600;border-bottom:var(--rule);white-space:nowrap}
 .list thead a{text-decoration:none}
 .list thead th[aria-sort] a{border-bottom:2px solid var(--ink)}
 .list td.num{text-align:right}
 .list .ticker a{font-family:var(--font-mono);font-weight:600;text-decoration:none;padding:0.2rem 0}
 .list .ticker a:hover{text-decoration:underline}
-.list .name{max-width:12rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.list .name{max-width:8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .list .mos{white-space:nowrap}
 .list .none{text-align:center;padding:var(--gap);font-family:var(--font-mono)}
 .list tr.selected{background:var(--sheet-deep)}
 .list tr.selected td:first-child{box-shadow:inset 4px 0 0 var(--ink)}
 .flags{white-space:nowrap}
 .mark{width:1rem;height:1rem;vertical-align:-0.15em}
-.value-line.mini{width:7.5rem;height:1rem;vertical-align:middle;margin-left:0.35rem;overflow:visible}
+.value-line.mini{width:5.5rem;height:1rem;vertical-align:middle;margin-left:0.35rem;overflow:visible}
+
+@media (max-width:699px){
+  .list-pane{overflow-x:auto}
+  .list th:nth-child(n+5),.list td:nth-child(n+5){display:none}
+  .list td.none{display:table-cell}
+}
+
+@media (min-width:1100px) and (max-width:1599px){
+  .list th:nth-child(7),.list td:nth-child(7){display:none}
+  .list .name{max-width:4.5rem}
+  .value-line.mini{width:4rem}
+  .list th,.list td{padding-left:0.25rem;padding-right:0.25rem}
+}
 
 /* detail */
 #detail{min-width:0;transition:opacity 120ms ease-out}
@@ -125,9 +138,15 @@ table{border-collapse:collapse;width:100%}
 .value-line:not(.mini),.scenario-grid,.tornado{display:block;width:100%;height:auto;overflow:visible}
 .lbl,.axis,.val{font-family:var(--font-hand);font-size:11px;font-weight:600}
 .axis{font-weight:500}
+.tornado .lbl{font-size:14px}
+.tornado .val{font-size:12px}
+.value-line-wrap,.drivers{overflow-x:auto}
+.value-line:not(.mini){min-width:30rem}
+.tornado{min-width:26rem}
 .val{font-family:var(--font-mono);font-size:10px;font-weight:400}
 
 .charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(18rem,1fr));gap:calc(var(--gap) * 1.5);align-items:start}
+@media (min-width:1100px){.charts{grid-template-columns:minmax(0,5fr) minmax(0,7fr)}}
 .charts h2,.columns h2,.sanity h2{margin-bottom:0.5rem;padding-bottom:0.25rem;border-bottom:var(--rule)}
 .scenarios h2 .num{font-family:var(--font-mono);font-size:var(--step-0);font-weight:500}
 
