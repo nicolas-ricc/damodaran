@@ -1,3 +1,5 @@
+> **Superseded** by `docs/plans/2026-10-04-92-web-viewer.md`; this draft is kept for history only.
+
 # Web viewer Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

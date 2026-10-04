@@ -95,6 +95,18 @@ Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
 6. `uv run bot screen --preset damodaran_value --top 10` — mechanical shortlist (§6).
 7. `uv run bot analyze --from-screen` — DCF and report (§7.7) for each candidate.
 
+8. Publish the read-only viewer: commit `reports/*/analysis/*.json` (the JSON sidecars `bot analyze`
+   writes; `.gitignore` lets only those through) and push to `master`. `.github/workflows/site.yml`
+   runs ruff, mypy and pytest, builds the site with `bot site` and deploys it to GitHub Pages. One-time
+   setup: Settings -> Pages -> Source = GitHub Actions. See [ADR 0008](docs/adr/0008-read-only-web-viewer.md).
+
+   Local preview, no env vars needed:
+
+   ```bash
+   uv run bot site --out site --reports-dir reports --base-url /
+   python -m http.server -d site
+   ```
+
 The paid Financial Modeling Prep adapter is still available for the eventual non-US reopening —
 set `BOT_DATA_PROVIDER=fmp` and `BOT_FMP_API_KEY` (see `.env.example`).
 

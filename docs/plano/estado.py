@@ -13,8 +13,8 @@ Cuatro estados, y el tercero es el que importa:
 """
 from html import escape as esc
 
-AUDITADO_EN = "8e1fe66"
-AUDITADO_EL = "1 de octubre de 2026"
+AUDITADO_EN = "c70e5bb"
+AUDITADO_EL = "4 de octubre de 2026"
 
 ESTADOS = [
     ("hecho", "hecho", "existe, algo lo llama, y tiene tests"),
@@ -157,6 +157,8 @@ INVENTARIO = {
   "BOT_NOTIFIER elige email o Telegram; bot portfolio manda alerts.md si no está vacío (config mal puesta sale con code 2 antes de sincronizar; si el envío falla, code 1 con los reportes ya escritos). Sin reintentos, y los tests usan transportes simulados."),
  ("rep-html", "El HTML con gráficos", "hecho", "reporting/html.py:78,131",
   "Supera lo que pide el spec: tornado real de Matplotlib inlineado como PNG, más un mapa de calor interactivo de Plotly con el JavaScript embebido. Abre sin conexión."),
+ ("web-viewer", "El visor web de solo lectura", "hecho", "web/site.py; .github/workflows/site.yml",
+  "bot analyze escribe reports/<fecha>/analysis/<TICKER>.json (schema_version 1) y bot site lo convierte en un sitio estático htmx: índice, 30 fragmentos rows/, 30 listas completas l/ para filtrar y ordenar sin JavaScript, y páginas c/ y f/ por ticker y fecha. El workflow site.yml corre en cada push a master (ruff, mypy, pytest, bot site) y publica en GitHub Pages. Requisito manual: Settings, Pages, Source = GitHub Actions. Es una superficie de lectura: no opera el bot (ADR 0008)."),
  ("rep-index", "INDEX.md", "falta", "spec §9.1",
   "La portada que contesta qué pasó hoy. Cero referencias en el código."),
  ("rep-repro", "El encabezado de reproducibilidad", "falta", "spec §13.3",

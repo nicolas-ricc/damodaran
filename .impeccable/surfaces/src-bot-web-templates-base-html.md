@@ -22,3 +22,5 @@ FIRST VIEWPORT: Desktop split: list ≈40% left (single-select verdict filter wi
 FORM: list-detail split, standard table and controls; signature move = value line (full in detail, mini in list). Seed key: 07bd6c47 (composition pinned by spec; world pinned by user).
 
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance
+
+FINISH RESULT (Task 8 verdict, recorded 2026-10-04): browser script 5/5 PASS at 1440 and 390; `impeccable detect` returned no findings; `docs/DESIGN.md` unchanged. Known residuals: tornado text is small at 1440; on mobile the value line and the drivers scroll inside their box.
