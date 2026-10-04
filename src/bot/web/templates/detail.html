@@ -7,7 +7,7 @@
     {% for d in detail.history %}
     {% set path = "c/" ~ detail.ticker ~ ".html" if d == latest else "c/" ~ detail.ticker ~ "/" ~ d ~ ".html" %}
     {% set frag = "f/" ~ detail.ticker ~ ".html" if d == latest else "f/" ~ detail.ticker ~ "/" ~ d ~ ".html" %}
-    <a href="{{ base_url }}{{ path }}" hx-get="{{ base_url }}{{ frag }}" hx-target="#detail" hx-push-url="{{ base_url }}{{ path }}"{% if d == detail.date %} aria-current="true"{% endif %}>{{ d }}</a>
+    <a href="{{ base_url }}{{ path }}" hx-get="{{ base_url }}{{ frag }}" hx-target="#detail" hx-swap="innerHTML swap:120ms" hx-push-url="{{ base_url }}{{ path }}"{% if d == detail.date %} aria-current="true"{% endif %}>{{ d }}</a>
     {% endfor %}
   </p>
   {% endif %}
@@ -45,6 +45,7 @@
       </tbody>
     </table>
   </section>
+  {% if detail.flags %}
   <section class="flag-list">
     <h2>Flags</h2>
     <ul>
@@ -53,6 +54,7 @@
     {% endfor %}
     </ul>
   </section>
+  {% endif %}
 </div>
 
 {% if detail.sanity %}
