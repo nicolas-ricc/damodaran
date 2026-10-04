@@ -50,7 +50,6 @@ h1,h2,h3{font-family:var(--font-hand);text-wrap:balance;margin:0}
 h1{font-size:var(--step-4);line-height:1;letter-spacing:-0.03em;font-weight:700}
 h2{font-size:clamp(1.1rem,1.6vw,1.25rem);font-weight:700;letter-spacing:-0.01em}
 
-/* the sheet */
 .split,.empty{
   max-width:1680px;margin:var(--gap) auto;background:var(--sheet);
   border:1px solid var(--sheet-deep);border-radius:3px;padding:var(--gap);
@@ -61,7 +60,6 @@ h2{font-size:clamp(1.1rem,1.6vw,1.25rem);font-weight:700;letter-spacing:-0.01em}
 .split{display:grid;grid-template-columns:minmax(0,1fr);gap:calc(var(--gap) * 2)}
 .back{font-family:var(--font-hand);font-weight:600;display:none}
 
-/* narrow: one pane per page */
 body.page-list #detail,body.page-list .back{display:none}
 body.page-detail .list-pane{display:none}
 body.page-detail .back{display:inline-block;margin-bottom:var(--gap)}
@@ -78,7 +76,6 @@ body.page-detail .back{display:inline-block;margin-bottom:var(--gap)}
   }
 }
 
-/* list controls */
 .list-controls{display:flex;flex-wrap:wrap;align-items:baseline;gap:0.5rem var(--gap);margin-bottom:var(--gap)}
 #filter{display:flex;flex-wrap:wrap;gap:0.25rem 1rem;font-family:var(--font-hand);font-weight:600}
 #filter a{text-decoration:none;padding:0.15rem 0;border-bottom:2px solid transparent}
@@ -86,7 +83,6 @@ body.page-detail .back{display:inline-block;margin-bottom:var(--gap)}
 #filter a[aria-current]{border-bottom-style:double;border-bottom-width:4px;border-color:var(--p-selecciona)}
 #count{font-family:var(--font-mono);font-size:var(--step--1);color:var(--ink-soft)}
 
-/* list table */
 table{border-collapse:collapse;width:100%}
 .list{font-size:0.85rem}
 .list th,.list td{padding:0.4rem 0.35rem;text-align:left;vertical-align:middle;border-bottom:1px solid var(--sheet-deep)}
@@ -118,7 +114,6 @@ table{border-collapse:collapse;width:100%}
   .list th,.list td{padding-left:0.25rem;padding-right:0.25rem}
 }
 
-/* detail */
 #detail{min-width:0;transition:opacity 120ms ease-out}
 #detail.htmx-swapping{opacity:0}
 #detail.htmx-settling{opacity:0}

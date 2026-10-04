@@ -44,13 +44,6 @@ VERDICT_TEXT: dict[Verdict, str] = {
 }
 _TEXT_TO_VERDICT = {text: verdict for verdict, text in VERDICT_TEXT.items()}
 
-FILTER_LABEL: dict[str, str] = {
-    "all": "all",
-    "undervalued": "undervalued",
-    "fair": "fair",
-    "overvalued": "overvalued",
-    "na": "n/a",
-}
 FILTERS = ("all", "undervalued", "fair", "overvalued", "na")
 SORTS = ("ticker", "mos", "date")
 DIRECTIONS = ("asc", "desc")
