@@ -28,6 +28,7 @@ from bot.ingest.universe import (
 )
 from bot.notifier import NotificationError, NotifierConfigError, build_notifier, notify_alerts
 from bot.portfolio.command import run_portfolio
+from bot.reporting.analysis_json import render_analysis_json
 from bot.reporting.analysis_report import render_analysis
 from bot.reporting.html import render_analysis_html
 from bot.reporting.screen_report import render_csv, render_markdown
@@ -463,15 +464,19 @@ def _analyze_one(
     today = date.today()
     report_md = render_analysis(analysis, generated_on=today)
     report_html = render_analysis_html(analysis, generated_on=today)
+    report_json = render_analysis_json(analysis, generated_on=today)
     out_dir = settings.reports_dir / today.isoformat() / "analysis"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / f"{ticker}.md"
     html_path = out_dir / f"{ticker}.html"
+    json_path = out_dir / f"{ticker}.json"
     out_path.write_text(report_md)
     html_path.write_text(report_html)
+    json_path.write_text(report_json)
 
     typer.echo(f"Wrote {out_path}")
     typer.echo(f"Wrote {html_path}")
+    typer.echo(f"Wrote {json_path}")
     if analysis.margin_of_safety is not None:
         typer.echo(
             f"Intrinsic {analysis.dcf_result.intrinsic_value:,.2f} "

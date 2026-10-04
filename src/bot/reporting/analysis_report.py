@@ -49,7 +49,7 @@ def _html_flag_color(color: FlagColor) -> str:
     return f'<span class="flag-{color.value}">{color.value}</span>'
 
 
-def _fmt_money(value: Any) -> str:
+def fmt_money(value: Any) -> str:
     """Scale a monetary figure to B/M/K with a thousands separator."""
     if value is None:
         return _DASH
@@ -65,10 +65,10 @@ def _fmt_money(value: Any) -> str:
     return f"{sign}{magnitude:,.2f}"
 
 
-def _fmt_per_share(value: float | None) -> str:
+def fmt_per_share(value: float | None) -> str:
     """Format a per-share figure at full magnitude.
 
-    Distinct from :func:`_fmt_money`, whose B/M/K scaling is right for
+    Distinct from :func:`fmt_money`, whose B/M/K scaling is right for
     enterprise-scale aggregates and wrong for a share price: a per-share intrinsic
     value of 1500 must not render as "1.50K".
     """
@@ -77,13 +77,13 @@ def _fmt_per_share(value: float | None) -> str:
     return f"{value:.2f}"
 
 
-def _fmt_pct(value: Any) -> str:
+def fmt_pct(value: Any) -> str:
     if value is None:
         return _DASH
     return f"{float(value):.1%}"
 
 
-def _fmt_margin_path(value: Any) -> str:
+def fmt_margin_path(value: Any) -> str:
     """Render an operating-margin path (spec §7.1): a point, or a range if it moves.
 
     A story-type-branched margin path (high-growth's ramp, or any other path
@@ -97,23 +97,23 @@ def _fmt_margin_path(value: Any) -> str:
     if not path:
         return _DASH
     if min(path) == max(path):
-        return _fmt_pct(path[0])
+        return fmt_pct(path[0])
     return f"{path[0]:.1%} → {path[-1]:.1%}"
 
 
-def _fmt_ratio(value: Any) -> str:
+def fmt_ratio(value: Any) -> str:
     if value is None:
         return _DASH
     return f"{float(value):.2f}x"
 
 
-def _fmt_num(value: Any) -> str:
+def fmt_num(value: Any) -> str:
     if value is None:
         return _DASH
     return f"{float(value):.2f}"
 
 
-def _fmt_axis_label(axis: SensitivityAxis) -> str:
+def fmt_axis_label(axis: SensitivityAxis) -> str:
     """A tornado row's axis label, flagging path axes as year-1-only (spec §7.4).
 
     The tornado's swung low/high values for ``revenue_growth`` /
@@ -128,7 +128,7 @@ def _fmt_axis_label(axis: SensitivityAxis) -> str:
     return f"{label} (yr 1)" if axis in PATH_AXES else label
 
 
-def _fmt_mult(value: Any) -> str:
+def fmt_mult(value: Any) -> str:
     """A grid multiplier like 0.8 rendered as a signed percentage delta."""
     if value is None:
         return _DASH
@@ -145,14 +145,14 @@ def _environment() -> Environment:
         lstrip_blocks=True,
         keep_trailing_newline=True,
     )
-    env.filters["money"] = _fmt_money
-    env.filters["per_share"] = _fmt_per_share
-    env.filters["pct"] = _fmt_pct
-    env.filters["margin_path"] = _fmt_margin_path
-    env.filters["axis_label"] = _fmt_axis_label
-    env.filters["ratio"] = _fmt_ratio
-    env.filters["num"] = _fmt_num
-    env.filters["mult"] = _fmt_mult
+    env.filters["money"] = fmt_money
+    env.filters["per_share"] = fmt_per_share
+    env.filters["pct"] = fmt_pct
+    env.filters["margin_path"] = fmt_margin_path
+    env.filters["axis_label"] = fmt_axis_label
+    env.filters["ratio"] = fmt_ratio
+    env.filters["num"] = fmt_num
+    env.filters["mult"] = fmt_mult
     return env
 
 
@@ -164,7 +164,7 @@ def _grid_table(analysis: Analysis) -> list[str]:
     each Markdown row on its own line regardless of whitespace control.
     """
     grid = analysis.grid
-    header_cells = " | ".join(_fmt_mult(m) for m in grid.col_multipliers)
+    header_cells = " | ".join(fmt_mult(m) for m in grid.col_multipliers)
     lines = [
         f"| {grid.axis_a} ↓ / {grid.axis_b} → | {header_cells} |",
         "|---|" + "---|" * len(grid.col_multipliers),
@@ -173,16 +173,16 @@ def _grid_table(analysis: Analysis) -> list[str]:
     # back to the intrinsic value keeps the table useful instead of all dashes.
     has_price = grid.reference_price is not None
     for row_index, row in enumerate(grid.cells):
-        row_label = _fmt_mult(grid.row_multipliers[row_index])
+        row_label = fmt_mult(grid.row_multipliers[row_index])
         if has_price:
-            cells = " | ".join(_fmt_ratio(cell.margin_of_safety) for cell in row)
+            cells = " | ".join(fmt_ratio(cell.margin_of_safety) for cell in row)
         else:
-            cells = " | ".join(_fmt_per_share(cell.intrinsic_value) for cell in row)
+            cells = " | ".join(fmt_per_share(cell.intrinsic_value) for cell in row)
         lines.append(f"| {row_label} | {cells} |")
     return lines
 
 
-def _margin_verdict(margin_of_safety: float | None) -> str:
+def margin_verdict(margin_of_safety: float | None) -> str:
     """One-word read of the headline margin of safety (CONTEXT.md: MoS > 1)."""
     if margin_of_safety is None:
         return "n/a"
@@ -218,7 +218,7 @@ def render_analysis(
     return template.render(
         a=analysis,
         generated_at=stamp,
-        verdict=_margin_verdict(analysis.margin_of_safety),
+        verdict=margin_verdict(analysis.margin_of_safety),
         grid_table=_grid_table(analysis),
         grid_label_mos=GRID_LABEL_MOS,
         grid_label_intrinsic=GRID_LABEL_INTRINSIC,
