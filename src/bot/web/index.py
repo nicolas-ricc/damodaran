@@ -66,13 +66,16 @@ def scan(reports_dir: Path) -> list[CompanyEntry]:
         return []
     by_ticker: dict[str, list[AnalysisRef]] = {}
     for path in sorted(reports_dir.glob("*/analysis/*.json")):
+        folder = path.parent.parent.name
         try:
-            day = date.fromisoformat(path.parent.parent.name)
+            day = date.fromisoformat(folder)
         except ValueError:
+            day = None
+        if day is None or day.isoformat() != folder:
             _skip(path, "folder name is not an ISO date")
             continue
         ticker = path.stem
-        if not TICKER_RE.match(ticker):
+        if not TICKER_RE.fullmatch(ticker):
             _skip(path, "file stem is not a valid ticker")
             continue
         data = read_sidecar(path)
