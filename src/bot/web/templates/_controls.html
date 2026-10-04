@@ -32,5 +32,5 @@
 {% endmacro %}
 
 {% macro count(oob) %}
-<output id="count" aria-live="polite"{% if oob %} hx-swap-oob="true"{% endif %}>{{ rows|length if rows else "0 of " ~ total }}</output>
+<output id="count" aria-live="polite"{% if oob %} hx-swap-oob="true"{% endif %}>{{ rows|length }} of {{ total }}</output>
 {% endmacro %}

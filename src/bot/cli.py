@@ -41,7 +41,6 @@ from bot.utils.logging import configure_logging, get_logger
 from bot.valuator.analysis import analyze as run_analysis
 from bot.valuator.assumptions import conventional_override_path
 from bot.web.site import build as build_site
-from bot.web.site import normalize_base_url
 
 app = typer.Typer(
     help="Personal investment bot — value screener + portfolio monitor.",
@@ -728,7 +727,7 @@ def site(
 ) -> None:
     """Build the static analysis viewer from the `bot analyze` JSON sidecars."""
     try:
-        count = build_site(reports_dir, out, normalize_base_url(base_url))
+        count = build_site(reports_dir, out, base_url)
     except ValueError as e:
         typer.echo(f"ERROR: {e}", err=True)
         raise typer.Exit(code=2) from e

@@ -6,7 +6,7 @@
   document.addEventListener("click", function (e) {
     var link = e.target instanceof Element ? e.target.closest('a[hx-get][hx-target="#detail"]') : null;
     if (!link) return;
-    if (!wide.matches) {
+    if (!wide.matches || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) {
       e.stopPropagation();
       return;
     }
@@ -15,7 +15,8 @@
 
   function markSelected() {
     var big = document.querySelector("#detail .big-ticker");
-    var ticker = big ? big.textContent.trim() : null;
+    var listOnly = document.body.classList.contains("page-list") && !wide.matches;
+    var ticker = big && !listOnly ? big.textContent.trim() : null;
     document.querySelectorAll("#rows tr").forEach(function (row) {
       var link = row.querySelector("td.ticker a");
       var on = !!link && link.textContent.trim() === ticker;
@@ -26,6 +27,9 @@
       }
     });
   }
+
+  markSelected();
+  wide.addEventListener("change", markSelected);
 
   document.addEventListener("htmx:afterSwap", function (e) {
     var id = e.target && e.target.id;

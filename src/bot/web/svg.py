@@ -252,7 +252,8 @@ def scenario_grid_svg(grid: ScenarioGrid, *, seed: int) -> Markup:
         labels.append(_text(left - 6, top + i * cell + cell / 2 + 4, label, anchor="end"))
     return Markup(
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {_n(width)} {_n(height)}" '
-        f'class="scenario-grid" role="img"><g filter="{_wobble(seed)}">{"".join(drawn)}</g>'
+        f'class="scenario-grid" role="img" '
+        f'aria-label="Scenarios {grid.matching}/{grid.total}"><g filter="{_wobble(seed)}">{"".join(drawn)}</g>'
         f"{''.join(labels)}</svg>"
     )
 
@@ -296,6 +297,6 @@ def tornado_svg(bars: Sequence[TornadoBar], *, price: float | None, seed: int) -
         )
     return Markup(
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 {_n(height)}" '
-        f'class="tornado" role="img"><g filter="{_wobble(seed)}">{"".join(drawn)}</g>'
+        f'class="tornado" role="img" aria-label="Drivers"><g filter="{_wobble(seed)}">{"".join(drawn)}</g>'
         f"{''.join(labels)}</svg>"
     )

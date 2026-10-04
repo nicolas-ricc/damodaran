@@ -225,27 +225,30 @@ def row_view(ref: AnalysisRef) -> RowView:
     )
 
 
+def _fmt_first_year(path: Any) -> str:
+    return fmt_pct(path[0]) if path else _DASH
+
+
+#: Label, assumption key and formatter, in the order of the Markdown report (analysis.md.j2).
+_ASSUMPTION_ROWS: tuple[tuple[str, str, Callable[[Any], str]], ...] = (
+    ("Revenue growth (yr 1)", "revenue_growth", _fmt_first_year),
+    ("Operating margin", "operating_margin", fmt_margin_path),
+    ("Sales-to-capital", "sales_to_capital", fmt_num),
+    ("Cost of equity", "cost_of_equity", fmt_pct),
+    ("Pre-tax cost of debt", "pretax_cost_of_debt", fmt_pct),
+    ("Equity weight", "equity_weight", fmt_pct),
+    ("Debt weight", "debt_weight", fmt_pct),
+    ("Terminal growth", "terminal_growth", fmt_pct),
+    ("Tax rate", "tax_rate", fmt_pct),
+    ("Probability of bankruptcy", "probability_of_bankruptcy", fmt_pct),
+)
+
+
 def _assumptions(assumptions: Mapping[str, Any]) -> tuple[LabelledValue, ...]:
-    growth = assumptions["revenue_growth"]["value"]
-    first_year = fmt_pct(growth[0]) if growth is not None else _DASH
-    rows: list[tuple[str, str, str, Callable[[Any], str]]] = [
-        ("Revenue growth (yr 1)", "revenue_growth", first_year, str),
-        ("Operating margin", "operating_margin", "", fmt_margin_path),
-        ("Sales-to-capital", "sales_to_capital", "", fmt_num),
-        ("Cost of equity", "cost_of_equity", "", fmt_pct),
-        ("Pre-tax cost of debt", "pretax_cost_of_debt", "", fmt_pct),
-        ("Equity weight", "equity_weight", "", fmt_pct),
-        ("Debt weight", "debt_weight", "", fmt_pct),
-        ("Terminal growth", "terminal_growth", "", fmt_pct),
-        ("Tax rate", "tax_rate", "", fmt_pct),
-        ("Probability of bankruptcy", "probability_of_bankruptcy", "", fmt_pct),
-    ]
-    out: list[LabelledValue] = []
-    for label, key, preset, fmt in rows:
-        item = assumptions[key]
-        value = preset or fmt(item["value"])
-        out.append(LabelledValue(label, value, str(item["source"])))
-    return tuple(out)
+    return tuple(
+        LabelledValue(label, fmt(assumptions[key]["value"]), str(assumptions[key]["source"]))
+        for label, key, fmt in _ASSUMPTION_ROWS
+    )
 
 
 def _sanity(check: Mapping[str, Any] | None) -> tuple[LabelledValue, ...]:

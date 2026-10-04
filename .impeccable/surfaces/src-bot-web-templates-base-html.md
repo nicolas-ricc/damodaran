@@ -5,7 +5,7 @@ primary_target: "src/bot/web/templates/base.html"
 related_targets: []
 ---
 
-# Surface: analysis web viewer (`bot web`)
+# Surface: analysis web viewer (`bot site`)
 
 Mode: Operate. Audience: Nicolás and technical guests. Job: scan analysed companies, see why each got its MoS verdict. Spec: `docs/superpowers/specs/2026-10-04-web-viewer-design.md`.
 

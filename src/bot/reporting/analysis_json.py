@@ -27,4 +27,4 @@ def render_analysis_json(analysis: Analysis, *, generated_on: date) -> str:
         "verdict": margin_verdict(analysis.margin_of_safety),
         "analysis": dataclasses.asdict(analysis),
     }
-    return json.dumps(payload, default=_json_default, indent=2) + "\n"
+    return json.dumps(payload, default=_json_default, indent=2, allow_nan=False) + "\n"

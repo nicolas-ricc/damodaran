@@ -23,7 +23,8 @@ La única excepción es el visor web de los análisis (ADR 0008): una superficie
 *Operate* de solo lectura, un sitio estático que lista las compañías analizadas
 y muestra por qué cada una recibió su veredicto. No ejecuta nada ni escribe
 datos. Lo demás que se diseña acá son piezas explicativas: planos, mapas,
-documentos que hacen legible un sistema de cuatro capas que de otro modo solo vive en el spec y en el código.
+documentos que hacen legible un sistema de cuatro capas que de otro modo solo
+vive en el spec y en el código.
 
 Éxito = alguien que no conoce el proyecto mira el plano dos minutos y puede
 explicar con sus palabras por qué el screener tiene *trap detection* separado de

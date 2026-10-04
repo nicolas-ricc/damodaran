@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import shutil
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Callable
 from importlib import resources
 from pathlib import Path
 from typing import Any
 
+import structlog
 from jinja2 import Environment, PackageLoader, Template
 
 from bot.reporting.analysis_report import fmt_ratio
@@ -25,6 +26,7 @@ from bot.web.views import (
     DIRECTIONS,
     FILTERS,
     SORTS,
+    DetailView,
     RowView,
     detail_view,
     filter_sort,
@@ -33,6 +35,8 @@ from bot.web.views import (
 
 MARKER = ".bot-site"
 _DEFAULT = ("all", "mos", "desc")
+
+log = structlog.get_logger(__name__)
 
 
 def normalize_base_url(raw: str) -> str:
@@ -53,7 +57,8 @@ def _prepare_out_dir(out_dir: Path, reports_dir: Path) -> Path:
         children = list(out.iterdir())
         if children and not (out / MARKER).is_file():
             raise ValueError(f"refusing to empty {out}: not empty and not a bot site output")
-        for child in children:
+        # The marker goes last, so a cleanup that fails midway leaves a dir the next run can retry.
+        for child in sorted(children, key=lambda c: c.name == MARKER):
             if child.is_dir() and not child.is_symlink():
                 shutil.rmtree(child)
             else:
@@ -95,11 +100,34 @@ def _environment(base_url: str) -> Environment:
     return env
 
 
+def _renderable(entry: CompanyEntry) -> CompanyEntry | None:
+    """``entry`` without the analyses whose sidecar lacks a field the views read.
+
+    ``index.scan`` only checks the envelope; a sidecar missing an ``analysis``
+    field must not abort the whole build, so it is skipped like a malformed one.
+    """
+    kept = []
+    for ref in entry.history:
+        try:
+            row_view(ref)
+            detail_view(CompanyEntry(ticker=entry.ticker, history=(ref,)), ref)
+        except (KeyError, TypeError, ValueError, IndexError) as exc:
+            log.warning(
+                "web.sidecar_skipped",
+                ticker=entry.ticker,
+                date=ref.date.isoformat(),
+                reason=f"incomplete analysis: {exc!r}",
+            )
+            continue
+        kept.append(ref)
+    return CompanyEntry(ticker=entry.ticker, history=tuple(kept)) if kept else None
+
+
 def build(reports_dir: Path, out_dir: Path, base_url: str) -> int:
     """Write the whole site into ``out_dir``; return the number of companies."""
     base_url = normalize_base_url(base_url)
     out = _prepare_out_dir(out_dir, reports_dir)
-    entries = scan(reports_dir)
+    entries = [e for e in map(_renderable, scan(reports_dir)) if e is not None]
     by_ticker = {e.ticker: e for e in entries}
     all_rows = [row_view(e.latest) for e in entries]
     counts: dict[str, int] = {"all": len(all_rows), **dict.fromkeys(FILTERS[1:], 0)}
@@ -113,7 +141,7 @@ def build(reports_dir: Path, out_dir: Path, base_url: str) -> int:
     def context(
         rows: list[RowView],
         active: tuple[str, str, str],
-        detail: Any = None,
+        detail: DetailView | None = None,
         selected: str | None = None,
         page_class: str = "page-list",
     ) -> dict[str, Any]:
@@ -128,29 +156,24 @@ def build(reports_dir: Path, out_dir: Path, base_url: str) -> int:
             "page_class": page_class,
         }
 
-    def render_list(tpl: Template, ctx: Mapping[str, Any]) -> str:
-        return tpl.render(**ctx)
-
-    def first_detail(rows: list[RowView]) -> Any:
+    def list_page(rows: list[RowView], active: tuple[str, str, str]) -> str:
+        """A full list page showing the detail of its own first row."""
         if not rows:
-            return None
+            return list_tpl.render(**context(rows, active))
         entry = by_ticker[rows[0].ticker]
-        return detail_view(entry, entry.latest)
+        detail = detail_view(entry, entry.latest)
+        return list_tpl.render(**context(rows, active, detail, entry.ticker))
 
     default_rows = filter_sort(all_rows, *_DEFAULT)
-    default_ctx = context(default_rows, _DEFAULT, first_detail(default_rows))
-    default_ctx["selected"] = default_rows[0].ticker if default_rows else None
-    _write(out / "index.html", render_list(list_tpl, default_ctx))
+    _write(out / "index.html", list_page(default_rows, _DEFAULT))
 
     for f in FILTERS:
         for s in SORTS:
             for d in DIRECTIONS:
                 rows = filter_sort(all_rows, f, s, d)
                 name = f"{f}-{s}-{d}.html"
-                _write(out / "rows" / name, render_list(rows_tpl, context(rows, (f, s, d))))
-                page = context(rows, (f, s, d), first_detail(rows))
-                page["selected"] = rows[0].ticker if rows else None
-                _write(out / "l" / name, render_list(list_tpl, page))
+                _write(out / "rows" / name, rows_tpl.render(**context(rows, (f, s, d))))
+                _write(out / "l" / name, list_page(rows, (f, s, d)))
 
     for entry in entries:
         _write_company(out, entry, default_rows, context, list_tpl, detail_tpl)
@@ -163,7 +186,7 @@ def _write_company(
     out: Path,
     entry: CompanyEntry,
     default_rows: list[RowView],
-    context: Any,
+    context: Callable[..., dict[str, Any]],
     list_tpl: Template,
     detail_tpl: Template,
 ) -> None:
