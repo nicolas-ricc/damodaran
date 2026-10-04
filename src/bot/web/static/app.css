@@ -107,14 +107,14 @@ table{border-collapse:collapse;width:100%}
 
 @media (max-width:699px){
   .list-pane{overflow-x:auto}
-  .list th:nth-child(n+5),.list td:nth-child(n+5){display:none}
-  .list td.none{display:table-cell}
+  .list th:is(:nth-child(5),:nth-child(6),:nth-child(7),:nth-child(9)),
+  .list td:is(:nth-child(5),:nth-child(6),:nth-child(7),:nth-child(9)){display:none}
 }
-
 @media (min-width:1100px) and (max-width:1599px){
-  .list th:nth-child(7),.list td:nth-child(7){display:none}
-  .list .name{max-width:4.5rem}
-  .value-line.mini{width:4rem}
+  .split{grid-template-columns:minmax(0,3fr) minmax(0,4fr)}
+  .list td:nth-child(7){max-width:3rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .list .name{max-width:4rem}
+  .value-line.mini{width:3.5rem}
   .list th,.list td{padding-left:0.25rem;padding-right:0.25rem}
 }
 
@@ -139,7 +139,7 @@ table{border-collapse:collapse;width:100%}
 .lbl,.axis,.val{font-family:var(--font-hand);font-size:11px;font-weight:600}
 .axis{font-weight:500}
 .tornado .lbl{font-size:14px}
-.tornado .val{font-size:12px}
+.tornado .val{font-size:12px;paint-order:stroke;stroke:var(--sheet);stroke-width:6px;stroke-linejoin:round}
 .value-line-wrap,.drivers{overflow-x:auto}
 .value-line:not(.mini){min-width:30rem}
 .tornado{min-width:26rem}

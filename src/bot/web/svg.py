@@ -261,10 +261,10 @@ def tornado_svg(bars: Sequence[TornadoBar], *, price: float | None, seed: int) -
     """One horizontal low-high bar per input (input order) on a shared axis."""
     ordered = list(bars)
     values = [v for b in ordered for v in (b.low, b.high)]
+    if price is not None:
+        values.append(price)
     finite = [v for v in values if math.isfinite(v)] or [0.0, 1.0]
-    if price is not None and not min(finite) <= price <= max(finite):
-        price = None
-    left, right, row_h, top = 250.0, 580.0, 28.0, 8.0
+    left, right, row_h, top = 270.0, 560.0, 28.0, 8.0
     scale = _scaler(min(finite), max(finite), left, right)
     height = top + row_h * len(ordered) + 8
     drawn: list[str] = []
@@ -287,7 +287,7 @@ def tornado_svg(bars: Sequence[TornadoBar], *, price: float | None, seed: int) -
         drawn.append(_stroke(outline, seed + i, _INK, 1.2))
         labels.append(_text(196, y + 4, bar.label, anchor="end"))
         lo_val, hi_val = sorted((bar.low, bar.high))
-        labels.append(_text(x0 - 4, y + 4, _num(lo_val), anchor="end", cls="val"))
+        labels.append(_text(x0 - 9, y + 4, _num(lo_val), anchor="end", cls="val"))
         labels.append(_text(x1 + 4, y + 4, _num(hi_val), anchor="start", cls="val"))
     if price is not None:
         px = scale(price)
