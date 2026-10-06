@@ -30,6 +30,12 @@
 - **A5 — SEC header scrub.** The SEC files filtered `User-Agent` on record. The shared config carries that filter for every module. Header filters do not take part in request matching, so replay of the FMP cassettes is unchanged.
 - **A6 — grep criterion.** Besides the `"none"` default and the stub's `"all"`, the grep also shows one plumbing line that contains no literal: `vcr_kwargs` applying the `--vcr-record` override. That line is what lets the hand-built universe VCR honour the re-record command.
 
+## Assumptions (from plan grilling)
+
+- **A7 — no pinned count.** The allowlist test does not hard-code `17`. Rejected alternative: `assert len(listed) == 17`. The issue's criterion is "the set ... must equal the 17 paths listed in SYNTHETIC.txt", and the equality test enforces that today. A pinned count would also break the first legitimate re-record, when an entry is removed. Today's 17 is verified once, by Task 2 Step 3's generated file.
+- **A8 — unit placement.** The issue names `tests/unit/test_cassette_headers.py` and `tests/unit/test_fmp_shapes.py`. The stub test goes in `tests/unit/` too. These tests import `VCR_CONFIG` directly, never record and carry no `integration` marker, so `--vcr-record=all` does not touch them. Binding a loopback port works on the `ubuntu-latest` runner (`.github/workflows/*.yml` runs `uv run pytest -q`). Rejected alternative: putting them in `tests/integration/`, which contradicts the paths the issue names.
+- **A9 — "Step 1 already committed".** Pipeline stage 3 (evals) writes every task's failing test before implementation, in one commit `test(#99): evals`. Between that commit and Task 1, `uv run pytest -q` fails at collection on purpose.
+
 ## Review Focus
 
 1. A test module that adds `@pytest.mark.vcr` with no matching cassette must raise rather than hit the network. Pinned in Task 1 (`test_missing_cassette_is_refused`).
@@ -245,10 +251,8 @@ def test_synthetic_headers_match_allowlist() -> None:
     assert _headed(CASSETTES) == _listed(CASSETTES)
 
 
-def test_allowlist_has_the_17_fmp_cassettes() -> None:
-    listed = _listed(CASSETTES)
-    assert len(listed) == 17
-    assert all(p.startswith(("fmp/", "universe/")) for p in listed)
+def test_allowlist_holds_only_fmp_cassettes() -> None:
+    assert all(p.startswith(("fmp/", "universe/")) for p in _listed(CASSETTES))
 
 
 @pytest.mark.parametrize("entry", sorted(_listed(CASSETTES)))
@@ -523,3 +527,19 @@ Confirm the ticker of the non-US import cassette from its request URIs (`grep 's
 - [ ] `git status --porcelain tests/fixtures/cassettes` is empty apart from the new `SYNTHETIC.txt`.
 - [ ] `grep -rn 'record_mode' tests/` matches the A6 expectation.
 - [ ] `python3 docs/plano/build.py` still builds. No `estado.html` change: FMP stays dormant, and test infrastructure is not one of its components.
+
+## Grilling
+
+- Rounds: 1. The griller ran on `fable`. The revisions did not change any seam or add or remove a task, so no second round.
+- Questions: 16. By source: CODE 11, ISSUE 2, DOC 1, NO SOURCE 4 (two became technical assumptions, two went out of scope).
+- Main answers:
+  - Every cassette URI stores `apikey=SCRUBBED`: 60 occurrences, no other value.
+  - Each universe cassette holds 7 requests: the profile plus 6 statement calls.
+  - `fiscal_year` is typed `int | None` (`fmp.py:660`).
+  - `tests/{,unit,integration}/__init__.py` exist.
+  - No `tests/integration/conftest.py` exists yet.
+  - pytest-vcr's `--vcr-record` defaults to `None` and overrides `vcr_config` (`pytest_vcr.py` `_update_kwargs`).
+  - The non-US import cassette is `symbol=NESN.SW`, owned by `test_fmp_import.py:96` (`@pytest.mark.integration`).
+  - The sec_edgar cassettes start with `interactions:`.
+- Assumptions added: A7 (no pinned count), A8 (unit placement), A9 (stage-3 evals commit).
+- Issues opened: #100 (the re-record command uses a hard-coded test key and has no guard against error bodies), #101 (no socket-level network guard).
