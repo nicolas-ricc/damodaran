@@ -91,7 +91,7 @@ jobs:
 
 - [ ] **Step 4: See it pass.** Run `uv run pytest -q tests/unit/test_site_workflow.py`. Expected: `3 passed`, no skips.
 
-- [ ] **Step 5: Full gate.** Run `uv run ruff check . && uv run mypy src && uv run pytest -q`. Expected: green, with one skipped test (the baseline's 4 skipped minus these 3).
+- [ ] **Step 5: Full gate.** Run `uv run ruff check . && uv run mypy src && uv run pytest -q`, then run `env -i PATH="$PATH" HOME="$HOME" uv run pytest -q` as well, because the CI runner has no `BOT_*` variables. Expected: green both times, `1051 passed, 1 skipped`. The remaining skip is `tests/unit/test_edgar_stooq_provider.py:192` ("fixture's newest bar has aged past freshness"), which is unrelated to this issue.
 
 - [ ] **Step 6: Simulate the CI build step without env vars.** Run `env -i PATH="$PATH" HOME="$HOME" uv run bot site --out /tmp/site-94 --base-url "/damodaran/"` and check that `/tmp/site-94/index.html` exists. This is the command the `build` job runs after the gate.
 
@@ -102,7 +102,20 @@ git add .github/workflows/site.yml tests/unit/test_site_workflow.py
 git commit -m "ci(#92): build and deploy the viewer to GitHub Pages on push to master"
 ```
 
+## Assumptions
+
+- **The `import pytest` deletion.** The owner's comment on #94 asks only to remove the guard. Nothing else in the file uses `pytest`, so ruff `F401` would flag the leftover import. Rejected alternative: keep the import and add a `noqa`.
+- **One task, not two.** Removing the guard without adding the file leaves the suite red, and the reverse leaves the guard as dead code. Rejected alternative: two commits, one for the test and one for the YAML.
+- **No GitHub Actions run before `master`.** The trigger is `push` to `master` only (#92), so this branch never runs the workflow. The local checks in Steps 4 to 6 are the proxy. Rejected alternative: a temporary `workflow_dispatch` trigger, which #92 does not allow ("Trigger: `push` to `master` only").
+
 ## Out of this plan
 
 - Pages source: already GitHub Actions. Stage 0 of #94 verified it through the API, so there is no step.
 - First deploy and committing real `reports/*/analysis/*.json`: these happen after the story merges into `master` (#94 "After the merge").
+
+## Grilling
+
+- Rounds: 1, with 16 questions from the griller (model: fable). The revisions below added no step and changed no seam, so there was no second round.
+- Sources: 6 ISSUE, 6 CODE, 3 DOC, 3 NO SOURCE. All three NO SOURCE answers are technical assumptions (see above). There were no spec ambiguities.
+- Issues opened: none. Every question was in scope or answered from a source.
+- Revisions: Step 5 now also runs the suite under `env -i` and names the remaining skip.
