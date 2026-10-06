@@ -61,12 +61,12 @@ class FmpClient:
     empty key.
     """
 
-    def __init__(self, api_key: str, timeout: float = 30.0) -> None:
+    def __init__(self, api_key: str, timeout: float = 30.0, base_url: str = BASE_URL) -> None:
         if not api_key:
             raise ValueError("FMP API key is required. Set BOT_FMP_API_KEY (no default).")
         self._api_key = api_key
         self._client = httpx.Client(
-            base_url=BASE_URL,
+            base_url=base_url,
             timeout=timeout,
             headers={"Accept": "application/json"},
             follow_redirects=True,
@@ -252,9 +252,10 @@ class FmpProvider:
     Everything FMP-specific — endpoints, JSON shapes, parsing — stays inside.
     """
 
-    def __init__(self, api_key: str, timeout: float = 30.0) -> None:
+    def __init__(self, api_key: str, timeout: float = 30.0, base_url: str = BASE_URL) -> None:
         self._api_key = api_key
         self._timeout = timeout
+        self._base_url = base_url
         self._client: FmpClient | None = None
 
     @property
@@ -263,7 +264,9 @@ class FmpProvider:
 
     def _fmp(self) -> FmpClient:
         if self._client is None:
-            self._client = FmpClient(api_key=self._api_key, timeout=self._timeout)
+            self._client = FmpClient(
+                api_key=self._api_key, timeout=self._timeout, base_url=self._base_url
+            )
         return self._client
 
     def close(self) -> None:

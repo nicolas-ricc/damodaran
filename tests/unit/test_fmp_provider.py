@@ -94,7 +94,9 @@ def test_lazily_opens_one_client_shared_across_many_calls(
     bulk universe refresh over hundreds of tickers reuses one TLS session."""
     instances: list[_StubClient] = []
 
-    def _make_client(api_key: str, timeout: float = 30.0) -> _StubClient:
+    def _make_client(
+        api_key: str, timeout: float = 30.0, base_url: str = ""
+    ) -> _StubClient:
         stub = _StubClient()
         instances.append(stub)
         return stub
