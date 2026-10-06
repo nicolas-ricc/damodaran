@@ -5,15 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-import pytest
 import yaml
 
 _WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "site.yml"
 
 
 def _load() -> dict[Any, Any]:
-    if not _WORKFLOW.exists():
-        pytest.skip("`.github/workflows/site.yml` is added by a human, see #92 (workflow scope)")
     data: dict[Any, Any] = yaml.safe_load(_WORKFLOW.read_text())
     return data
 
