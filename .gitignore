@@ -13,7 +13,12 @@ bot.duckdb
 bot.duckdb.wal
 bot-freestack.duckdb
 bot-freestack.duckdb.wal
-reports/
+reports/*
+!reports/*/
+reports/*/*
+!reports/*/analysis/
+reports/*/analysis/*
+!reports/*/analysis/*.json
 reports-freestack/
 logs/
 

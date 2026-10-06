@@ -1,0 +1,17 @@
+<tbody id="rows">
+{% for r in rows %}
+  <tr{% if r.ticker == selected %} class="selected"{% endif %}>
+    <td class="ticker"><a href="{{ base_url }}c/{{ r.ticker }}.html" hx-get="{{ base_url }}f/{{ r.ticker }}.html" hx-target="#detail" hx-swap="innerHTML swap:120ms" hx-push-url="{{ base_url }}c/{{ r.ticker }}.html"{% if r.ticker == selected %} aria-current="true"{% endif %}>{{ r.ticker }}</a></td>
+    <td class="name">{{ r.name }}</td>
+    <td>{{ verdict_mark(r.verdict) }}</td>
+    <td class="mos"><span>{{ fmt_ratio(r.mos) if r.mos is not none else "n/a" }}</span>{% if r.value_line %} {{ value_line_svg(r.value_line, mini=True, seed=seed_of(r.ticker)) }}{% endif %}</td>
+    <td class="num">{{ r.price }}</td>
+    <td class="num">{{ r.intrinsic }}</td>
+    <td>{{ r.story }}</td>
+    <td class="flags">{% for c in r.flags %}{{ flag_mark(c) }}{% endfor %}</td>
+    <td class="num">{{ r.date }}</td>
+  </tr>
+{% else %}
+  <tr><td colspan="9" class="none">0 of {{ total }}</td></tr>
+{% endfor %}
+</tbody>

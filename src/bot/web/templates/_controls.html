@@ -1,0 +1,36 @@
+{% set filter_order = ["all", "undervalued", "fair", "overvalued", "na"] %}
+
+{% macro filter_nav(oob) %}
+{% set f, s, d = active %}
+<nav id="filter"{% if oob %} hx-swap-oob="true"{% endif %}>
+  {% for v in filter_order %}
+  <a href="{{ list_href(v, s, d) }}" hx-get="{{ rows_href(v, s, d) }}" hx-target="#rows" hx-swap="outerHTML"{% if v == f %} aria-current="true"{% endif %}>{{ "n/a" if v == "na" else v }} <span>{{ counts[v] }}</span></a>
+  {% endfor %}
+</nav>
+{% endmacro %}
+
+{% macro sort_th(key, label) %}
+{% set f, s, d = active %}
+{% set nd = ("asc" if d == "desc" else "desc") if s == key else ("desc" if key == "mos" else "asc") %}
+<th scope="col"{% if s == key %} aria-sort="{{ 'ascending' if d == 'asc' else 'descending' }}"{% endif %}><a href="{{ list_href(f, key, nd) }}" hx-get="{{ rows_href(f, key, nd) }}" hx-target="#rows" hx-swap="outerHTML">{{ label }}</a></th>
+{% endmacro %}
+
+{% macro list_head(oob) %}
+<thead id="list-head"{% if oob %} hx-swap-oob="true"{% endif %}>
+  <tr>
+    {{ sort_th("ticker", "Ticker") }}
+    <th scope="col">Name</th>
+    <th scope="col"><span class="sr">Verdict</span></th>
+    {{ sort_th("mos", "MoS") }}
+    <th scope="col">Price</th>
+    <th scope="col">Intrinsic</th>
+    <th scope="col">Story</th>
+    <th scope="col"><span class="sr">Flags</span></th>
+    {{ sort_th("date", "Date") }}
+  </tr>
+</thead>
+{% endmacro %}
+
+{% macro count(oob) %}
+<output id="count" aria-live="polite"{% if oob %} hx-swap-oob="true"{% endif %}>{{ rows|length }} of {{ total }}</output>
+{% endmacro %}

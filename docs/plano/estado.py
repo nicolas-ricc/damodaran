@@ -13,8 +13,8 @@ Cuatro estados, y el tercero es el que importa:
 """
 from html import escape as esc
 
-AUDITADO_EN = "8e1fe66"
-AUDITADO_EL = "1 de octubre de 2026"
+AUDITADO_EN = "c70e5bb"
+AUDITADO_EL = "4 de octubre de 2026"
 
 ESTADOS = [
     ("hecho", "hecho", "existe, algo lo llama, y tiene tests"),
@@ -157,12 +157,14 @@ INVENTARIO = {
   "BOT_NOTIFIER elige email o Telegram; bot portfolio manda alerts.md si no está vacío (config mal puesta sale con code 2 antes de sincronizar; si el envío falla, code 1 con los reportes ya escritos). Sin reintentos, y los tests usan transportes simulados."),
  ("rep-html", "El HTML con gráficos", "hecho", "reporting/html.py:78,131",
   "Supera lo que pide el spec: tornado real de Matplotlib inlineado como PNG, más un mapa de calor interactivo de Plotly con el JavaScript embebido. Abre sin conexión."),
+ ("web-viewer", "El visor web de solo lectura", "hecho", "web/site.py; .github/workflows/site.yml",
+  "bot analyze escribe reports/<fecha>/analysis/<TICKER>.json (schema_version 1) y bot site lo convierte en un sitio estático htmx: índice, 30 fragmentos rows/, 30 listas completas l/ para filtrar y ordenar sin JavaScript, y páginas c/ y f/ por ticker y fecha. El workflow site.yml corre en cada push a master (ruff, mypy, pytest, bot site) y publica en GitHub Pages. Requisito manual: Settings, Pages, Source = GitHub Actions. Es una superficie de lectura: no opera el bot (ADR 0008)."),
  ("rep-index", "INDEX.md", "falta", "spec §9.1",
   "La portada que contesta qué pasó hoy. Cero referencias en el código."),
  ("rep-repro", "El encabezado de reproducibilidad", "falta", "spec §13.3",
   "Los reportes llevan fecha de generación y nada más. Sin versión del dataset ni fecha del último filing, dos corridas distintas producen encabezados indistinguibles."),
- ("cli-8", "Los ocho comandos", "hecho", "cli.py:56-479",
-  "Los ocho responden y tienen al menos un test que los ejecuta. analyze acepta un solo ticker."),
+ ("cli-8", "Los nueve comandos", "hecho", "cli.py:93-735; tests/unit/test_cli_site.py",
+  "Los nueve responden y tienen al menos un test que los ejecuta: version, refresh, show, analyze, screen, portfolio, doctor, status y site. bot site (cli.py:717) no usa Settings ni variables de entorno: lee reports/ y escribe el sitio estático."),
  ("cli-falta", "Comandos y opciones que faltan", "a-medias", "cli.py:332-369; spec §9.2",
   "El analyze variádico y --from-screen ya existen (cli.py:332-369: uno o más tickers, o el shortlist del último screen persistido ordenado por rank). Lo que sigue faltando: config validate, config edit, --json global, --dry-run, refresh --portfolio. BOT_DATA_PROVIDER (edgar-stooq por defecto, fmp opcional) ya existe como variable de entorno pero no como opción de CLI expuesta ni validada por config validate, porque ese comando no existe."),
  ("doctor", "bot doctor", "hecho", "cli.py:507-558; storage/db.py:30-33; tests/unit/test_cli_doctor.py",

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% from "_controls.html" import filter_nav, list_head, count with context %}
+{% block title %}{% if page_class == "page-detail" and detail %}{{ detail.ticker }}{% else %}Analyses{% endif %}{% endblock %}
+{% block body_class %}{{ page_class | default("page-list") }}{% endblock %}
+{% block content %}
+{% if total == 0 %}
+<main class="empty">
+  <p>No analyses</p>
+  <p><code>bot analyze --from-screen</code></p>
+</main>
+{% else %}
+<main class="split">
+  <div class="list-pane">
+    <div class="list-controls">
+      {{ filter_nav(False) }}
+      {{ count(False) }}
+    </div>
+    <table class="list">
+      {{ list_head(False) }}
+      {% include "_rows.html" %}
+    </table>
+  </div>
+  <div class="detail-pane">
+    <a class="back" href="{{ base_url }}index.html">Analyses</a>
+    <section id="detail" aria-live="polite">
+      {% if detail %}{% include "detail.html" %}{% endif %}
+    </section>
+  </div>
+</main>
+{% endif %}
+{% endblock %}

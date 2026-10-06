@@ -9,6 +9,7 @@ Current version: US-only (S&P 500).
 - **Universe**: set of companies the screener considers (~50k global once M2 is done).
 - **Story type**: Damodaran's classification of a company's life-cycle / risk profile (`high-growth`, `mature-stable`, `mature-decline`, `cyclical`, `distressed`).
 - **Margin of safety (MoS)**: `intrinsic_value / current_price`. > 1 = potentially undervalued.
+- **Verdict**: the one-word reading of the MoS: `>=1.3` potentially undervalued, `>=1.0` around fair value, `<1.0` potentially overvalued, `n/a` without a price. `margin_verdict` in `bot.reporting.analysis_report` is the single source.
 - **Quality gates**: eliminatory filters in the screener (Capa B) that disqualify a company outright.
 - **Value indicators**: filters checking cheapness relative to sector medians (Damodaran datasets).
 - **Trap detection**: filters that flag companies that *look* cheap but are cheap for a reason.
