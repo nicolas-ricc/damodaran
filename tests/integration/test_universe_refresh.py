@@ -35,10 +35,6 @@ def cassette_dir(request: pytest.FixtureRequest) -> Path:
     return Path(request.config.rootpath) / "tests" / "fixtures" / "cassettes" / "universe"
 
 
-def _cassette_vcr(record: str | None) -> vcr.VCR:
-    return vcr.VCR(**vcr_kwargs(record))
-
-
 class _CassetteFmpProvider:
     """Wraps a real :class:`FmpProvider`, replaying a VCR cassette scoped to
     each ticker (mirrors the old per-ticker ``_cassette_importer`` wrapper).
@@ -66,7 +62,9 @@ class _CassetteFmpProvider:
         return self._provider.name
 
     def _use_cassette(self, key: str) -> object:
-        return _cassette_vcr(self._record).use_cassette(str(self._cassette_dir / f"{key}.yaml"))
+        return vcr.VCR(**vcr_kwargs(self._record)).use_cassette(
+            str(self._cassette_dir / f"{key}.yaml")
+        )
 
     def lookup_company(self, ticker: str) -> CompanyInfo | None:
         with self._use_cassette(ticker):

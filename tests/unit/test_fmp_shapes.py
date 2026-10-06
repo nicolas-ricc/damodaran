@@ -7,9 +7,9 @@ and nullness, so it keeps holding once the cassettes are re-recorded live.
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from datetime import date
 from pathlib import Path
-from typing import Any
 
 import pytest
 import vcr
@@ -31,7 +31,7 @@ CASES = [
 ]
 
 
-def _replay(cassette: str) -> Any:
+def _replay(cassette: str) -> AbstractContextManager[object]:
     return vcr.VCR(**VCR_CONFIG).use_cassette(str(CASSETTES / cassette))
 
 
@@ -45,7 +45,7 @@ def _assert_info_shape(info: CompanyInfo | None) -> None:
 
 
 def _assert_iso_date(value: object) -> None:
-    # The parser emits DB-row dates as ISO strings (see plan assumption A1).
+    # The parser emits DB-row dates as ISO strings, not ``date`` objects.
     assert isinstance(value, str)
     assert isinstance(date.fromisoformat(value), date)
 

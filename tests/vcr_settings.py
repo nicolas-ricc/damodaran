@@ -21,7 +21,6 @@ def vcr_kwargs(record: str | None = None) -> dict[str, object]:
     return VCR_CONFIG | {"record_mode": record} if record else dict(VCR_CONFIG)
 
 
-# Test-module prefix -> cassette folder under ``tests/fixtures/cassettes``.
 _CASSETTE_SUBDIRS = {
     "test_sec_edgar_": "sec_edgar",
     "test_fmp_": "fmp",
