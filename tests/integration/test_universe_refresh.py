@@ -3,8 +3,8 @@
 Drives ``refresh_universe`` over a 5-ticker mini-universe with one VCR cassette
 per ticker (US + international), through :class:`FmpProvider`. The cassettes are
 SYNTHETIC (hand-authored, fabricated-but-realistic FMP JSON) so the suite runs
-offline and deterministically; they MUST be re-recorded against the live FMP API
-with a real BOT_FMP_API_KEY before production use.
+offline and deterministically. Re-record them against the live API with a real BOT_FMP_API_KEY via
+``uv run pytest -m integration --vcr-record=all``.
 
 The incremental-skip path and per-ticker error isolation are covered exhaustively
 in ``tests/unit/test_universe_refresh.py`` against a :class:`FakeProvider`; this
@@ -24,6 +24,7 @@ from bot.ingest.fmp import FmpProvider
 from bot.ingest.provider import CompanyInfo, FundamentalsBundle, FxRate, PriceBar
 from bot.ingest.universe import refresh_universe
 from bot.storage.db import apply_schema, connect
+from tests.vcr_settings import vcr_kwargs
 
 API_KEY = "test-fmp-key"
 MINI_UNIVERSE = ["AAPL", "MSFT", "NVDA", "NESN.SW", "SAP.DE"]
@@ -34,11 +35,8 @@ def cassette_dir(request: pytest.FixtureRequest) -> Path:
     return Path(request.config.rootpath) / "tests" / "fixtures" / "cassettes" / "universe"
 
 
-def _cassette_vcr() -> vcr.VCR:
-    return vcr.VCR(
-        filter_query_parameters=[("apikey", "SCRUBBED")],
-        record_mode="none",
-    )
+def _cassette_vcr(record: str | None) -> vcr.VCR:
+    return vcr.VCR(**vcr_kwargs(record))
 
 
 class _CassetteFmpProvider:
@@ -56,17 +54,19 @@ class _CassetteFmpProvider:
         cassette_dir: Path,
         api_key: str,
         filing_probe: object = None,
+        record: str | None = None,
     ) -> None:
         self._provider = FmpProvider(api_key=api_key)
         self._cassette_dir = cassette_dir
         self._filing_probe = filing_probe
+        self._record = record
 
     @property
     def name(self) -> str:
         return self._provider.name
 
     def _use_cassette(self, key: str) -> object:
-        return _cassette_vcr().use_cassette(str(self._cassette_dir / f"{key}.yaml"))
+        return _cassette_vcr(self._record).use_cassette(str(self._cassette_dir / f"{key}.yaml"))
 
     def lookup_company(self, ticker: str) -> CompanyInfo | None:
         with self._use_cassette(ticker):
@@ -95,11 +95,14 @@ class _CassetteFmpProvider:
 
 
 @pytest.mark.integration
-def test_bulk_refresh_imports_full_mini_universe(cassette_dir: Path) -> None:
+def test_bulk_refresh_imports_full_mini_universe(
+    cassette_dir: Path, pytestconfig: pytest.Config
+) -> None:
+    record = pytestconfig.getoption("--vcr-record")
     conn = connect(":memory:")
     apply_schema(conn)
 
-    provider = _CassetteFmpProvider(cassette_dir, API_KEY)
+    provider = _CassetteFmpProvider(cassette_dir, API_KEY, record=record)
     result = refresh_universe(
         conn,
         provider=provider,  # type: ignore[arg-type]
@@ -116,24 +119,19 @@ def test_bulk_refresh_imports_full_mini_universe(cassette_dir: Path) -> None:
     assert result.failure_rate == 0.0
 
     # Companies for every ticker, US + international currencies preserved.
-    companies = dict(
-        conn.execute("SELECT ticker, currency FROM companies").fetchall()
-    )
+    companies = dict(conn.execute("SELECT ticker, currency FROM companies").fetchall())
     assert set(companies) == set(MINI_UNIVERSE)
     assert companies["AAPL"] == "USD"
     assert companies["NESN.SW"] == "CHF"
     assert companies["SAP.DE"] == "EUR"
 
     # filings_log populated for each ticker (drives the next run's incremental skip).
-    filings = conn.execute(
-        "SELECT ticker, COUNT(*) FROM filings_log GROUP BY ticker"
-    ).fetchall()
+    filings = conn.execute("SELECT ticker, COUNT(*) FROM filings_log GROUP BY ticker").fetchall()
     assert {t for t, _ in filings} == set(MINI_UNIVERSE)
 
     # A single fmp_universe summary row recorded the run.
     summary = conn.execute(
-        "SELECT status, rows_affected, error_message "
-        "FROM refresh_log WHERE source = 'fmp_universe'"
+        "SELECT status, rows_affected, error_message FROM refresh_log WHERE source = 'fmp_universe'"
     ).fetchall()
     assert len(summary) == 1
     assert summary[0][0] == "success"
@@ -144,7 +142,10 @@ def test_bulk_refresh_imports_full_mini_universe(cassette_dir: Path) -> None:
 
 
 @pytest.mark.integration
-def test_second_run_skips_unchanged_tickers(cassette_dir: Path) -> None:
+def test_second_run_skips_unchanged_tickers(
+    cassette_dir: Path, pytestconfig: pytest.Config
+) -> None:
+    record = pytestconfig.getoption("--vcr-record")
     conn = connect(":memory:")
     apply_schema(conn)
 
@@ -152,7 +153,7 @@ def test_second_run_skips_unchanged_tickers(cassette_dir: Path) -> None:
     # never reached (empty filings_log), so it needs no cassette of its own.
     refresh_universe(
         conn,
-        provider=_CassetteFmpProvider(cassette_dir, API_KEY),  # type: ignore[arg-type]
+        provider=_CassetteFmpProvider(cassette_dir, API_KEY, record=record),  # type: ignore[arg-type]
         tickers=MINI_UNIVERSE,
     )
 
@@ -163,7 +164,10 @@ def test_second_run_skips_unchanged_tickers(cassette_dir: Path) -> None:
     result = refresh_universe(
         conn,
         provider=_CassetteFmpProvider(  # type: ignore[arg-type]
-            cassette_dir, API_KEY, filing_probe=lambda _t: date(2000, 1, 1)
+            cassette_dir,
+            API_KEY,
+            filing_probe=lambda _t: date(2000, 1, 1),
+            record=record,
         ),
         tickers=MINI_UNIVERSE,
     )

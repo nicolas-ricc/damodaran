@@ -3,19 +3,6 @@ import pytest
 from bot.ingest.sec_edgar import SecEdgarClient
 
 
-@pytest.fixture(scope="module")
-def vcr_cassette_dir(request):
-    return str(request.config.rootpath / "tests" / "fixtures" / "cassettes" / "sec_edgar")
-
-
-@pytest.fixture(scope="module")
-def vcr_config():
-    return {
-        "filter_headers": [("User-Agent", "Tester t@example.com")],
-        "record_mode": "once",
-    }
-
-
 @pytest.mark.integration
 @pytest.mark.vcr
 def test_lookup_cik_for_known_ticker():

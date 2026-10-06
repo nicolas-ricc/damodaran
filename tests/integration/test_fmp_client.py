@@ -3,8 +3,8 @@
 Network is replayed from VCR cassettes in
 ``tests/fixtures/cassettes/fmp/``. The cassettes are SYNTHETIC (hand-authored,
 fabricated-but-realistic FMP JSON) so the suite runs deterministically offline.
-They MUST be re-recorded against the live FMP API with a real BOT_FMP_API_KEY
-before production use.
+Re-record them against the live API with a real BOT_FMP_API_KEY via
+``uv run pytest -m integration --vcr-record=all``.
 """
 
 from __future__ import annotations
@@ -16,21 +16,6 @@ import pytest
 from bot.ingest.fmp import CompanyInfo, FmpClient
 
 API_KEY = "test-fmp-key"
-
-
-@pytest.fixture(scope="module")
-def vcr_cassette_dir(request: pytest.FixtureRequest) -> str:
-    return str(request.config.rootpath / "tests" / "fixtures" / "cassettes" / "fmp")
-
-
-@pytest.fixture(scope="module")
-def vcr_config() -> dict[str, object]:
-    # The API key is passed as the ``apikey`` query param; scrub it so cassettes
-    # never leak a real key and match regardless of the configured key.
-    return {
-        "filter_query_parameters": [("apikey", "SCRUBBED")],
-        "record_mode": "once",
-    }
 
 
 @pytest.mark.integration
