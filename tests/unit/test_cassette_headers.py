@@ -12,14 +12,16 @@ CASSETTES = Path(__file__).resolve().parents[1] / "fixtures" / "cassettes"
 
 def _listed(root: Path) -> set[str]:
     return {
-        line.strip() for line in (root / "SYNTHETIC.txt").read_text().splitlines() if line.strip()
+        line.strip()
+        for line in (root / "SYNTHETIC.txt").read_text(encoding="utf-8").splitlines()
+        if line.strip()
     }
 
 
 def _headed(root: Path) -> set[str]:
     out = set()
     for path in root.rglob("*.yaml"):
-        with path.open() as fh:
+        with path.open(encoding="utf-8") as fh:
             if "SYNTHETIC" in fh.readline():
                 out.add(path.relative_to(root).as_posix())
     return out
@@ -38,7 +40,7 @@ def test_dropping_a_header_breaks_the_match(tmp_path: Path, entry: str) -> None:
     root = tmp_path / "cassettes"
     shutil.copytree(CASSETTES, root)
     target = root / entry
-    target.write_text(target.read_text().split("\n", 1)[1])
+    target.write_text(target.read_text(encoding="utf-8").split("\n", 1)[1], encoding="utf-8")
     assert _headed(root) != _listed(root)
 
 

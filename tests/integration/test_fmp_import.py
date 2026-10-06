@@ -7,8 +7,8 @@ atomically.
 
 Network is replayed from VCR cassettes in ``tests/fixtures/cassettes/fmp/``. The
 cassettes are SYNTHETIC (hand-authored, fabricated-but-realistic FMP JSON) so the
-suite runs deterministically offline with no live calls. Re-record them against the live API with a real BOT_FMP_API_KEY via
-``uv run pytest -m integration --vcr-record=all``.
+suite runs deterministically offline with no live calls. Re-record them against the
+live API with a real BOT_FMP_API_KEY via ``uv run pytest -m integration --vcr-record=all``.
 """
 
 from __future__ import annotations

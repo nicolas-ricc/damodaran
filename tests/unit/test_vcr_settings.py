@@ -51,3 +51,8 @@ def test_vcr_kwargs_applies_override() -> None:
 )
 def test_cassette_subdir_follows_module_name(module: str, expected: str) -> None:
     assert cassette_subdir(module) == expected
+
+
+def test_cassette_subdir_rejects_unmapped_module() -> None:
+    with pytest.raises(ValueError, match="test_stooq_client"):
+        cassette_subdir("tests.integration.test_stooq_client")

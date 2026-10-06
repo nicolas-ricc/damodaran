@@ -111,8 +111,8 @@ The paid Financial Modeling Prep adapter is still available for the eventual non
 set `BOT_DATA_PROVIDER=fmp` and `BOT_FMP_API_KEY` (see `.env.example`).
 Its test cassettes under `tests/fixtures/cassettes/{fmp,universe}/` are synthetic (listed in
 `tests/fixtures/cassettes/SYNTHETIC.txt`); the suite only replays them. Re-record against the live
-API with a real key via `uv run pytest -m integration --vcr-record=all`, then remove the
-`# SYNTHETIC` header and the entry in `SYNTHETIC.txt`.
+API with a real key via `uv run pytest -m integration --vcr-record=all` (recording rewrites each
+file, dropping its `# SYNTHETIC` header), then remove its entry from `SYNTHETIC.txt`.
 
 Other useful commands:
 

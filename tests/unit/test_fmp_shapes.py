@@ -14,7 +14,7 @@ from typing import Any
 import pytest
 import vcr
 
-from bot.ingest.fmp import FmpProvider
+from bot.ingest.fmp import FmpClient, FmpProvider
 from bot.ingest.provider import CompanyInfo, FundamentalsBundle
 from tests.vcr_settings import VCR_CONFIG
 
@@ -50,21 +50,13 @@ def _assert_iso_date(value: object) -> None:
     assert isinstance(date.fromisoformat(value), date)
 
 
-def _assert_market_cap(row: dict[str, Any]) -> None:
-    cap = row.get("market_cap")
-    if cap is not None:
-        assert isinstance(cap, float) and cap > 0
-
-
 def _assert_bundle_shape(bundle: FundamentalsBundle) -> None:
     _assert_info_shape(bundle.info)
-    _assert_market_cap(bundle.annual.company)
     assert len(bundle.annual.annual) >= 1
     for row in [*bundle.annual.annual, *bundle.quarterly.quarterly]:
         assert type(row["fiscal_year"]) is int
         assert 1990 <= row["fiscal_year"] <= 2100
         _assert_iso_date(row["period_end_date"])
-        _assert_market_cap(row)
     for filing in bundle.filings:
         _assert_iso_date(filing["filing_date"])
 
@@ -82,3 +74,17 @@ def test_lookup_company_shape(cassette: str, ticker: str) -> None:
     with _replay(cassette), FmpProvider(api_key="shape-test") as provider:
         info = provider.lookup_company(ticker)
     _assert_info_shape(info)
+
+
+def test_historical_prices_market_cap_shape() -> None:
+    # The fundamentals parser carries no market cap; FMP's EOD rows are where it lives.
+    with (
+        _replay("fmp/test_fetch_historical_prices_returns_rows.yaml"),
+        FmpClient(api_key="shape-test") as client,
+    ):
+        rows = client.historical_prices("AAPL", start=date(2023, 12, 27), end=date(2023, 12, 29))
+    assert rows
+    assert any(row["market_cap"] is not None for row in rows)
+    for row in rows:
+        cap = row["market_cap"]
+        assert cap is None or (isinstance(cap, float) and cap > 0)

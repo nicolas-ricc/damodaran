@@ -21,6 +21,19 @@ def vcr_kwargs(record: str | None = None) -> dict[str, object]:
     return VCR_CONFIG | {"record_mode": record} if record else dict(VCR_CONFIG)
 
 
+# Test-module prefix -> cassette folder under ``tests/fixtures/cassettes``.
+_CASSETTE_SUBDIRS = {
+    "test_sec_edgar_": "sec_edgar",
+    "test_fmp_": "fmp",
+    "test_fx_": "fmp",
+    "test_prices_": "fmp",
+}
+
+
 def cassette_subdir(module_name: str) -> str:
-    """The cassette folder under ``tests/fixtures/cassettes`` for a test module."""
-    return "sec_edgar" if "sec_edgar" in module_name.rsplit(".", 1)[-1] else "fmp"
+    """The cassette folder for a test module; unknown modules fail loudly."""
+    basename = module_name.rsplit(".", 1)[-1]
+    for prefix, subdir in _CASSETTE_SUBDIRS.items():
+        if basename.startswith(prefix):
+            return subdir
+    raise ValueError(f"no cassette folder mapped for test module {module_name!r}")

@@ -3,8 +3,8 @@
 Drives ``refresh_universe`` over a 5-ticker mini-universe with one VCR cassette
 per ticker (US + international), through :class:`FmpProvider`. The cassettes are
 SYNTHETIC (hand-authored, fabricated-but-realistic FMP JSON) so the suite runs
-offline and deterministically. Re-record them against the live API with a real BOT_FMP_API_KEY via
-``uv run pytest -m integration --vcr-record=all``.
+offline and deterministically. Re-record them against the live API with a real
+BOT_FMP_API_KEY via ``uv run pytest -m integration --vcr-record=all``.
 
 The incremental-skip path and per-ticker error isolation are covered exhaustively
 in ``tests/unit/test_universe_refresh.py`` against a :class:`FakeProvider`; this
@@ -119,19 +119,24 @@ def test_bulk_refresh_imports_full_mini_universe(
     assert result.failure_rate == 0.0
 
     # Companies for every ticker, US + international currencies preserved.
-    companies = dict(conn.execute("SELECT ticker, currency FROM companies").fetchall())
+    companies = dict(
+        conn.execute("SELECT ticker, currency FROM companies").fetchall()
+    )
     assert set(companies) == set(MINI_UNIVERSE)
     assert companies["AAPL"] == "USD"
     assert companies["NESN.SW"] == "CHF"
     assert companies["SAP.DE"] == "EUR"
 
     # filings_log populated for each ticker (drives the next run's incremental skip).
-    filings = conn.execute("SELECT ticker, COUNT(*) FROM filings_log GROUP BY ticker").fetchall()
+    filings = conn.execute(
+        "SELECT ticker, COUNT(*) FROM filings_log GROUP BY ticker"
+    ).fetchall()
     assert {t for t, _ in filings} == set(MINI_UNIVERSE)
 
     # A single fmp_universe summary row recorded the run.
     summary = conn.execute(
-        "SELECT status, rows_affected, error_message FROM refresh_log WHERE source = 'fmp_universe'"
+        "SELECT status, rows_affected, error_message "
+        "FROM refresh_log WHERE source = 'fmp_universe'"
     ).fetchall()
     assert len(summary) == 1
     assert summary[0][0] == "success"
