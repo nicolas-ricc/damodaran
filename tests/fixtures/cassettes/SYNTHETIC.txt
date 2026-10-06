@@ -1,0 +1,17 @@
+fmp/test_available_exchanges.yaml
+fmp/test_fetch_historical_fx_returns_rows.yaml
+fmp/test_fetch_historical_prices_returns_rows.yaml
+fmp/test_import_company_from_fmp_non_us_has_local_currency.yaml
+fmp/test_import_company_from_fmp_us_populates_db.yaml
+fmp/test_import_fx_rates_populates_currencies_table.yaml
+fmp/test_import_prices_populates_table.yaml
+fmp/test_lookup_company_japan.yaml
+fmp/test_lookup_company_switzerland.yaml
+fmp/test_lookup_company_unknown_returns_none.yaml
+fmp/test_lookup_company_us.yaml
+fmp/test_second_run_is_incremental_zero_inserts.yaml
+universe/AAPL.yaml
+universe/MSFT.yaml
+universe/NESN.SW.yaml
+universe/NVDA.yaml
+universe/SAP.DE.yaml

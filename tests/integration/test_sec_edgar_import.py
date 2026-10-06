@@ -4,19 +4,6 @@ from bot.ingest.sec_edgar import import_company_from_sec
 from bot.storage.db import apply_schema, connect
 
 
-@pytest.fixture(scope="module")
-def vcr_cassette_dir(request):
-    return str(request.config.rootpath / "tests" / "fixtures" / "cassettes" / "sec_edgar")
-
-
-@pytest.fixture(scope="module")
-def vcr_config():
-    return {
-        "filter_headers": [("User-Agent", "Tester t@example.com")],
-        "record_mode": "once",
-    }
-
-
 @pytest.mark.integration
 @pytest.mark.vcr
 def test_import_company_from_sec_populates_db():
