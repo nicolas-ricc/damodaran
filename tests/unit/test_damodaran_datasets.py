@@ -21,6 +21,8 @@ from bot.ingest.damodaran import (
     merge_industry_datasets,
 )
 from bot.storage.db import apply_schema
+from bot.valuator.assumptions import resolve_assumptions
+from tests.unit.test_valuator_assumptions import _seed_company, _seed_financials
 
 _FIXTURES = Path("tests/fixtures/damodaran")
 _WACC_FIXTURE = _FIXTURES / "wacc_sample.xls"
@@ -171,6 +173,48 @@ def test_real_import_fills_the_columns_the_extra_datasets_publish() -> None:
     assert counts is not None
     for column, count in zip(columns, counts, strict=True):
         assert count > 0, f"{column} is NULL for every industry"
+    conn.close()
+
+
+_SOFTWARE = "Software (System & Application)"
+
+
+def _imported_software_company() -> duckdb.DuckDBPyConnection:
+    """Real fixtures imported, plus one Software company with three years of history."""
+    conn = _seeded_conn()
+    result = import_damodaran_from_files(
+        conn,
+        industry_path=_WACC_FIXTURE,
+        country_path=_CTRY_FIXTURE,
+        region="US",
+        year=2026,
+        extra_industry_paths=dict(_EXTRA_FIXTURES),
+    )
+    assert result.status == "success", result.error_message
+    _seed_company(conn, industry_damodaran=_SOFTWARE, country="United States")
+    _seed_financials(
+        conn, rows=((2023, 100.0, 18.0), (2024, 110.0, 20.0), (2025, 121.0, 22.0))
+    )
+    return conn
+
+
+@pytest.mark.skipif(not _ALL_FIXTURES_PRESENT, reason="dataset fixtures absent")
+def test_imported_files_resolve_a_full_dcf_for_a_software_company() -> None:
+    """#50's criterion 2 against the imported files, not hand-seeded sector rows."""
+    conn = _imported_software_company()
+    resolve_assumptions("ACME", conn).to_dcf_assumptions()
+    conn.close()
+
+
+@pytest.mark.skipif(not _ALL_FIXTURES_PRESENT, reason="dataset fixtures absent")
+def test_a_blanked_sector_margin_leaves_the_dcf_unresolved() -> None:
+    """Negative control: the guard above can fail the way #50's bug would make it."""
+    conn = _imported_software_company()
+    conn.execute(
+        "UPDATE damodaran_industry SET op_margin = NULL WHERE industry = ?", [_SOFTWARE]
+    )
+    with pytest.raises(ValueError, match="unresolved"):
+        resolve_assumptions("ACME", conn).to_dcf_assumptions()
     conn.close()
 
 

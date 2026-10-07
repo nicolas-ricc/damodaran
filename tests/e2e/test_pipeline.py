@@ -16,6 +16,7 @@ rastro consistente: el shortlist, los artefactos §6.1/§7.7, y
 
 from __future__ import annotations
 
+import math
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,8 @@ from bot.ingest.damodaran import import_damodaran_from_files
 from bot.ingest.fmp import _collect_fmp_filings, parse_fmp_fundamentals
 from bot.ingest.provider import CompanyInfo, FundamentalsBundle, PriceBar
 from bot.ingest.universe import refresh_prices, refresh_universe
+from bot.screener.engine import _dcf_margin_of_safety
+from bot.screener.ranking import PLACEHOLDER_MARGIN_OF_SAFETY
 from bot.storage.db import apply_schema, connect
 from tests.fake_provider import FakeProvider
 
@@ -309,6 +312,21 @@ def test_pipeline_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     assert "GOODCO" in screen_md
     assert "TRAPCO" not in screen_md
     assert "Excluded (no sector benchmark, ADR 0006): 1" in screen_md
+
+    # The second pass ran the real DCF, not the placeholder fallback (#104): a
+    # Damodaran header rename that NULLs op_margin/sales_to_capital would leave
+    # every candidate at the placeholder while the shortlist still looks healthy.
+    conn = connect(db_path)
+    mos_row = conn.execute(
+        "SELECT mos_score FROM screener_candidates WHERE ticker = 'GOODCO' AND passed"
+    ).fetchone()
+    direct_mos = _dcf_margin_of_safety(conn, "GOODCO")
+    conn.close()
+    assert direct_mos is not None
+    assert mos_row is not None
+    mos_score = mos_row[0]
+    assert mos_score != PLACEHOLDER_MARGIN_OF_SAFETY
+    assert isinstance(mos_score, float) and math.isfinite(mos_score) and mos_score > 0
 
     # 3. La conexión de fases: analyze --from-screen sobre la misma DB.
     result = runner.invoke(app, ["analyze", "--from-screen"], env=env)
