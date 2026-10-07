@@ -21,7 +21,7 @@ from bot.ingest.damodaran import (
     merge_industry_datasets,
 )
 from bot.storage.db import apply_schema
-from bot.valuator.assumptions import resolve_assumptions
+from bot.valuator.assumptions import AssumptionSource, resolve_assumptions
 from tests.unit.test_valuator_assumptions import _seed_company, _seed_financials
 
 _FIXTURES = Path("tests/fixtures/damodaran")
@@ -202,7 +202,10 @@ def _imported_software_company() -> duckdb.DuckDBPyConnection:
 def test_imported_files_resolve_a_full_dcf_for_a_software_company() -> None:
     """#50's criterion 2 against the imported files, not hand-seeded sector rows."""
     conn = _imported_software_company()
-    resolve_assumptions("ACME", conn).to_dcf_assumptions()
+    assumptions = resolve_assumptions("ACME", conn)
+    assumptions.to_dcf_assumptions()
+    assert assumptions.operating_margin.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
+    assert assumptions.sales_to_capital.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
     conn.close()
 
 
@@ -213,7 +216,7 @@ def test_a_blanked_sector_margin_leaves_the_dcf_unresolved() -> None:
     conn.execute(
         "UPDATE damodaran_industry SET op_margin = NULL WHERE industry = ?", [_SOFTWARE]
     )
-    with pytest.raises(ValueError, match="unresolved"):
+    with pytest.raises(ValueError, match="'operating_margin' is unresolved"):
         resolve_assumptions("ACME", conn).to_dcf_assumptions()
     conn.close()
 
