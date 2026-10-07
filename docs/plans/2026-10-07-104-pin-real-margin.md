@@ -59,7 +59,7 @@ Imports to add: `import math`; `from bot.screener.engine import _dcf_margin_of_s
 
 The direct call is asserted first so that, when the valuator breaks, the test fails on the valuator's result rather than on the ranking symptom.
 
-- [ ] **Step 2: Run** `uv run pytest tests/e2e/test_pipeline.py -q` — expected PASS (current code values GOODCO).
+- [ ] **Step 2: Run** `uv run pytest tests/e2e/test_pipeline.py -q && uv run ruff check .` — expected PASS (current code values GOODCO) and ruff clean (import order).
 
 - [ ] **Step 3: Prove it can fail.** Temporarily, in `_seed_damodaran_from_fixtures` after the import, run `conn.execute("UPDATE damodaran_industry SET op_margin = NULL WHERE industry = ?", [_SECTOR])` and drop the `op_margin is not None` assertion; rerun; expected FAIL at `assert direct_mos is not None`. Revert.
 
@@ -128,3 +128,21 @@ Imports to add: `from bot.valuator.assumptions import resolve_assumptions`; `fro
 - [ ] **Step 4: Full checks** `uv run pytest -q && uv run ruff check . && uv run mypy src`.
 
 - [ ] **Step 5: Commit** `test(#104): resolve a full DCF from the imported Damodaran fixtures`.
+
+## Assumptions
+
+- **Negative control for the e2e test is manual (Task 1 Step 3), the unit-level one is permanent (Task 2).** Rejected: a permanent e2e negative control, which would need a second full refresh→screen pipeline run per suite. The issue asks only for the unit test's guard to be proven ("Verify locally").
+- **No `try/finally` around the new e2e connection.** Rejected: a context manager. The existing step-4 block of `test_pipeline_end_to_end` opens and closes `conn` without one, and `tmp_path` is per-test, so a failed assert leaks nothing into other tests.
+- **The new unit tests' own negative control is kept as a test** (`test_a_blanked_sector_margin_leaves_the_dcf_unresolved`). Rejected: only a one-off local check. It costs one fixture import and keeps acceptance criterion 4 from going stale.
+
+## Grilling
+
+- Rounds: 1 (revisions were minor: one ruff check added to Task 1, plus the Assumptions section).
+- Questions: 18. Answers: ISSUE 8, CODE 9, NO SOURCE → technical assumption 3. Some answers cite both the issue and the code.
+- Key sourced answers:
+  - `mos_score` is the raw ratio (`src/bot/screener/persist.py:54` writes `company.margin_of_safety`). `None` becomes the placeholder only at `src/bot/screener/engine.py:810`.
+  - `_dcf_margin_of_safety(conn, ticker) -> float | None` returns `None` on `ValueError` (`engine.py:65-79`).
+  - With no story type, op_margin has no fallback other than the sector row (`src/bot/valuator/assumptions.py:785-823`). `_seed_company` only inserts into `companies` (`tests/unit/test_valuator_assumptions.py:53-64`).
+  - The fixtures are git-tracked, and CI runs `uv run pytest -q`, so the `skipif` does not trigger in CI.
+  - "finite positive float" and importing the private helpers come verbatim from issue #104.
+- Spec ambiguities: none. Follow-up issues opened: none.
