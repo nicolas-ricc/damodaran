@@ -8,7 +8,6 @@
 #
 # Safe to re-run: keys already set in .env are never asked for again and the
 # file is only rewritten when a value changes. Exit code is `bot doctor`'s.
-# shellcheck disable=SC2034  # SKIP_DAMODARAN is consumed by the setup steps added later
 set -euo pipefail
 
 # Repo root = parent of this script's directory (resolve symlinks).
@@ -109,4 +108,44 @@ if [ "${#NEW[@]}" -gt 0 ]; then
   echo "Wrote ${!NEW[*]} to .env"
 fi
 
-exit 0
+# No explicit DB step: refresh --damodaran and doctor both open BOT_DB_PATH and
+# apply the schema, so whichever runs first creates the file.
+if [ "$SKIP_DAMODARAN" = 0 ]; then
+  echo
+  echo "Loading Damodaran sector benchmarks (bot refresh --damodaran)..."
+  uv run bot refresh --damodaran
+fi
+
+cat <<'EOF'
+
+IBKR portfolio sync (bot portfolio) talks to a running TWS or IB Gateway over
+its local socket. Bootstrap does not connect to it; set it up once in TWS:
+  1. File -> Global Configuration -> API -> Settings: tick
+     "Enable ActiveX and Socket Clients".
+  2. Add 127.0.0.1 to Trusted IPs.
+  3. Recommended: also tick "Read-Only API".
+Connection defaults (override in .env):
+  BOT_IBKR_HOST=127.0.0.1
+  BOT_IBKR_PORT=7496        # live TWS; 7497 paper TWS, 4001/4002 IB Gateway live/paper
+  BOT_IBKR_CLIENT_ID=1
+Smoke test, with TWS running and logged in:
+  uv run python -c "from bot.config import load_settings; from bot.ingest.ibkr import IbkrClient; print(IbkrClient.from_settings(load_settings()).accounts())"
+Until TWS is running and logged in, `bot portfolio` fails.
+
+EOF
+
+status=0
+uv run bot doctor || status=$?
+
+cat <<'EOF'
+
+Next steps (README -> Quickstart, steps 3-5):
+  uv run bot refresh --fundamentals              # the universe, from SEC EDGAR
+  uv run bot refresh --prices --only-missing     # Tiingo prices; re-run per hourly window,
+                                                 # or arm the scripts/price_fill.sh drip
+  uv run bot screen --preset damodaran_value --top 10
+  uv run bot analyze --from-screen
+Scheduled daily/weekly runs: scripts/install_cron.sh
+EOF
+
+exit "$status"
