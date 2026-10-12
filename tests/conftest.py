@@ -28,3 +28,10 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
         if item.get_closest_marker("live") is not None:
             item.add_marker(skip)
+
+
+@pytest.fixture(autouse=True)
+def _no_flex_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Blank the IBKR Flex settings so `bot portfolio` tests never reach IBKR."""
+    monkeypatch.setenv("BOT_IBKR_FLEX_TOKEN", "")
+    monkeypatch.setenv("BOT_IBKR_FLEX_QUERY_ID", "")

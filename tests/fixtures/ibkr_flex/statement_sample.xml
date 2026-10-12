@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SYNTHETIC statement, written by hand from IBKR's Flex Web Service and Activity
+  Flex Query documentation (issue #56). It is NOT a real pull: account ids,
+  conids, ids and amounts are invented. A redacted real sample arrives with #110;
+  parser corrections found there land in #111.
+
+  Expected import (see tests/unit/test_ibkr_flex_parser.py):
+    ca:1001 split    AAPL U1234567 2026-09-15 ratio 4:1
+    ca:1002 split    GE   U1234567 2026-09-16 ratio 1:8
+    ca:1003 tc       ATVI U1234567 2026-09-22 (no dateTime: reportDate)
+    ct:2001 dividend MSFT U1234567 2026-09-12
+    ct:2003 dividend KO   U7654321 2026-09-18 (no settleDate: dateTime)
+  Skipped: ct 2002 (Withholding Tax), ct 2004 (no symbol, WARNING).
+-->
+<FlexQueryResponse queryName="bot-corporate-actions" type="AF">
+  <FlexStatements count="2">
+    <FlexStatement accountId="U1234567" fromDate="20260901" toDate="20260930"
+                   period="Last30CalendarDays" whenGenerated="20261001;083000">
+      <CorporateActions>
+        <CorporateAction accountId="U1234567" currency="USD" assetCategory="STK"
+            symbol="AAPL" description="AAPL(US0378331005) SPLIT 4 FOR 1 (AAPL, APPLE INC, US0378331005)"
+            conid="265598" isin="US0378331005" reportDate="20260915"
+            dateTime="20260915;202000" actionID="1001" type="FS"
+            quantity="300" amount="0" proceeds="0" value="0" code="" />
+        <CorporateAction accountId="U1234567" currency="USD" assetCategory="STK"
+            symbol="GE" description="GE(US3696043013) SPLIT 1 FOR 8 (GE, GENERAL ELECTRIC CO, US3696044003)"
+            conid="498843743" isin="US3696043013" reportDate="20260917"
+            dateTime="20260916;202500" actionID="1002" type="RS"
+            quantity="-700" amount="0" proceeds="0" value="0" code="" />
+        <CorporateAction accountId="U1234567" currency="USD" assetCategory="STK"
+            symbol="ATVI" description="ATVI(US00507V1098) CASH MERGER (ATVI, ACTIVISION BLIZZARD INC, US00507V1098)"
+            conid="47210839" isin="US00507V1098" reportDate="20260922"
+            dateTime="" actionID="1003" type="TC"
+            quantity="-50" amount="0" proceeds="4750" value="0" code="" />
+      </CorporateActions>
+      <CashTransactions>
+        <CashTransaction accountId="U1234567" currency="USD" assetCategory="STK"
+            symbol="MSFT" description="MSFT(US5949181045) CASH DIVIDEND USD 0.75 PER SHARE (Ordinary Dividend)"
+            conid="272093" isin="US5949181045" dateTime="20260912;202000"
+            settleDate="20260912" reportDate="20260912" amount="75.00"
+            type="Dividends" transactionID="2001" code="" />
+        <CashTransaction accountId="U1234567" currency="USD" assetCategory="STK"
+            symbol="MSFT" description="MSFT(US5949181045) CASH DIVIDEND USD 0.75 PER SHARE - US TAX"
+            conid="272093" isin="US5949181045" dateTime="20260912;202000"
+            settleDate="20260912" reportDate="20260912" amount="-11.25"
+            type="Withholding Tax" transactionID="2002" code="" />
+      </CashTransactions>
+    </FlexStatement>
+    <FlexStatement accountId="U7654321" fromDate="20260901" toDate="20260930"
+                   period="Last30CalendarDays" whenGenerated="20261001;083000">
+      <CorporateActions />
+      <CashTransactions>
+        <CashTransaction accountId="U7654321" currency="USD" assetCategory="STK"
+            symbol="KO" description="KO(US1912161007) PAYMENT IN LIEU OF DIVIDEND (Ordinary Dividend)"
+            conid="8894" isin="US1912161007" dateTime="20260918;202000"
+            settleDate="" reportDate="20260919" amount="48.50"
+            type="Payment In Lieu Of Dividends" transactionID="2003" code="" />
+        <CashTransaction accountId="U7654321" currency="USD" assetCategory="STK"
+            description="UNKNOWN CASH DIVIDEND USD 0.10 PER SHARE"
+            conid="0" dateTime="20260919;202000"
+            settleDate="20260919" reportDate="20260919" amount="1.00"
+            type="Dividends" transactionID="2004" code="" />
+      </CashTransactions>
+    </FlexStatement>
+  </FlexStatements>
+</FlexQueryResponse>

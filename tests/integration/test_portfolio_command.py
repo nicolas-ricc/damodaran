@@ -11,13 +11,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import duckdb
 import pytest
+from structlog.testing import capture_logs
 
 from bot.ingest.ibkr import CashBalance, PortfolioPosition, TradeExecution
-from bot.portfolio.command import run_portfolio
+from bot.portfolio.command import PortfolioRunResult, run_portfolio
 from bot.portfolio.marks import AnalyzeFn
 from bot.screener.rules import Rule, RuleResult
 from bot.screener.types import CompanyData, IndustryBenchmarks
@@ -376,3 +377,78 @@ def test_run_portfolio_emits_valuation_events_across_two_runs(
         "SELECT snapshot_date, COUNT(*) FROM holding_marks GROUP BY 1 ORDER BY 1"
     ).fetchall()
     assert marked == [(day1, 2), (day2, 2)]
+
+
+def _state(conn: duckdb.DuckDBPyConnection, result: PortfolioRunResult) -> tuple[object, ...]:
+    return (
+        conn.execute(
+            "SELECT * EXCLUDE (fetched_at) FROM portfolio_snapshots ORDER BY ALL"
+        ).fetchall(),
+        conn.execute("SELECT event_type, ticker FROM events_log ORDER BY ALL").fetchall(),
+        result.portfolio_path.read_text(),
+        result.alerts_path.read_text(),
+    )
+
+
+def test_failing_corporate_actions_hook_changes_nothing(tmp_path: Path) -> None:
+    def boom(_conn: duckdb.DuckDBPyConnection) -> int | None:
+        raise RuntimeError("flex down")
+
+    runs = []
+    for name, hook in (("plain", None), ("hooked", boom)):
+        c = duckdb.connect(str(tmp_path / f"{name}.duckdb"))
+        apply_schema(c)
+        with capture_logs() as logs:
+            result = run_portfolio(
+                c,
+                _client(),
+                reports_dir=tmp_path / name,
+                today=TODAY,
+                analyze_fn=_no_analyze,
+                corporate_actions_fn=hook,
+            )
+        runs.append((_state(c, result), logs))
+
+    (plain, plain_logs), (hooked, hooked_logs) = runs
+    assert hooked == plain
+
+    def _warnings(logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [e for e in logs if e["log_level"] == "warning"]
+
+    # The run emits its own warnings (unpriced positions); the hook adds exactly one.
+    extra = [w for w in _warnings(hooked_logs) if w not in _warnings(plain_logs)]
+    assert [w["event"] for w in extra] == ["corporate_actions_import_failed"]
+    assert extra[0]["error"] == "flex down"
+    assert len(_warnings(hooked_logs)) == len(_warnings(plain_logs)) + 1
+
+
+def test_corporate_actions_hook_runs_after_sync_and_feeds_events(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    seen_snapshot: list[int] = []
+
+    def hook(c: duckdb.DuckDBPyConnection) -> int | None:
+        row = c.execute(
+            "SELECT COUNT(*) FROM portfolio_snapshots WHERE snapshot_date = ?", [TODAY]
+        ).fetchone()
+        seen_snapshot.append(row[0] if row else 0)
+        c.execute(
+            "INSERT INTO corporate_actions (action_id, action_type, ticker, effective_date) "
+            "VALUES ('ct:1', 'dividend', 'MSFT', ?)",
+            [TODAY],
+        )
+        return 1
+
+    run_portfolio(
+        conn,
+        _client(),
+        reports_dir=tmp_path,
+        today=TODAY,
+        analyze_fn=_no_analyze,
+        corporate_actions_fn=hook,
+    )
+    assert seen_snapshot and seen_snapshot[0] > 0
+    logged = conn.execute(
+        "SELECT event_type, ticker FROM events_log WHERE curr_snapshot_date = ?", [TODAY]
+    ).fetchall()
+    assert ("dividend", "MSFT") in logged

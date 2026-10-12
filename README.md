@@ -157,6 +157,37 @@ BOT_IBKR_PORT=7496        # default; live TWS. 7497 = paper TWS, 4001/4002 = IB 
 BOT_IBKR_CLIENT_ID=1      # default; each concurrent client needs a distinct id
 ```
 
+### Corporate actions via Flex Web Service
+
+Written from IBKR's documentation and not yet verified against the portal; see #110.
+
+The TWS socket does not report dividends or splits, so `bot portfolio` pulls them
+from IBKR's **Flex Web Service** (`bot.ingest.ibkr_flex`) before computing the day's
+events. Without the two settings below the import is skipped with one INFO line;
+any failure during it is logged as a WARNING and the run carries on.
+
+1. In Client Portal, **Performance & Reports → Flex Queries → Activity Flex Query**,
+   create a query with:
+   - **Corporate Actions**: accountId, currency, assetCategory, symbol, description,
+     conid, isin, reportDate, dateTime, actionID, type, quantity, amount, proceeds,
+     value, code.
+   - **Cash Transactions**: accountId, currency, assetCategory, symbol, description,
+     conid, isin, dateTime, settleDate, reportDate, amount, type, transactionID, code.
+   - Period **Last 30 Calendar Days**, format **XML**, default date (`yyyyMMdd`) and
+     time (`HHmmss`) formats with the `;` separator, all accounts.
+   Note the query id.
+2. **Settings → Reporting → Flex Web Service**: generate a token and note its expiry.
+3. Put both in `.env` (never commit them):
+
+   ```bash
+   BOT_IBKR_FLEX_TOKEN=...      # Flex Web Service token
+   BOT_IBKR_FLEX_QUERY_ID=...   # the Activity Flex Query id
+   ```
+
+Dividends and payments in lieu become `DIVIDEND` events, forward and reverse
+splits become `SPLIT` events, for tickers held on the day. Other corporate
+actions are stored with IBKR's type code, lowercased, but raise no event yet.
+
 ### Notifications
 
 `bot portfolio` can forward the day's `alerts.md` by email or Telegram. Set

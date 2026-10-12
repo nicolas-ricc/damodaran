@@ -64,6 +64,17 @@ class Settings(BaseSettings):
         default=1,
         description="Client id for the TWS API connection. Each concurrent client needs a distinct id.",
     )
+    ibkr_flex_token: str = Field(
+        default="",
+        description=(
+            "IBKR Flex Web Service token. With BOT_IBKR_FLEX_QUERY_ID set, `bot portfolio` "
+            "imports dividends and splits from the Flex Query before computing events."
+        ),
+    )
+    ibkr_flex_query_id: str = Field(
+        default="",
+        description="Id of the Activity Flex Query holding Corporate Actions and Cash Transactions.",
+    )
     reports_dir: Path = Field(default=Path("./reports"))
     presets_dir: Path = Field(
         default=Path("./config/presets"),

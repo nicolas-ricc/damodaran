@@ -16,6 +16,7 @@ from bot.ingest.edgar_stooq import EdgarStooqProvider
 from bot.ingest.edgar_tiingo import EdgarTiingoProvider
 from bot.ingest.fmp import FmpProvider
 from bot.ingest.ibkr import IbkrClient
+from bot.ingest.ibkr_flex import import_corporate_actions
 from bot.ingest.provider import MarketDataProvider
 from bot.ingest.sec_edgar import import_company_from_sec
 from bot.ingest.universe import (
@@ -556,6 +557,10 @@ def portfolio(
     and an explicit concentration breakdown with ``--concentration``) and
     ``alerts.md`` (today's events only, always written, empty when there are none).
 
+    Before computing events it imports corporate actions from the IBKR Flex Web
+    Service when ``BOT_IBKR_FLEX_TOKEN`` and ``BOT_IBKR_FLEX_QUERY_ID`` are set;
+    a failure there is a warning, not an error.
+
     When ``BOT_NOTIFIER`` is ``email`` or ``telegram``, a non-empty ``alerts.md`` is then
     sent through that channel.
     """
@@ -583,6 +588,7 @@ def portfolio(
             concentration=concentration,
             quality_gates=gates,
             assumptions_dir=settings.assumptions_dir,
+            corporate_actions_fn=lambda c: import_corporate_actions(c, settings),
         )
     except (ConnectionError, TimeoutError) as exc:
         # asyncio's TimeoutError carries no message; name the type instead.

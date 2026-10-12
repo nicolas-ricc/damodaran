@@ -315,8 +315,8 @@ SOURCES = [
      ["financials_annual", "filings_log"], "datos"),
     ("fmp", "FMP", "plan Ultimate", "~USD 70/mes", "precios, a diario",
      ["companies", "prices_daily"], "datos"),
-    ("ibkr", "IBKR", "TWS local", "incluido", "snapshot, a diario",
-     ["portfolio_snapshots", "trades"], "vigila"),
+    ("ibkr", "IBKR", "TWS local + Flex", "incluido", "snapshot, a diario",
+     ["portfolio_snapshots", "trades", "corporate_actions"], "vigila"),
 ]
 
 
@@ -404,7 +404,7 @@ def plan_a():
 # ────────────────────────────── Salida ──────────────────────────────
 BROKER_EVENTS = [
     ("position_opened", ""), ("position_closed", ""), ("position_size_changed", ""),
-    ("dividend", "hoy no se dispara"), ("split", "hoy no se dispara"),
+    ("dividend", "requiere token de Flex"), ("split", "requiere token de Flex"),
     ("currency_changed", ""),
 ]
 DERIVED_EVENTS = [
@@ -435,10 +435,10 @@ def plan_s():
                  f'fill="var(--p-vigila)" opacity=".9"/>')
         o.append(txt(488, y, name, "t-m"))
         o.append(txt(488, y + 13, note, "t-s"))
-    o.append(txt(46, 292, "Los seis de la izquierda son mecánicos, pero dos de ellos no "
-                "pueden dispararse hoy: el socket de TWS no trae", "t-n"))
-    o.append(txt(46, 308, "corporate actions. Los seis de la derecha son los que justifican "
-                "tener un bot en vez de mirar la app del broker.", "t-n"))
+    o.append(txt(46, 292, "Los seis de la izquierda son mecánicos; dividend y split dependen del "
+                "Flex Web Service (#56): solo se disparan con token y", "t-n"))
+    o.append(txt(46, 308, "query id configurados y aún sin validar con datos reales (#110). Los seis de la derecha "
+                "justifican tener un bot.", "t-n"))
 
     o.append(band(46, 336, 812, 132, "Lo que se decidió NO detectar", "a propósito", "elimina"))
     o.append(txt(60, 384, "Movimientos de precio por sí solos.", "t-b"))

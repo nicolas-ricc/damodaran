@@ -76,3 +76,22 @@ def test_unknown_notifier_is_rejected(monkeypatch):
     monkeypatch.setenv("BOT_NOTIFIER", "slack")
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+def test_flex_settings_default_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Test test@example.com")
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert (s.ibkr_flex_token, s.ibkr_flex_query_id) == ("", "")
+
+
+def test_flex_settings_read_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Test test@example.com")
+    monkeypatch.setenv("BOT_IBKR_FLEX_TOKEN", "tok")
+    monkeypatch.setenv("BOT_IBKR_FLEX_QUERY_ID", "42")
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert (s.ibkr_flex_token, s.ibkr_flex_query_id) == ("tok", "42")
+
+
+def test_env_example_documents_flex_settings() -> None:
+    text = (Path(__file__).resolve().parents[2] / ".env.example").read_text()
+    assert "BOT_IBKR_FLEX_TOKEN" in text and "BOT_IBKR_FLEX_QUERY_ID" in text

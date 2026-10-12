@@ -301,3 +301,27 @@ def test_portfolio_send_failure_exits_1_and_keeps_reports(tmp_path, monkeypatch)
     assert result.exit_code == 1
     assert "Alerts not sent: Telegram sendMessage HTTP 400: chat not found" in result.output
     assert len(list(reports_dir.glob("*/alerts.md"))) == 1
+
+
+def test_portfolio_wires_the_flex_importer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _env(tmp_path, monkeypatch)
+    captured: dict[str, Any] = {}
+    real_run_portfolio = bot.cli.run_portfolio
+
+    def _spy(*args: Any, **kwargs: Any) -> Any:
+        captured.update(kwargs)
+        return real_run_portfolio(*args, **kwargs)
+
+    monkeypatch.setattr(bot.cli, "run_portfolio", _spy)
+
+    result = CliRunner().invoke(app, ["portfolio"])
+
+    assert result.exit_code == 0, result.stdout
+    hook = captured["corporate_actions_fn"]
+    assert hook is not None
+    # tests/conftest.py blanks the Flex settings: the hook takes the no-op path.
+    conn = connect(tmp_path / "bot.duckdb")
+    assert hook(conn) is None
+    conn.close()
