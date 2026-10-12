@@ -37,6 +37,16 @@
 9. **Poll delay in tests** is neutralised by `monkeypatch.setattr(ibkr_flex, "POLL_DELAY_SECONDS", 0.0)`. The client reads the module global at call time and sleeps only *between* polls, never after the last one.
 10. **Plans in `docs/plano/`.** CONTEXT.md asks for both plans to be updated after a stage. This issue changes three inventory rows (`ibkr-corp`, `ev-corp`, `tablas`), the M5 milestone row and the `dividend`/`split` notes in `views.py`. Without a full re-audit, `AUDITADO_EN`/`AUDITADO_EL` are left as they are: those rows describe the code at this commit, the audit stamp stays honest about the rest.
 
+## Assumptions (from plan grilling)
+
+- **First configured run.** The importer stores the whole 30-day window, but `_load_corporate_actions` (`events.py:554-560`) only returns actions with `effective_date <= curr` and, when there is a previous snapshot, `> prev`. Older backfilled actions are stored and never raise an event. They don't fire again day after day either, because the window moves. Rejected: a special first-run path. The issue says `detect_corporate_action_events` "is not changed" and does not ask for one.
+- **Partial import failure.** `run_portfolio` runs in DuckDB autocommit (there is no transaction in `src/bot/portfolio/`), so rows inserted before a mid-upsert error stay committed. That is harmless: `action_id` is the primary key and the next run's `ON CONFLICT DO NOTHING` fills in the rest. Rejected: wrapping the import in a transaction, which would add rollback code for no visible difference.
+- **Events ignore the account.** The reader filters `corporate_actions` by ticker only (`events.py:554-556`), so a dividend booked in a second account fires for a ticker held in any account. That matches the issue's "for held tickers" criterion. Rejected: adding an account join, which would change the reader the issue keeps unchanged.
+- **Empty `CorporateAction.type`** is skipped with a WARNING. `action_type` is `VARCHAR NOT NULL` with no CHECK (`schema.sql:240-249`), so `''` would be accepted, but it is not a type the mapping table names. Rejected: storing `''`.
+- **Token scrubbing** replaces both the raw and the percent-encoded token, and the client test uses a token with `/`, `+` and `=`. Rejected: scrubbing only the raw form, which misses the encoded token that httpx puts in its URLs.
+- **Test isolation from a developer `.env`.** An autouse fixture in `tests/conftest.py` blanks both Flex variables (Task 5). Rejected: relying on the developer having no token, which would let unit tests make live calls.
+- **Row count** is computed inline rather than importing `trades._rowcount`, which is private to `trades.py`. The idempotence test (second upsert returns 0, `COUNT(*)` stays 5) pins DuckDB's affected-row count. Rejected: a shared helper module for a three-line function.
+
 ## Review Focus
 
 1. **A token leaking through an exception message.** IBKR answers HTTP 5xx, or the network drops: `httpx` raises with the full URL (`...?t=<token>...`), and the `run_portfolio` hook would log it as a WARNING. Expected: the WARNING carries a scrubbed message. Task 3 tests an HTTP 500 and a transport error.
@@ -630,7 +640,7 @@ from bot.ingest import ibkr_flex
 from bot.ingest.ibkr_flex import MAX_POLLS, FlexClient, FlexError
 from bot.utils.logging import configure_logging
 
-TOKEN = "123456789012345678901234"
+TOKEN = "1234567890/abc+def=4567"  # not purely alphanumeric: httpx percent-encodes it in URLs
 QUERY = "987654"
 GET_URL = "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService/GetStatement"
 STATEMENT = '<FlexQueryResponse queryName="q" type="AF"><FlexStatements count="0" /></FlexQueryResponse>'
@@ -844,8 +854,12 @@ class FlexClient:
         return self._scrub(f"{code} {message}")
 
     def _scrub(self, text: str) -> str:
-        return text.replace(self._token, "***") if self._token else text
+        if not self._token:
+            return text
+        return text.replace(self._token, "***").replace(quote(self._token, safe=""), "***")
 ```
+
+(`from urllib.parse import quote` in the imports: httpx percent-encodes query values, so the token can appear encoded in its error text.)
 
 Note the SendRequest param order in the spec is `t, q, v`; httpx serialises the dict in insertion order, and the tests compare params as a dict, so order is not asserted. `_get` always passes the token as `t`: the spec puts it on both requests.
 
@@ -1160,6 +1174,18 @@ def test_portfolio_wires_the_flex_importer(...) -> None:
 
 (Write it concretely against the file's real fixtures; the assertion that matters is that `corporate_actions_fn` is passed and calling it with the test settings returns `None` without any network.)
 
+Add to `tests/conftest.py` an autouse fixture so no test can pick up a developer's real Flex settings from `.env` (environment variables beat the `.env` file in pydantic-settings) and make a live request from the suite:
+
+```python
+@pytest.fixture(autouse=True)
+def _no_flex_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Blank the IBKR Flex settings so `bot portfolio` tests never reach IBKR."""
+    monkeypatch.setenv("BOT_IBKR_FLEX_TOKEN", "")
+    monkeypatch.setenv("BOT_IBKR_FLEX_QUERY_ID", "")
+```
+
+`test_flex_settings_read_from_env` in Task 4 overrides these with its own `setenv`, which still works. (If Task 4 already landed, re-run its tests.)
+
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `uv run pytest tests/integration/test_portfolio_command.py tests/unit/test_cli_portfolio.py -q`
@@ -1200,7 +1226,7 @@ Expected: PASS.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/bot/portfolio/command.py src/bot/cli.py tests/integration/test_portfolio_command.py tests/unit/test_cli_portfolio.py
+git add src/bot/portfolio/command.py src/bot/cli.py tests/conftest.py tests/integration/test_portfolio_command.py tests/unit/test_cli_portfolio.py
 git commit -m "feat(#56): import corporate actions during bot portfolio"
 ```
 
@@ -1349,3 +1375,32 @@ Expected: all green.
 git add README.md docs/adr/0004-tws-api-via-ib-async.md src/bot/storage/schema.sql src/bot/portfolio/trades.py docs/plano/estado.py docs/plano/views.py tests/unit/test_flex_docs.py
 git commit -m "docs(#56): document the Flex corporate actions importer"
 ```
+
+## Grilling
+
+One round; the revisions were additions inside existing tasks, with no task added or removed and no seam changed. The griller (model: fable) asked 16 questions. Every one got an answer:
+
+| # | Source | Answer |
+|---|---|---|
+| 1 | ISSUE | Each acceptance criterion maps to a task: settings and `.env.example` → T4; fixture → T1; parser tests → T1; upsert twice → T2; FlexClient tests → T3; no-op INFO → T4; integration test → T2; run_portfolio hook test → T5; README → T6, opening sentence quoted from the issue ("It opens with: \"Written from IBKR's documentation and not yet verified against the portal; see #110.\""); ADR/schema/trades wording → T6; mypy/ruff/no network → every task. The `docs/plano` edits serve CONTEXT.md, not an acceptance criterion. |
+| 2 | CODE | `events.py:554-560`: `effective_date <= curr` and `> prev`. Assumption recorded. |
+| 3 | CODE | `src/bot/utils/logging.py:31` sets the `httpx` logger to WARNING. `test_token_never_logged` calls `configure_logging` and checks `caplog`. |
+| 4 | NO SOURCE | Technical assumption (autocommit, idempotent re-run). |
+| 5 | CODE + ISSUE | The reader filters by ticker only (`events.py:554-556`). Issue: "one `DIVIDEND` per dividend-type row … for held tickers". |
+| 6 | CODE | `schema.sql:240-249`: `action_type VARCHAR NOT NULL`, no CHECK. Assumption recorded. |
+| 7 | CODE | `tests/unit/test_seam_enforcement.py`: `SRC = …/"src"/"bot"`, so only `src/bot` is scanned. |
+| 8 | ISSUE + CODE | "Two new fields … both `str` defaulting to `\"\"`". `doctor` (`cli.py:619+`) prints named fields only; nothing dumps `Settings`. |
+| 9 | ISSUE | "called after `sync_portfolio` and before `compute_events`". |
+| 10 | ISSUE | "Poll bounds are module constants, not settings: `MAX_POLLS = 10`, `POLL_DELAY_SECONDS = 3.0`". |
+| 11 | ISSUE → out of scope | "Any failure during the import logs a WARNING and the portfolio run continues unchanged". Surfacing a persistent failure → #118. |
+| 12 | CODE | `test_cli_portfolio.py` `_env` sets only some variables; `.env` is read from the cwd. Gap closed with an autouse conftest fixture (assumption). |
+| 13 | CODE | `trades.py:162-168` uses the same count. The T2 idempotence test pins it. Assumption recorded. |
+| 14 | NO SOURCE | Technical assumption: scrub the encoded form too, and test with a non-alphanumeric token. |
+| 15 | DOC | CONTEXT.md, Conventions: "Each ingest adapter is a pure module: `download → parse → upsert`." `AUDITADO_EN` is kept per Decision 10 (no re-audit done). |
+| 16 | CODE + ISSUE | Nothing in `events.py` reads `ratio`; it is passed through in `details`. Orientation comes from the issue's regex `SPLIT (\d+) FOR (\d+)` → `"N:M"`, i.e. N new for M old. |
+
+Answers by source: ISSUE 6, CODE 9, DOC 1 (some cite more than one); NO SOURCE 2 (both technical assumptions); spec ambiguities 0.
+
+Assumptions: see "Assumptions (from plan grilling)".
+
+Issues opened: #118, surfacing a persistently failing Flex import (out of scope).
