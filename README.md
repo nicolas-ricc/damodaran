@@ -68,30 +68,6 @@ Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
    Use `--limit N` to cap a run at the first N universe tickers — useful for a first-day sanity
    check, not for daily use (it always re-probes the same alphabetical head of the ticker list,
    so it won't help you progress through the universe day over day).
-
-   **Alternative price source — `edgar-stooq`.** Set `BOT_DATA_PROVIDER=edgar-stooq` to read
-   Stooq CSVs instead of Tiingo. Stooq's HTTP endpoint is behind a JavaScript anti-bot wall
-   (observed 2026-09-09) and its `db/` bulk archives require a paid subscription, so the only
-   free route is harvesting per-ticker CSVs through a real browser
-   ([agent-browser](https://www.npmjs.com/package/agent-browser) required) — slow and
-   daily-limited even when logged in, so `edgar-tiingo` is preferred:
-
-   ```bash
-   agent-browser open "https://stooq.com/q/d/?s=aapl.us" && agent-browser wait --load networkidle
-   node scripts/stooq_browser_fetch.mjs --universe src/bot/ingest/universe_default.csv
-   BOT_DATA_PROVIDER=edgar-stooq BOT_STOOQ_DIR=.cache/stooq uv run bot refresh --prices
-   ```
-
-   With `BOT_STOOQ_DIR` set, `refresh --prices` reads `<TICKER>.csv` files from that
-   directory; a ticker with no file fails individually with a message naming the recipe, and
-   the rest continue. Background in the "Real run (Task 8)" section of
-   `docs/superpowers/plans/2026-09-09-free-data-stack-edgar-stooq.md`. Under either provider,
-   SEC EDGAR's own throttling can
-   still cut a fundamentals run short, in which case the remaining tickers are deferred, not
-   skipped, and the next day's run continues from where it left off.
-   Use `--limit N` to cap a run at the first N universe tickers — useful for a first-day sanity
-   check, not for daily use (it always re-probes the same alphabetical head of the ticker list,
-   so it won't help you progress through the universe day over day).
 6. `uv run bot screen --preset damodaran_value --top 10` — mechanical shortlist (§6).
 7. `uv run bot analyze --from-screen` — DCF and report (§7.7) for each candidate.
 
