@@ -39,11 +39,20 @@
 8. **Quickstart numbering.** Collapsing README steps 2–4 into one bootstrap step renumbers the later steps: `refresh --fundamentals`/`--prices` becomes 3, `screen` 4, `analyze` 5. Bootstrap's next-steps block names the commands and points at "README → Quickstart, steps 3–5"; the issue's "steps 5–7" refers to today's numbering of the same commands.
 9. **Unknown arguments** exit 2 with a usage line, in both `bootstrap.sh` and `install_cron.sh`.
 
+## Assumptions (from plan grilling)
+
+- **Platform: Linux with bash 4+ and GNU coreutils.** Rejected: POSIX/macOS portability. `scripts/price_fill.sh` already relies on `readlink -f` and `date -Is`, and CI runs on `ubuntu-latest` (`.github/workflows/site.yml`).
+- **`crontab -l` failures.** Only a failure whose stderr says "no crontab" counts as an empty crontab; any other failure aborts with exit 1 before `crontab -` runs. Rejected: treating every failure as empty, which would replace an unreadable crontab with only the bot's lines.
+- **`.env` syntax.** Only plain `KEY=value` lines, the form `.env.example` uses, are recognised. A key written as `export KEY=...` or `KEY = ...` reads as absent, so its value is appended again as a plain line. Rejected: parsing every dotenv form in bash.
+- **Bootstrap's temp file** is removed by an `EXIT` trap, so an interrupted rewrite leaves no `.env.XXXXXX` copy of the secrets. Rejected: writing `.env` in place, which a crash would leave truncated.
+- **A moved checkout** keeps its old marker lines ("lines already present are left untouched", issue §2); re-pointing them is `--remove` then install. Rejected: rewriting the path in existing lines.
+- **Wrappers do not pass `--frozen`/`UV_OFFLINE` to `uv run`**, the same as `price_fill.sh`. Rejected: changing how cron invokes `uv`, which no issue asks for.
+
 ## Review Focus
 
 1. A `BOT_SEC_USER_AGENT` with spaces (the normal case: `Jane Doe jane@example.com`) or a `"` must round-trip: `dotenv_values(.env)` returns exactly what was typed. Task 3 tests both.
 2. A `.env` whose last line has no trailing newline, with a key absent: the appended key must land on its own line, not glued to the last one. Task 3.
-3. A user with no crontab at all (`crontab -l` exits 1 with "no crontab for ..."): install still works, and the result has no leading blank line. Task 1.
+3. A user with no crontab at all (`crontab -l` exits 1 with "no crontab for ..."): install still works, and the result has no leading blank line. A crontab that cannot be read for any other reason must not be overwritten. Task 1.
 4. Invoking a script through a symlink from another directory (how a user might put it on `PATH`): the repo root, and the cron line's path, is still the real checkout. Task 1.
 5. `bot portfolio` failing (TWS down) after a good refresh: the daily wrapper logs it and exits with that code; a failing refresh short-circuits portfolio. Task 2.
 
@@ -103,10 +112,14 @@ var="FAKE_${{3^^}}_EXIT"
 exit "${{!var:-0}}"
 """
 
-# `-l` prints the stored crontab (exit 1 when there is none), `-` stores stdin.
+# `-l` prints the stored crontab (exit 1 when there is none, or when
+# FAKE_CRONTAB_BROKEN is set, with a different error), `-` stores stdin.
 _FAKE_CRONTAB = """#!/usr/bin/env bash
 case "$1" in
-  -l) [ -f "{state}" ] || {{ echo "no crontab for $USER" >&2; exit 1; }}; cat "{state}" ;;
+  -l)
+    [ -z "${{FAKE_CRONTAB_BROKEN:-}}" ] || {{ echo "crontab: permission denied" >&2; exit 1; }}
+    [ -f "{state}" ] || {{ echo "no crontab for $USER" >&2; exit 1; }}
+    cat "{state}" ;;
   -) cat > "{state}" ;;
   *) exit 64 ;;
 esac
@@ -281,6 +294,20 @@ def test_install_cron_through_a_symlink_uses_the_real_checkout(
     assert crontab_state.read_text().splitlines() == _cron_lines(repo.resolve())
 
 
+def test_install_cron_aborts_when_the_crontab_cannot_be_read(
+    repo: Path, cron_env: dict[str, str], crontab_state: Path
+) -> None:
+    crontab_state.write_text(_UNRELATED)
+
+    result = _run(
+        repo / "scripts" / "install_cron.sh", env={**cron_env, "FAKE_CRONTAB_BROKEN": "1"}
+    )
+
+    assert result.returncode == 1
+    assert "permission denied" in result.stderr
+    assert crontab_state.read_text() == _UNRELATED
+
+
 def test_install_cron_rejects_unknown_arguments(
     repo: Path, cron_env: dict[str, str], crontab_state: Path
 ) -> None:
@@ -308,6 +335,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd -P)"
 REPO="$(dirname "$SCRIPT_DIR")"
 CRONTAB="${CRONTAB:-crontab}"
+ERR="$(mktemp)"
+trap 'rm -f "$ERR"' EXIT
 
 MARKERS=("# bot-daily" "# bot-weekly")
 LINES=(
@@ -315,8 +344,15 @@ LINES=(
   "0 10 * * 6    $REPO/scripts/weekly.sh  # bot-weekly"
 )
 
-# No crontab yet is not an error: start from an empty one.
-current="$("$CRONTAB" -l 2>/dev/null || true)"
+# "no crontab for <user>" means start from an empty one; any other failure to
+# read it aborts, so a transient error can never wipe the user's crontab.
+if ! current="$("$CRONTAB" -l 2>"$ERR")"; then
+  if ! grep -q "no crontab" "$ERR"; then
+    echo "install_cron: cannot read the crontab: $(cat "$ERR")" >&2
+    exit 1
+  fi
+  current=""
+fi
 
 case "${1:-}" in
   "")
@@ -623,6 +659,18 @@ def test_bootstrap_round_trips_quotes_and_backslashes(repo: Path, recorder_bin: 
     assert dotenv_values(repo / ".env")["BOT_SEC_USER_AGENT"] == tricky
 
 
+def test_bootstrap_second_run_keeps_an_escaped_quote_value_byte_identical(
+    repo: Path, recorder_bin: Path
+) -> None:
+    env = _env(recorder_bin, BOT_SEC_USER_AGENT='Jane "JD" Doe j@d.e', BOT_TIINGO_API_KEY="tk")
+    assert _run(_bootstrap(repo), "--yes", "--skip-damodaran", env=env).returncode == 0
+    before = (repo / ".env").read_bytes()
+
+    assert _run(_bootstrap(repo), "--yes", "--skip-damodaran", env=env).returncode == 0
+
+    assert (repo / ".env").read_bytes() == before
+
+
 def test_bootstrap_reprompts_on_an_empty_answer(repo: Path, recorder_bin: Path) -> None:
     (repo / ".env").write_text('BOT_SEC_USER_AGENT="A B a@b.c"\nBOT_TIINGO_API_KEY=\n')
 
@@ -736,6 +784,8 @@ done
 # inline comment kept), an absent key is appended; every other line is copied.
 if [ "${#NEW[@]}" -gt 0 ]; then
   tmp="$(mktemp "$ENV_FILE.XXXXXX")"
+  # The temp copy holds secrets and .gitignore only covers .env itself.
+  trap 'rm -f "$tmp"' EXIT
   declare -A written=()
   while IFS= read -r line || [ -n "$line" ]; do
     for key in "${!NEW[@]}"; do
@@ -1011,3 +1061,30 @@ Leave `AUDITADO_EN` / `AUDITADO_EL` alone: this is a targeted update of two rows
 - [ ] **Step 5: Full gate.** `uv run pytest -q && uv run ruff check . && uv run mypy src`.
 
 - [ ] **Step 6: Commit.** `git add README.md docs/plano/estado.py && git commit -m "docs(#33): README bootstrap and scheduling, estado rows"`
+
+## Grilling
+
+One round, 18 questions (griller model: fable). The plan changed only locally (one test added in Task 1 and one in Task 3, two guards, an Assumptions section), with no steps added or removed and no new seam, so there was no second round.
+
+Sources: ISSUE 3, CODE 10, DOC 1, NO SOURCE 4 (3 technical assumptions, 1 out of scope).
+
+1. Criteria to tasks. ISSUE: the acceptance list. "fresh copy … exit 0" → Task 4 `test_bootstrap_fresh_copy_…`. "Second run … byte-identical" → Task 4 `test_bootstrap_second_run_is_a_no_op`. "one required key filled and one empty" → Task 3 (prompt and `--yes` variants). "`--yes` with a required key absent" → Task 3. "`install_cron.sh` against a fake `CRONTAB`" → Task 1. "plain bash `read`" → Task 3 (prompts answered through a pipe). "`shellcheck` clean … executable" → Task 1 parametrized test. "Tests: pytest, in `tests/integration/test_scripts.py`" → every task. "README updated as in §4" → Task 5. Gate → Task 5 Step 5. The TWS checklist is issue §1 step 5, and `--yes`/`--skip-damodaran` are issue §1 steps 2 and 4. The `estado.py` rows come from DOC CONTEXT.md: "After a stage, both get updated".
+2. `crontab -l` failure. NO SOURCE → technical assumption: only "no crontab" counts as empty; anything else aborts. Test added in Task 1.
+3. CODE: `src/bot/cli.py:688` prints `"\nAll checks OK."`. `src/bot/config.py:20` has `db_path` default `Path("./bot.duckdb")`, relative to cwd. `cli.py:614-688` doctor only loads settings, opens DuckDB and probes the reports dir, with no socket.
+4. CODE: `scripts/price_fill.sh` already uses `readlink -f` and `date -Is`, and `.github/workflows/site.yml` runs on `ubuntu-latest`. Recorded as an assumption (Linux, bash 4+).
+5. Concurrent DuckDB writers between cron jobs. NO SOURCE → out of scope, #108.
+6. CODE: `grep -rn env.example` outside `src`/`tests` hits only README:14 (manual step being replaced, "fill in `BOT_SEC_USER_AGENT`"), README:111 and historical plans/specs. None of them relies on a non-empty placeholder.
+7. `export KEY=` form. NO SOURCE → technical assumption: only plain `KEY=` is recognised, the form `.env.example` uses.
+8. CODE (the plan's own `is_set`): on `"Jane \"JD\"…"` the regex captures `Jane \`, which is non-empty, so the key reads as set and is never rewritten. Pinned by the new Task 3 test `…escaped_quote_value_byte_identical`.
+9. ISSUE: "`0 9  * * 1-5  <repo>/scripts/daily.sh   # bot-daily` / `0 10 * * 6    <repo>/scripts/weekly.sh  # bot-weekly`". The issue does this, not the author. The timezone is cron's local time.
+10. ISSUE: "add each line whose marker is absent from `crontab -l`; lines already present are left untouched". Recorded as an assumption (moved checkout: `--remove` then install).
+11. Leftover temp file. NO SOURCE → technical assumption: an `EXIT` trap removes it (`.gitignore` lists only `.env`).
+12. CODE: `scripts/price_fill.sh` uses the same PATH fix-up and plain `uv run`. Same choice here, recorded as an assumption.
+13. CODE: `cli.py:107-118` (`--prices`, `--fx`, `--all`), `:143` `--only-missing`, `:494`/`:503` `--preset`/`--top`, `:368` `--from-screen`. `src/bot/ingest/ibkr.py:145` `from_settings`, `:198` `accounts`. README:194 has the smoke one-liner.
+14. CODE: `tests/integration/conftest.py` defines only module-scoped, non-autouse VCR fixtures. `tests/conftest.py` autouses `monkeypatch.setenv("BOT_FMP_API_KEY")`, and `_env` strips every `BOT_*` before spawning.
+15. CODE: `docs/plano/estado.py:189` `("bootstrap", "scripts/bootstrap.sh", "falta", "spec §13.1", "El directorio scripts/ no existe.")`, `:190` `("cron", "scripts/install_cron.sh", "falta", "spec §9.3", None)`, `:214-215` brecha. Task 5 keeps the 5-tuple shape and runs both builders.
+16. CODE: `docs/adr/0007-free-data-stack-edgar-stooq.md` exists, and README:35 (step 5 today, step 3 after renumbering) describes `scripts/price_fill.sh`.
+17. CODE: `.github/workflows/site.yml` runs `uv sync --frozen`, which installs the `dev` group by default. The `shellcheck-py` wheel is checked when Task 1 Step 1 adds it.
+18. DOC: the repo has no CLAUDE.md. CONTEXT.md does not inventory `scripts/`, and the decision lives in the issue itself ("Two bash scripts plus two cron wrappers"). `bot config validate` and new subcommands are listed out of scope, so no ADR is needed.
+
+Issues opened: #108.
