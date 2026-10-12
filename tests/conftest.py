@@ -9,6 +9,8 @@ being absent simply ``delenv`` it.
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 
@@ -16,3 +18,13 @@ import pytest
 def _default_fmp_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Provide a default BOT_FMP_API_KEY so settings load in unrelated tests."""
     monkeypatch.setenv("BOT_FMP_API_KEY", "test-fmp-key")
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Skip ``live`` tests unless ``BOT_LIVE_TESTS=1``: the default run stays offline."""
+    if os.environ.get("BOT_LIVE_TESTS") == "1":
+        return
+    skip = pytest.mark.skip(reason="live test; set BOT_LIVE_TESTS=1 to run")
+    for item in items:
+        if item.get_closest_marker("live") is not None:
+            item.add_marker(skip)

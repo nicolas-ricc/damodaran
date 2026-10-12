@@ -76,6 +76,7 @@ testpaths = ["tests"]
 addopts = "-v --strict-markers"
 markers = [
     "integration: tests that hit external services (use VCR cassettes)",
+    "live: downloads current published data; skipped unless BOT_LIVE_TESTS=1",
 ]
 
 [tool.ruff.lint.per-file-ignores]
