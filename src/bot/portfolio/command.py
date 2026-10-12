@@ -117,7 +117,7 @@ def run_portfolio(
     # 1. Sync today's snapshot (idempotent per day).
     sync_portfolio(conn, client, snapshot_date=run_day)
 
-    # 1b. Best-effort corporate actions import (IBKR Flex); never fatal.
+    # 2. Best-effort corporate actions import (IBKR Flex); never fatal.
     if corporate_actions_fn is not None:
         try:
             corporate_actions_fn(conn)
@@ -125,10 +125,10 @@ def run_portfolio(
             # No exc_info: a traceback could carry request details (#56).
             log.warning("corporate_actions_import_failed", error=str(exc) or type(exc).__name__)
 
-    # 2. Append the executions newer than the stored watermark (de-duped).
+    # 3. Append the executions newer than the stored watermark (de-duped).
     trades = sync_trades(conn, client)
 
-    # 3. Mark holdings, then diff against the previous snapshot and persist events.
+    # 4. Mark holdings, then diff against the previous snapshot and persist events.
     prev_date = _previous_snapshot_date(conn, run_day)
     mark_holdings(
         conn,
@@ -140,7 +140,7 @@ def run_portfolio(
     events = compute_events(conn, prev_date, run_day)
     persist_events(conn, events)
 
-    # 4. Build + render reports under the dated directory.
+    # 5. Build + render reports under the dated directory.
     report = build_report(
         conn,
         run_day,

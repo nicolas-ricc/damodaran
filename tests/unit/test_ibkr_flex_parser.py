@@ -10,8 +10,9 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from bot.ingest.ibkr_flex import CorporateActionRecord, parse_flex_statement
 from structlog.testing import capture_logs
+
+from bot.ingest.ibkr_flex import CorporateActionRecord, parse_flex_statement
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "ibkr_flex" / "statement_sample.xml"
 
@@ -109,13 +110,23 @@ def test_split_without_ratio_pattern_omits_ratio() -> None:
     [
         ('symbol="AAPL" dateTime="20260901;000000" type="FS"', "actionID"),
         ('symbol="AAPL" actionID="8" dateTime="nope" reportDate="" type="FS"', "date"),
+        ('symbol="AAPL" actionID="9" dateTime="20260901;000000" type=""', "type"),
     ],
 )
-def test_corporate_action_missing_id_or_date_is_skipped(attrs: str, missing: str) -> None:
+def test_corporate_action_missing_field_is_skipped(attrs: str, missing: str) -> None:
     xml = _statement(f"<CorporateActions><CorporateAction {attrs} /></CorporateActions>")
     with capture_logs() as logs:
         assert parse_flex_statement(xml) == []
-    assert [e["log_level"] for e in logs] == ["warning"], missing
+    assert [(e["log_level"], e["missing"]) for e in logs] == [("warning", [missing])]
+
+
+def test_unparseable_datetime_falls_back_to_report_date() -> None:
+    xml = _statement(
+        '<CorporateActions><CorporateAction symbol="AAPL" actionID="10" '
+        'dateTime="garbage" reportDate="20260903" type="FS" /></CorporateActions>'
+    )
+    [r] = parse_flex_statement(xml)
+    assert r.effective_date == date(2026, 9, 3)
 
 
 def test_empty_statement_yields_nothing() -> None:

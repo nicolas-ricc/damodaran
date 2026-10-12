@@ -86,14 +86,14 @@ def test_non_retryable_code_on_fetch_fails_fast() -> None:
 
 def test_exhausting_the_polls_fails() -> None:
     client, seen = _client([_error("Warn", "1019", "in progress")] * MAX_POLLS)
-    with pytest.raises(FlexError, match=str(MAX_POLLS)):
+    with pytest.raises(FlexError, match=rf"{MAX_POLLS} polls \(last error 1019\)"):
         client.fetch_statement()
     assert len(seen) == 1 + MAX_POLLS
 
 
 def test_success_status_on_fetch_is_not_a_statement() -> None:
     client, _ = _client([SUCCESS])
-    with pytest.raises(FlexError):
+    with pytest.raises(FlexError, match="status Success"):
         client.fetch_statement()
 
 

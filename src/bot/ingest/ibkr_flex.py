@@ -103,10 +103,21 @@ def _record(
     symbol = _attr(el, "symbol")
     raw_id = _attr(el, id_attr)
     effective = _flex_date(_attr(el, dates[0])) or _flex_date(_attr(el, dates[1]))
-    if not symbol or not raw_id or effective is None or not action_type:
+    missing = [
+        name
+        for name, absent in (
+            ("symbol", not symbol),
+            (id_attr, not raw_id),
+            ("date", effective is None),
+            ("type", not action_type),
+        )
+        if absent
+    ]
+    if missing or effective is None:
         log.warning(
             "ibkr_flex_row_skipped",
             element=el.tag,
+            missing=missing,
             **{"action_id" if prefix == "ca" else "transaction_id": raw_id or None},
             symbol=symbol or None,
             description=_attr(el, "description") or None,
@@ -231,6 +242,7 @@ class FlexClient:
         if not reference or not url:
             raise FlexError("Flex SendRequest succeeded without a ReferenceCode or Url")
 
+        code = ""
         for attempt in range(1, MAX_POLLS + 1):
             body = self._get(url, q=reference)
             root = self._parse(body)
@@ -242,7 +254,7 @@ class FlexClient:
             log.info("ibkr_flex_statement_pending", attempt=attempt, error_code=code)
             if attempt < MAX_POLLS:
                 time.sleep(POLL_DELAY_SECONDS)
-        raise FlexError(f"Flex statement not ready after {MAX_POLLS} polls")
+        raise FlexError(f"Flex statement not ready after {MAX_POLLS} polls (last error {code})")
 
     def _get(self, url: str, *, q: str) -> str:
         try:
@@ -259,7 +271,8 @@ class FlexClient:
             raise FlexError(f"Flex response is not XML: {exc}") from None
 
     def _reason(self, root: ET.Element) -> str:
-        code = (root.findtext("ErrorCode") or "").strip() or "?"
+        status = (root.findtext("Status") or "").strip() or "?"
+        code = (root.findtext("ErrorCode") or "").strip() or f"status {status}"
         message = (root.findtext("ErrorMessage") or "").strip() or root.tag
         return self._scrub(f"{code} {message}")
 

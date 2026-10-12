@@ -7,11 +7,11 @@ from pathlib import Path
 import duckdb
 import httpx
 import pytest
-from bot.ingest.ibkr_flex import import_corporate_actions
 from structlog.testing import capture_logs
 
 from bot.config import Settings
 from bot.ingest import ibkr_flex
+from bot.ingest.ibkr_flex import FlexError, import_corporate_actions
 from bot.storage.db import apply_schema
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "ibkr_flex" / "statement_sample.xml"
@@ -71,3 +71,14 @@ def test_configured_imports_the_statement(
     settings = _settings(" tok ", " 42 ")
     assert import_corporate_actions(conn, settings, transport=httpx.MockTransport(handler)) == 5
     assert import_corporate_actions(conn, settings, transport=httpx.MockTransport(handler)) == 0
+
+
+def test_fetch_failure_propagates_and_writes_nothing(conn: duckdb.DuckDBPyConnection) -> None:
+    fail = (
+        "<FlexStatementResponse><Status>Fail</Status><ErrorCode>1012</ErrorCode>"
+        "<ErrorMessage>Token has expired.</ErrorMessage></FlexStatementResponse>"
+    )
+    transport = httpx.MockTransport(lambda request: httpx.Response(200, text=fail))
+    with pytest.raises(FlexError, match="1012"):
+        import_corporate_actions(conn, _settings("tok", "42"), transport=transport)
+    assert conn.execute("SELECT COUNT(*) FROM corporate_actions").fetchone() == (0,)
