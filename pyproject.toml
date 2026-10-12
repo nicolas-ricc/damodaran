@@ -35,6 +35,7 @@ dev = [
     "types-openpyxl",
     "types-pyyaml>=6.0.12.20260518",
     "types-markdown>=3.10.2.20260518",
+    "shellcheck-py>=0.11.0.1",
 ]
 
 [build-system]
