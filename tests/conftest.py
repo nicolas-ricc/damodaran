@@ -4,10 +4,13 @@
 ``BOT_DATA_PROVIDER=fmp``. Tests that exercise the FMP adapter still expect a
 key to be present without threading it through every test, so we provide a
 harmless default value for the whole suite. Tests that assert on the key
-being absent simply ``delenv`` it.
+being absent simply ``delenv`` it. The collection hook skips ``live`` tests
+unless ``BOT_LIVE_TESTS=1``, so the default run stays offline.
 """
 
 from __future__ import annotations
+
+import os
 
 import pytest
 
@@ -16,3 +19,13 @@ import pytest
 def _default_fmp_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     """Provide a default BOT_FMP_API_KEY so settings load in unrelated tests."""
     monkeypatch.setenv("BOT_FMP_API_KEY", "test-fmp-key")
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Skip ``live`` tests unless ``BOT_LIVE_TESTS=1``: the default run stays offline."""
+    if os.environ.get("BOT_LIVE_TESTS") == "1":
+        return
+    skip = pytest.mark.skip(reason="live test; set BOT_LIVE_TESTS=1 to run")
+    for item in items:
+        if "live" in item.keywords:
+            item.add_marker(skip)
