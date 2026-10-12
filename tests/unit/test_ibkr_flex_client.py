@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from urllib.parse import quote, quote_plus
 
 import httpx
 import pytest
-from bot.ingest.ibkr_flex import MAX_POLLS, FlexClient, FlexError
 from structlog.testing import capture_logs
 
 from bot.ingest import ibkr_flex
+from bot.ingest.ibkr_flex import MAX_POLLS, FlexClient, FlexError
 from bot.utils.logging import configure_logging
 
 TOKEN = "1234567890/abc+def=4567"  # not purely alphanumeric: httpx percent-encodes it in URLs
+FORMS = (TOKEN, quote(TOKEN, safe=""), quote_plus(TOKEN, safe=""))
 QUERY = "987654"
 GET_URL = "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService/GetStatement"
 STATEMENT = '<FlexQueryResponse queryName="q" type="AF"><FlexStatements count="0" /></FlexQueryResponse>'
@@ -103,7 +105,8 @@ def test_http_error_message_is_scrubbed() -> None:
     client = _failing(lambda request: httpx.Response(500, text="oops"))
     with pytest.raises(FlexError) as exc:
         client.fetch_statement()
-    assert TOKEN not in str(exc.value)
+    assert all(form not in str(exc.value) for form in FORMS)
+    assert "***" in str(exc.value)
     assert exc.value.__cause__ is None and exc.value.__suppress_context__
 
 
@@ -113,7 +116,8 @@ def test_transport_error_message_is_scrubbed() -> None:
 
     with pytest.raises(FlexError) as exc:
         _failing(handler).fetch_statement()
-    assert TOKEN not in str(exc.value)
+    assert all(form not in str(exc.value) for form in FORMS)
+    assert "***" in str(exc.value)
 
 
 def test_token_never_logged(caplog: pytest.LogCaptureFixture, capsys: pytest.CaptureFixture[str]) -> None:
@@ -125,6 +129,8 @@ def test_token_never_logged(caplog: pytest.LogCaptureFixture, capsys: pytest.Cap
         failing, _ = _client([_error("Fail", "1015", "Token is invalid.")])
         with pytest.raises(FlexError):
             failing.fetch_statement()
-    assert TOKEN not in caplog.text
-    assert TOKEN not in capsys.readouterr().out
-    assert TOKEN not in repr(logs)
+    out = capsys.readouterr().out
+    for form in FORMS:
+        assert form not in caplog.text
+        assert form not in out
+        assert form not in repr(logs)

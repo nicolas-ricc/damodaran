@@ -23,7 +23,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import TYPE_CHECKING
-from urllib.parse import quote
+from urllib.parse import quote, quote_plus
 
 import httpx
 
@@ -222,7 +222,7 @@ class FlexClient:
     def fetch_statement(self) -> str:
         """Return the statement XML; raise :class:`FlexError` on any failure."""
         response = self._parse(self._get(SEND_REQUEST_URL, q=self._query_id))
-        if response.tag != "FlexStatementResponse" or response.findtext("Status") != "Success":
+        if response.tag != "FlexStatementResponse" or (response.findtext("Status") or "").strip() != "Success":
             raise FlexError(f"Flex SendRequest failed: {self._reason(response)}")
         reference = (response.findtext("ReferenceCode") or "").strip()
         url = (response.findtext("Url") or "").strip()
@@ -264,4 +264,6 @@ class FlexClient:
     def _scrub(self, text: str) -> str:
         if not self._token:
             return text
-        return text.replace(self._token, "***").replace(quote(self._token, safe=""), "***")
+        for form in (self._token, quote(self._token, safe=""), quote_plus(self._token, safe="")):
+            text = text.replace(form, "***")
+        return text
