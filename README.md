@@ -11,13 +11,26 @@ See `docs/superpowers/specs/2026-05-25-investment-bot-design.md` for the full de
 Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
 
 1. `uv sync` — install dependencies.
-2. `cp .env.example .env` and fill in `BOT_SEC_USER_AGENT` (your name + email) and
-   `BOT_TIINGO_API_KEY` (a free token from [tiingo.com](https://www.tiingo.com/)). The default
-   provider is `edgar-tiingo` — SEC EDGAR for fundamentals (no key) + Tiingo for EOD prices.
-   See [ADR 0007](docs/adr/0007-free-data-stack-edgar-stooq.md).
-3. `uv run bot doctor` — verify setup.
-4. `uv run bot refresh --damodaran` — US sector benchmarks from Damodaran (once yearly).
-5. `uv run bot refresh --fundamentals && uv run bot refresh --prices` — load the universe.
+2. `scripts/bootstrap.sh` — first-run setup. Creates `.env` from `.env.example` and asks for
+   the two required keys, `BOT_SEC_USER_AGENT` (your name + email) and `BOT_TIINGO_API_KEY` (a
+   free token from [tiingo.com](https://www.tiingo.com/)); keys already set are never asked
+   again. Then loads Damodaran's US sector benchmarks (`bot refresh --damodaran`), prints the
+   TWS checklist for `bot portfolio`, and runs `bot doctor` — its exit code is bootstrap's (a
+   failed Damodaran download stops bootstrap first, with that code). Safe to re-run. `--yes`
+   never prompts and takes the keys from the environment (exit 1 naming any that is missing);
+   `--skip-damodaran` skips the download. The default provider is
+   `edgar-tiingo` — SEC EDGAR for fundamentals (no key) + Tiingo for EOD prices. See
+   [ADR 0007](docs/adr/0007-free-data-stack-edgar-stooq.md).
+
+   <details>
+   <summary>By hand</summary>
+
+   1. `cp .env.example .env` and fill in `BOT_SEC_USER_AGENT` and `BOT_TIINGO_API_KEY`.
+   2. `uv run bot doctor` — verify setup.
+   3. `uv run bot refresh --damodaran` — US sector benchmarks from Damodaran (once yearly).
+
+   </details>
+3. `uv run bot refresh --fundamentals && uv run bot refresh --prices` — load the universe.
    Fundamentals come from EDGAR (no key; its own throttling defers, not skips — the next run
    resumes). Prices come from Tiingo.
 
@@ -68,10 +81,10 @@ Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
    Use `--limit N` to cap a run at the first N universe tickers — useful for a first-day sanity
    check, not for daily use (it always re-probes the same alphabetical head of the ticker list,
    so it won't help you progress through the universe day over day).
-6. `uv run bot screen --preset damodaran_value --top 10` — mechanical shortlist (§6).
-7. `uv run bot analyze --from-screen` — DCF and report (§7.7) for each candidate.
+4. `uv run bot screen --preset damodaran_value --top 10` — mechanical shortlist (§6).
+5. `uv run bot analyze --from-screen` — DCF and report (§7.7) for each candidate.
 
-8. Publish the read-only viewer: commit `reports/*/analysis/*.json` (the JSON sidecars `bot analyze`
+6. Publish the read-only viewer: commit `reports/*/analysis/*.json` (the JSON sidecars `bot analyze`
    writes; `.gitignore` lets only those through) and push to `master`. `.github/workflows/site.yml`
    runs ruff, mypy and pytest, builds the site with `bot site` and deploys it to GitHub Pages. One-time
    setup: Settings -> Pages -> Source = GitHub Actions. See [ADR 0008](docs/adr/0008-read-only-web-viewer.md).
@@ -96,6 +109,26 @@ Other useful commands:
 uv run bot --help                # see available commands
 uv run bot show AAPL             # show a US company's fundamentals (M1)
 ```
+
+## Scheduling
+
+`scripts/install_cron.sh` adds two jobs to your crontab:
+
+```
+0 9  * * 1-5  <repo>/scripts/daily.sh   # bot-daily
+0 10 * * 6    <repo>/scripts/weekly.sh  # bot-weekly
+```
+
+- **Daily** (weekdays 09:00): `bot refresh --prices --fx && bot portfolio`. Fundamentals are
+  quarterly and are not refreshed daily. `bot portfolio` fails while TWS is not running and
+  logged in; that is logged, not a bug.
+- **Weekly** (Saturday 10:00): `bot refresh --all && bot screen --preset damodaran_value`.
+
+Each run appends to `.cache/daily.log` / `.cache/weekly.log` under a `=== <timestamp> run ===`
+header; the job's exit code is the bot's. Running the installer again adds nothing; lines are
+found by their `# bot-daily` / `# bot-weekly` markers, and every other crontab line is kept.
+`scripts/install_cron.sh --remove` drops just those two lines. The hourly `price_fill.sh` drip is
+separate (Quickstart step 3).
 
 ## Portfolio sync — Interactive Brokers (M5)
 
