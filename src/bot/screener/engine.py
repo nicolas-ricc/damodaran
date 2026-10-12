@@ -347,9 +347,9 @@ def _resolve_tax_rate(conn: duckdb.DuckDBPyConnection, country: str | None) -> f
     ``damodaran_country.tax_rate`` comes from the ``Country Tax Rates`` sheet of
     ``ctryprem.xls``, joined onto the country rows by the Damodaran importer; a
     country absent from that sheet (aggregate rows such as "Frontier Markets (no
-    sovereign ratings)") is NULL and falls back to the default. A rate outside ``[0, 1)`` (e.g. a
-    percentage stored as ``30`` instead of ``0.30``) is rejected back to the
-    default rather than producing a negative NOPAT.
+    sovereign ratings)") is NULL and falls back to the default. A rate outside
+    ``[0, 1)`` (e.g. a percentage stored as ``30`` instead of ``0.30``) is
+    rejected back to the default rather than producing a negative NOPAT.
     """
     if country is None:
         return DEFAULT_TAX_RATE

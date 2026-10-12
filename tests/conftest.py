@@ -4,8 +4,7 @@
 ``BOT_DATA_PROVIDER=fmp``. Tests that exercise the FMP adapter still expect a
 key to be present without threading it through every test, so we provide a
 harmless default value for the whole suite. Tests that assert on the key
-being absent simply ``delenv`` it. The collection hook skips ``live`` tests
-unless ``BOT_LIVE_TESTS=1``, so the default run stays offline.
+being absent simply ``delenv`` it.
 """
 
 from __future__ import annotations
