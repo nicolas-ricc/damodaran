@@ -50,3 +50,7 @@ def test_the_port_imports_no_concrete_adapter() -> None:
     concrete = r"(sec_edgar|fmp|stooq|edgar_stooq|tiingo|edgar_tiingo)"
     assert re.search(rf"from bot\.ingest\.{concrete}\b", port) is None
     assert re.search(rf"import bot\.ingest\.{concrete}\b", port) is None
+
+
+def test_flex_client_is_internal_to_its_module() -> None:
+    assert _offenders(r"\bFlexClient\b", allowed={"ibkr_flex.py"}) == []
