@@ -99,7 +99,7 @@ Expected: PASS (the importer already fills both columns since d5b322a; this pins
 
 - [ ] **Step 3: Negative control (do not commit)**
 
-Temporarily replace `tax_rates = parse_country_tax_rates(country_path)` with `tax_rates = {}` in `src/bot/ingest/damodaran.py`, rerun; expect FAIL on the US tax assertion. Revert with `git checkout src/bot/ingest/damodaran.py`.
+Only with a clean `src/bot/ingest/damodaran.py` (Task 4 has not started): temporarily replace `tax_rates = parse_country_tax_rates(country_path)` with `tax_rates = {}`, rerun; expect FAIL on the US tax assertion. Revert with `git checkout -- src/bot/ingest/damodaran.py` and confirm `git status` is clean for that file.
 
 - [ ] **Step 4: Commit**
 
@@ -190,7 +190,7 @@ Expected: PASS.
 
 - [ ] **Step 3: Negative control (do not commit)**
 
-Temporarily drop the `risk_free_rate` assignment loop body (`row["risk_free_rate"] = risk_free_rate`) in `_import_files_into_run`; the terminal-growth test must FAIL (value falls to 0.04). Revert with `git checkout src/bot/ingest/damodaran.py`.
+Only with a clean `src/bot/ingest/damodaran.py` (Task 4 has not started): temporarily delete the line `row["risk_free_rate"] = risk_free_rate` (and its `if`) in `_import_files_into_run`; the terminal-growth test must FAIL (value falls to 0.04). Revert with `git checkout -- src/bot/ingest/damodaran.py` and confirm `git status` is clean for that file.
 
 - [ ] **Step 4: Commit**
 
@@ -422,3 +422,17 @@ Expected: all pass; the live test reported skipped.
 git add src/bot/screener/engine.py tests/unit/test_screener_engine.py src/bot/ingest/damodaran.py
 git commit -m "docs(#51): describe the current source of country tax and risk-free rates"
 ```
+
+## Assumptions
+
+- The valuator's country fallback is tagged `SECTOR_DEFAULT_DAMODARAN` by the code (`src/bot/valuator/assumptions.py:912-913`; the enum at `:84-96` has no country member). Task 2 therefore distinguishes sector from country by value (0.25 vs the Software row's ~0.055), not by source. Rejected: adding a country enum member (would change behaviour, which the issue forbids).
+- Reaching the country step needs an industry row with `tax_rate IS NULL`; no fixture row has one, so Task 2 blanks the Software row with `UPDATE`. `_load_sector` reads `WHERE industry = ? ORDER BY year DESC, region LIMIT 1` (`assumptions.py:473-474`) and the table key is `(industry, region, year)` (`src/bot/storage/schema.sql`), so with one imported region/year the `UPDATE` hits exactly the row the resolver reads. Rejected: seeding a company in an industry absent from the fixture (would test "no sector row", not "industry row with NULL tax").
+- The live-skip uses a `pytest_collection_modifyitems` hook in `tests/conftest.py` (18 lines today, one autouse fixture, no existing hook, no `bot` import), so the pytester copy in `test_live_marker.py` is self-contained. Rejected: a `skipif` on the test itself (the issue asks for a skip at collection, applied to the marker).
+- Live download failures surface as `httpx.HTTPStatusError`/timeout from `download_dataset` (`damodaran.py:608-617`, `raise_for_status`), a different traceback from a shape assertion; no retry is added (not asked for).
+- Negative controls run before Task 4 touches `damodaran.py`, so the `git checkout --` revert cannot discard docstring work.
+
+## Grilling
+
+- Rounds: 1 (revisions were clarifications, not new steps or seams).
+- Questions: 18. Sources: CODE 12, ISSUE 5, DOC 1. NO SOURCE: 0 (two technical points recorded above as assumptions after code checks).
+- Issues opened: none. Per-currency risk-free rates are already #109 (issue's Out of scope).
