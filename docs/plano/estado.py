@@ -67,7 +67,7 @@ INVENTARIO = {
  ("storage", "Conexión y esquema", "a-medias", "storage/db.py:24",
   "Sin versionado ni migraciones. Agregar una columna a una base existente es una operación nula que revienta después, en ejecución."),
  ("tablas", "Las quince tablas", "a-medias", "storage/schema.sql",
-  "Las quince se escriben; corporate_actions solo cuando hay token de Flex (#56). Tres columnas quedan siempre nulas: reinvestment_rate, payout_ratio e isin."),
+  "Las quince se escriben; corporate_actions solo cuando hay token y query id de Flex (#56). Tres columnas quedan siempre nulas: reinvestment_rate, payout_ratio e isin."),
 ]),
 
 "capa-b": ("Capa B · screener", "dieciséis reglas, cero subjetividad", [

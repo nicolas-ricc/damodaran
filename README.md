@@ -186,7 +186,7 @@ any failure during it is logged as a WARNING and the run carries on.
 
 Dividends and payments in lieu become `DIVIDEND` events, forward and reverse
 splits become `SPLIT` events, for tickers held on the day. Other corporate
-actions are stored with their raw IBKR type but raise no event yet.
+actions are stored with IBKR's type code, lowercased, but raise no event yet.
 
 ### Notifications
 

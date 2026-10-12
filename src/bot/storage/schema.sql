@@ -232,8 +232,8 @@ CREATE TABLE IF NOT EXISTS trades (
 -- Corporate actions — dividends received, splits, mergers (M5, #27).
 -- The live TWS socket does NOT expose corporate actions in any reliable form
 -- (see #27 addendum). They come from IBKR's Flex Web Service, imported by
--- src/bot/ingest/ibkr_flex.py (#56) during `bot portfolio` when a Flex token is
--- configured. `action_id` is 'ca:<actionID>' or 'ct:<transactionID>'. `details`
+-- src/bot/ingest/ibkr_flex.py (#56) during `bot portfolio` when a Flex token and
+-- query id are configured. `action_id` is 'ca:<actionID>' or 'ct:<transactionID>'. `details`
 -- is a JSON blob holding the fields that vary by action type (split ratio,
 -- IBKR's raw type, amounts, etc.).
 CREATE TABLE IF NOT EXISTS corporate_actions (
