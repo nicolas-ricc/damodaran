@@ -34,6 +34,8 @@ if TYPE_CHECKING:
 
     import duckdb
 
+    from bot.config import Settings
+
 log = get_logger(__name__)
 
 SOURCE = "ibkr-flex"
@@ -267,3 +269,28 @@ class FlexClient:
         for form in (self._token, quote(self._token, safe=""), quote_plus(self._token, safe="")):
             text = text.replace(form, "***")
         return text
+
+
+def import_corporate_actions(
+    conn: duckdb.DuckDBPyConnection,
+    settings: Settings,
+    *,
+    transport: httpx.BaseTransport | None = None,
+) -> int | None:
+    """Fetch the latest Flex statement and upsert its corporate actions.
+
+    Returns ``None`` (after one INFO line) when the token or query id is not
+    configured, otherwise the number of new rows. Failures propagate; the
+    caller decides that they are not fatal.
+    """
+    token = settings.ibkr_flex_token.strip()
+    query_id = settings.ibkr_flex_query_id.strip()
+    if not token or not query_id:
+        log.info("ibkr_flex_not_configured")
+        return None
+    with FlexClient(token, query_id, transport=transport) as client:
+        statement = client.fetch_statement()
+    records = parse_flex_statement(statement)
+    inserted = upsert_corporate_actions(conn, records)
+    log.info("ibkr_flex_imported", records=len(records), inserted=inserted)
+    return inserted
