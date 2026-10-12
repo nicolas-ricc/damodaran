@@ -5,14 +5,17 @@
 
 1. runs :func:`~bot.portfolio.sync.sync_portfolio` against the read-only IBKR
    client to write today's snapshot (idempotent per day);
-2. appends the executions newer than the stored watermark via
+2. imports the latest corporate actions through the optional
+   ``corporate_actions_fn`` hook (the IBKR Flex importer in the CLI); a failure
+   there is logged as a WARNING and the run continues;
+3. appends the executions newer than the stored watermark via
    :func:`~bot.portfolio.trades.sync_trades` (de-duped on ``exec_id``);
-3. marks each holding (valuation + quality gates) via
+4. marks each holding (valuation + quality gates) via
    :func:`~bot.portfolio.marks.mark_holdings`, then computes the §8.3 event
    stream against the previous snapshot via
    :func:`~bot.portfolio.events.compute_events` and persists it
    (:func:`~bot.portfolio.events.persist_events`);
-4. builds + renders the full-state ``portfolio.md`` and the today-only
+5. builds + renders the full-state ``portfolio.md`` and the today-only
    ``alerts.md`` under ``reports/YYYY-MM-DD/`` (the same dated-directory
    convention as the other commands).
 
@@ -22,7 +25,7 @@ events. Sending ``alerts.md`` is the CLI's job (``bot.notifier``, #32).
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -85,6 +88,7 @@ def run_portfolio(
     analyze_fn: AnalyzeFn | None = None,
     quality_gates: Sequence[Rule] = (),
     assumptions_dir: Path | None = None,
+    corporate_actions_fn: Callable[[duckdb.DuckDBPyConnection], int | None] | None = None,
 ) -> PortfolioRunResult:
     """Run the full sync -> diff -> report cycle and write both report files.
 
@@ -101,6 +105,9 @@ def run_portfolio(
             by ``mark_holdings`` when marking each holding; empty means no gating.
         assumptions_dir: ``config/assumptions`` directory (spec §7.6); the default
             valuator applies a holding's ``<TICKER>.yaml`` as ``bot analyze`` does.
+        corporate_actions_fn: Optional best-effort importer called right after the
+            snapshot sync (the IBKR Flex importer in the CLI). Any exception it
+            raises is logged as a WARNING (message only, no traceback) and ignored.
 
     Returns:
         A :class:`PortfolioRunResult` with the run summary and the two file paths.
@@ -109,6 +116,14 @@ def run_portfolio(
 
     # 1. Sync today's snapshot (idempotent per day).
     sync_portfolio(conn, client, snapshot_date=run_day)
+
+    # 1b. Best-effort corporate actions import (IBKR Flex); never fatal.
+    if corporate_actions_fn is not None:
+        try:
+            corporate_actions_fn(conn)
+        except Exception as exc:
+            # No exc_info: a traceback could carry request details (#56).
+            log.warning("corporate_actions_import_failed", error=str(exc) or type(exc).__name__)
 
     # 2. Append the executions newer than the stored watermark (de-duped).
     trades = sync_trades(conn, client)

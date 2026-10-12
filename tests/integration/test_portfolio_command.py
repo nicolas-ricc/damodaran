@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import duckdb
 import pytest
@@ -409,11 +409,17 @@ def test_failing_corporate_actions_hook_changes_nothing(tmp_path: Path) -> None:
             )
         runs.append((_state(c, result), logs))
 
-    (plain, _), (hooked, hooked_logs) = runs
+    (plain, plain_logs), (hooked, hooked_logs) = runs
     assert hooked == plain
-    warnings = [e for e in hooked_logs if e["log_level"] == "warning"]
-    assert [w["event"] for w in warnings] == ["corporate_actions_import_failed"]
-    assert warnings[0]["error"] == "flex down"
+
+    def _warnings(logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [e for e in logs if e["log_level"] == "warning"]
+
+    # The run emits its own warnings (unpriced positions); the hook adds exactly one.
+    extra = [w for w in _warnings(hooked_logs) if w not in _warnings(plain_logs)]
+    assert [w["event"] for w in extra] == ["corporate_actions_import_failed"]
+    assert extra[0]["error"] == "flex down"
+    assert len(_warnings(hooked_logs)) == len(_warnings(plain_logs)) + 1
 
 
 def test_corporate_actions_hook_runs_after_sync_and_feeds_events(
