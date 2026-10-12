@@ -7,7 +7,8 @@
 #   --skip-damodaran  skip `bot refresh --damodaran` (bot doctor then creates the DB).
 #
 # Safe to re-run: keys already set in .env are never asked for again and the
-# file is only rewritten when a value changes. Exit code is `bot doctor`'s.
+# file is only rewritten when a value changes. Exit code is `bot doctor`'s, or
+# that of a failed `bot refresh --damodaran`, which stops the run.
 set -euo pipefail
 
 # Repo root = parent of this script's directory (resolve symlinks).
@@ -16,6 +17,10 @@ REPO="$(dirname "$SCRIPT_DIR")"
 cd "$REPO"
 
 REQUIRED_KEYS=(BOT_SEC_USER_AGENT BOT_TIINGO_API_KEY)
+declare -A HINTS=(
+  [BOT_SEC_USER_AGENT]="Your Name you@example.com, required by SEC fair use"
+  [BOT_TIINGO_API_KEY]="free token from tiingo.com"
+)
 YES=0
 SKIP_DAMODARAN=0
 for arg in "$@"; do
@@ -49,11 +54,11 @@ is_set() {
   [[ -n "${value//[[:space:]]/}" ]]
 }
 
-# Sets ANSWER to a non-empty line read from stdin; exits 1 at EOF.
+# Sets ANSWER to a non-blank line read from stdin; exits 1 at EOF.
 ask() {
   ANSWER=""
-  while [ -z "$ANSWER" ]; do
-    printf '%s: ' "$1" >&2
+  while [ -z "${ANSWER//[[:space:]]/}" ]; do
+    printf '%s (%s): ' "$1" "${HINTS[$1]}" >&2
     if ! IFS= read -r ANSWER; then
       echo >&2
       echo "bootstrap: no value given for $1" >&2
@@ -67,11 +72,12 @@ for key in "${REQUIRED_KEYS[@]}"; do
   if is_set "$key"; then
     echo "$key already set in .env — skipping"
   elif [ "$YES" = 1 ]; then
-    if [ -z "${!key:-}" ]; then
+    value="${!key:-}"
+    if [ -z "${value//[[:space:]]/}" ]; then
       echo "bootstrap: $key is empty in .env and not set in the environment" >&2
       exit 1
     fi
-    NEW[$key]="${!key}"
+    NEW[$key]="$value"
   else
     ask "$key"
     NEW[$key]="$ANSWER"
@@ -87,9 +93,9 @@ if [ "${#NEW[@]}" -gt 0 ]; then
   declare -A written=()
   while IFS= read -r line || [ -n "$line" ]; do
     for key in "${!NEW[@]}"; do
-      if [[ $line =~ ^$key=(\"[^\"]*\"|\'[^\']*\'|[^#]*)(.*)$ ]]; then
+      if [[ $line =~ ^$key=(\"[^\"]*\"|\'[^\']*\'|[^[:space:]#]*)(.*)$ ]]; then
         rest="${BASH_REMATCH[2]}"
-        # An unquoted value's [^#]* ate the spaces before '#'; dotenv needs one.
+        # KEY=#x: python-dotenv only reads '#' as a comment after whitespace.
         [[ $rest == \#* ]] && rest=" $rest"
         value="${NEW[$key]//\\/\\\\}"
         line="$key=\"${value//\"/\\\"}\"$rest"
@@ -114,6 +120,9 @@ if [ "$SKIP_DAMODARAN" = 0 ]; then
   echo
   echo "Loading Damodaran sector benchmarks (bot refresh --damodaran)..."
   uv run bot refresh --damodaran
+else
+  echo
+  echo "Skipped Damodaran: run \`uv run bot refresh --damodaran\` before screening."
 fi
 
 cat <<'EOF'

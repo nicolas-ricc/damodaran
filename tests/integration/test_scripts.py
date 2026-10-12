@@ -222,6 +222,44 @@ def test_install_cron_rejects_unknown_arguments(
     assert not crontab_state.exists()
 
 
+def test_install_cron_remove_with_no_crontab_writes_nothing(
+    repo: Path, cron_env: dict[str, str], crontab_state: Path
+) -> None:
+    result = _run(repo / "scripts" / "install_cron.sh", "--remove", env=cron_env)
+
+    assert result.returncode == 0, result.stderr
+    assert not crontab_state.exists()
+
+
+def test_install_cron_ignores_commented_and_lookalike_markers(
+    repo: Path, cron_env: dict[str, str], crontab_state: Path
+) -> None:
+    disabled = "#0 9  * * 1-5  /old/scripts/daily.sh   # bot-daily\n"
+    lookalike = "0 8 * * * /home/me/other.sh # bot-weekly-old\n"
+    crontab_state.write_text(disabled + lookalike)
+    script = repo / "scripts" / "install_cron.sh"
+
+    assert _run(script, env=cron_env).returncode == 0
+    assert crontab_state.read_text().splitlines() == [
+        disabled.rstrip("\n"),
+        lookalike.rstrip("\n"),
+        *_cron_lines(repo.resolve()),
+    ]
+
+    assert _run(script, "--remove", env=cron_env).returncode == 0
+    assert crontab_state.read_text() == lookalike
+
+
+@pytest.mark.parametrize("args", [["--remove", "extra"], ["--bogus"]])
+def test_install_cron_rejects_bad_arguments_before_reading_the_crontab(
+    args: list[str], repo: Path, cron_env: dict[str, str], crontab_state: Path
+) -> None:
+    env = {**cron_env, "FAKE_CRONTAB_BROKEN": "1"}
+    result = _run(repo / "scripts" / "install_cron.sh", *args, env=env)
+    assert result.returncode == 2
+    assert not crontab_state.exists()
+
+
 _WRAPPERS = {
     "daily.sh": ["run bot refresh --prices --fx", "run bot portfolio"],
     "weekly.sh": ["run bot refresh --all", "run bot screen --preset damodaran_value"],
@@ -259,6 +297,13 @@ def test_daily_exits_with_portfolio_failure_and_logs_it(
     assert result.returncode == 1
     assert _calls(calls) == _WRAPPERS["daily.sh"]
     assert "fake uv: run bot portfolio" in (repo / ".cache" / "daily.log").read_text()
+
+
+def test_weekly_exits_with_screen_failure(repo: Path, recorder_bin: Path, calls: Path) -> None:
+    result = _run(repo / "scripts" / "weekly.sh", env=_env(recorder_bin, FAKE_SCREEN_EXIT="4"))
+
+    assert result.returncode == 4
+    assert _calls(calls) == _WRAPPERS["weekly.sh"]
 
 
 def test_wrapper_appends_to_the_log(repo: Path, recorder_bin: Path) -> None:
@@ -326,7 +371,7 @@ def test_bootstrap_prompts_only_for_the_empty_key(repo: Path, recorder_bin: Path
 
     assert result.returncode == 0, result.stderr
     assert "BOT_TIINGO_API_KEY" in result.stderr
-    assert "BOT_SEC_USER_AGENT:" not in result.stderr
+    assert "BOT_SEC_USER_AGENT (" not in result.stderr
     assert "BOT_SEC_USER_AGENT already set" in result.stdout
     assert (repo / ".env").read_text() == _PARTIAL.replace(
         'BOT_TIINGO_API_KEY=""', 'BOT_TIINGO_API_KEY="tk-999"'
@@ -423,6 +468,45 @@ def test_bootstrap_prompt_at_eof_exits_1_naming_the_key(repo: Path, recorder_bin
     assert "BOT_TIINGO_API_KEY" in result.stderr
 
 
+def test_bootstrap_yes_rejects_a_whitespace_only_value(repo: Path, recorder_bin: Path) -> None:
+    env = _env(recorder_bin, BOT_SEC_USER_AGENT="   ", BOT_TIINGO_API_KEY="tk")
+
+    result = _run(_bootstrap(repo), "--yes", "--skip-damodaran", env=env)
+
+    assert result.returncode == 1
+    assert "BOT_SEC_USER_AGENT" in result.stderr
+
+
+def test_bootstrap_reprompts_on_a_whitespace_only_answer(repo: Path, recorder_bin: Path) -> None:
+    (repo / ".env").write_text('BOT_SEC_USER_AGENT="A B a@b.c"\nBOT_TIINGO_API_KEY=\n')
+
+    result = _run(_bootstrap(repo), "--skip-damodaran", env=_env(recorder_bin), stdin="   \ntk-4\n")
+
+    assert result.returncode == 0, result.stderr
+    assert dotenv_values(repo / ".env")["BOT_TIINGO_API_KEY"] == "tk-4"
+
+
+def test_bootstrap_prompts_say_what_each_key_is(repo: Path, recorder_bin: Path) -> None:
+    result = _run(
+        _bootstrap(repo), "--skip-damodaran", env=_env(recorder_bin), stdin="A B a@b.c\ntk\n"
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "Your Name you@example.com" in result.stderr
+    assert "tiingo.com" in result.stderr
+
+
+def test_bootstrap_keeps_the_padding_of_an_unquoted_empty_value(
+    repo: Path, recorder_bin: Path
+) -> None:
+    (repo / ".env").write_text('BOT_SEC_USER_AGENT="A B a@b.c"\nBOT_TIINGO_API_KEY=     # key\n')
+    env = _env(recorder_bin, BOT_TIINGO_API_KEY="tk")
+
+    assert _run(_bootstrap(repo), "--yes", "--skip-damodaran", env=env).returncode == 0
+
+    assert (repo / ".env").read_text().splitlines()[1] == 'BOT_TIINGO_API_KEY="tk"     # key'
+
+
 def test_bootstrap_rejects_unknown_arguments(repo: Path, recorder_bin: Path) -> None:
     assert _run(_bootstrap(repo), "--bogus", env=_env(recorder_bin)).returncode == 2
     assert not (repo / ".env").exists()
@@ -477,6 +561,12 @@ def test_bootstrap_skip_damodaran_runs_only_doctor(
     _filled_env(repo)
     assert _run(_bootstrap(repo), "--skip-damodaran", env=_env(recorder_bin)).returncode == 0
     assert _calls(calls) == ["run bot doctor"]
+
+
+def test_bootstrap_skip_damodaran_reminds_to_load_it_later(repo: Path, recorder_bin: Path) -> None:
+    _filled_env(repo)
+    out = _run(_bootstrap(repo), "--skip-damodaran", env=_env(recorder_bin)).stdout
+    assert "uv run bot refresh --damodaran" in out
 
 
 def test_bootstrap_exit_code_is_doctors(repo: Path, recorder_bin: Path) -> None:

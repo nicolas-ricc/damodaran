@@ -15,6 +15,14 @@ CRONTAB="${CRONTAB:-crontab}"
 ERR="$(mktemp)"
 trap 'rm -f "$ERR"' EXIT
 
+case "$*" in
+  "" | --remove) ;;
+  *)
+    echo "usage: $0 [--remove]" >&2
+    exit 2
+    ;;
+esac
+
 MARKERS=("# bot-daily" "# bot-weekly")
 LINES=(
   "0 9  * * 1-5  $REPO/scripts/daily.sh   # bot-daily"
@@ -31,26 +39,21 @@ if ! current="$("$CRONTAB" -l 2>"$ERR")"; then
   current=""
 fi
 
-case "${1:-}" in
-  "")
-    new="$current"
-    for i in "${!MARKERS[@]}"; do
-      if ! grep -qF -- "${MARKERS[$i]}" <<<"$current"; then
-        new="${new:+$new$'\n'}${LINES[$i]}"
-        echo "added: ${LINES[$i]}"
-      else
-        echo "already installed: ${MARKERS[$i]}"
-      fi
-    done
-    ;;
-  --remove)
-    new="$(grep -vF -e "${MARKERS[0]}" -e "${MARKERS[1]}" <<<"$current" || true)"
-    echo "removed: ${MARKERS[*]}"
-    ;;
-  *)
-    echo "usage: $0 [--remove]" >&2
-    exit 2
-    ;;
-esac
+if [ "${1:-}" = --remove ]; then
+  # Commented-out copies of our lines go too; "# bot-daily-old" does not.
+  new="$(grep -vE -e "${MARKERS[0]}[[:space:]]*\$" -e "${MARKERS[1]}[[:space:]]*\$" <<<"$current" || true)"
+  echo "removed: ${MARKERS[*]}"
+else
+  new="$current"
+  for i in "${!MARKERS[@]}"; do
+    # Only an active line counts: a commented-out one is a disabled job.
+    if grep -qE -- "^[[:space:]]*[^#[:space:]].*${MARKERS[$i]}[[:space:]]*\$" <<<"$current"; then
+      echo "already installed: ${MARKERS[$i]}"
+    else
+      new="${new:+$new$'\n'}${LINES[$i]}"
+      echo "added: ${LINES[$i]}"
+    fi
+  done
+fi
 
-printf '%s\n' "$new" | "$CRONTAB" -
+[ "$new" = "$current" ] || printf '%s\n' "$new" | "$CRONTAB" -
