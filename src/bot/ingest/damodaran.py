@@ -4,6 +4,12 @@ Column headers reflect the January 2026 Damodaran release.  If headers drift in
 a future release, update ``DEFAULT_INDUSTRY_COLUMN_MAP`` and
 ``DEFAULT_COUNTRY_COLUMN_MAP`` to match the new strings; no other code change is
 required.
+
+Two country columns are not columns of the ``ERPs by country`` sheet: ``tax_rate``
+comes from the ``Country Tax Rates`` sheet of ``ctryprem.xls`` and
+``risk_free_rate`` from the pre-header cell ``Long Term Treasury bond rate =`` of
+``wacc.xls``. To verify a new release still carries both, run
+``BOT_LIVE_TESTS=1 uv run pytest -m live``.
 """
 
 from __future__ import annotations

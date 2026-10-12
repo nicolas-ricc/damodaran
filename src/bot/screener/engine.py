@@ -344,14 +344,12 @@ def _resolve_tax_rate(conn: duckdb.DuckDBPyConnection, country: str | None) -> f
     sector tax lookup); an unknown or NULL-tax country falls back to
     :data:`DEFAULT_TAX_RATE` so US/unknown companies keep their prior behaviour.
 
-    Note: the current Damodaran country ingest (the ERP file) does not carry a
-    tax rate, so ``damodaran_country.tax_rate`` is NULL in production today and
-    every company falls back to the default. Wiring a country corporate-tax
-    dataset (or keying tax off ``industry_damodaran`` like the valuator) is a
-    follow-up; this just removes the hardcoded constant and the plumbing waits
-    on the data. A rate outside ``[0, 1)`` (e.g. a percentage stored as ``30``
-    instead of ``0.30``) is rejected back to the default rather than producing a
-    negative NOPAT.
+    ``damodaran_country.tax_rate`` comes from the ``Country Tax Rates`` sheet of
+    ``ctryprem.xls``, joined onto the country rows by the Damodaran importer; a
+    country absent from that sheet (aggregate rows such as "Frontier Markets") is
+    NULL and falls back to the default. A rate outside ``[0, 1)`` (e.g. a
+    percentage stored as ``30`` instead of ``0.30``) is rejected back to the
+    default rather than producing a negative NOPAT.
     """
     if country is None:
         return DEFAULT_TAX_RATE

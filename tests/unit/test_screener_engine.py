@@ -120,8 +120,8 @@ def test_resolve_tax_rate_defaults_when_country_missing(
 
 
 def test_resolve_tax_rate_reads_country(conn: duckdb.DuckDBPyConnection) -> None:
-    # NB: production damodaran_country rows carry no tax_rate yet (the ERP ingest
-    # omits it), so this row is inserted by hand to exercise the resolver itself.
+    # Hand-seeded so the resolver is tested on its own; the imported rows are
+    # covered by tests/integration/test_damodaran_import.py.
     conn.execute(
         "INSERT INTO damodaran_country (country, year, tax_rate) VALUES (?, ?, ?)",
         ["Germany", 2026, 0.30],
