@@ -404,7 +404,7 @@ def plan_a():
 # ────────────────────────────── Salida ──────────────────────────────
 BROKER_EVENTS = [
     ("position_opened", ""), ("position_closed", ""), ("position_size_changed", ""),
-    ("dividend", "hoy no se dispara"), ("split", "hoy no se dispara"),
+    ("dividend", "requiere token de Flex"), ("split", "requiere token de Flex"),
     ("currency_changed", ""),
 ]
 DERIVED_EVENTS = [

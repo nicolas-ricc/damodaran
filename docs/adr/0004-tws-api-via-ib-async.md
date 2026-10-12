@@ -42,9 +42,11 @@ Negative:
 - **Trade history is session-limited.** The socket returns only the current
   session's fills, so `trades` cannot be backfilled historically. Documented in
   `src/bot/storage/schema.sql` above the `trades` table.
-- **Corporate actions are out of reach.** Dividends and splits need the IBKR Flex
-  Web Service, not the socket. The `corporate_actions` table is created but stays
-  empty, so the `DIVIDEND` and `SPLIT` events in spec §8.3 cannot fire yet.
+- **Corporate actions come from elsewhere.** Dividends and splits need the IBKR
+  Flex Web Service, not the socket. `src/bot/ingest/ibkr_flex.py` (#56) imports
+  them into `corporate_actions` during `bot portfolio` when a Flex token and
+  query id are configured, so the `DIVIDEND` and `SPLIT` events in spec §8.3 can
+  fire. It was written against a synthetic statement; live validation is #110.
 
 ## Alternatives rejected
 
@@ -52,5 +54,5 @@ Negative:
   interactive-auth reason above.
 - **IBKR Flex Web Service alone** — good for historical statements and corporate
   actions, but it is a batch report API with no live positions, so it cannot serve
-  the daily snapshot on its own. It remains the candidate for closing the
-  corporate-actions gap later.
+  the daily snapshot on its own. It now closes the corporate-actions gap alongside
+  the socket (`src/bot/ingest/ibkr_flex.py`, #56).
