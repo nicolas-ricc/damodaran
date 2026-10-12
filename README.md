@@ -16,8 +16,9 @@ Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
    free token from [tiingo.com](https://www.tiingo.com/)); keys already set are never asked
    again. Then loads Damodaran's US sector benchmarks (`bot refresh --damodaran`), prints the
    TWS checklist for `bot portfolio`, and runs `bot doctor` — its exit code is bootstrap's (a
-   failed Damodaran download stops bootstrap first, with that code). Safe to re-run. `--yes` never prompts and takes the keys from the environment (exit 1 naming any
-   that is missing); `--skip-damodaran` skips the download. The default provider is
+   failed Damodaran download stops bootstrap first, with that code). Safe to re-run. `--yes`
+   never prompts and takes the keys from the environment (exit 1 naming any that is missing);
+   `--skip-damodaran` skips the download. The default provider is
    `edgar-tiingo` — SEC EDGAR for fundamentals (no key) + Tiingo for EOD prices. See
    [ADR 0007](docs/adr/0007-free-data-stack-edgar-stooq.md).
 

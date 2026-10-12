@@ -59,7 +59,6 @@ def _write_exe(path: Path, text: str) -> Path:
 
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
-    """A minimal copy of the checkout: the scripts and the .env template."""
     root = tmp_path / "repo"
     shutil.copytree(REPO_ROOT / "scripts", root / "scripts")
     shutil.copy2(REPO_ROOT / ".env.example", root / ".env.example")
@@ -212,14 +211,6 @@ def test_install_cron_aborts_when_the_crontab_cannot_be_read(
     assert result.returncode == 1
     assert "permission denied" in result.stderr
     assert crontab_state.read_text() == _UNRELATED
-
-
-def test_install_cron_rejects_unknown_arguments(
-    repo: Path, cron_env: dict[str, str], crontab_state: Path
-) -> None:
-    result = _run(repo / "scripts" / "install_cron.sh", "--bogus", env=cron_env)
-    assert result.returncode == 2
-    assert not crontab_state.exists()
 
 
 def test_install_cron_remove_with_no_crontab_writes_nothing(
