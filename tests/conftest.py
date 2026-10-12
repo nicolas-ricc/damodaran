@@ -21,11 +21,11 @@ def _default_fmp_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BOT_FMP_API_KEY", "test-fmp-key")
 
 
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     """Skip ``live`` tests unless ``BOT_LIVE_TESTS=1``: the default run stays offline."""
     if os.environ.get("BOT_LIVE_TESTS") == "1":
         return
     skip = pytest.mark.skip(reason="live test; set BOT_LIVE_TESTS=1 to run")
     for item in items:
-        if "live" in item.keywords:
+        if item.get_closest_marker("live") is not None:
             item.add_marker(skip)

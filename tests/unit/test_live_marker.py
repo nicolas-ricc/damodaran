@@ -8,6 +8,7 @@ import pytest
 
 pytest_plugins = ["pytester"]
 
+# Copied into the pytester sandbox, so it must not import from ``tests``.
 _ROOT_CONFTEST = Path(__file__).parent.parent / "conftest.py"
 
 _LIVE_TEST = """
