@@ -18,10 +18,14 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import TYPE_CHECKING
+from urllib.parse import quote
+
+import httpx
 
 from bot.utils.logging import get_logger
 
@@ -33,6 +37,14 @@ if TYPE_CHECKING:
 log = get_logger(__name__)
 
 SOURCE = "ibkr-flex"
+
+SEND_REQUEST_URL = (
+    "https://ndcdyn.interactivebrokers.com/AccountManagement/FlexWebService/SendRequest"
+)
+MAX_POLLS = 10
+POLL_DELAY_SECONDS = 3.0
+# 1019: statement generation in progress; 1009: server under heavy load.
+RETRYABLE_CODES = frozenset({"1019", "1009"})
 
 _DIVIDEND_TYPES = frozenset({"Dividends", "Payment In Lieu Of Dividends"})
 _SPLIT_TYPES = frozenset({"FS", "RS"})
@@ -177,3 +189,79 @@ def upsert_corporate_actions(
         row = result.fetchone()
         inserted += int(row[0]) if row is not None and isinstance(row[0], int) else 0
     return inserted
+
+
+class FlexError(RuntimeError):
+    """The Flex Web Service refused, failed or never produced the statement."""
+
+
+class FlexClient:
+    """Two-GET Flex Web Service v3 client: request a report, then poll for it."""
+
+    def __init__(
+        self,
+        token: str,
+        query_id: str,
+        *,
+        timeout: float = 30.0,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        self._token = token
+        self._query_id = query_id
+        self._client = httpx.Client(timeout=timeout, transport=transport)
+
+    def close(self) -> None:
+        self._client.close()
+
+    def __enter__(self) -> FlexClient:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+    def fetch_statement(self) -> str:
+        """Return the statement XML; raise :class:`FlexError` on any failure."""
+        response = self._parse(self._get(SEND_REQUEST_URL, q=self._query_id))
+        if response.tag != "FlexStatementResponse" or response.findtext("Status") != "Success":
+            raise FlexError(f"Flex SendRequest failed: {self._reason(response)}")
+        reference = (response.findtext("ReferenceCode") or "").strip()
+        url = (response.findtext("Url") or "").strip()
+        if not reference or not url:
+            raise FlexError("Flex SendRequest succeeded without a ReferenceCode or Url")
+
+        for attempt in range(1, MAX_POLLS + 1):
+            body = self._get(url, q=reference)
+            root = self._parse(body)
+            if root.tag == "FlexQueryResponse":
+                return body
+            code = (root.findtext("ErrorCode") or "").strip()
+            if root.tag != "FlexStatementResponse" or code not in RETRYABLE_CODES:
+                raise FlexError(f"Flex GetStatement failed: {self._reason(root)}")
+            log.info("ibkr_flex_statement_pending", attempt=attempt, error_code=code)
+            if attempt < MAX_POLLS:
+                time.sleep(POLL_DELAY_SECONDS)
+        raise FlexError(f"Flex statement not ready after {MAX_POLLS} polls")
+
+    def _get(self, url: str, *, q: str) -> str:
+        try:
+            r = self._client.get(url, params={"q": q, "t": self._token, "v": "3"})
+            r.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise FlexError(self._scrub(f"Flex request failed: {exc}")) from None
+        return r.text
+
+    def _parse(self, body: str) -> ET.Element:
+        try:
+            return ET.fromstring(body)
+        except ET.ParseError as exc:
+            raise FlexError(f"Flex response is not XML: {exc}") from None
+
+    def _reason(self, root: ET.Element) -> str:
+        code = (root.findtext("ErrorCode") or "").strip() or "?"
+        message = (root.findtext("ErrorMessage") or "").strip() or root.tag
+        return self._scrub(f"{code} {message}")
+
+    def _scrub(self, text: str) -> str:
+        if not self._token:
+            return text
+        return text.replace(self._token, "***").replace(quote(self._token, safe=""), "***")
