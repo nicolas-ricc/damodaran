@@ -8,12 +8,12 @@ from pathlib import Path
 
 import duckdb
 import pytest
+
 from bot.ingest.ibkr_flex import (
     CorporateActionRecord,
     parse_flex_statement,
     upsert_corporate_actions,
 )
-
 from bot.portfolio.events import EventType, compute_events
 from bot.storage.db import apply_schema
 
@@ -67,7 +67,9 @@ def test_fixture_rows_become_dividend_and_split_events(conn: duckdb.DuckDBPyConn
     _snapshot(conn, PREV)
     _snapshot(conn, CURR)
 
-    events = compute_events(conn, PREV, CURR)
+    # Five equal positions weigh 20%, above the default 15% concentration threshold;
+    # disable that detector so "no ATVI event" really means the TC row mapped to nothing.
+    events = compute_events(conn, PREV, CURR, concentration_threshold=1.0)
     corporate = sorted(
         (e.event_type, e.ticker)
         for e in events

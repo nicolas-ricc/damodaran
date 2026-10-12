@@ -16,12 +16,19 @@ Follows the ingest convention: download (:class:`FlexClient`) -> parse
 
 from __future__ import annotations
 
+import json
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import TYPE_CHECKING
 
 from bot.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
+    import duckdb
 
 log = get_logger(__name__)
 
@@ -144,3 +151,29 @@ def parse_flex_statement(xml: str) -> list[CorporateActionRecord]:
         if record is not None:
             records.append(record)
     return records
+
+
+def upsert_corporate_actions(
+    conn: duckdb.DuckDBPyConnection, records: Iterable[CorporateActionRecord]
+) -> int:
+    """Insert *records* de-duped on ``action_id``; return the number of new rows."""
+    inserted = 0
+    for r in records:
+        result = conn.execute(
+            "INSERT INTO corporate_actions "
+            "(action_id, account, action_type, ticker, effective_date, details, source) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT (action_id) DO NOTHING",
+            [
+                r.action_id,
+                r.account,
+                r.action_type,
+                r.ticker,
+                r.effective_date,
+                json.dumps(r.details, sort_keys=True),
+                SOURCE,
+            ],
+        )
+        row = result.fetchone()
+        inserted += int(row[0]) if row is not None and isinstance(row[0], int) else 0
+    return inserted
