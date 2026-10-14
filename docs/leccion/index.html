@@ -262,6 +262,17 @@ h1 {
 }
 
 .tabla { overflow-x: auto; }
+
+.figura { margin: 1rem 0 0; }
+.figura figcaption { margin-block-start: 0.4rem; color: var(--ink-soft); font-size: 0.9em; }
+.embudo { display: block; width: 100%; max-width: 30rem; height: auto; }
+.embudo text { fill: var(--ink); font-family: var(--f-titulo); font-size: 14px; }
+.embudo .num { font-weight: 700; }
+.embudo [data-etapa], .embudo .entra { fill: var(--sheet-deep); stroke-width: 4; }
+.lista-cap { padding-inline-start: 1.2rem; }
+.lista-cap li { margin-block-end: 0.5rem; }
+.en-codigo ul { padding-inline-start: 1.2rem; }
+.en-codigo li { margin-block-end: 0.5rem; }
 </style>
 </head>
 <body>
@@ -293,19 +304,112 @@ h1 {
   <section id="cap-0" class="cap" data-rol="selecciona" aria-labelledby="cap-0-t">
     <header class="cap-head"><span class="cap-num">0</span><span class="cap-rol">selecciona</span>
       <h2 id="cap-0-t">El mapa</h2></header>
-    <div class="concepto"><p>Este capítulo muestra el embudo completo, de miles de empresas a unos pocos candidatos valuados, y qué comando del bot corre cada tramo.</p></div>
+    <div class="concepto">
+      <p>Entran unas 500 empresas, el S&amp;P 500 recortado, y salen unas 20. En el medio hay tres capas, y cada una contesta una pregunta distinta.</p>
+      <ul class="lista-cap">
+        <li><strong>Capa A, la vara.</strong> ¿Contra qué comparo? Son las tablas de Damodaran por industria y por país. No habla de ninguna empresa en particular. Lo trae <code>bot refresh</code>.</li>
+        <li><strong>Capa B, el filtro.</strong> ¿Cuáles descarto? Es la única capa que saca empresas, y lo hace en orden: primero una compuerta de cobertura (si no hay vara para su industria, la empresa se va), después las compuertas de calidad, los indicadores de valor y la detección de trampas. Las que sobreviven se ordenan en un ranking. Lo corre <code>bot screen</code>.</li>
+        <li><strong>Capa C, la valuación.</strong> ¿Cuánto vale? Un flujo descontado a fondo sobre la lista corta. No descarta a nadie: cada empresa llega con su número y con sus dudas a la vista. Lo corre <code>bot analyze</code>.</li>
+      </ul>
+      <p>La tesis que ordena todo es que barato no es lo mismo que buena compra. Una acción puede cotizar a un múltiplo bajo justamente porque el negocio se está deshaciendo. Por eso «parece barata» es una etapa y «es una trampa» es otra, y por eso la valuación viene al final, sin pretender dar la verdad.</p>
+    </div>
+    <div class="ejemplo">
+      <p>Fijate cómo se angosta el embudo con cifras redondas. De 500 empresas, 470 se pueden medir contra su industria. De esas, 260 pasan las compuertas de calidad y 60 parecen baratas. De las 60, 35 sobreviven a las trampas, y el ranking se queda con las 20 de arriba. La Capa C no angosta nada: valúa esas 20 y las deja todas en la mesa.</p>
+      <figure class="figura">
+        <svg class="embudo" role="img" aria-labelledby="embudo-t embudo-d" viewBox="0 0 360 400" xmlns="http://www.w3.org/2000/svg">
+          <title id="embudo-t">El embudo del bot: de 500 empresas a 20 candidatos</title>
+          <desc id="embudo-d">Un universo de 500 empresas pasa por cuatro etapas de la Capa B que lo angostan: calidad, de 500 a 260; valor, de 260 a 60; trampas, de 60 a 35; ranking, de 35 a las 20 de arriba. Debajo, la Capa C valúa esas 20 sin descartar ninguna. Las cifras son ilustrativas.</desc>
+          <rect class="entra" x="10" y="6" width="340" height="44" rx="8" stroke="var(--p-datos)"/>
+          <text x="180" y="25" text-anchor="middle" class="num">Universo · 500</text>
+          <text x="180" y="43" text-anchor="middle">Capa A: la vara de Damodaran</text>
+          <rect data-etapa="calidad" x="35" y="62" width="290" height="44" rx="8" stroke="var(--p-elimina)"/>
+          <text x="180" y="81" text-anchor="middle" class="num">Calidad · 500 → 260</text>
+          <text x="180" y="99" text-anchor="middle">Capa B: cobertura y compuertas</text>
+          <rect data-etapa="valor" x="65" y="118" width="230" height="44" rx="8" stroke="var(--p-elimina)"/>
+          <text x="180" y="137" text-anchor="middle" class="num">Valor · 260 → 60</text>
+          <text x="180" y="155" text-anchor="middle">Capa B: parecen baratas</text>
+          <rect data-etapa="trampa" x="95" y="174" width="170" height="44" rx="8" stroke="var(--p-elimina)"/>
+          <text x="180" y="193" text-anchor="middle" class="num">Trampas · 60 → 35</text>
+          <text x="180" y="211" text-anchor="middle">Capa B: descarta</text>
+          <rect data-etapa="ranking" x="125" y="230" width="110" height="44" rx="8" stroke="var(--p-selecciona)"/>
+          <text x="180" y="249" text-anchor="middle" class="num">Ranking</text>
+          <text x="180" y="267" text-anchor="middle">top 20</text>
+          <path d="M180 276 V292" fill="none" stroke="var(--ink)" stroke-width="3"/>
+          <path d="M172 286 L180 296 L188 286" fill="none" stroke="var(--ink)" stroke-width="3"/>
+          <rect data-etapa="capa-c" x="10" y="304" width="340" height="82" rx="8" stroke="var(--p-valua)" stroke-dasharray="8 5"/>
+          <text x="180" y="328" text-anchor="middle" class="num">Capa C · 20 → 20</text>
+          <text x="180" y="348" text-anchor="middle">valúa a fondo, no descarta:</text>
+          <text x="180" y="367" text-anchor="middle">cada una llega con su número</text>
+        </svg>
+        <figcaption>Cifras redondas de ejemplo, no medidas. La Capa C es un bloque de ancho parejo porque no saca a nadie.</figcaption>
+      </figure>
+    </div>
+    <div class="en-codigo"><h3>En el código</h3>
+      <ul>
+        <li><code data-symbol="bot.cli.refresh">bot.cli.refresh</code> · <code class="at">src/bot/cli.py:100</code>: trae los datos de las fuentes externas; es el único comando que escribe en la base los datos de la Capa A.</li>
+        <li><code data-symbol="bot.cli.screen">bot.cli.screen</code> · <code class="at">src/bot/cli.py:492</code>: corre la Capa B sobre el universo y escribe la lista corta.</li>
+        <li><code data-symbol="bot.cli.analyze">bot.cli.analyze</code> · <code class="at">src/bot/cli.py:363</code>: corre el DCF de la Capa C para los tickers que le pidas.</li>
+        <li><code data-symbol="bot.screener.engine.run_screen">bot.screener.engine.run_screen</code> · <code class="at">src/bot/screener/engine.py:681</code>: el orquestador de la Capa B. Aplica la compuerta de cobertura, las tres capas eliminatorias y el ranking. Después hace una segunda pasada: pide el DCF de los finalistas y los reordena con ese resultado, pero no saca a ninguno.</li>
+        <li>El universo vive en <code>src/bot/ingest/universe_default.csv</code>: 498 nombres.</li>
+      </ul>
+    </div>
   </section>
 
   <section id="cap-1" class="cap" data-rol="datos" aria-labelledby="cap-1-t">
     <header class="cap-head"><span class="cap-num">1</span><span class="cap-rol">datos</span>
       <h2 id="cap-1-t">La vara: Damodaran (Capa A)</h2></header>
-    <div class="concepto"><p>Acá se explica qué aporta Damodaran, que no es ninguna empresa sino los múltiplos de cada industria contra los que se mide a todas las demás.</p></div>
+    <div class="concepto">
+      <p>Aswath Damodaran, profesor de finanzas de la Universidad de Nueva York, publica cada enero un conjunto de planillas gratuitas. Ninguna habla de una empresa: son valores típicos, medianas, por industria y por país. Esas planillas son la vara del bot.</p>
+      <div class="tabla"><table>
+        <thead><tr><th scope="col">Nivel</th><th scope="col">Qué publica</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Industria</th><td>Múltiplos (PE, EV/EBITDA, P/BV), rentabilidad (ROE, ROIC), costo de capital (WACC), beta, márgenes y ventas sobre capital invertido, que dice cuántos dólares de ventas rinde cada dólar puesto en el negocio.</td></tr>
+          <tr><th scope="row">País</th><td>Prima de riesgo de mercado (ERP), tasa impositiva y tasa libre de riesgo.</td></tr>
+          <tr><th scope="row">Lo que no publica</th><td>Ninguna empresa individual. Para eso están los balances del capítulo 2.</td></tr>
+        </tbody>
+      </table></div>
+      <p>¿Por qué medir contra el sector y no con un umbral fijo, algo como «PE menor a 15»? Porque lo que es normal cambia de un negocio a otro. Un software que crece y casi no necesita capital cotiza caro sin que eso diga nada; un negocio maduro y pesado cotiza barato por la misma razón. Un umbral único castigaría siempre a unos y premiaría siempre a otros.</p>
+      <p>Y la misma tabla sirve dos veces. La Capa B la usa para juzgar si una acción está barata. La Capa C la usa para arrancar con supuestos razonables (costo de capital, márgenes, cuánto capital hace falta para crecer) cuando nadie los corrigió a mano.</p>
+    </div>
+    <div class="ejemplo">
+      <p>Un PE de 14 es barato en una industria cuya mediana es 25: cotiza 44 % por debajo de lo típico. Ese mismo 14 es caro en una industria cuya mediana es 9: cotiza 56 % por encima. El número no cambia; cambia contra qué lo comparás.</p>
+    </div>
+    <div class="en-codigo"><h3>En el código</h3>
+      <ul>
+        <li><code data-symbol="bot.ingest.damodaran.import_damodaran">bot.ingest.damodaran.import_damodaran</code> · <code class="at">src/bot/ingest/damodaran.py:852</code>: baja los archivos del sitio de Damodaran y los vuelca a la base. Si falta uno de los archivos secundarios (márgenes, múltiplos), la corrida queda como parcial en vez de fallar entera.</li>
+        <li><code data-symbol="bot.ingest.damodaran.parse_industry_xls">bot.ingest.damodaran.parse_industry_xls</code> · <code class="at">src/bot/ingest/damodaran.py:555</code> y <code data-symbol="bot.ingest.damodaran.parse_country_xls">bot.ingest.damodaran.parse_country_xls</code> · <code class="at">src/bot/ingest/damodaran.py:586</code>: leen una hoja de Excel y la devuelven como filas ya normalizadas.</li>
+        <li>Dos tablas guardan el resultado: <code>damodaran_industry</code> (una fila por industria, región y año) y <code>damodaran_country</code> (una por país y año).</li>
+        <li><code data-symbol="bot.screener.benchmarks.load_industry_benchmarks">bot.screener.benchmarks.load_industry_benchmarks</code> · <code class="at">src/bot/screener/benchmarks.py:37</code>: dada una industria y una región devuelve la fila más reciente, o nada si no existe. Ese «nada» es lo que dispara la compuerta de cobertura del capítulo 2.</li>
+        <li><code data-symbol="bot.screener.types.IndustryBenchmarks">bot.screener.types.IndustryBenchmarks</code> · <code class="at">src/bot/screener/types.py:69</code>: la foto inmutable de una industria que reciben las reglas: WACC, ROIC, ROE, PE, P/BV, EV/EBITDA y márgenes.</li>
+      </ul>
+    </div>
+    <aside class="caveat"><p>La vara es de Estados Unidos. Si una empresa no trae región, el screener usa <data data-const="bot.screener.engine.DEFAULT_REGION" value="US">US</data>, y el universo entero es estadounidense (ADR 0007). Compararía mal, por ejemplo, a una empresa alemana contra medianas de EE. UU.; por eso hoy no se intenta.</p></aside>
   </section>
 
   <section id="cap-2" class="cap" data-rol="datos" aria-labelledby="cap-2-t">
     <header class="cap-head"><span class="cap-num">2</span><span class="cap-rol">datos</span>
       <h2 id="cap-2-t">Los números de cada empresa</h2></header>
-    <div class="concepto"><p>Este capítulo cuenta de dónde salen los precios y los balances de cada compañía y cómo se juntan en una sola ficha lista para evaluar.</p></div>
+    <div class="concepto">
+      <p>Para cada empresa del universo el bot junta dos cosas. Los balances salen de SEC EDGAR, el registro de la autoridad bursátil de EE. UU., tal como cada compañía los presenta. Los precios diarios salen de Tiingo, o de Stooq si elegís esa fuente; las dos son gratuitas (ADR 0007). La lista de empresas es el S&amp;P 500 recortado, 498 nombres.</p>
+      <p>Todo termina en un único archivo de DuckDB (ADR 0001), una base pensada para barrer series largas de muchas empresas, sin servidor que mantener. Hacer una copia de seguridad es copiar ese archivo.</p>
+      <p>Con el último balance anual y el último precio, el bot arma la ficha de la empresa: PE (precio sobre ganancia por acción), P/BV (precio sobre valor libro), EV/EBITDA (valor de la empresa sobre su ganancia operativa antes de amortizaciones), ROE, ROIC y rendimiento del flujo de caja libre. También guarda la historia de ingresos, de margen operativo y de cantidad de acciones. Si un dato falta, la ficha lo deja vacío; no inventa un cero.</p>
+      <p>Después viene la compuerta de cobertura. Si el bot no encuentra para la empresa una vara utilizable, es decir una fila de su industria con costo de capital, la empresa sale del universo. No queda con un puntaje bajo: sale, y la corrida cuenta cuántas se perdieron y por qué (ADR 0006). Si el bot la dejara pasar, tendría que suponer algo sobre lo que no puede medir, y esa suposición disfrazaría ignorancia de calidad promedio.</p>
+    </div>
+    <div class="ejemplo">
+      <p>Una empresa cuya industria no tiene correspondencia en la tabla de Damodaran, porque la etiqueta que trae de EDGAR nunca se tradujo a una de las industrias de la vara. No hay mediana con que compararla. Sale del universo con el motivo «coverage_gate» anotado. Si de 500 empresas hay 30 en esa situación, el screener trabaja con 470 y lo informa.</p>
+    </div>
+    <div class="en-codigo"><h3>En el código</h3>
+      <ul>
+        <li><code data-symbol="bot.ingest.universe.refresh_universe">bot.ingest.universe.refresh_universe</code> · <code class="at">src/bot/ingest/universe.py:314</code>: importa los balances de la lista de tickers, de a uno. Saltea los que no presentaron un balance nuevo, y si la fuente corta por límite de uso deja el resto como diferido en lugar de fallido.</li>
+        <li><code data-symbol="bot.ingest.universe.refresh_prices">bot.ingest.universe.refresh_prices</code> · <code class="at">src/bot/ingest/universe.py:505</code>: trae los precios de cada ticker de forma incremental y los guarda con su moneda.</li>
+        <li><code data-symbol="bot.ingest.sec_edgar">bot.ingest.sec_edgar</code> · <code class="at">src/bot/ingest/sec_edgar.py:1</code>: el adaptador que habla con EDGAR y traduce sus archivos al formato de la base.</li>
+        <li><code data-symbol="bot.storage.db">bot.storage.db</code> · <code class="at">src/bot/storage/db.py:1</code>: abre el archivo de DuckDB y aplica el esquema de tablas.</li>
+        <li><code data-symbol="bot.screener.types.CompanyData">bot.screener.types.CompanyData</code> · <code class="at">src/bot/screener/types.py:20</code>: la ficha inmutable de una empresa que leen las reglas.</li>
+        <li><code data-symbol="bot.screener.engine.build_company_data">bot.screener.engine.build_company_data</code> · <code class="at">src/bot/screener/engine.py:411</code>: arma esa ficha desde las tablas, calcula los ratios y deja vacío lo que no puede calcular.</li>
+        <li>La compuerta de cobertura vive en <code data-symbol="bot.screener.engine.run_screen">bot.screener.engine.run_screen</code> · <code class="at">src/bot/screener/engine.py:681</code>: si no hay benchmark o su WACC está vacío, anota <code>RejectedCompany(ticker, ("coverage_gate",))</code> y sigue con la próxima.</li>
+      </ul>
+    </div>
+    <aside class="caveat"><p>El ADR 0005 pide valuar a cada empresa en su propia moneda y convertir recién al calcular. Está aceptado pero no está implementado. Hoy no se nota porque el universo es solo de EE. UU.: precio, balance y vara están todos en dólares. El día que entren empresas de otros países, esto tiene que resolverse antes.</p></aside>
   </section>
 
   <section id="cap-3" class="cap" data-rol="elimina" aria-labelledby="cap-3-t">
