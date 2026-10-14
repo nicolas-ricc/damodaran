@@ -269,6 +269,12 @@ h1 {
 .embudo text { fill: var(--ink); font-family: var(--f-titulo); font-size: 14px; }
 .embudo .num { font-weight: 700; }
 .embudo [data-etapa], .embudo .entra { fill: var(--sheet-deep); stroke-width: 4; }
+.fuerzas { display: block; width: 100%; max-width: 30rem; height: auto; }
+.fuerzas text { fill: var(--ink); font-family: var(--f-titulo); font-size: 14px; }
+.fuerzas .num { font-weight: 700; }
+.fuerzas .caja { fill: var(--sheet-deep); stroke-width: 4; }
+.marca-valor { color: var(--p-selecciona-t); font-weight: 700; }
+.marca-trampa { color: var(--p-elimina-t); font-weight: 700; }
 .lista-cap { padding-inline-start: 1.2rem; }
 .lista-cap li { margin-block-end: 0.5rem; }
 .en-codigo ul { padding-inline-start: 1.2rem; }
@@ -415,19 +421,185 @@ h1 {
   <section id="cap-3" class="cap" data-rol="elimina" aria-labelledby="cap-3-t">
     <header class="cap-head"><span class="cap-num">3</span><span class="cap-rol">elimina</span>
       <h2 id="cap-3-t">Quality gates</h2></header>
-    <div class="concepto"><p>Acá se ve cómo las compuertas de calidad descartan primero a las empresas demasiado chicas, endeudadas o frágiles, antes de mirar si están baratas.</p></div>
+    <div class="concepto">
+      <p>Las compuertas de calidad son siete filtros eliminatorios. Cada una es una pregunta de sí o no sobre la empresa, y alcanza con fallar una para quedar afuera. Se aplican antes de mirar si la acción está barata: no tiene sentido discutir el precio de algo que no se sostiene.</p>
+      <p>Un detalle que importa: si a una compuerta le falta el dato, la empresa no pasa. El screener no avala lo que no puede medir.</p>
+      <p>¿Cómo se arma esto sin escribir un <code>if</code> por regla? Cada regla es una clase con un <code>name</code>, y el decorador <code>register</code> la anota en un registro. <code>get_rule</code> traduce el nombre que aparece en el archivo de configuración a la clase. Un preset es entonces una lista de nombres con sus parámetros, y para probar otros umbrales alcanza con cambiar el YAML.</p>
+      <div class="tabla"><table>
+        <thead><tr><th scope="col">Compuerta</th><th scope="col">Pasa si</th><th scope="col">Para qué sirve</th></tr></thead>
+        <tbody>
+          <tr><th scope="row"><code>min_market_cap</code></th><td>capitalización de al menos <data data-param="min_market_cap.minimum_usd" value="100000000.0">USD 100 millones</data></td><td>Muy chicas: poca liquidez y datos poco confiables.</td></tr>
+          <tr><th scope="row"><code>min_years_history</code></th><td>al menos <data data-param="min_years_history.minimum_years" value="5">5</data> años de balances</td><td>Con menos historia no se puede ver si el negocio aguanta un ciclo.</td></tr>
+          <tr><th scope="row"><code>exclude_sectors</code></th><td>no es <data data-param="exclude_sectors.excluded" value="bank,insurance">banco ni aseguradora</data></td><td>Su deuda es la materia prima del negocio.</td></tr>
+          <tr><th scope="row"><code>max_net_debt_to_ebitda</code></th><td>deuda neta sobre EBITDA de hasta <data data-param="max_net_debt_to_ebitda.maximum" value="4.0">4,0×</data></td><td>La deuda como múltiplo de lo que el negocio genera.</td></tr>
+          <tr><th scope="row"><code>min_interest_coverage</code></th><td>EBIT sobre intereses de al menos <data data-param="min_interest_coverage.minimum" value="2.0">2,0×</data></td><td>Que la ganancia operativa cubra los intereses con aire.</td></tr>
+          <tr><th scope="row"><code>positive_operating_cashflow</code></th><td>flujo operativo positivo en al menos <data data-param="positive_operating_cashflow.min_positive" value="4">4</data> de los últimos <data data-param="positive_operating_cashflow.window" value="5">5</data> años</td><td>Caja real, no solo ganancia contable.</td></tr>
+          <tr><th scope="row"><code>max_goodwill_to_assets</code></th><td>goodwill de hasta <data data-param="max_goodwill_to_assets.maximum" value="0.5">50 %</data> de los activos</td><td>Un balance hecho de adquisiciones pagadas de más es frágil.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+    <div class="ejemplo">
+      <p>Vamos de a una, con cifras redondas y el porqué financiero.</p>
+      <ul class="lista-cap">
+        <li><strong>Tamaño.</strong> Una empresa que vale menos de USD 100 millones en bolsa tiene pocos compradores y vendedores, y su balance casi no lo mira nadie. Pasa si vale 100 millones o más.</li>
+        <li><strong>Historia.</strong> Con 5 años de balances ves al menos un tramo bueno y uno malo. Con 3 no distinguís un negocio de un golpe de suerte.</li>
+        <li><strong>Bancos y aseguradoras afuera.</strong> En una industria normal la deuda es una decisión de financiamiento: pedís prestado para producir. En un banco la deuda son los depósitos, o sea la materia prima. Por eso la deuda neta y el EBITDA no significan lo mismo ahí, y comparar un banco con un fabricante con esta vara sería engañoso. La regla excluye por industria, y también si la ficha trae marcada la bandera de servicios financieros.</li>
+        <li><strong>Deuda como múltiplo.</strong> Pensá la deuda neta como cuántos años de EBITDA hacen falta para pagarla. Con deuda neta de 300 y EBITDA de 100 son 3 años y pasa. Con 500 y 100 son 5 años y queda afuera. Una empresa con más caja que deuda pasa directo. Si hay deuda y el EBITDA es cero o negativo, no pasa.</li>
+        <li><strong>Cobertura de intereses.</strong> Con EBIT de 100 e intereses de 40, la cobertura es 2,5× y pasa. Con intereses de 60 es 1,7× y no. Una caída de un tercio en la ganancia ya no alcanza para pagar la deuda. Sin gasto de intereses, pasa.</li>
+        <li><strong>Caja versus ganancia contable.</strong> La ganancia contable se puede estirar con criterios; el flujo de caja operativo es plata que entró. Una empresa que en 5 años tuvo flujo positivo en 4 pasa; con 3 años positivos no. Si no hay 5 años de datos, tampoco.</li>
+        <li><strong>Goodwill.</strong> Es el sobreprecio pagado en adquisiciones, anotado como activo. Con goodwill de 40 sobre activos de 100 pasa, con 60 no: más de la mitad del balance es una promesa que se evapora si la compra sale mal.</li>
+      </ul>
+    </div>
+    <div class="en-codigo"><h3>En el código</h3>
+      <ul>
+        <li>El preset por defecto es <code>config/presets/damodaran_value.yaml</code>: las tres listas de reglas y los pesos del ranking.</li>
+        <li><code data-symbol="bot.screener.rules.Rule">bot.screener.rules.Rule</code> · <code class="at">src/bot/screener/rules.py:48</code>: la clase base. Cada regla recibe la empresa y la vara de su industria y devuelve un veredicto.</li>
+        <li><code data-symbol="bot.screener.rules.register">bot.screener.rules.register</code> · <code class="at">src/bot/screener/rules.py:71</code> y <code data-symbol="bot.screener.rules.get_rule">bot.screener.rules.get_rule</code> · <code class="at">src/bot/screener/rules.py:91</code>: el registro y su búsqueda por nombre. Un nombre repetido es un error.</li>
+        <li><code data-symbol="bot.screener.rules.MinMarketCap">bot.screener.rules.MinMarketCap</code> · <code class="at">src/bot/screener/rules.py:121</code></li>
+        <li><code data-symbol="bot.screener.rules.MinYearsHistory">bot.screener.rules.MinYearsHistory</code> · <code class="at">src/bot/screener/rules.py:143</code></li>
+        <li><code data-symbol="bot.screener.rules.ExcludeSectors">bot.screener.rules.ExcludeSectors</code> · <code class="at">src/bot/screener/rules.py:163</code></li>
+        <li><code data-symbol="bot.screener.rules.MaxNetDebtToEBITDA">bot.screener.rules.MaxNetDebtToEBITDA</code> · <code class="at">src/bot/screener/rules.py:193</code></li>
+        <li><code data-symbol="bot.screener.rules.MinInterestCoverage">bot.screener.rules.MinInterestCoverage</code> · <code class="at">src/bot/screener/rules.py:227</code></li>
+        <li><code data-symbol="bot.screener.rules.PositiveOperatingCashflow">bot.screener.rules.PositiveOperatingCashflow</code> · <code class="at">src/bot/screener/rules.py:258</code></li>
+        <li><code data-symbol="bot.screener.rules.MaxGoodwillToAssets">bot.screener.rules.MaxGoodwillToAssets</code> · <code class="at">src/bot/screener/rules.py:293</code></li>
+      </ul>
+    </div>
+    <aside class="caveat"><p>Los umbrales son una decisión de diseño razonable, no una ley. Un 4× de deuda neta sobre EBITDA es estricto para una empresa de infraestructura y holgado para una de software. El bot usa el mismo corte para todas las industrias que no son financieras.</p></aside>
   </section>
 
   <section id="cap-4" class="cap" data-rol="elimina" aria-labelledby="cap-4-t">
     <header class="cap-head"><span class="cap-num">4</span><span class="cap-rol">elimina</span>
       <h2 id="cap-4-t">Barato vs. trampa</h2></header>
-    <div class="concepto"><p>Este capítulo enseña a distinguir una acción realmente barata de una trampa de valor, con los indicadores de precio y los chequeos que desconfían de ellos.</p></div>
+    <div class="concepto">
+      <p>Una acción puede estar barata por dos motivos opuestos. O el mercado se equivoca y la castiga de más, o el mercado acierta y el negocio vale poco. Del lado de afuera se ven igual: un múltiplo bajo. La Capa B tiene entonces dos juegos de reglas que tiran en sentidos contrarios.</p>
+      <figure class="figura">
+        <svg class="fuerzas" role="img" aria-labelledby="fuerzas-t fuerzas-d" viewBox="0 0 360 200" xmlns="http://www.w3.org/2000/svg">
+          <title id="fuerzas-t">Dos fuerzas opuestas: indicadores de valor y detección de trampas</title>
+          <desc id="fuerzas-d">A la izquierda, los indicadores de valor empujan hacia adelante: alcanza con que uno pase. A la derecha, la detección de trampas empuja en sentido contrario: tienen que pasar todos. En el medio queda la empresa que sobrevive a las dos.</desc>
+          <rect class="caja" x="6" y="20" width="120" height="110" rx="8" stroke="var(--p-selecciona)"/>
+          <text x="66" y="44" text-anchor="middle" class="num">Valor</text>
+          <text x="66" y="64" text-anchor="middle">«parece barata»</text>
+          <text x="66" y="84" text-anchor="middle">alcanza con</text>
+          <text x="66" y="102" text-anchor="middle">que 1 pase</text>
+          <rect class="caja" x="234" y="20" width="120" height="110" rx="8" stroke="var(--p-elimina)"/>
+          <text x="294" y="44" text-anchor="middle" class="num">Trampa</text>
+          <text x="294" y="64" text-anchor="middle">«barata por algo»</text>
+          <text x="294" y="84" text-anchor="middle">tienen que</text>
+          <text x="294" y="102" text-anchor="middle">pasar todas</text>
+          <path d="M130 75 H166" fill="none" stroke="var(--p-selecciona)" stroke-width="4"/>
+          <path d="M158 66 L170 75 L158 84" fill="none" stroke="var(--p-selecciona)" stroke-width="4"/>
+          <path d="M230 75 H194" fill="none" stroke="var(--p-elimina)" stroke-width="4"/>
+          <path d="M202 66 L190 75 L202 84" fill="none" stroke="var(--p-elimina)" stroke-width="4"/>
+          <rect class="caja" x="130" y="146" width="100" height="44" rx="8" stroke="var(--ink)"/>
+          <text x="180" y="165" text-anchor="middle" class="num">Candidata</text>
+          <text x="180" y="182" text-anchor="middle">pasa las dos</text>
+        </svg>
+        <figcaption>Del lado verde empuja el precio bajo; del lado rojo, las razones para desconfiar de él. Cada caja tiene su etiqueta: el color acompaña, no reemplaza.</figcaption>
+      </figure>
+      <h3>Indicadores de valor: alcanza con uno</h3>
+      <p>Hay cuatro. Una empresa necesita pasar al menos uno. Los tres primeros comparan contra la mediana de su industria (el capítulo 1), el cuarto usa un piso absoluto.</p>
+      <div class="tabla"><table>
+        <thead><tr><th scope="col">Indicador</th><th scope="col">Pasa si</th></tr></thead>
+        <tbody>
+          <tr><th scope="row"><code>pe_below_industry_multiple</code></th><td><span class="marca-valor">Valor:</span> su PE es menor que <data data-param="pe_below_industry_multiple.multiple" value="0.7">0,7×</data> el de la industria</td></tr>
+          <tr><th scope="row"><code>ev_ebitda_below_industry_multiple</code></th><td><span class="marca-valor">Valor:</span> su EV/EBITDA es menor que <data data-param="ev_ebitda_below_industry_multiple.multiple" value="0.7">0,7×</data> el de la industria</td></tr>
+          <tr><th scope="row"><code>pbv_below_industry_multiple_with_roe_above_median</code></th><td><span class="marca-valor">Valor:</span> su P/BV es menor que <data data-param="pbv_below_industry_multiple_with_roe_above_median.multiple" value="0.7">0,7×</data> el de la industria y su ROE supera la mediana</td></tr>
+          <tr><th scope="row"><code>fcf_yield_above</code></th><td><span class="marca-valor">Valor:</span> el flujo de caja libre rinde más de <data data-param="fcf_yield_above.minimum" value="0.08">8 %</data> del precio</td></tr>
+        </tbody>
+      </table></div>
+      <p>Con una industria cuyo PE mediano es 20, el corte es 14. Una empresa con PE 12 pasa; una con PE 16 no. Fijate la diferencia con las compuertas: si a un indicador de valor le falta el dato (una empresa con pérdidas no tiene un PE que sirva, o la industria no publica la mediana), el indicador se saltea. No cuenta como pasado ni como fallado, así que no alcanza para aprobar ni para descartar por sí solo.</p>
+      <h3>Detección de trampas: tienen que pasar todas</h3>
+      <p>Acá el criterio se invierte. Una sola trampa activada descarta a la empresa, aunque parezca barata por cuatro motivos.</p>
+      <div class="tabla"><table>
+        <thead><tr><th scope="col">Detector</th><th scope="col">Pasa si</th></tr></thead>
+        <tbody>
+          <tr><th scope="row"><code>revenue_not_declining</code></th><td><span class="marca-trampa">Trampa:</span> las ventas no caen en promedio más de <data data-param="revenue_not_declining.max_decline" value="-0.05">−5 %</data> por año, en los últimos <data data-param="revenue_not_declining.window" value="3">3</data> años</td></tr>
+          <tr><th scope="row"><code>operating_margin_not_contracting</code></th><td><span class="marca-trampa">Trampa:</span> el margen operativo no se contrajo más de <data data-param="operating_margin_not_contracting.max_contraction_bps" value="-200.0">200 puntos básicos</data> (2 puntos porcentuales) en <data data-param="operating_margin_not_contracting.window" value="3">3</data> años</td></tr>
+          <tr><th scope="row"><code>roic_above_sector_wacc</code></th><td><span class="marca-trampa">Trampa:</span> su ROIC supera el costo de capital de la industria (sin parámetros)</td></tr>
+          <tr><th scope="row"><code>sloan_accruals_below</code></th><td><span class="marca-trampa">Trampa:</span> la parte de la ganancia que no es caja es menos de <data data-param="sloan_accruals_below.maximum" value="0.10">10 %</data> de los activos</td></tr>
+          <tr><th scope="row"><code>share_count_not_diluting</code></th><td><span class="marca-trampa">Trampa:</span> la cantidad de acciones crece como mucho <data data-param="share_count_not_diluting.max_annual_growth" value="0.05">5 %</data> por año</td></tr>
+        </tbody>
+      </table></div>
+      <p>Dos aclaraciones sobre cómo leer esto. El ratio de Sloan mira cuánto de la ganancia declarada no se cobró en efectivo; si es mucho, las ganancias son de papel. Y la dilución cuenta el crecimiento promedio de acciones: una empresa que emite acciones todos los años le va regalando tu parte.</p>
+      <p>La regla central es <code>roic_above_sector_wacc</code>, y es el filtro más característico de Damodaran. Dicho en criollo: la empresa gana menos de lo que le cuesta el capital. Si el negocio rinde 6 % sobre la plata invertida y esa plata le cuesta 8 %, cada dólar que crece vale menos del dólar que entró. Es una empresa que destruye valor por más barata que parezca.</p>
+    </div>
+    <div class="ejemplo">
+      <p>Dos empresas de la misma industria, con el mismo PE bajo y el costo de capital del sector en <data data-param="ejemplo.wacc" value="0.08">8 %</data>.</p>
+      <div class="tabla"><table>
+        <thead><tr><th scope="col"></th><th scope="col">Empresa A</th><th scope="col">Empresa B</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">PE</th><td>8, contra 14 de la industria</td><td>8, contra 14 de la industria</td></tr>
+          <tr><th scope="row">ROIC</th><td><data data-param="ejemplo.roic_a" value="0.06">6 %</data></td><td><data data-param="ejemplo.roic_b" value="0.14">14 %</data></td></tr>
+          <tr><th scope="row">Contra el WACC de 8 %</th><td><span class="marca-trampa">Trampa:</span> gana menos de lo que cuesta el capital</td><td><span class="marca-valor">Valor:</span> gana más de lo que cuesta</td></tr>
+          <tr><th scope="row">Veredicto</th><td>queda afuera</td><td>sigue como candidata</td></tr>
+        </tbody>
+      </table></div>
+      <p>El PE bajo de A es el precio justo de un negocio que no rinde. El de B sí puede ser una oportunidad, que es lo que después hay que valuar.</p>
+    </div>
+    <div class="en-codigo"><h3>En el código</h3>
+      <ul>
+        <li><code data-symbol="bot.screener.rules.PEBelowIndustryMultiple">bot.screener.rules.PEBelowIndustryMultiple</code> · <code class="at">src/bot/screener/rules.py:347</code></li>
+        <li><code data-symbol="bot.screener.rules.EVEBITDABelowIndustryMultiple">bot.screener.rules.EVEBITDABelowIndustryMultiple</code> · <code class="at">src/bot/screener/rules.py:383</code></li>
+        <li><code data-symbol="bot.screener.rules.PBVBelowIndustryMultipleWithROEAboveMedian">bot.screener.rules.PBVBelowIndustryMultipleWithROEAboveMedian</code> · <code class="at">src/bot/screener/rules.py:422</code></li>
+        <li><code data-symbol="bot.screener.rules.FCFYieldAbove">bot.screener.rules.FCFYieldAbove</code> · <code class="at">src/bot/screener/rules.py:465</code></li>
+        <li><code data-symbol="bot.screener.rules.RevenueNotDeclining">bot.screener.rules.RevenueNotDeclining</code> · <code class="at">src/bot/screener/rules.py:522</code></li>
+        <li><code data-symbol="bot.screener.rules.OperatingMarginNotContracting">bot.screener.rules.OperatingMarginNotContracting</code> · <code class="at">src/bot/screener/rules.py:563</code></li>
+        <li><code data-symbol="bot.screener.rules.ROICAboveSectorWACC">bot.screener.rules.ROICAboveSectorWACC</code> · <code class="at">src/bot/screener/rules.py:601</code></li>
+        <li><code data-symbol="bot.screener.rules.SloanAccrualsBelow">bot.screener.rules.SloanAccrualsBelow</code> · <code class="at">src/bot/screener/rules.py:632</code></li>
+        <li><code data-symbol="bot.screener.rules.ShareCountNotDiluting">bot.screener.rules.ShareCountNotDiluting</code> · <code class="at">src/bot/screener/rules.py:671</code></li>
+        <li><code data-symbol="bot.screener.engine.evaluate_company">bot.screener.engine.evaluate_company</code> · <code class="at">src/bot/screener/engine.py:607</code>: aplica las tres capas a una empresa. Pasa solo si pasan todas las compuertas, al menos un indicador de valor y todos los detectores. Un detector de trampas que no puede correr elimina a la empresa (ADR 0006); un indicador de valor que se saltea no suma ni resta. Del mejor puntaje entre los indicadores que pasan sale la medida de «valor» para el ranking.</li>
+        <li><code data-symbol="bot.screener.engine.run_screen">bot.screener.engine.run_screen</code> · <code class="at">src/bot/screener/engine.py:681</code>: recorre el universo y junta lo que devuelve <code>evaluate_company</code>.</li>
+        <li><code data-symbol="bot.screener.engine.ScreenResult">bot.screener.engine.ScreenResult</code> · <code class="at">src/bot/screener/engine.py:175</code>: el resultado de la corrida, con la lista corta ordenada.</li>
+        <li><code data-symbol="bot.screener.engine.RejectedCompany">bot.screener.engine.RejectedCompany</code> · <code class="at">src/bot/screener/engine.py:162</code>: cada empresa que no pasó, con la lista de reglas que la sacaron. Así se puede preguntar después «¿por qué cayó X?».</li>
+      </ul>
+    </div>
+    <aside class="caveat"><p>El screener no puede juzgar la narrativa (spec §6.7). Una empresa con un gran cuento y números flojos queda afuera. Y una que parece barata y pasa todos los filtros puede esconder algo que no está en los balances. Que sobreviva solo significa que no cayó en ninguna trampa que el bot sabe medir.</p></aside>
   </section>
 
   <section id="cap-5" class="cap" data-rol="selecciona" aria-labelledby="cap-5-t">
     <header class="cap-head"><span class="cap-num">5</span><span class="cap-rol">selecciona</span>
       <h2 id="cap-5-t">El ranking</h2></header>
-    <div class="concepto"><p>Acá se explica cómo se combinan valor, calidad, crecimiento y margen de seguridad en un puntaje, y por qué los pesos cambian el orden.</p></div>
+    <div class="concepto">
+      <p>Después de los filtros quedan las que sobrevivieron. Falta ordenarlas, y para eso el bot calcula un puntaje que mezcla cuatro cosas con pesos fijos.</p>
+      <div class="tabla"><table>
+        <thead><tr><th scope="col">Componente</th><th scope="col">Peso</th><th scope="col">Qué mide</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Valor</th><td><data data-param="ranking.value" value="0.40">40 %</data></td><td>Qué tan barata es contra su industria (el mejor puntaje entre los indicadores de valor que pasó).</td></tr>
+          <tr><th scope="row">Calidad</th><td><data data-param="ranking.quality" value="0.30">30 %</data></td><td>La distancia entre su ROIC y el costo de capital del sector, sumada al ROE.</td></tr>
+          <tr><th scope="row">Crecimiento</th><td><data data-param="ranking.growth" value="0.20">20 %</data></td><td>Cuánto crecieron las ventas por año en la historia disponible.</td></tr>
+          <tr><th scope="row">Margen de seguridad</th><td><data data-param="ranking.margin_of_safety" value="0.10">10 %</data></td><td>Cuánto vale la empresa según el DCF contra lo que cuesta.</td></tr>
+        </tbody>
+      </table></div>
+      <p>Los tres primeros componentes son percentiles dentro del universo filtrado, no umbrales absolutos. Un percentil de 80 % quiere decir que la empresa está mejor que el 80 % de las que quedaron. Es una posición en la tabla de esta corrida, no un número fijo. Por eso el ranking se acomoda al universo que dejaron los filtros, y no a cortes que se desactualizan.</p>
+      <p>El cuarto componente es distinto. El margen de seguridad entra con 10 % y viene de la Capa C. En la primera pasada todavía no hay DCF para nadie, así que todas llevan un valor neutro: <data data-const="bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY" value="0.5">0,5</data>. En la segunda pasada el bot valúa a las mejor ubicadas con el DCF y vuelve a mezclar con <code>rescore_with_margins</code>, que reemplaza ese 0,5 por el cociente real entre valor intrínseco y precio. Los percentiles no se recalculan.</p>
+      <p>El margen de seguridad no es un percentil: entra como el cociente crudo, sin tope. Un cociente de 1,2 significa que el DCF dice que vale 20 % más que el precio. Por eso el puntaje puede pasar de 100.</p>
+    </div>
+    <div class="ejemplo">
+      <p>Una candidata está en el percentil 80 % en valor, 60 % en calidad y 50 % en crecimiento. El bot multiplica la mezcla por 100.</p>
+      <div class="tabla"><table>
+        <thead><tr><th scope="col">Dato</th><th scope="col">Valor</th><th scope="col">Peso</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Valor, percentil</th><td><data data-param="ejemplo.value_pct" value="0.8">80 %</data></td><td>40 %</td></tr>
+          <tr><th scope="row">Calidad, percentil</th><td><data data-param="ejemplo.quality_pct" value="0.6">60 %</data></td><td>30 %</td></tr>
+          <tr><th scope="row">Crecimiento, percentil</th><td><data data-param="ejemplo.growth_pct" value="0.5">50 %</data></td><td>20 %</td></tr>
+          <tr><th scope="row">Margen de seguridad, con DCF</th><td><data data-param="ejemplo.mos" value="1.2">1,2</data></td><td>10 %</td></tr>
+          <tr><th scope="row">Puntaje con DCF</th><td colspan="2"><data data-param="ejemplo.score" value="72">72</data></td></tr>
+          <tr><th scope="row">Margen de seguridad, con el neutro</th><td><data data-param="ejemplo.mos_placeholder" value="0.5">0,5</data></td><td>10 %</td></tr>
+          <tr><th scope="row">Puntaje con el neutro</th><td colspan="2"><data data-param="ejemplo.score_placeholder" value="65">65</data></td></tr>
+        </tbody>
+      </table></div>
+      <p>Los 7 puntos de diferencia vienen solo del DCF. Si el cociente hubiera sido 0,3, el puntaje habría bajado. El orden final de la lista depende entonces de una valuación, y la valuación (capítulos 6 a 8) tiene sus propias dudas.</p>
+    </div>
+    <div class="en-codigo"><h3>En el código</h3>
+      <ul>
+        <li><code data-symbol="bot.screener.ranking.RankingWeights">bot.screener.ranking.RankingWeights</code> · <code class="at">src/bot/screener/ranking.py:55</code>: los cuatro pesos. Tienen que ser no negativos y sumar 1; si no, la carga falla en vez de torcer el ranking en silencio.</li>
+        <li><code data-symbol="bot.screener.ranking.rank">bot.screener.ranking.rank</code> · <code class="at">src/bot/screener/ranking.py:160</code>: calcula los percentiles entre todas las sobrevivientes, mezcla con los pesos y multiplica por 100. Desempata por ticker, para que el orden sea estable.</li>
+        <li><code data-symbol="bot.screener.ranking.rescore_with_margins">bot.screener.ranking.rescore_with_margins</code> · <code class="at">src/bot/screener/ranking.py:219</code>: la segunda pasada. Cambia solo el margen de seguridad y el puntaje, y reordena.</li>
+        <li><code data-symbol="bot.screener.persist">bot.screener.persist</code> · <code class="at">src/bot/screener/persist.py:1</code>: guarda la lista corta en la tabla <code>screener_candidates</code>, con rango, puntaje y subpuntajes, y también las rechazadas con sus motivos.</li>
+        <li>Por defecto <code>bot screen</code> rankea y valúa a todas las sobrevivientes. Solo con <code>bot screen --top N</code> el ranking se corta a las mejores N antes de la segunda pasada.</li>
+      </ul>
+    </div>
+    <aside class="caveat"><p>Una empresa que el DCF no puede valuar conserva el 0,5 neutro. No es una conclusión del bot sobre su valor: es la ausencia de una.</p></aside>
   </section>
 
   <section id="cap-6" class="cap" data-rol="valua" aria-labelledby="cap-6-t">
