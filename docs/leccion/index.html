@@ -605,19 +605,157 @@ h1 {
   <section id="cap-6" class="cap" data-rol="valua" aria-labelledby="cap-6-t">
     <header class="cap-head"><span class="cap-num">6</span><span class="cap-rol">valúa</span>
       <h2 id="cap-6-t">Story types (Capa C)</h2></header>
-    <div class="concepto"><p>Este capítulo muestra cómo el bot clasifica cada empresa según la historia que cuenta, y por qué esa etiqueta decide qué supuestos se usan para valuarla.</p></div>
+    <div class="concepto">
+      <p>No todas las empresas cuentan la misma historia. Una que crece 20 % por año no se proyecta igual que una eléctrica que crece con el PBI, ni que una automotriz cuyo resultado sube y baja con el ciclo. Damodaran las agrupa en cinco arquetipos, y el bot le asigna uno a cada empresa antes de armar sus supuestos. La etiqueta es la historia de partida; después la podés cambiar a mano.</p>
+      <p>Las etiquetas son cinco, escritas siempre igual (son las mismas del archivo de configuración): <code>high-growth</code> (crece rápido y el crecimiento se desacelera), <code>mature-stable</code> (crece cerca de la economía), <code>mature-decline</code> (ventas que se achican), <code>cyclical</code> (el resultado depende del ciclo) y <code>distressed</code> (con problemas para pagar su deuda).</p>
+      <p>La función <code data-symbol="bot.valuator.story_types.classify">bot.valuator.story_types.classify</code> las evalúa en este orden y se queda con la primera que cumple:</p>
+      <div class="tabla"><table>
+        <thead><tr><th scope="col">Orden</th><th scope="col">Etiqueta</th><th scope="col">Cuándo se asigna</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">1</th><td><code>distressed</code></td><td>El Z de Altman es menor que <data data-const="bot.valuator.story_types._DISTRESS_ALTMAN_Z" value="1.81">1,81</data>, o la cobertura de intereses es menor o igual que <data data-const="bot.valuator.story_types._DISTRESS_INTEREST_COVERAGE" value="1.0">1</data>. Gana sobre todo lo demás, aun si la empresa crece rápido.</td></tr>
+          <tr><th scope="row">2</th><td><code>cyclical</code></td><td>El sector es cíclico <em>y</em> los resultados son volátiles: el coeficiente de variación de las ganancias (desvío sobre el promedio) es de <data data-const="bot.valuator.story_types._CYCLICAL_EARNINGS_CV" value="0.5">0,5</data> o más. Hacen falta las dos condiciones, así un mal año en un sector estable no la etiqueta.</td></tr>
+          <tr><th scope="row">3</th><td><code>high-growth</code></td><td>Las ventas crecen a una tasa anual compuesta de <data data-const="bot.valuator.story_types._HIGH_GROWTH_CAGR" value="0.15">15 %</data> o más, y la empresa tiene hasta <data data-const="bot.valuator.story_types._MATURE_AGE_YEARS" value="25">25 años</data> o no se conoce su edad.</td></tr>
+          <tr><th scope="row">4</th><td><code>mature-decline</code></td><td>La tasa anual compuesta de las ventas es de <data data-const="bot.valuator.story_types._DECLINE_CAGR" value="-0.01">−1 %</data> o menos.</td></tr>
+          <tr><th scope="row">5</th><td><code>mature-stable</code></td><td>Todo lo demás. También cuando hay muy poca historia para calcular el crecimiento: sin señal, el bot cae en la etiqueta más tranquila en lugar de apostar.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+    <div class="ejemplo">
+      <p>Dos empresas con ventas que crecen 20 % por año, sin deuda problemática y en sectores no cíclicos. La primera tiene 12 años: pasa los dos primeros filtros de largo, cumple el 15 % y es joven, así que es <code>high-growth</code>. La segunda tiene 40 años: el crecimiento es el mismo, pero supera los 25 años y se va por descarte a <code>mature-stable</code>. El bot entiende que una empresa vieja que acelera es otra historia, y no extrapola ese 20 %.</p>
+    </div>
+    <div class="concepto">
+      <p>¿Qué cambia después de la etiqueta? Lo que cambia es la proyección de los supuestos, no la cuenta del DCF (que es la misma para todas, capítulo 7). Esto es lo que el código hace hoy, y es menos que lo que describe el diseño:</p>
+      <div class="tabla"><table>
+        <thead><tr><th scope="col">Etiqueta</th><th scope="col">Crecimiento de ventas</th><th scope="col">Margen operativo</th></tr></thead>
+        <tbody>
+          <tr><th scope="row"><code>high-growth</code></th><td>Baja en línea recta desde el promedio histórico de la empresa hasta el PBI nominal (4 % por defecto) a lo largo de los cinco años. Si no hay historia, no ramifica y cae en la regla general.</td><td>Sube o baja en línea recta desde el margen actual de la empresa hasta la mediana del sector.</td></tr>
+          <tr><th scope="row"><code>cyclical</code></th><td>Igual que cualquier otra: el promedio histórico.</td><td>El promedio del propio ciclo de la empresa (no el del último año), si hay al menos 4 años de márgenes; con menos, la mediana del sector.</td></tr>
+          <tr><th scope="row"><code>mature-stable</code>, <code>mature-decline</code>, <code>distressed</code></th><td>Sin tratamiento propio: el promedio histórico (o el PBI nominal si no hay historia).</td><td>Sin tratamiento propio: la mediana del sector, plana.</td></tr>
+        </tbody>
+      </table></div>
+      <p>El diseño original prevé más: crecimiento negativo controlado para <code>mature-decline</code>, márgenes que se erosionan, una probabilidad de quiebra explícita para <code>distressed</code>. Nada de eso se calcula solo. La etiqueta <code>distressed</code> no activa por sí misma ninguna probabilidad de quiebra; esa probabilidad queda en 0 salvo que la cargues a mano.</p>
+    </div>
+    <div class="en-codigo"><h3>En el código</h3>
+      <ul>
+        <li><code data-symbol="bot.valuator.story_types.StoryType">bot.valuator.story_types.StoryType</code> · <code class="at">src/bot/valuator/story_types.py:60</code>: los cinco valores. Son los tokens exactos que aparecen en los reportes y en la configuración.</li>
+        <li><code data-symbol="bot.valuator.story_types.classify">bot.valuator.story_types.classify</code> · <code class="at">src/bot/valuator/story_types.py:161</code>: función pura, lee una foto de la empresa y devuelve la etiqueta con el orden de la tabla.</li>
+        <li><code data-symbol="bot.valuator.story_types.SectorContext">bot.valuator.story_types.SectorContext</code> · <code class="at">src/bot/valuator/story_types.py:103</code>: lo único que <code>classify</code> sabe del sector es si es cíclico.</li>
+        <li><code data-symbol="bot.valuator.assumptions.conventional_override_path">bot.valuator.assumptions.conventional_override_path</code> · <code class="at">src/bot/valuator/assumptions.py:571</code>: dado un directorio y un ticker devuelve <code>config/assumptions/&lt;TICKER&gt;.yaml</code> si existe. Si ese archivo trae <code>story_type</code>, gana sobre lo que haya decidido <code>classify</code>.</li>
+        <li>En el flujo real (<code>analyze</code>, capítulo 8) la clasificación recibe la cobertura de intereses de la empresa, pero no el Z de Altman: ese dato no se carga, así que hoy <code>distressed</code> sale solo por cobertura baja.</li>
+      </ul>
+    </div>
   </section>
 
   <section id="cap-7" class="cap" data-rol="valua" aria-labelledby="cap-7-t">
     <header class="cap-head"><span class="cap-num">7</span><span class="cap-rol">valúa</span>
       <h2 id="cap-7-t">El DCF sin matemática</h2></header>
-    <div class="concepto"><p>Acá se recorre el flujo descontado paso a paso, con una empresa de juguete, para entender qué entra, qué sale y de dónde viene cada supuesto.</p></div>
+    <div class="concepto">
+      <p>Un DCF responde una pregunta: cuánto vale hoy una renta que llega en el futuro. Conocés la idea desde los bonos: un peso que cobrás dentro de cinco años vale menos que un peso hoy, y cuánto menos depende de la tasa que le exigís. Acá lo mismo, pero con los flujos de caja de una empresa.</p>
+      <p>Tres piezas. El <strong>flujo de caja libre</strong> (en inglés FCFF): lo que le queda a la empresa cada año después de pagar impuestos sobre su resultado operativo y de reinvertir lo necesario para seguir creciendo. La <strong>tasa de descuento</strong> (WACC): el precio del riesgo, el rendimiento mínimo que exigen quienes financian a la empresa, accionistas y acreedores, ponderado por cuánto aporta cada uno. Y el <strong>valor terminal</strong>: «el resto de la vida». Nadie proyecta cien años año por año, así que se proyectan unos pocos y después se asume que la empresa sigue para siempre creciendo a un ritmo bajo y constante.</p>
+      <p>Por eso es un modelo de dos etapas: años explícitos (el horizonte es de <data data-const="bot.valuator.assumptions._HORIZON" value="5">5 años</data>) y una perpetuidad. En palabras, la lógica completa es una oración: el valor de la empresa es la suma de los flujos de cada año traídos a hoy con la tasa de descuento, más el valor terminal también traído a hoy; a eso se le resta la deuda neta y se divide por las acciones.</p>
+      <p>El flujo de cada año sale así: ventas del año, por el margen operativo, menos impuestos, menos reinversión. La reinversión es el aumento de ventas dividido por «ventas por unidad de capital» (<code>sales_to_capital</code>): cuántos pesos de ventas nuevas genera cada peso invertido. Cuanto más crece la empresa, más tiene que reinvertir.</p>
+    </div>
+    <div class="ejemplo">
+      <p>Una empresa de juguete, con números redondos (monedas y escala cualquiera, mientras sean las mismas):</p>
+      <p>Ventas actuales <data data-dcf="revenue" value="1000">1000</data>, deuda neta <data data-dcf="net_debt" value="200">200</data>, <data data-dcf="shares_diluted" value="100">100</data> acciones diluidas. Las ventas crecen <data data-dcf="revenue_growth" value="0.10,0.08,0.06,0.05,0.04">10 %, 8 %, 6 %, 5 % y 4 %</data> en los cinco años. Margen operativo <data data-dcf="operating_margin" value="0.15">15 %</data> parejo, impuesto <data data-dcf="tax_rate" value="0.25">25 %</data>, ventas por unidad de capital <data data-dcf="sales_to_capital" value="2.0">2,0</data>, crecimiento terminal <data data-dcf="terminal_growth" value="0.03">3 %</data>. Costo del capital propio <data data-dcf="cost_of_equity" value="0.10">10 %</data>, costo de la deuda antes de impuestos <data data-dcf="pretax_cost_of_debt" value="0.06">6 %</data>, con <data data-dcf="equity_weight" value="0.8">80 %</data> de capital propio y <data data-dcf="debt_weight" value="0.2">20 %</data> de deuda.</p>
+      <p>La tasa de descuento sale de mezclar: 80 % de 10 % más 20 % de la deuda después de impuestos (6 % menos el escudo fiscal, 4,5 %). Da una tasa de <data data-dcf-out="wacc" value="0.089">8,9 %</data>.</p>
+      <div class="tabla"><table>
+        <thead><tr><th scope="col">Año</th><th scope="col">Ventas</th><th scope="col">Resultado operativo</th><th scope="col">Después de impuestos</th><th scope="col">Reinversión</th><th scope="col">Flujo libre</th><th scope="col">Valor hoy</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">1</th><td>1100,0</td><td>165,0</td><td>123,8</td><td>50,0</td><td><data data-dcf-out="fcff.1" value="73.75">73,8</data></td><td><data data-dcf-out="pv.1" value="67.72">67,7</data></td></tr>
+          <tr><th scope="row">2</th><td>1188,0</td><td>178,2</td><td>133,7</td><td>44,0</td><td><data data-dcf-out="fcff.2" value="89.65">89,7</data></td><td><data data-dcf-out="pv.2" value="75.60">75,6</data></td></tr>
+          <tr><th scope="row">3</th><td>1259,3</td><td>188,9</td><td>141,7</td><td>35,6</td><td><data data-dcf-out="fcff.3" value="106.03">106,0</data></td><td><data data-dcf-out="pv.3" value="82.10">82,1</data></td></tr>
+          <tr><th scope="row">4</th><td>1322,2</td><td>198,3</td><td>148,8</td><td>31,5</td><td><data data-dcf-out="fcff.4" value="117.27">117,3</data></td><td><data data-dcf-out="pv.4" value="83.38">83,4</data></td></tr>
+          <tr><th scope="row">5</th><td>1375,1</td><td>206,3</td><td>154,7</td><td>26,4</td><td><data data-dcf-out="fcff.5" value="128.26">128,3</data></td><td><data data-dcf-out="pv.5" value="83.74">83,7</data></td></tr>
+        </tbody>
+      </table></div>
+      <p>Los cinco años traídos a hoy suman unos 392,5. El valor terminal, medido al final del año 5, es <data data-dcf-out="terminal_value" value="2351.13">2351,1</data>; traído a hoy pesa unos 1535,1. El valor de la empresa (<code>enterprise_value</code>) es la suma: <data data-dcf-out="enterprise_value" value="1927.64">1927,6</data>. Se restan 200 de deuda neta, quedan 1727,6 para los accionistas, y divididos por 100 acciones dan <data data-dcf-out="intrinsic_value" value="17.28">17,28</data> por acción.</p>
+      <p>Fijate dónde está el peso: el valor terminal explica cerca del 79,6 % del valor de la empresa. La reinversión baja año a año porque el crecimiento baja, y casi todo el valor está en «el resto de la vida». Ese porcentaje es justo el número que vigila la alerta del 80 % del capítulo 8 (acá queda apenas debajo).</p>
+    </div>
+    <div class="concepto">
+      <p>Las cuentas son siempre las mismas; lo que cambia de una empresa a otra son los supuestos. El diseño habla de seis supuestos críticos: la trayectoria de crecimiento de ventas, el margen operativo, las ventas por unidad de capital, la tasa de descuento, el crecimiento terminal y la probabilidad de quiebra. En el código la tasa de descuento no es un dato: se arma con el costo del capital propio, el costo de la deuda y los pesos de capital propio y deuda (y el impuesto), y el impuesto también es un supuesto resuelto. Cada uno viaja envuelto en un <code>Sourced</code>: el valor junto con su <code>source</code>, de dónde salió. El reporte muestra esa procedencia al lado de cada número.</p>
+      <p>Las procedencias que existen en el código son siete:</p>
+      <div class="tabla"><table>
+        <thead><tr><th scope="col">Valor de <code>source</code></th><th scope="col">Qué significa</th></tr></thead>
+        <tbody>
+          <tr><th scope="row"><code>manual</code></th><td>Lo cargaste vos en <code>config/assumptions/&lt;TICKER&gt;.yaml</code>. Siempre gana.</td></tr>
+          <tr><th scope="row"><code>sector_default_damodaran</code></th><td>Es la mediana de la industria en los datos de Damodaran (margen, ventas por capital, costos de capital, estructura de deuda, impuesto), de la región de la empresa.</td></tr>
+          <tr><th scope="row"><code>sector_default_damodaran_cross_region</code></th><td>Lo mismo, pero la región de la empresa no tiene filas cargadas y se usó la mediana de otra región. Se avisa para que no pase por propia.</td></tr>
+          <tr><th scope="row"><code>rule_based</code></th><td>Sale de una regla: el crecimiento terminal es el menor entre la tasa libre de riesgo y el PBI nominal; el impuesto cae en 25 % si no hay dato; la probabilidad de quiebra y el valor de liquidación quedan en 0.</td></tr>
+          <tr><th scope="row"><code>historical_average</code></th><td>Es el promedio de la propia empresa: el crecimiento de ventas histórico repetido, o el margen promedio de su ciclo en una <code>cyclical</code> con historia suficiente.</td></tr>
+          <tr><th scope="row"><code>story_pattern</code></th><td>Es una trayectoria armada con el patrón del arquetipo (la rampa de una <code>high-growth</code>, capítulo 6), y no un escalar copiado.</td></tr>
+          <tr><th scope="row"><code>unresolved</code></th><td>Ninguna capa produjo un valor. El reporte muestra el hueco; no se lo atribuye a una fuente que no lo dio.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+    <div class="en-codigo"><h3>En el código</h3>
+      <ul>
+        <li><code data-symbol="bot.valuator.dcf.Financials">bot.valuator.dcf.Financials</code> · <code class="at">src/bot/valuator/dcf.py:32</code>: de dónde parte el DCF: ventas, deuda neta, acciones diluidas.</li>
+        <li><code data-symbol="bot.valuator.dcf.Assumptions">bot.valuator.dcf.Assumptions</code> · <code class="at">src/bot/valuator/dcf.py:60</code>: las trayectorias de crecimiento y margen (una por año), el impuesto, las ventas por capital, el crecimiento terminal y los componentes de la tasa de descuento.</li>
+        <li><code data-symbol="bot.valuator.dcf.dcf">bot.valuator.dcf.dcf</code> · <code class="at">src/bot/valuator/dcf.py:159</code>: la cuenta, función pura. Falla si el crecimiento terminal es mayor o igual que la tasa de descuento, porque la perpetuidad no converge.</li>
+        <li><code data-symbol="bot.valuator.dcf.DCFResult">bot.valuator.dcf.DCFResult</code> · <code class="at">src/bot/valuator/dcf.py:122</code>: valor por acción, valor de la empresa, valor terminal y su peso (<code>terminal_value_share</code>), tasa y pesos usados.</li>
+        <li><code data-symbol="bot.valuator.dcf.YearProjection">bot.valuator.dcf.YearProjection</code> · <code class="at">src/bot/valuator/dcf.py:108</code>: una fila de la tabla de arriba, por año.</li>
+        <li><code data-symbol="bot.valuator.assumptions.AssumptionSource">bot.valuator.assumptions.AssumptionSource</code> · <code class="at">src/bot/valuator/assumptions.py:84</code>: las siete procedencias.</li>
+        <li><code data-symbol="bot.valuator.assumptions.Sourced">bot.valuator.assumptions.Sourced</code> · <code class="at">src/bot/valuator/assumptions.py:106</code>: valor más procedencia.</li>
+        <li><code data-symbol="bot.valuator.assumptions.resolve_assumptions">bot.valuator.assumptions.resolve_assumptions</code> · <code class="at">src/bot/valuator/assumptions.py:624</code>: arma todos los supuestos de un ticker. Prioridad: manual, luego lo que corresponda por arquetipo e historia propia, luego el sector, luego las reglas.</li>
+      </ul>
+    </div>
+    <aside class="caveat">
+      <p>Un DCF es basura que entra, basura que sale: devuelve un número con dos decimales aunque los supuestos sean un promedio histórico o la mediana de la industria. La precisión del resultado no es la precisión de la información.</p>
+      <p>Dos diferencias con el diseño. El diseño lista cinco procedencias e incluye <code>analyst_consensus</code> (proyecciones de analistas); el código tiene siete y no tiene esa: no hay conexión a esos datos, así que el crecimiento sale del promedio histórico de la propia empresa. Y la probabilidad de quiebra y el valor de liquidación no se derivan nunca de forma automática: quedan en 0 salvo que los cargues a mano.</p>
+    </aside>
   </section>
 
   <section id="cap-8" class="cap" data-rol="valua" aria-labelledby="cap-8-t">
     <header class="cap-head"><span class="cap-num">8</span><span class="cap-rol">valúa</span>
       <h2 id="cap-8-t">Dudar del resultado</h2></header>
-    <div class="concepto"><p>Este capítulo enseña a desconfiar del número final con sensibilidades y alertas de narrativa, y a leer el veredicto de margen sin tomarlo como sentencia.</p></div>
+    <div class="concepto">
+      <p>Un valor por acción de 17,28 se lee como una certeza que no es. «El headline es un punto en una nube.» El bot no te da solo el punto: le agrega tres formas de dudar.</p>
+      <p><strong>Tornado.</strong> Se mueve cada supuesto 20 % para arriba y 20 % para abajo (el multiplicador es <data data-const="bot.valuator.sensitivity._TORNADO_HIGH" value="1.2">1,2</data> hacia arriba y 0,8 hacia abajo), uno por vez, y se mira cuánto cambia el valor por acción. Las barras se ordenan por impacto: las más anchas son los supuestos de los que depende la tesis.</p>
+      <p><strong>Grilla de 5×5.</strong> Toma los dos supuestos de las barras más anchas y los mueve juntos, de 80 % a 120 % de su valor base en cinco pasos cada uno. En cada celda muestra el margen de seguridad. Así se ve el efecto combinado, que un tornado no muestra.</p>
+      <p><strong>Alertas de narrativa.</strong> Cinco controles de consistencia entre la historia y los números. Son señales para que las lea una persona, no entran en el ranking. Cada una sale con un color: verde, amarillo, rojo o desconocido. «Desconocido» quiere decir que el control no pudo correr por falta de datos, y no es lo mismo que verde: un control que no se hizo no cuenta como aprobado.</p>
+      <div class="tabla"><table>
+        <thead><tr><th scope="col">Alerta</th><th scope="col">Cuándo se enciende</th></tr></thead>
+        <tbody>
+          <tr><th scope="row"><code>story_margin</code></th><td>Amarilla si la historia es <code>high-growth</code> y el margen que la empresa ya tiene supera al del sector: queda poco margen para mejorar. Verde en cualquier otro caso; desconocida si falta alguno de los dos márgenes.</td></tr>
+          <tr><th scope="row"><code>growth_reinvestment</code></th><td>Roja si en algún año la reinversión supera al resultado después de impuestos (flujo libre negativo: el crecimiento no se financia con ganancias). Amarilla si en algún año se come más del 90 % de ese resultado. Verde si no.</td></tr>
+          <tr><th scope="row"><code>beta_business_risk</code></th><td>Amarilla si el beta del sector es menor que 1 (defensivo) pero el apalancamiento operativo supera 1,5 y la deuda propia supera el 40 % del capital: el beta subestima el riesgo. Desconocida si falta alguno de los tres datos.</td></tr>
+          <tr><th scope="row"><code>terminal_value_share</code></th><td>Amarilla si el valor terminal pesa más de <data data-const="bot.valuator.narrative_flags._TERMINAL_VALUE_SHARE_CEILING" value="0.8">80 %</data> del valor de la empresa: el pronóstico explícito casi no importa y todo cuelga de la perpetuidad. Verde si no.</td></tr>
+          <tr><th scope="row"><code>country_exposure</code></th><td>Roja si más de la mitad de las ventas son del exterior y la prima de riesgo ponderada supera en más de 3 puntos a la del país donde cotiza. Hoy queda siempre en desconocida: ninguna fuente aporta ventas por geografía.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+    <div class="ejemplo">
+      <p>Sobre la empresa de juguete del capítulo anterior, el tornado da este orden de barras (valor por acción con el supuesto 20 % abajo y 20 % arriba):</p>
+      <div class="tabla"><table>
+        <thead><tr><th scope="col">Supuesto</th><th scope="col">Con −20 %</th><th scope="col">Con +20 %</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">Costo del capital propio</th><td>24,8</td><td>13,0</td></tr>
+          <tr><th scope="row">Margen operativo</th><td>12,7</td><td>21,9</td></tr>
+          <tr><th scope="row">Impuesto</th><td>18,6</td><td>15,9</td></tr>
+          <tr><th scope="row">Crecimiento terminal</th><td>16,2</td><td>18,6</td></tr>
+          <tr><th scope="row">Crecimiento de ventas</th><td>16,5</td><td>18,1</td></tr>
+          <tr><th scope="row">Ventas por unidad de capital</th><td>16,3</td><td>17,9</td></tr>
+          <tr><th scope="row">Costo de la deuda</th><td>17,9</td><td>16,7</td></tr>
+        </tbody>
+      </table></div>
+      <p>El costo del capital propio base es 10 %. Con 8 % (20 % menos) la acción vale 24,8; con 12 % (20 % más) vale 13,0. El 17,28 del caso base tiene entonces un rango de 13 a 25 solo por ese supuesto. La grilla usaría los dos primeros de la lista: costo del capital propio y margen operativo.</p>
+      <p>Después viene el margen de seguridad (MoS): el valor intrínseco dividido por el precio. Si el valor intrínseco es 30 y el precio es 20, el MoS es 1,5 y el veredicto es <code>potentially undervalued</code>. Los cortes: desde <data data-param="margin_verdict.undervalued" value="1.3">1,3</data> es <code>potentially undervalued</code>; desde <data data-param="margin_verdict.fair" value="1.0">1,0</data> hasta ese corte es <code>around fair value</code>; debajo de 1,0 es <code>potentially overvalued</code>. Sin precio, no hay MoS ni veredicto. Dice «potencialmente» a propósito: es una etiqueta sobre un punto de la nube, no una recomendación.</p>
+    </div>
+    <div class="en-codigo"><h3>En el código</h3>
+      <ul>
+        <li><code data-symbol="bot.valuator.sensitivity.tornado">bot.valuator.sensitivity.tornado</code> · <code class="at">src/bot/valuator/sensitivity.py:190</code>: siete supuestos, ±20 % cada uno; devuelve las barras de mayor a menor impacto. Si un extremo sale del dominio del modelo (crecimiento terminal que alcanza a la tasa), esa barra queda al final sin impacto.</li>
+        <li><code data-symbol="bot.valuator.sensitivity.grid_2d">bot.valuator.sensitivity.grid_2d</code> · <code class="at">src/bot/valuator/sensitivity.py:233</code>: la grilla de 5×5 con el MoS por celda; la central es el caso base.</li>
+        <li><code data-symbol="bot.valuator.narrative_flags.story_margin_flag">bot.valuator.narrative_flags.story_margin_flag</code> · <code class="at">src/bot/valuator/narrative_flags.py:134</code></li>
+        <li><code data-symbol="bot.valuator.narrative_flags.growth_reinvestment_flag">bot.valuator.narrative_flags.growth_reinvestment_flag</code> · <code class="at">src/bot/valuator/narrative_flags.py:185</code></li>
+        <li><code data-symbol="bot.valuator.narrative_flags.beta_business_risk_flag">bot.valuator.narrative_flags.beta_business_risk_flag</code> · <code class="at">src/bot/valuator/narrative_flags.py:239</code></li>
+        <li><code data-symbol="bot.valuator.narrative_flags.terminal_value_share_flag">bot.valuator.narrative_flags.terminal_value_share_flag</code> · <code class="at">src/bot/valuator/narrative_flags.py:294</code></li>
+        <li><code data-symbol="bot.valuator.narrative_flags.country_exposure_flag">bot.valuator.narrative_flags.country_exposure_flag</code> · <code class="at">src/bot/valuator/narrative_flags.py:327</code></li>
+        <li><code data-symbol="bot.valuator.analysis.analyze">bot.valuator.analysis.analyze</code> · <code class="at">src/bot/valuator/analysis.py:553</code>: arma todo el recorrido de la Capa C para un ticker: clasifica, resuelve supuestos, corre el DCF, el tornado, la grilla (sobre las dos barras más anchas), las alertas y el MoS.</li>
+        <li><code data-symbol="bot.reporting.analysis_report.margin_verdict">bot.reporting.analysis_report.margin_verdict</code> · <code class="at">src/bot/reporting/analysis_report.py:185</code>: traduce el MoS a una de las tres etiquetas; <code>n/a</code> si no hay MoS.</li>
+        <li>Dónde termina el recorrido: <code>bot analyze</code> escribe el reporte de análisis (Markdown y HTML) y un archivo JSON por empresa; el visor web de solo lectura (ADR 0008) publica esos JSON y no vuelve a calcular nada ni opera el bot.</li>
+      </ul>
+    </div>
   </section>
 </main>
 
