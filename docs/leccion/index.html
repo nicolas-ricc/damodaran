@@ -445,7 +445,7 @@ h1 {
         <li><strong>Historia.</strong> Con 5 años de balances ves al menos un tramo bueno y uno malo. Con 3 no distinguís un negocio de un golpe de suerte.</li>
         <li><strong>Bancos y aseguradoras afuera.</strong> En una industria normal la deuda es una decisión de financiamiento: pedís prestado para producir. En un banco la deuda son los depósitos, o sea la materia prima. Por eso la deuda neta y el EBITDA no significan lo mismo ahí, y comparar un banco con un fabricante con esta vara sería engañoso. La regla excluye por industria, y también si la ficha trae marcada la bandera de servicios financieros.</li>
         <li><strong>Deuda como múltiplo.</strong> Pensá la deuda neta como cuántos años de EBITDA hacen falta para pagarla. Con deuda neta de 300 y EBITDA de 100 son 3 años y pasa. Con 500 y 100 son 5 años y queda afuera. Una empresa con más caja que deuda pasa directo. Si hay deuda y el EBITDA es cero o negativo, no pasa.</li>
-        <li><strong>Cobertura de intereses.</strong> Con EBIT de 100 e intereses de 40, la cobertura es 2,5× y pasa. Con intereses de 60 es 1,7× y no. Una caída de un tercio en la ganancia ya no alcanza para pagar la deuda. Sin gasto de intereses, pasa.</li>
+        <li><strong>Cobertura de intereses.</strong> Con EBIT de 100 e intereses de 40, la cobertura es 2,5× y pasa. Con intereses de 60 es 1,7× y no pasa. La diferencia se ve en una mala racha: si la ganancia cae 20 %, la primera queda en 80 y todavía cubre 2,0× los intereses; si cae 40 %, la segunda queda en 60, apenas alcanza para pagar los intereses y no le sobra nada. Sin gasto de intereses, pasa.</li>
         <li><strong>Caja versus ganancia contable.</strong> La ganancia contable se puede estirar con criterios; el flujo de caja operativo es plata que entró. Una empresa que en 5 años tuvo flujo positivo en 4 pasa; con 3 años positivos no. Si no hay 5 años de datos, tampoco.</li>
         <li><strong>Goodwill.</strong> Es el sobreprecio pagado en adquisiciones, anotado como activo. Con goodwill de 40 sobre activos de 100 pasa, con 60 no: más de la mitad del balance es una promesa que se evapora si la compra sale mal.</li>
       </ul>
@@ -478,12 +478,12 @@ h1 {
           <desc id="fuerzas-d">A la izquierda, los indicadores de valor empujan hacia adelante: alcanza con que uno pase. A la derecha, la detección de trampas empuja en sentido contrario: tienen que pasar todos. En el medio queda la empresa que sobrevive a las dos.</desc>
           <rect class="caja" x="6" y="20" width="120" height="110" rx="8" stroke="var(--p-selecciona)"/>
           <text x="66" y="44" text-anchor="middle" class="num">Valor</text>
-          <text x="66" y="64" text-anchor="middle">«parece barata»</text>
+          <text x="66" y="64" text-anchor="middle" style="font-size:12px">«parece barata»</text>
           <text x="66" y="84" text-anchor="middle">alcanza con</text>
           <text x="66" y="102" text-anchor="middle">que 1 pase</text>
           <rect class="caja" x="234" y="20" width="120" height="110" rx="8" stroke="var(--p-elimina)"/>
           <text x="294" y="44" text-anchor="middle" class="num">Trampa</text>
-          <text x="294" y="64" text-anchor="middle">«barata por algo»</text>
+          <text x="294" y="64" text-anchor="middle" style="font-size:12px">«barata por algo»</text>
           <text x="294" y="84" text-anchor="middle">tienen que</text>
           <text x="294" y="102" text-anchor="middle">pasar todas</text>
           <path d="M130 75 H166" fill="none" stroke="var(--p-selecciona)" stroke-width="4"/>
@@ -494,7 +494,7 @@ h1 {
           <text x="180" y="165" text-anchor="middle" class="num">Candidata</text>
           <text x="180" y="182" text-anchor="middle">pasa las dos</text>
         </svg>
-        <figcaption>Del lado verde empuja el precio bajo; del lado rojo, las razones para desconfiar de él. Cada caja tiene su etiqueta: el color acompaña, no reemplaza.</figcaption>
+        <figcaption>A la izquierda, en oliva (rol selecciona), empuja el precio bajo; a la derecha, en terracota (rol elimina), las razones para desconfiar de él. Cada caja tiene su etiqueta: el color acompaña, no reemplaza.</figcaption>
       </figure>
       <h3>Indicadores de valor: alcanza con uno</h3>
       <p>Hay cuatro. Una empresa necesita pasar al menos uno. Los tres primeros comparan contra la mediana de su industria (el capítulo 1), el cuarto usa un piso absoluto.</p>
@@ -564,13 +564,13 @@ h1 {
       <div class="tabla"><table>
         <thead><tr><th scope="col">Componente</th><th scope="col">Peso</th><th scope="col">Qué mide</th></tr></thead>
         <tbody>
-          <tr><th scope="row">Valor</th><td><data data-param="ranking.value" value="0.40">40 %</data></td><td>Qué tan barata es contra su industria (el mejor puntaje entre los indicadores de valor que pasó).</td></tr>
+          <tr><th scope="row">Valor</th><td><data data-param="ranking.value" value="0.40">40 %</data></td><td>Qué tan barata es contra su industria (el mejor puntaje entre los indicadores de valor que pasó). Los tres de múltiplos puntúan según cuánto bajo el corte está el múltiplo de la empresa; el de flujo de caja libre usa un piso absoluto de 8 %, no la industria, y puntúa según cuánto lo supera, con tope.</td></tr>
           <tr><th scope="row">Calidad</th><td><data data-param="ranking.quality" value="0.30">30 %</data></td><td>La distancia entre su ROIC y el costo de capital del sector, sumada al ROE.</td></tr>
           <tr><th scope="row">Crecimiento</th><td><data data-param="ranking.growth" value="0.20">20 %</data></td><td>Cuánto crecieron las ventas por año en la historia disponible.</td></tr>
           <tr><th scope="row">Margen de seguridad</th><td><data data-param="ranking.margin_of_safety" value="0.10">10 %</data></td><td>Cuánto vale la empresa según el DCF contra lo que cuesta.</td></tr>
         </tbody>
       </table></div>
-      <p>Los tres primeros componentes son percentiles dentro del universo filtrado, no umbrales absolutos. Un percentil de 80 % quiere decir que la empresa está mejor que el 80 % de las que quedaron. Es una posición en la tabla de esta corrida, no un número fijo. Por eso el ranking se acomoda al universo que dejaron los filtros, y no a cortes que se desactualizan.</p>
+      <p>Los tres primeros componentes son percentiles dentro del universo filtrado, no umbrales absolutos. Un percentil de 80 % quiere decir que la empresa está mejor que el 80 % de las otras que quedaron, y la que está primera tiene 100 %. Es una posición en la tabla de esta corrida, no un número fijo. Por eso el ranking se acomoda al universo que dejaron los filtros, y no a cortes que se desactualizan.</p>
       <p>El cuarto componente es distinto. El margen de seguridad entra con 10 % y viene de la Capa C. En la primera pasada todavía no hay DCF para nadie, así que todas llevan un valor neutro: <data data-const="bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY" value="0.5">0,5</data>. En la segunda pasada el bot valúa a las mejor ubicadas con el DCF y vuelve a mezclar con <code>rescore_with_margins</code>, que reemplaza ese 0,5 por el cociente real entre valor intrínseco y precio. Los percentiles no se recalculan.</p>
       <p>El margen de seguridad no es un percentil: entra como el cociente crudo, sin tope. Un cociente de 1,2 significa que el DCF dice que vale 20 % más que el precio. Por eso el puntaje puede pasar de 100.</p>
     </div>
