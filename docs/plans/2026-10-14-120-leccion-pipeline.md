@@ -39,7 +39,7 @@
 1. A rule threshold or ranking weight edited in the YAML preset or `RankingWeights` after the lesson ships: the `data-param` tests (Task 4) fail and name the key.
 2. A symbol renamed or removed in `src/bot/`: `check.py` exits 1 and `test_check_py_exits_zero` (Task 1) fails in CI, listing the missing symbol.
 3. The DCF example table arithmetic disagreeing with `dcf()` (hand-computed numbers, a changed formula): `test_dcf_example_matches_code` (Task 5) recomputes every row.
-4. A 390px phone: wide tables or long identifiers forcing horizontal scroll. Tables sit in an `overflow-x:auto` wrapper, `code` gets `overflow-wrap:anywhere`; the agent-browser eval (`.scratch/evals-120.md`) measures `scrollWidth` at 390px; Task 2 tests pin the CSS hooks.
+4. A 390px phone: wide tables or long identifiers forcing horizontal scroll. Tables sit in an `overflow-x:auto` wrapper, `code` gets `overflow-wrap:anywhere`; the agent-browser eval (`.scratch/evals-120.md`, written by the pipeline's evals stage before Task 1 and run after Task 6; pass = `document.documentElement.scrollWidth <= innerWidth` at 390px, nine nav links reach their chapters with Tab+Enter) measures it; Task 2 tests pin the CSS hooks.
 5. Dark mode reading as unreadable: Task 2's contrast test computes both the light and the dark `--ink`/`--ink-soft` on `--sheet` from the OKLCH values and requires ≥ 4.5:1.
 
 ---
@@ -55,7 +55,7 @@
 
 ## Shared test helper (lives at the top of `tests/unit/test_leccion.py`)
 
-Every lesson test parses the HTML once with this helper. Task 2 creates the file with it; later tasks append tests.
+Every lesson test parses the HTML once with this helper. Task 2 creates the file with it; later tasks append tests. All imports live in this header (no mid-file imports); the evals stage writes the whole file at once, so every import is present from the start.
 
 ```python
 """The lesson in docs/leccion/ (issue #120) stays true to src/bot/."""
@@ -71,6 +71,14 @@ from dataclasses import dataclass, field
 from functools import cache
 from html.parser import HTMLParser
 from pathlib import Path
+
+import yaml
+
+from bot.reporting.analysis_report import margin_verdict
+from bot.screener.ranking import RankingWeights, ScoredCandidate, rescore_with_margins
+from bot.valuator.assumptions import AssumptionSource
+from bot.valuator.dcf import Assumptions, Financials, dcf
+from bot.valuator.story_types import StoryType
 
 _ROOT = Path(__file__).resolve().parents[2]
 _LECCION = _ROOT / "docs" / "leccion"
@@ -544,8 +552,10 @@ def _token(block: str, name: str) -> str:
 
 
 def test_tokens_come_from_design_md() -> None:
+    design = (_ROOT / "docs" / "DESIGN.md").read_text(encoding="utf-8")
     root = _light_root()
     for name, value in _DESIGN_TOKENS.items():
+        assert value in design, (name, "no longer in DESIGN.md")
         assert _token(root, name) == value, name
 
 
@@ -771,7 +781,7 @@ def test_funnel_svg_in_chapter_0() -> None:
 - [ ] **Step 2: Run, expect FAIL** — `uv run pytest tests/unit/test_leccion.py -q` → the new tests fail on `cap-0`…`cap-2` (and on later chapters until Tasks 4–5; that is expected).
 - [ ] **Step 3: Write chapters 0–2** following the content list; cite each symbol in the form from Task 2 and run `python3 docs/leccion/check.py` until it reports 0 errors and 0 warnings.
 - [ ] **Step 4: Run** `uv run pytest tests/unit/test_leccion.py -q -k "cap_0 or funnel or check_py or no_math"` → PASS; `test_required_symbols_are_cited` / `test_each_chapter_has_its_parts` now fail only for `cap-3`…`cap-8`.
-- [ ] **Step 5: Commit** — `git commit -am "feat(#120): lesson chapters 0-2 (map, Damodaran yardstick, company data)"`
+- [ ] **Step 5: Commit** — `git add docs/leccion/index.html tests/unit/test_leccion.py && git commit -m "feat(#120): lesson chapters 0-2 (map, Damodaran yardstick, company data)"`
 
 ---
 
@@ -788,15 +798,11 @@ def test_funnel_svg_in_chapter_0() -> None:
 Content:
 - **cap-3 Quality gates** (rol elimina). The seven eliminatory filters, one by one, each with a round-number example and its financial why (debt as multiplier, cash vs accounting profit, why banks are out: their debt is raw material, EBITDA/net debt don't mean the same). Thresholds exactly from the preset, each wrapped: `<data data-param="min_market_cap.minimum_usd" value="100000000.0">USD 100 millones</data>`, `min_years_history.minimum_years` 5, `exclude_sectors.excluded` `bank,insurance` (and the `is_financial_services` flag also excludes, `src/bot/screener/rules.py` `ExcludeSectors.evaluate`), `max_net_debt_to_ebitda.maximum` 4.0, `min_interest_coverage.minimum` 2.0, `positive_operating_cashflow.min_positive` 4 and `.window` 5, `max_goodwill_to_assets.maximum` 0.5. Explain the registry: each rule class registers under a `name` with `@register`, `get_rule` resolves YAML names, so a preset is just a list of names with params. Anchors: all seven classes, `register`, `get_rule`, and the preset path in plain `<code>`.
 - **cap-4 Barato vs. trampa** (rol elimina; value-indicator marks use selecciona pigment inline). Value indicators (at least one must pass; a skip neither passes nor fails) vs trap detection (every one must pass; a trap detector that cannot run eliminates, ADR 0006). Params: `pe_below_industry_multiple.multiple` 0.7, `ev_ebitda_below_industry_multiple.multiple` 0.7, `pbv_below_industry_multiple_with_roe_above_median.multiple` 0.7, `fcf_yield_above.minimum` 0.08, `revenue_not_declining.max_decline` −0.05 and `.window` 3, `operating_margin_not_contracting.max_contraction_bps` −200 and `.window` 3, `sloan_accruals_below.maximum` 0.10, `share_count_not_diluting.max_annual_growth` 0.05; `roic_above_sector_wacc` has no params. ROIC < sector WACC as the central Damodaran filter, without formula: «gana menos de lo que le cuesta el capital». Example: two companies with the same low PE, one with ROIC 6 % in a sector with WACC 8 % (trap), one with ROIC 14 % (candidate). Draw the two forces as opposed (e.g. a small inline SVG or a two-column layout with arrows pointing at each other, PRODUCT.md principle 3). Anchors: the nine classes, `evaluate_company`, `run_screen`, `ScreenResult`, `RejectedCompany`. Caveat: spec §6.7, the screener cannot judge narrative.
-- **cap-5 El ranking** (rol selecciona). Percentiles within the filtered universe, not absolute thresholds. Weights wrapped: `ranking.value` 0.40, `ranking.quality` 0.30, `ranking.growth` 0.20, `ranking.margin_of_safety` 0.10. Margin of safety enters at 10 % and comes from Capa C: the first pass ranks with the placeholder `PLACEHOLDER_MARGIN_OF_SAFETY` (0.5), the second pass values the top N with the DCF and re-blends with `rescore_with_margins`; the MoS term is not a percentile and is unbounded, so the score can exceed 100. Example: a candidate at percentiles 80 % / 60 % / 50 % with MoS 1.2 scores 100 × (0.40·0.8 + 0.30·0.6 + 0.20·0.5 + 0.10·1.2) = 72 (`rank` multiplies the blend by 100 and carries MoS as the raw ratio, `src/bot/screener/ranking.py` `rank`); the same candidate with the 0.5 placeholder scores 65. Write the example as a small table, not a formula. Anchors: `RankingWeights`, `rank`, `rescore_with_margins`, `bot.screener.persist`.
+- **cap-5 El ranking** (rol selecciona). Percentiles within the filtered universe, not absolute thresholds. Weights wrapped: `ranking.value` 0.40, `ranking.quality` 0.30, `ranking.growth` 0.20, `ranking.margin_of_safety` 0.10. Margin of safety enters at 10 % and comes from Capa C: the first pass ranks with the placeholder `PLACEHOLDER_MARGIN_OF_SAFETY` (0.5), the second pass values the top N with the DCF and re-blends with `rescore_with_margins`; the MoS term is not a percentile and is unbounded, so the score can exceed 100. Example: a candidate at percentiles 80 % / 60 % / 50 % with MoS 1.2 scores 100 × (0.40·0.8 + 0.30·0.6 + 0.20·0.5 + 0.10·1.2) = 72 (`rank` multiplies the blend by 100 and carries MoS as the raw ratio, `src/bot/screener/ranking.py` `rank`); the same candidate with the 0.5 placeholder scores 65. Write the example as a small table, not a formula, with each number wrapped: `<data data-param="ejemplo.value_pct" value="0.8">80 %</data>`, `ejemplo.quality_pct` 0.6, `ejemplo.growth_pct` 0.5, `ejemplo.mos` 1.2, `ejemplo.score` 72, `ejemplo.mos_placeholder` 0.5, `ejemplo.score_placeholder` 65 (the test recomputes both scores with `rescore_with_margins`). Anchors: `RankingWeights`, `rank`, `rescore_with_margins`, `bot.screener.persist`.
 
 - [ ] **Step 1: Append failing tests**
 
 ```python
-import yaml  # noqa: E402  (move to the import block at the top when appending)
-
-from bot.screener.ranking import RankingWeights  # noqa: E402
-
 _PRESET = _ROOT / "config" / "presets" / "damodaran_value.yaml"
 _LAYER_CHAPTER = {"quality_gates": "cap-3", "value_indicators": "cap-4", "trap_detection": "cap-4"}
 
@@ -823,12 +829,28 @@ def test_ranking_weights_match_code_and_preset() -> None:
         shown = float(params[f"ranking.{name}"])
         assert math.isclose(shown, getattr(code, name)), name
         assert math.isclose(shown, preset[name]), name
+
+
+def test_ranking_example_matches_code() -> None:
+    ex = _chapter("cap-5").params
+    base = ScoredCandidate(
+        ticker="EJ",
+        value_score=float(ex["ejemplo.value_pct"]),
+        quality_score=float(ex["ejemplo.quality_pct"]),
+        growth_score=float(ex["ejemplo.growth_pct"]),
+        margin_of_safety=0.0,
+        score=0.0,
+    )
+    for mos_key, score_key in (("ejemplo.mos", "ejemplo.score"),
+                               ("ejemplo.mos_placeholder", "ejemplo.score_placeholder")):
+        (scored,) = rescore_with_margins([base], {"EJ": float(ex[mos_key])})
+        assert math.isclose(float(ex[score_key]), scored.score, abs_tol=0.051), score_key
 ```
 
-- [ ] **Step 2: Run, expect FAIL** — `uv run pytest tests/unit/test_leccion.py -q -k "preset or ranking_weights"`.
+- [ ] **Step 2: Run, expect FAIL** — `uv run pytest tests/unit/test_leccion.py -q -k "preset or ranking"`.
 - [ ] **Step 3: Write chapters 3–5**; `python3 docs/leccion/check.py` → 0 errors, 0 warnings.
 - [ ] **Step 4: Run** `uv run pytest tests/unit/test_leccion.py -q` → only `cap-6`…`cap-8` failures remain.
-- [ ] **Step 5: Commit** — `git commit -am "feat(#120): lesson chapters 3-5 (quality gates, cheap vs trap, ranking)"`
+- [ ] **Step 5: Commit** — `git add docs/leccion/index.html tests/unit/test_leccion.py && git commit -m "feat(#120): lesson chapters 3-5 (quality gates, cheap vs trap, ranking)"`
 
 ---
 
@@ -863,12 +885,6 @@ Content:
 - [ ] **Step 1: Append failing tests**
 
 ```python
-from bot.reporting.analysis_report import margin_verdict  # noqa: E402
-from bot.valuator.assumptions import AssumptionSource  # noqa: E402
-from bot.valuator.dcf import Assumptions, Financials, dcf  # noqa: E402
-from bot.valuator.story_types import StoryType  # noqa: E402
-
-
 def test_story_types_listed_in_chapter_6() -> None:
     codes = set(_chapter("cap-6").codes)
     assert {s.value for s in StoryType} <= codes
@@ -932,7 +948,7 @@ def test_margin_verdict_thresholds_match_code() -> None:
 - [ ] **Step 2: Run, expect FAIL** — `uv run pytest tests/unit/test_leccion.py -q -k "story_types or assumption_source or dcf_example or margin_verdict"`.
 - [ ] **Step 3: Write chapters 6–8**; `python3 docs/leccion/check.py` → 0 errors, 0 warnings.
 - [ ] **Step 4: Run** `uv run pytest tests/unit/test_leccion.py tests/unit/test_leccion_check.py -q` → all PASS.
-- [ ] **Step 5: Commit** — `git commit -am "feat(#120): lesson chapters 6-8 (story types, DCF, sensitivity and verdict)"`
+- [ ] **Step 5: Commit** — `git add docs/leccion/index.html tests/unit/test_leccion.py && git commit -m "feat(#120): lesson chapters 6-8 (story types, DCF, sensitivity and verdict)"`
 
 ---
 
@@ -963,3 +979,20 @@ def test_context_source_of_truth_links_the_lesson() -> None:
 - [ ] **Step 3: Write** `docs/leccion/README.md` (≈10 lines, Spanish, same voice as `docs/plano/README.md`): what it is (a lesson for someone who knows investing but not advanced financial maths, explaining the pipeline and where it lives in the code); how to open it (double click `index.html`, no server); how to verify it (`python3 docs/leccion/check.py`, exits 1 listing missing symbols, warns on moved lines; `uv run pytest tests/unit/test_leccion.py` also checks thresholds, weights and the DCF example); to publish as a claude.ai Artifact, upload the file as is. Add to `CONTEXT.md` «Source of truth»: `- **The lesson**: \`docs/leccion/\` — \`index.html\` teaches the Damodaran pipeline chapter by chapter and points at the code; \`check.py\` fails when it cites a symbol that no longer exists. See \`docs/leccion/README.md\`.`
 - [ ] **Step 4: Full verification** — `python3 docs/leccion/check.py` (0 errors, 0 warnings), `uv run ruff check . && uv run mypy src`, `uv run pytest -q`; open `index.html` at 390px and 1280px, light and dark.
 - [ ] **Step 5: Commit** — `git add docs/leccion/README.md CONTEXT.md tests/unit/test_leccion.py && git commit -m "docs(#120): lesson README and CONTEXT source-of-truth link"`
+
+## Assumptions
+
+Technical assumptions taken during plan grilling (no written source decides them; any option satisfies the issue):
+
+1. **Line drift is a warning, not a failure.** The issue's criterion is «todos resuelven: `python3 docs/leccion/check.py` sale en 0» — it asks for symbol existence, not line freshness. Rejected alternative: failing on a moved line, which would break `pytest` on any unrelated `src/` edit. Authors fix warnings before committing (Task 6).
+2. **Prose claims about operators and order** (e.g. `classify`'s priority order, `<` vs `<=`) are verified by the task reviewer against `src/bot/valuator/story_types.py`, not by a test. Rejected alternative: a behavioural `classify` test per sentence, which duplicates `tests/unit` coverage of `story_types`.
+3. **Order of `exclude_sectors.excluded`** in the lesson must match the YAML order (`bank,insurance`); the test compares lists. Rejected: set comparison, which would hide a renamed sector only if the count also changed.
+4. **Design tokens** are hard-coded in the test and cross-checked against the text of `docs/DESIGN.md`, so a DESIGN.md edit fails the test instead of drifting silently. Rejected: parsing DESIGN.md's markdown tables, whose pigment table carries no token names.
+5. **Explicit `git add` paths** in every commit step; reverting a half-done task is `git checkout -- docs/leccion/index.html tests/unit/test_leccion.py` back to the previous task's commit.
+
+## Grilling
+
+- Rounds: 1 (griller model: fable). Questions: 18.
+- Sources: ISSUE 6, CODE 15, DOC 3 (several answers cite more than one); NO SOURCE 5, all technical assumptions (listed above).
+- Spec ambiguities: none. Out-of-scope issues opened: none.
+- Plan changes: imports moved to the test-file header; DESIGN.md cross-check in the token test; a recomputed ranking example (`test_ranking_example_matches_code`); explicit `git add` in commit steps; the evals-stage browser check spelled out in Review Focus.
