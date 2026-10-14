@@ -156,7 +156,6 @@ main {
   main { min-height: 100vh; }
 }
 
-/* Cabecera de la lección */
 .intro { max-width: 70ch; margin-block-end: clamp(2rem, 6vw, 4rem); }
 h1, h2, h3 {
   font-family: var(--f-titulo);
@@ -186,7 +185,6 @@ h1 {
 .cap[data-rol="valua"]      { --rol: var(--p-valua);      --rol-t: var(--p-valua-t); }
 .cap[data-rol="vigila"]     { --rol: var(--p-vigila);     --rol-t: var(--p-vigila-t); }
 
-.cap[data-rol="datos"]      { border-inline-start-style: solid; }
 .cap[data-rol="selecciona"] { border-inline-start-style: double; border-inline-start-width: 8px; }
 .cap[data-rol="valua"]      { border-inline-start-style: dotted; border-inline-start-width: 8px; }
 .cap[data-rol="vigila"]     { border-inline-start: 0; }
@@ -275,10 +273,8 @@ h1 {
 .fuerzas .caja { fill: var(--sheet-deep); stroke-width: 4; }
 .marca-valor { color: var(--p-selecciona-t); font-weight: 700; }
 .marca-trampa { color: var(--p-elimina-t); font-weight: 700; }
-.lista-cap { padding-inline-start: 1.2rem; }
-.lista-cap li { margin-block-end: 0.5rem; }
-.en-codigo ul { padding-inline-start: 1.2rem; }
-.en-codigo li { margin-block-end: 0.5rem; }
+.lista-cap, .en-codigo ul { padding-inline-start: 1.2rem; }
+.lista-cap li, .en-codigo li { margin-block-end: 0.5rem; }
 </style>
 </head>
 <body>
