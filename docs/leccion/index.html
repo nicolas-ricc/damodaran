@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>La lección del pipeline Damodaran: de la vara al DCF, y dónde vive en el código</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,300..700;1,7..72,300..700&family=Shantell+Sans:wght@300..800&family=Sometype+Mono:wght@400..700&display=swap">
+<style>
+:root {
+  color-scheme: light;
+  --desk: oklch(0.665 0.048 66);
+  --sheet: oklch(0.845 0.035 82);
+  --sheet-deep: oklch(0.795 0.038 80);
+  --ink: oklch(0.315 0.045 55);
+  --ink-soft: oklch(0.385 0.040 56);
+
+  --p-datos: oklch(0.620 0.115 78);
+  --p-datos-t: oklch(0.400 0.085 72);
+  --p-elimina: oklch(0.505 0.145 30);
+  --p-elimina-t: oklch(0.385 0.120 30);
+  --p-selecciona: oklch(0.545 0.095 135);
+  --p-selecciona-t: oklch(0.395 0.075 135);
+  --p-valua: oklch(0.470 0.115 265);
+  --p-valua-t: oklch(0.375 0.105 265);
+  --p-vigila: oklch(0.505 0.115 350);
+  --p-vigila-t: oklch(0.385 0.105 350);
+
+  --f-titulo: 'Shantell Sans', 'Comic Neue', system-ui, sans-serif;
+  --f-cuerpo: 'Literata', Georgia, 'Times New Roman', serif;
+  --f-mono: 'Sometype Mono', ui-monospace, 'Cascadia Mono', Menlo, monospace;
+
+  --z-sticky: 10;
+  --z-saltar: 40;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --desk: oklch(0.190 0.020 58);
+    --sheet: oklch(0.345 0.020 68);
+    --sheet-deep: oklch(0.300 0.020 66);
+    --ink: oklch(0.915 0.018 84);
+    --ink-soft: oklch(0.785 0.018 82);
+
+    --p-datos: oklch(0.760 0.110 82);
+    --p-datos-t: oklch(0.845 0.095 84);
+    --p-elimina: oklch(0.720 0.130 32);
+    --p-elimina-t: oklch(0.830 0.105 34);
+    --p-selecciona: oklch(0.750 0.105 138);
+    --p-selecciona-t: oklch(0.845 0.090 138);
+    --p-valua: oklch(0.745 0.105 262);
+    --p-valua-t: oklch(0.840 0.090 264);
+    --p-vigila: oklch(0.735 0.115 352);
+    --p-vigila-t: oklch(0.838 0.095 352);
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; scroll-padding-top: 1rem; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+
+body {
+  margin: 0;
+  background: var(--desk);
+  color: var(--ink);
+  font-family: var(--f-cuerpo);
+  font-size: clamp(1rem, 0.95rem + 0.25vw, 1.125rem);
+  line-height: 1.6;
+}
+
+img, svg { max-width: 100%; height: auto; }
+
+code {
+  font-family: var(--f-mono);
+  font-size: 0.88em;
+  overflow-wrap: anywhere;
+}
+code.at { color: var(--ink-soft); }
+
+a { color: var(--p-valua-t); text-underline-offset: 0.15em; }
+
+:focus-visible { outline: 3px solid var(--p-valua); outline-offset: 2px; }
+
+.saltar {
+  position: absolute;
+  inset-inline-start: 0.5rem;
+  top: -4rem;
+  z-index: var(--z-saltar);
+  padding: 0.5rem 0.9rem;
+  background: var(--sheet);
+  color: var(--ink);
+  font-family: var(--f-titulo);
+  border: 2px solid var(--ink);
+  border-radius: 0.4rem;
+}
+.saltar:focus { top: 0.5rem; }
+
+/* Nav: arriba en teléfono, a la izquierda desde 60rem */
+nav {
+  background: var(--sheet-deep);
+  border-block-end: 2px solid var(--ink-soft);
+  padding: 0.5rem clamp(0.9rem, 4vw, 1.5rem);
+}
+.toc summary {
+  cursor: pointer;
+  padding: 0.4rem 0;
+  font-family: var(--f-titulo);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.toc ol { list-style: none; margin: 0.25rem 0 0.5rem; padding: 0; }
+.toc li { margin: 0; }
+.toc a {
+  display: block;
+  padding: 0.4rem 0.6rem;
+  border-inline-start: 4px solid transparent;
+  color: var(--ink);
+  font-family: var(--f-titulo);
+  font-size: 0.95rem;
+  text-decoration: none;
+}
+.toc a:hover { background: var(--sheet); }
+.toc a[aria-current="location"] {
+  border-inline-start-color: var(--ink);
+  background: var(--sheet);
+  font-weight: 700;
+}
+
+main {
+  background: var(--sheet);
+  padding: clamp(1rem, 4vw, 3rem) clamp(0.9rem, 4vw, 3rem) clamp(3rem, 8vw, 6rem);
+}
+
+@media (min-width: 60rem) {
+  body {
+    display: grid;
+    grid-template-columns: 17rem minmax(0, 1fr);
+    align-items: start;
+  }
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: var(--z-sticky);
+    height: 100vh;
+    overflow-y: auto;
+    border-block-end: 0;
+    border-inline-end: 2px solid var(--ink-soft);
+    padding-block: 1.5rem;
+  }
+  .toc summary { display: none; }
+  main { min-height: 100vh; }
+}
+
+/* Cabecera de la lección */
+.intro { max-width: 70ch; margin-block-end: clamp(2rem, 6vw, 4rem); }
+h1, h2, h3 {
+  font-family: var(--f-titulo);
+  line-height: 1.15;
+  text-wrap: balance;
+}
+h1 {
+  margin: 0 0 1rem;
+  font-size: clamp(2rem, 1.4rem + 3vw, 3.6rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+.lede { margin: 0; font-size: 1.15em; text-wrap: pretty; }
+
+/* Capítulos: la marca al margen lleva el rol */
+.cap {
+  --rol: var(--p-datos);
+  --rol-t: var(--p-datos-t);
+  position: relative;
+  margin-block-end: clamp(2.5rem, 7vw, 5rem);
+  padding-inline-start: clamp(0.9rem, 3vw, 1.75rem);
+  border-inline-start: 5px solid var(--rol);
+}
+.cap[data-rol="datos"]      { --rol: var(--p-datos);      --rol-t: var(--p-datos-t); }
+.cap[data-rol="elimina"]    { --rol: var(--p-elimina);    --rol-t: var(--p-elimina-t); }
+.cap[data-rol="selecciona"] { --rol: var(--p-selecciona); --rol-t: var(--p-selecciona-t); }
+.cap[data-rol="valua"]      { --rol: var(--p-valua);      --rol-t: var(--p-valua-t); }
+.cap[data-rol="vigila"]     { --rol: var(--p-vigila);     --rol-t: var(--p-vigila-t); }
+
+.cap[data-rol="datos"]      { border-inline-start-style: solid; }
+.cap[data-rol="selecciona"] { border-inline-start-style: double; border-inline-start-width: 8px; }
+.cap[data-rol="valua"]      { border-inline-start-style: dotted; border-inline-start-width: 8px; }
+.cap[data-rol="vigila"]     { border-inline-start-style: solid; }
+.cap[data-rol="elimina"]    { border-inline-start: 0; }
+.cap[data-rol="elimina"]::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 10px;
+  background: repeating-linear-gradient(45deg, var(--rol) 0 2px, transparent 2px 7px);
+  border-inline-start: 3px solid var(--rol);
+}
+.cap[data-rol="elimina"] { padding-inline-start: calc(clamp(0.9rem, 3vw, 1.75rem) + 8px); }
+
+.cap-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.9rem;
+  margin-block-end: 1rem;
+}
+.cap-num {
+  display: inline-block;
+  min-width: 2.2rem;
+  padding: 0.05rem 0.5rem;
+  background: var(--rol);
+  color: var(--sheet);
+  font-family: var(--f-titulo);
+  font-weight: 800;
+  text-align: center;
+  border-radius: 0.5rem;
+  transform: rotate(-2deg);
+}
+.cap-rol {
+  padding: 0.05rem 0.55rem;
+  border: 2px solid var(--rol);
+  border-radius: 999px;
+  color: var(--rol-t);
+  font-family: var(--f-titulo);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  transform: rotate(0.6deg);
+}
+.cap h2 {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--rol-t);
+  font-size: clamp(1.5rem, 1.1rem + 1.8vw, 2.4rem);
+  font-weight: 700;
+}
+.cap h3 { color: var(--rol-t); }
+
+.cap > div, .cap > aside { max-width: 70ch; }
+.concepto { text-wrap: pretty; }
+.ejemplo { margin-block-start: 1rem; }
+.caveat {
+  margin-block-start: 1rem;
+  padding: 0.6rem 0.9rem;
+  background: var(--sheet-deep);
+  border-inline-start: 3px solid var(--ink-soft);
+  color: var(--ink-soft);
+}
+
+.tabla { overflow-x: auto; }
+</style>
+</head>
+<body>
+<a class="saltar" href="#contenido">Saltar al contenido</a>
+
+<nav aria-label="Capítulos">
+  <details class="toc" open>
+    <summary>Capítulos</summary>
+    <ol>
+      <li><a href="#cap-0">0 · El mapa</a></li>
+      <li><a href="#cap-1">1 · La vara: Damodaran (Capa A)</a></li>
+      <li><a href="#cap-2">2 · Los números de cada empresa</a></li>
+      <li><a href="#cap-3">3 · Quality gates</a></li>
+      <li><a href="#cap-4">4 · Barato vs. trampa</a></li>
+      <li><a href="#cap-5">5 · El ranking</a></li>
+      <li><a href="#cap-6">6 · Story types (Capa C)</a></li>
+      <li><a href="#cap-7">7 · El DCF sin matemática</a></li>
+      <li><a href="#cap-8">8 · Dudar del resultado</a></li>
+    </ol>
+  </details>
+</nav>
+
+<main id="contenido">
+  <header class="intro">
+    <h1>Del universo de acciones a una valuación que se puede discutir</h1>
+    <p class="lede">Esta lección recorre el pipeline Damodaran del bot, desde la vara que fija el profesor hasta el DCF que lo cierra. En cada capítulo ves la idea en criollo, un ejemplo con números y el lugar exacto de <code>src/bot/</code> donde vive.</p>
+  </header>
+
+  <section id="cap-0" class="cap" data-rol="selecciona" aria-labelledby="cap-0-t">
+    <header class="cap-head"><span class="cap-num">0</span><span class="cap-rol">selecciona</span>
+      <h2 id="cap-0-t">El mapa</h2></header>
+    <div class="concepto"><p>Este capítulo muestra el embudo completo, de miles de empresas a unos pocos candidatos valuados, y qué comando del bot corre cada tramo.</p></div>
+  </section>
+
+  <section id="cap-1" class="cap" data-rol="datos" aria-labelledby="cap-1-t">
+    <header class="cap-head"><span class="cap-num">1</span><span class="cap-rol">datos</span>
+      <h2 id="cap-1-t">La vara: Damodaran (Capa A)</h2></header>
+    <div class="concepto"><p>Acá se explica qué aporta Damodaran, que no es ninguna empresa sino los múltiplos de cada industria contra los que se mide a todas las demás.</p></div>
+  </section>
+
+  <section id="cap-2" class="cap" data-rol="datos" aria-labelledby="cap-2-t">
+    <header class="cap-head"><span class="cap-num">2</span><span class="cap-rol">datos</span>
+      <h2 id="cap-2-t">Los números de cada empresa</h2></header>
+    <div class="concepto"><p>Este capítulo cuenta de dónde salen los precios y los balances de cada compañía y cómo se juntan en una sola ficha lista para evaluar.</p></div>
+  </section>
+
+  <section id="cap-3" class="cap" data-rol="elimina" aria-labelledby="cap-3-t">
+    <header class="cap-head"><span class="cap-num">3</span><span class="cap-rol">elimina</span>
+      <h2 id="cap-3-t">Quality gates</h2></header>
+    <div class="concepto"><p>Acá se ve cómo las compuertas de calidad descartan primero a las empresas demasiado chicas, endeudadas o frágiles, antes de mirar si están baratas.</p></div>
+  </section>
+
+  <section id="cap-4" class="cap" data-rol="elimina" aria-labelledby="cap-4-t">
+    <header class="cap-head"><span class="cap-num">4</span><span class="cap-rol">elimina</span>
+      <h2 id="cap-4-t">Barato vs. trampa</h2></header>
+    <div class="concepto"><p>Este capítulo enseña a distinguir una acción realmente barata de una trampa de valor, con los indicadores de precio y los chequeos que desconfían de ellos.</p></div>
+  </section>
+
+  <section id="cap-5" class="cap" data-rol="selecciona" aria-labelledby="cap-5-t">
+    <header class="cap-head"><span class="cap-num">5</span><span class="cap-rol">selecciona</span>
+      <h2 id="cap-5-t">El ranking</h2></header>
+    <div class="concepto"><p>Acá se explica cómo se combinan valor, calidad, crecimiento y margen de seguridad en un puntaje, y por qué los pesos cambian el orden.</p></div>
+  </section>
+
+  <section id="cap-6" class="cap" data-rol="valua" aria-labelledby="cap-6-t">
+    <header class="cap-head"><span class="cap-num">6</span><span class="cap-rol">valúa</span>
+      <h2 id="cap-6-t">Story types (Capa C)</h2></header>
+    <div class="concepto"><p>Este capítulo muestra cómo el bot clasifica cada empresa según la historia que cuenta, y por qué esa etiqueta decide qué supuestos se usan para valuarla.</p></div>
+  </section>
+
+  <section id="cap-7" class="cap" data-rol="valua" aria-labelledby="cap-7-t">
+    <header class="cap-head"><span class="cap-num">7</span><span class="cap-rol">valúa</span>
+      <h2 id="cap-7-t">El DCF sin matemática</h2></header>
+    <div class="concepto"><p>Acá se recorre el flujo descontado paso a paso, con una empresa de juguete, para entender qué entra, qué sale y de dónde viene cada supuesto.</p></div>
+  </section>
+
+  <section id="cap-8" class="cap" data-rol="valua" aria-labelledby="cap-8-t">
+    <header class="cap-head"><span class="cap-num">8</span><span class="cap-rol">valúa</span>
+      <h2 id="cap-8-t">Dudar del resultado</h2></header>
+    <div class="concepto"><p>Este capítulo enseña a desconfiar del número final con sensibilidades y alertas de narrativa, y a leer el veredicto de margen sin tomarlo como sentencia.</p></div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const toc = document.querySelector('.toc');
+  const ancho = matchMedia('(min-width: 60rem)');
+  const ajustar = () => { toc.open = ancho.matches; };
+  ajustar();
+  ancho.addEventListener('change', ajustar);
+  toc.addEventListener('click', e => {
+    if (e.target.closest('a') && !ancho.matches) toc.open = false;
+  });
+  if (!('IntersectionObserver' in window)) return;
+  const links = new Map([...toc.querySelectorAll('a')].map(a => [a.hash.slice(1), a]));
+  const io = new IntersectionObserver(entradas => {
+    for (const e of entradas) {
+      if (!e.isIntersecting) continue;
+      for (const a of links.values()) a.removeAttribute('aria-current');
+      links.get(e.target.id)?.setAttribute('aria-current', 'location');
+    }
+  }, { rootMargin: '-40% 0px -55% 0px' });
+  document.querySelectorAll('.cap').forEach(s => io.observe(s));
+})();
+</script>
+</body>
+</html>
