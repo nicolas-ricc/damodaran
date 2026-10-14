@@ -83,3 +83,12 @@ def test_main_exit_codes(check: ModuleType, tmp_path: Path) -> None:
     bad.write_text('<code data-symbol="bot.nope.Nada">x</code>', encoding="utf-8")
     assert check.main([str(good)]) == 0
     assert check.main([str(bad)]) == 1
+
+
+def test_unreadable_location_is_an_error(check: ModuleType, idx: dict) -> None:
+    html = (
+        '<code data-symbol="bot.valuator.dcf.dcf">x</code> '
+        '<code class="at">src/bot/valuator/dcf.py</code>'
+    )
+    errores, _ = check.revisar(html, idx)
+    assert errores == ['ubicación ilegible: 1 <code class="at"> sin símbolo y archivo:línea']

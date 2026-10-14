@@ -320,11 +320,11 @@ h1 {
       <p>La tesis que ordena todo es que barato no es lo mismo que buena compra. Una acción puede cotizar a un múltiplo bajo justamente porque el negocio se está deshaciendo. Por eso «parece barata» es una etapa y «es una trampa» es otra, y por eso la valuación viene al final, sin pretender dar la verdad.</p>
     </div>
     <div class="ejemplo">
-      <p>Fijate cómo se angosta el embudo con cifras redondas. De 500 empresas, 470 se pueden medir contra su industria. De esas, 260 pasan las compuertas de calidad y 60 parecen baratas. De las 60, 35 sobreviven a las trampas, y el ranking se queda con las 20 de arriba. La Capa C no angosta nada: valúa esas 20 y las deja todas en la mesa.</p>
+      <p>Fijate cómo se angosta el embudo con cifras redondas. De 500 empresas, 470 se pueden medir contra su industria. De esas, 260 pasan las compuertas de calidad y 60 parecen baratas. De las 60, 35 sobreviven a las trampas y el ranking las ordena. Si pedís una lista corta con <code>bot screen --top 20</code>, quedan las 20 de arriba; sin ese pedido el ranking no corta y se valúan las 35. La Capa C no angosta nada: valúa las que le llegan y las deja todas en la mesa.</p>
       <figure class="figura">
         <svg class="embudo" role="img" aria-labelledby="embudo-t embudo-d" viewBox="0 0 360 400" xmlns="http://www.w3.org/2000/svg">
           <title id="embudo-t">El embudo del bot: de 500 empresas a 20 candidatos</title>
-          <desc id="embudo-d">Un universo de 500 empresas pasa por cuatro etapas de la Capa B que lo angostan: calidad, de 500 a 260; valor, de 260 a 60; trampas, de 60 a 35; ranking, de 35 a las 20 de arriba. Debajo, la Capa C valúa esas 20 sin descartar ninguna. Las cifras son ilustrativas.</desc>
+          <desc id="embudo-d">Un universo de 500 empresas pasa por cuatro etapas de la Capa B que lo angostan: calidad, de 500 a 260; valor, de 260 a 60; trampas, de 60 a 35; ranking, que ordena las 35 y, si se le pide una lista corta, se queda con las 20 de arriba. Debajo, la Capa C valúa esas 20 sin descartar ninguna. Las cifras son ilustrativas.</desc>
           <rect class="entra" x="10" y="6" width="340" height="44" rx="8" stroke="var(--p-datos)"/>
           <text x="180" y="25" text-anchor="middle" class="num">Universo · 500</text>
           <text x="180" y="43" text-anchor="middle">Capa A: la vara de Damodaran</text>
@@ -339,7 +339,7 @@ h1 {
           <text x="180" y="211" text-anchor="middle">Capa B: descarta</text>
           <rect data-etapa="ranking" x="125" y="230" width="110" height="44" rx="8" stroke="var(--p-selecciona)"/>
           <text x="180" y="249" text-anchor="middle" class="num">Ranking</text>
-          <text x="180" y="267" text-anchor="middle">top 20</text>
+          <text x="180" y="267" text-anchor="middle">top 20 (--top)</text>
           <path d="M180 276 V292" fill="none" stroke="var(--ink)" stroke-width="3"/>
           <path d="M172 286 L180 296 L188 286" fill="none" stroke="var(--ink)" stroke-width="3"/>
           <rect data-etapa="capa-c" x="10" y="304" width="340" height="82" rx="8" stroke="var(--p-valua)" stroke-dasharray="8 5"/>
@@ -347,7 +347,7 @@ h1 {
           <text x="180" y="348" text-anchor="middle">valúa a fondo, no descarta:</text>
           <text x="180" y="367" text-anchor="middle">cada una llega con su número</text>
         </svg>
-        <figcaption>Cifras redondas de ejemplo, no medidas. La Capa C es un bloque de ancho parejo porque no saca a nadie.</figcaption>
+        <figcaption>Cifras redondas de ejemplo, no medidas. El corte a 20 solo ocurre si se pide con <code>--top</code>. La Capa C es un bloque de ancho parejo porque no saca a nadie.</figcaption>
       </figure>
     </div>
     <div class="en-codigo"><h3>En el código</h3>
@@ -389,14 +389,14 @@ h1 {
         <li><code data-symbol="bot.screener.types.IndustryBenchmarks">bot.screener.types.IndustryBenchmarks</code> · <code class="at">src/bot/screener/types.py:69</code>: la foto inmutable de una industria que reciben las reglas: WACC, ROIC, ROE, PE, P/BV, EV/EBITDA y márgenes.</li>
       </ul>
     </div>
-    <aside class="caveat"><p>La vara es de Estados Unidos. Si una empresa no trae región, el screener usa <data data-const="bot.screener.engine.DEFAULT_REGION" value="US">US</data>, y el universo entero es estadounidense (ADR 0007). Compararía mal, por ejemplo, a una empresa alemana contra medianas de EE. UU.; por eso hoy no se intenta.</p></aside>
+    <aside class="caveat"><p>La vara es de Estados Unidos. Si una empresa no trae país, o su país no tiene región en la tabla de Damodaran, el screener usa <data data-const="bot.screener.engine.DEFAULT_REGION" value="US">US</data>, y el universo entero es estadounidense (ADR 0007). Compararía mal, por ejemplo, a una empresa alemana contra medianas de EE. UU.; por eso hoy no se intenta.</p></aside>
   </section>
 
   <section id="cap-2" class="cap" data-rol="datos" aria-labelledby="cap-2-t">
     <header class="cap-head"><span class="cap-num">2</span><span class="cap-rol">datos</span>
       <h2 id="cap-2-t">Los números de cada empresa</h2></header>
     <div class="concepto">
-      <p>Para cada empresa del universo el bot junta dos cosas. Los balances salen de SEC EDGAR, el registro de la autoridad bursátil de EE. UU., tal como cada compañía los presenta. Los precios diarios salen de Tiingo, o de Stooq si elegís esa fuente; las dos son gratuitas (ADR 0007). La lista de empresas es el S&amp;P 500 recortado, 498 nombres.</p>
+      <p>Para cada empresa del universo el bot junta dos cosas. Los balances salen de SEC EDGAR, el registro de la autoridad bursátil de EE. UU., tal como cada compañía los presenta. Los precios diarios salen por defecto de Tiingo, o de Stooq si elegís esa fuente; las dos son gratuitas (ADR 0007). La lista de empresas es el S&amp;P 500 recortado, 498 nombres.</p>
       <p>Todo termina en un único archivo de DuckDB (ADR 0001), una base pensada para barrer series largas de muchas empresas, sin servidor que mantener. Hacer una copia de seguridad es copiar ese archivo.</p>
       <p>Con el último balance anual y el último precio, el bot arma la ficha de la empresa: PE (precio sobre ganancia por acción), P/BV (precio sobre valor libro), EV/EBITDA (valor de la empresa sobre su ganancia operativa antes de amortizaciones), ROE, ROIC y rendimiento del flujo de caja libre. También guarda la historia de ingresos, de margen operativo y de cantidad de acciones. Si un dato falta, la ficha lo deja vacío; no inventa un cero.</p>
       <p>Después viene la compuerta de cobertura. Si el bot no encuentra para la empresa una vara utilizable, es decir una fila de su industria con costo de capital, la empresa sale del universo. No queda con un puntaje bajo: sale, y la corrida cuenta cuántas se perdieron y por qué (ADR 0006). Si el bot la dejara pasar, tendría que suponer algo sobre lo que no puede medir, y esa suposición disfrazaría ignorancia de calidad promedio.</p>
@@ -445,7 +445,7 @@ h1 {
         <li><strong>Historia.</strong> Con 5 años de balances ves al menos un tramo bueno y uno malo. Con 3 no distinguís un negocio de un golpe de suerte.</li>
         <li><strong>Bancos y aseguradoras afuera.</strong> En una industria normal la deuda es una decisión de financiamiento: pedís prestado para producir. En un banco la deuda son los depósitos, o sea la materia prima. Por eso la deuda neta y el EBITDA no significan lo mismo ahí, y comparar un banco con un fabricante con esta vara sería engañoso. La regla excluye por industria, y también si la ficha trae marcada la bandera de servicios financieros.</li>
         <li><strong>Deuda como múltiplo.</strong> Pensá la deuda neta como cuántos años de EBITDA hacen falta para pagarla. Con deuda neta de 300 y EBITDA de 100 son 3 años y pasa. Con 500 y 100 son 5 años y queda afuera. Una empresa con más caja que deuda pasa directo. Si hay deuda y el EBITDA es cero o negativo, no pasa.</li>
-        <li><strong>Cobertura de intereses.</strong> Con EBIT de 100 e intereses de 40, la cobertura es 2,5× y pasa. Con intereses de 60 es 1,7× y no pasa. La diferencia se ve en una mala racha: si la ganancia cae 20 %, la primera queda en 80 y todavía cubre 2,0× los intereses; si cae 40 %, la segunda queda en 60, apenas alcanza para pagar los intereses y no le sobra nada. Sin gasto de intereses, pasa.</li>
+        <li><strong>Cobertura de intereses.</strong> Con EBIT de 100 e intereses de 40, la cobertura es 2,5× y pasa. Con intereses de 60 es 1,7× y no pasa. La diferencia se ve en una mala racha. Si la ganancia cae 20 % en las dos, la primera queda en 80 y todavía cubre 2,0× sus intereses; la segunda queda en 80 contra 60, 1,3×, con muy poco margen. Si la caída es de 40 %, la segunda queda en 60: apenas paga los intereses y no le sobra nada. Sin gasto de intereses, pasa.</li>
         <li><strong>Caja versus ganancia contable.</strong> La ganancia contable se puede estirar con criterios; el flujo de caja operativo es plata que entró. Una empresa que en 5 años tuvo flujo positivo en 4 pasa; con 3 años positivos no. Si no hay 5 años de datos, tampoco.</li>
         <li><strong>Goodwill.</strong> Es el sobreprecio pagado en adquisiciones, anotado como activo. Con goodwill de 40 sobre activos de 100 pasa, con 60 no: más de la mitad del balance es una promesa que se evapora si la compra sale mal.</li>
       </ul>
@@ -564,7 +564,7 @@ h1 {
       <div class="tabla"><table>
         <thead><tr><th scope="col">Componente</th><th scope="col">Peso</th><th scope="col">Qué mide</th></tr></thead>
         <tbody>
-          <tr><th scope="row">Valor</th><td><data data-param="ranking.value" value="0.40">40 %</data></td><td>Qué tan barata es contra su industria (el mejor puntaje entre los indicadores de valor que pasó). Los tres de múltiplos puntúan según cuánto bajo el corte está el múltiplo de la empresa; el de flujo de caja libre usa un piso absoluto de 8 %, no la industria, y puntúa según cuánto lo supera, con tope.</td></tr>
+          <tr><th scope="row">Valor</th><td><data data-param="ranking.value" value="0.40">40 %</data></td><td>Qué tan barata es contra su industria (el mejor puntaje entre los indicadores de valor que pasó). Los tres de múltiplos puntúan según cuánto bajo el corte está el múltiplo de la empresa; el de flujo de caja libre usa el piso absoluto del capítulo 4 (<data data-param="fcf_yield_above.minimum" value="0.08">8 %</data>), no la industria, y puntúa según cuánto lo supera, con tope.</td></tr>
           <tr><th scope="row">Calidad</th><td><data data-param="ranking.quality" value="0.30">30 %</data></td><td>La distancia entre su ROIC y el costo de capital del sector, sumada al ROE.</td></tr>
           <tr><th scope="row">Crecimiento</th><td><data data-param="ranking.growth" value="0.20">20 %</data></td><td>Cuánto crecieron las ventas por año en la historia disponible.</td></tr>
           <tr><th scope="row">Margen de seguridad</th><td><data data-param="ranking.margin_of_safety" value="0.10">10 %</data></td><td>Cuánto vale la empresa según el DCF contra lo que cuesta.</td></tr>
@@ -619,21 +619,18 @@ h1 {
           <tr><th scope="row">5</th><td><code>mature-stable</code></td><td>Todo lo demás. También cuando hay muy poca historia para calcular el crecimiento: sin señal, el bot cae en la etiqueta más tranquila en lugar de apostar.</td></tr>
         </tbody>
       </table></div>
-    </div>
-    <div class="ejemplo">
-      <p>Dos empresas con ventas que crecen 20 % por año, sin deuda problemática y en sectores no cíclicos. La primera tiene 12 años: pasa los dos primeros filtros de largo, cumple el 15 % y es joven, así que es <code>high-growth</code>. La segunda tiene 40 años: el crecimiento es el mismo, pero supera los 25 años y se va por descarte a <code>mature-stable</code>. El bot entiende que una empresa vieja que acelera es otra historia, y no extrapola ese 20 %.</p>
-    </div>
-    <div class="concepto">
       <p>¿Qué cambia después de la etiqueta? Lo que cambia es la proyección de los supuestos, no la cuenta del DCF (que es la misma para todas, capítulo 7). Esto es lo que el código hace hoy, y es menos que lo que describe el diseño:</p>
       <div class="tabla"><table>
         <thead><tr><th scope="col">Etiqueta</th><th scope="col">Crecimiento de ventas</th><th scope="col">Margen operativo</th></tr></thead>
         <tbody>
-          <tr><th scope="row"><code>high-growth</code></th><td>Baja en línea recta desde el promedio histórico de la empresa hasta el PBI nominal (4 % por defecto) a lo largo de los cinco años. Si no hay historia, no ramifica y cae en la regla general.</td><td>Sube o baja en línea recta desde el margen actual de la empresa hasta la mediana del sector.</td></tr>
+          <tr><th scope="row"><code>high-growth</code></th><td>Baja en línea recta desde el promedio histórico de la empresa hasta el PBI nominal (4 % por defecto) a lo largo de los cinco años. Si no hay historia, no ramifica y cae en la regla general.</td><td>Sube o baja en línea recta desde el margen actual de la empresa hasta la mediana del sector. Si falta alguno de los dos márgenes, la mediana del sector, plana.</td></tr>
           <tr><th scope="row"><code>cyclical</code></th><td>Igual que cualquier otra: el promedio histórico.</td><td>El promedio del propio ciclo de la empresa (no el del último año), si hay al menos 4 años de márgenes; con menos, la mediana del sector.</td></tr>
           <tr><th scope="row"><code>mature-stable</code>, <code>mature-decline</code>, <code>distressed</code></th><td>Sin tratamiento propio: el promedio histórico (o el PBI nominal si no hay historia).</td><td>Sin tratamiento propio: la mediana del sector, plana.</td></tr>
         </tbody>
       </table></div>
-      <p>El diseño original prevé más: crecimiento negativo controlado para <code>mature-decline</code>, márgenes que se erosionan, una probabilidad de quiebra explícita para <code>distressed</code>. Nada de eso se calcula solo. La etiqueta <code>distressed</code> no activa por sí misma ninguna probabilidad de quiebra; esa probabilidad queda en 0 salvo que la cargues a mano.</p>
+    </div>
+    <div class="ejemplo">
+      <p>Dos empresas con ventas que crecen 20 % por año, sin deuda problemática y en sectores no cíclicos. La primera tiene 12 años: pasa los dos primeros filtros de largo, cumple el 15 % y es joven, así que es <code>high-growth</code>. La segunda tiene 40 años: el crecimiento es el mismo, pero supera los 25 años y se va por descarte a <code>mature-stable</code>. El bot entiende que una empresa vieja que acelera es otra historia, y no extrapola ese 20 %.</p>
     </div>
     <div class="en-codigo"><h3>En el código</h3>
       <ul>
@@ -641,9 +638,12 @@ h1 {
         <li><code data-symbol="bot.valuator.story_types.classify">bot.valuator.story_types.classify</code> · <code class="at">src/bot/valuator/story_types.py:161</code>: función pura, lee una foto de la empresa y devuelve la etiqueta con el orden de la tabla.</li>
         <li><code data-symbol="bot.valuator.story_types.SectorContext">bot.valuator.story_types.SectorContext</code> · <code class="at">src/bot/valuator/story_types.py:103</code>: lo único que <code>classify</code> sabe del sector es si es cíclico.</li>
         <li><code data-symbol="bot.valuator.assumptions.conventional_override_path">bot.valuator.assumptions.conventional_override_path</code> · <code class="at">src/bot/valuator/assumptions.py:571</code>: dado un directorio y un ticker devuelve <code>config/assumptions/&lt;TICKER&gt;.yaml</code> si existe. Si ese archivo trae <code>story_type</code>, gana sobre lo que haya decidido <code>classify</code>.</li>
-        <li>En el flujo real (<code>analyze</code>, capítulo 8) la clasificación recibe la cobertura de intereses de la empresa, pero no el Z de Altman: ese dato no se carga, así que hoy <code>distressed</code> sale solo por cobertura baja.</li>
       </ul>
     </div>
+    <aside class="caveat">
+      <p>El diseño original prevé más: crecimiento negativo controlado para <code>mature-decline</code>, márgenes que se erosionan, una probabilidad de quiebra explícita para <code>distressed</code>. Nada de eso se calcula solo. La etiqueta <code>distressed</code> no activa por sí misma ninguna probabilidad de quiebra; esa probabilidad queda en 0 salvo que la cargues a mano.</p>
+      <p>En el flujo real (<code>analyze</code>, capítulo 8) la clasificación recibe la cobertura de intereses de la empresa, pero no el Z de Altman: ese dato no se carga, así que hoy <code>distressed</code> sale solo por cobertura baja.</p>
+    </aside>
   </section>
 
   <section id="cap-7" class="cap" data-rol="valua" aria-labelledby="cap-7-t">
@@ -654,6 +654,20 @@ h1 {
       <p>Tres piezas. El <strong>flujo de caja libre</strong> (en inglés FCFF): lo que le queda a la empresa cada año después de pagar impuestos sobre su resultado operativo y de reinvertir lo necesario para seguir creciendo. La <strong>tasa de descuento</strong> (WACC): el precio del riesgo, el rendimiento mínimo que exigen quienes financian a la empresa, accionistas y acreedores, ponderado por cuánto aporta cada uno. Y el <strong>valor terminal</strong>: «el resto de la vida». Nadie proyecta cien años año por año, así que se proyectan unos pocos y después se asume que la empresa sigue para siempre creciendo a un ritmo bajo y constante.</p>
       <p>Por eso es un modelo de dos etapas: años explícitos (el horizonte es de <data data-const="bot.valuator.assumptions._HORIZON" value="5">5 años</data>) y una perpetuidad. En palabras, la lógica completa es una oración: el valor de la empresa es la suma de los flujos de cada año traídos a hoy con la tasa de descuento, más el valor terminal también traído a hoy; a eso se le resta la deuda neta y se divide por las acciones.</p>
       <p>El flujo de cada año sale así: ventas del año, por el margen operativo, menos impuestos, menos reinversión. La reinversión es el aumento de ventas dividido por «ventas por unidad de capital» (<code>sales_to_capital</code>): cuántos pesos de ventas nuevas genera cada peso invertido. Cuanto más crece la empresa, más tiene que reinvertir.</p>
+      <p>Las cuentas son siempre las mismas; lo que cambia de una empresa a otra son los supuestos. El diseño habla de seis supuestos críticos: la trayectoria de crecimiento de ventas, el margen operativo, las ventas por unidad de capital, la tasa de descuento, el crecimiento terminal y la probabilidad de quiebra. En el código la tasa de descuento no es un dato: se arma con el costo del capital propio, el costo de la deuda y los pesos de capital propio y deuda (y el impuesto), y el impuesto también es un supuesto resuelto. Cada uno viaja envuelto en un <code>Sourced</code>: el valor junto con su <code>source</code>, de dónde salió. El reporte muestra esa procedencia al lado de cada número.</p>
+      <p>Las procedencias que existen en el código son siete:</p>
+      <div class="tabla"><table>
+        <thead><tr><th scope="col">Valor de <code>source</code></th><th scope="col">Qué significa</th></tr></thead>
+        <tbody>
+          <tr><th scope="row"><code>manual</code></th><td>Lo cargaste vos en <code>config/assumptions/&lt;TICKER&gt;.yaml</code>. Siempre gana.</td></tr>
+          <tr><th scope="row"><code>sector_default_damodaran</code></th><td>Es la mediana de la industria en los datos de Damodaran (margen, ventas por capital, costos de capital, estructura de deuda, impuesto), de la región de la empresa. Si la industria no trae impuesto, se usa el del país, con la misma etiqueta.</td></tr>
+          <tr><th scope="row"><code>sector_default_damodaran_cross_region</code></th><td>Lo mismo, pero la región de la empresa no tiene filas cargadas y se usó la mediana de otra región. Se avisa para que no pase por propia.</td></tr>
+          <tr><th scope="row"><code>rule_based</code></th><td>Sale de una regla: sin historia de ventas, el crecimiento es el PBI nominal, parejo los cinco años; el crecimiento terminal es el menor entre la tasa libre de riesgo y el PBI nominal; el impuesto cae en 25 % si no hay dato; la probabilidad de quiebra y el valor de liquidación quedan en 0.</td></tr>
+          <tr><th scope="row"><code>historical_average</code></th><td>Es el promedio de la propia empresa: el crecimiento de ventas histórico repetido, o el margen promedio de su ciclo en una <code>cyclical</code> con historia suficiente.</td></tr>
+          <tr><th scope="row"><code>story_pattern</code></th><td>Es una trayectoria armada con el patrón del arquetipo (la rampa de una <code>high-growth</code>, capítulo 6), y no un escalar copiado.</td></tr>
+          <tr><th scope="row"><code>unresolved</code></th><td>Ninguna capa produjo un valor. El reporte muestra el hueco; no se lo atribuye a una fuente que no lo dio.</td></tr>
+        </tbody>
+      </table></div>
     </div>
     <div class="ejemplo">
       <p>Una empresa de juguete, con números redondos (monedas y escala cualquiera, mientras sean las mismas):</p>
@@ -671,22 +685,6 @@ h1 {
       </table></div>
       <p>Los cinco años traídos a hoy suman unos 392,5. El valor terminal, medido al final del año 5, es <data data-dcf-out="terminal_value" value="2351.13">2351,1</data>; traído a hoy pesa unos 1535,1. El valor de la empresa (<code>enterprise_value</code>) es la suma: <data data-dcf-out="enterprise_value" value="1927.64">1927,6</data>. Se restan 200 de deuda neta, quedan 1727,6 para los accionistas, y divididos por 100 acciones dan <data data-dcf-out="intrinsic_value" value="17.28">17,28</data> por acción.</p>
       <p>Fijate dónde está el peso: el valor terminal explica cerca del 79,6 % del valor de la empresa. La reinversión baja año a año porque el crecimiento baja, y casi todo el valor está en «el resto de la vida». Ese porcentaje es justo el número que vigila la alerta del 80 % del capítulo 8 (acá queda apenas debajo).</p>
-    </div>
-    <div class="concepto">
-      <p>Las cuentas son siempre las mismas; lo que cambia de una empresa a otra son los supuestos. El diseño habla de seis supuestos críticos: la trayectoria de crecimiento de ventas, el margen operativo, las ventas por unidad de capital, la tasa de descuento, el crecimiento terminal y la probabilidad de quiebra. En el código la tasa de descuento no es un dato: se arma con el costo del capital propio, el costo de la deuda y los pesos de capital propio y deuda (y el impuesto), y el impuesto también es un supuesto resuelto. Cada uno viaja envuelto en un <code>Sourced</code>: el valor junto con su <code>source</code>, de dónde salió. El reporte muestra esa procedencia al lado de cada número.</p>
-      <p>Las procedencias que existen en el código son siete:</p>
-      <div class="tabla"><table>
-        <thead><tr><th scope="col">Valor de <code>source</code></th><th scope="col">Qué significa</th></tr></thead>
-        <tbody>
-          <tr><th scope="row"><code>manual</code></th><td>Lo cargaste vos en <code>config/assumptions/&lt;TICKER&gt;.yaml</code>. Siempre gana.</td></tr>
-          <tr><th scope="row"><code>sector_default_damodaran</code></th><td>Es la mediana de la industria en los datos de Damodaran (margen, ventas por capital, costos de capital, estructura de deuda, impuesto), de la región de la empresa.</td></tr>
-          <tr><th scope="row"><code>sector_default_damodaran_cross_region</code></th><td>Lo mismo, pero la región de la empresa no tiene filas cargadas y se usó la mediana de otra región. Se avisa para que no pase por propia.</td></tr>
-          <tr><th scope="row"><code>rule_based</code></th><td>Sale de una regla: el crecimiento terminal es el menor entre la tasa libre de riesgo y el PBI nominal; el impuesto cae en 25 % si no hay dato; la probabilidad de quiebra y el valor de liquidación quedan en 0.</td></tr>
-          <tr><th scope="row"><code>historical_average</code></th><td>Es el promedio de la propia empresa: el crecimiento de ventas histórico repetido, o el margen promedio de su ciclo en una <code>cyclical</code> con historia suficiente.</td></tr>
-          <tr><th scope="row"><code>story_pattern</code></th><td>Es una trayectoria armada con el patrón del arquetipo (la rampa de una <code>high-growth</code>, capítulo 6), y no un escalar copiado.</td></tr>
-          <tr><th scope="row"><code>unresolved</code></th><td>Ninguna capa produjo un valor. El reporte muestra el hueco; no se lo atribuye a una fuente que no lo dio.</td></tr>
-        </tbody>
-      </table></div>
     </div>
     <div class="en-codigo"><h3>En el código</h3>
       <ul>
@@ -730,13 +728,13 @@ h1 {
       <div class="tabla"><table>
         <thead><tr><th scope="col">Supuesto</th><th scope="col">Con −20 %</th><th scope="col">Con +20 %</th></tr></thead>
         <tbody>
-          <tr><th scope="row">Costo del capital propio</th><td>24,8</td><td>13,0</td></tr>
-          <tr><th scope="row">Margen operativo</th><td>12,7</td><td>21,9</td></tr>
-          <tr><th scope="row">Impuesto</th><td>18,6</td><td>15,9</td></tr>
-          <tr><th scope="row">Crecimiento terminal</th><td>16,2</td><td>18,6</td></tr>
-          <tr><th scope="row">Crecimiento de ventas</th><td>16,5</td><td>18,1</td></tr>
-          <tr><th scope="row">Ventas por unidad de capital</th><td>16,3</td><td>17,9</td></tr>
-          <tr><th scope="row">Costo de la deuda</th><td>17,9</td><td>16,7</td></tr>
+          <tr data-tornado="cost_of_equity" data-orden="1"><th scope="row">Costo del capital propio</th><td><data data-tornado-low="cost_of_equity" value="24.8">24,8</data></td><td><data data-tornado-high="cost_of_equity" value="13.0">13,0</data></td></tr>
+          <tr data-tornado="operating_margin" data-orden="2"><th scope="row">Margen operativo</th><td><data data-tornado-low="operating_margin" value="12.7">12,7</data></td><td><data data-tornado-high="operating_margin" value="21.9">21,9</data></td></tr>
+          <tr data-tornado="tax_rate" data-orden="3"><th scope="row">Impuesto</th><td><data data-tornado-low="tax_rate" value="18.6">18,6</data></td><td><data data-tornado-high="tax_rate" value="15.9">15,9</data></td></tr>
+          <tr data-tornado="terminal_growth" data-orden="4"><th scope="row">Crecimiento terminal</th><td><data data-tornado-low="terminal_growth" value="16.2">16,2</data></td><td><data data-tornado-high="terminal_growth" value="18.6">18,6</data></td></tr>
+          <tr data-tornado="revenue_growth" data-orden="5"><th scope="row">Crecimiento de ventas</th><td><data data-tornado-low="revenue_growth" value="16.5">16,5</data></td><td><data data-tornado-high="revenue_growth" value="18.1">18,1</data></td></tr>
+          <tr data-tornado="sales_to_capital" data-orden="6"><th scope="row">Ventas por unidad de capital</th><td><data data-tornado-low="sales_to_capital" value="16.3">16,3</data></td><td><data data-tornado-high="sales_to_capital" value="17.9">17,9</data></td></tr>
+          <tr data-tornado="pretax_cost_of_debt" data-orden="7"><th scope="row">Costo de la deuda</th><td><data data-tornado-low="pretax_cost_of_debt" value="17.9">17,9</data></td><td><data data-tornado-high="pretax_cost_of_debt" value="16.7">16,7</data></td></tr>
         </tbody>
       </table></div>
       <p>El costo del capital propio base es 10 %. Con 8 % (20 % menos) la acción vale 24,8; con 12 % (20 % más) vale 13,0. El 17,28 del caso base tiene entonces un rango de 13 a 25 solo por ese supuesto. La grilla usaría los dos primeros de la lista: costo del capital propio y margen operativo.</p>
@@ -756,6 +754,9 @@ h1 {
         <li>Dónde termina el recorrido: <code>bot analyze</code> escribe el reporte de análisis (Markdown y HTML) y un archivo JSON por empresa; el visor web de solo lectura (ADR 0008) publica esos JSON y no vuelve a calcular nada ni opera el bot.</li>
       </ul>
     </div>
+    <aside class="caveat">
+      <p>Las dudas también tienen límites. El tornado mueve un supuesto por vez, así que no muestra lo que pasa cuando dos se mueven juntos (para eso está la grilla, y solo cruza dos). El flag de exposición por país hoy queda siempre en <code>unknown</code>, porque ninguna fuente aporta ventas por geografía. Y que los flags estén en verde no prueba que la historia sea buena: solo que los números no se contradicen entre sí.</p>
+    </aside>
   </section>
 </main>
 

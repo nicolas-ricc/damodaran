@@ -18,6 +18,7 @@ from bot.reporting.analysis_report import margin_verdict
 from bot.screener.ranking import RankingWeights, ScoredCandidate, rescore_with_margins
 from bot.valuator.assumptions import AssumptionSource
 from bot.valuator.dcf import Assumptions, Financials, dcf
+from bot.valuator.sensitivity import tornado
 from bot.valuator.story_types import StoryType
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -37,6 +38,9 @@ _CHAPTERS = [
 ]
 
 
+_PARTS = ("concepto", "ejemplo", "en-codigo", "caveat")
+
+
 @dataclass
 class _Chapter:
     id: str
@@ -49,6 +53,10 @@ class _Chapter:
     consts: dict[str, str] = field(default_factory=dict)
     dcf_in: dict[str, str] = field(default_factory=dict)
     dcf_out: dict[str, str] = field(default_factory=dict)
+    tornado_low: dict[str, str] = field(default_factory=dict)
+    tornado_high: dict[str, str] = field(default_factory=dict)
+    tornado_order: list[str] = field(default_factory=list)
+    parts: list[str] = field(default_factory=list)
     svg_etapas: set[str] = field(default_factory=set)
     tables: int = 0
 
@@ -93,6 +101,9 @@ class _Parser(HTMLParser):
         if cur is None:
             return
         cur.classes.update(a.get("class", "").split())
+        cur.parts.extend(c for c in a.get("class", "").split() if c in _PARTS)
+        if tag == "tr" and "data-tornado" in a:
+            cur.tornado_order.append(a["data-tornado"])
         if tag == "h2":
             self._in_h2 = True
         if tag == "table":
@@ -110,6 +121,8 @@ class _Parser(HTMLParser):
                 ("data-const", cur.consts),
                 ("data-dcf", cur.dcf_in),
                 ("data-dcf-out", cur.dcf_out),
+                ("data-tornado-low", cur.tornado_low),
+                ("data-tornado-high", cur.tornado_high),
             ):
                 if key in a:
                     target[a[key]] = a.get("value", "")
@@ -398,6 +411,12 @@ def test_each_chapter_has_its_parts() -> None:
             assert "caveat" in chapter.classes, chapter.id
 
 
+def test_each_chapter_parts_come_in_order() -> None:
+    for chapter in _parsed().chapters:
+        expected = [p for p in _PARTS if p in chapter.parts]
+        assert chapter.parts == expected, (chapter.id, chapter.parts)
+
+
 def test_required_symbols_are_cited() -> None:
     for cid, symbols in _REQUIRED_SYMBOLS.items():
         missing = set(symbols) - set(_chapter(cid).symbols)
@@ -501,30 +520,34 @@ def _close(shown: str, actual: float) -> bool:
     return math.isclose(float(shown), actual, rel_tol=0.01, abs_tol=0.051)
 
 
+def _dcf_example() -> tuple[Financials, Assumptions]:
+    i = _chapter("cap-7").dcf_in
+    growth = tuple(float(x) for x in i["revenue_growth"].split(","))
+    financials = Financials(
+        revenue=float(i["revenue"]),
+        net_debt=float(i["net_debt"]),
+        shares_diluted=float(i["shares_diluted"]),
+    )
+    assumptions = Assumptions(
+        revenue_growth=growth,
+        operating_margin=(float(i["operating_margin"]),) * len(growth),
+        tax_rate=float(i["tax_rate"]),
+        sales_to_capital=float(i["sales_to_capital"]),
+        terminal_growth=float(i["terminal_growth"]),
+        cost_of_equity=float(i["cost_of_equity"]),
+        pretax_cost_of_debt=float(i["pretax_cost_of_debt"]),
+        equity_weight=float(i["equity_weight"]),
+        debt_weight=float(i["debt_weight"]),
+    )
+    return financials, assumptions
+
+
 def test_dcf_example_matches_code() -> None:
     chapter = _chapter("cap-7")
-    i = {k: v for k, v in chapter.dcf_in.items()}
-    growth = tuple(float(x) for x in i["revenue_growth"].split(","))
-    result = dcf(
-        Financials(
-            revenue=float(i["revenue"]),
-            net_debt=float(i["net_debt"]),
-            shares_diluted=float(i["shares_diluted"]),
-        ),
-        Assumptions(
-            revenue_growth=growth,
-            operating_margin=(float(i["operating_margin"]),) * len(growth),
-            tax_rate=float(i["tax_rate"]),
-            sales_to_capital=float(i["sales_to_capital"]),
-            terminal_growth=float(i["terminal_growth"]),
-            cost_of_equity=float(i["cost_of_equity"]),
-            pretax_cost_of_debt=float(i["pretax_cost_of_debt"]),
-            equity_weight=float(i["equity_weight"]),
-            debt_weight=float(i["debt_weight"]),
-        ),
-    )
+    financials, assumptions = _dcf_example()
+    result = dcf(financials, assumptions)
     out = chapter.dcf_out
-    assert len(growth) >= 2
+    assert len(assumptions.revenue_growth) >= 2
     assert chapter.tables >= 1
     assert _close(out["wacc"], result.wacc)
     for p in result.projections:
@@ -532,6 +555,17 @@ def test_dcf_example_matches_code() -> None:
         assert _close(out[f"pv.{p.year}"], p.present_value), p.year
     for name in ("terminal_value", "enterprise_value", "intrinsic_value"):
         assert _close(out[name], getattr(result, name)), name
+
+
+def test_tornado_example_matches_code() -> None:
+    chapter = _chapter("cap-8")
+    entries = tornado(*_dcf_example())
+    assert chapter.tornado_order == [e.axis.value for e in entries]
+    for entry in entries:
+        axis = entry.axis.value
+        assert entry.intrinsic_low is not None and entry.intrinsic_high is not None
+        assert _close(chapter.tornado_low[axis], entry.intrinsic_low), axis
+        assert _close(chapter.tornado_high[axis], entry.intrinsic_high), axis
 
 
 def test_margin_verdict_thresholds_match_code() -> None:

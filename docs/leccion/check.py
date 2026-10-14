@@ -20,6 +20,7 @@ CITA_RE = re.compile(
     r'<code\b[^>]*\bdata-symbol="([^"]+)"[^>]*>.*?</code>'
     r'(?:\s*(?:·|&middot;)?\s*<code class="at">(src/bot/[^<:]+\.py):(\d+)</code>)?',
     re.S)
+AT_RE = re.compile(r'<code\b[^>]*\bclass="at"')
 
 
 def indice():
@@ -49,6 +50,10 @@ def revisar(html, idx):
         elif linea != real_linea:
             avisos.append(f'línea movida: {simbolo} citado en {archivo}:{linea}, '
                           f'ahora {real_archivo}:{real_linea}')
+    # una ubicación que el regex no empareja se saltearía en silencio
+    sueltas = len(AT_RE.findall(html)) - sum(1 for _, archivo, _ in citas(html) if archivo)
+    if sueltas:
+        errores.append(f'ubicación ilegible: {sueltas} <code class="at"> sin símbolo y archivo:línea')
     return errores, avisos
 
 
