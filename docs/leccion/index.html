@@ -189,7 +189,7 @@ h1 {
 .cap[data-rol="datos"]      { border-inline-start-style: solid; }
 .cap[data-rol="selecciona"] { border-inline-start-style: double; border-inline-start-width: 8px; }
 .cap[data-rol="valua"]      { border-inline-start-style: dotted; border-inline-start-width: 8px; }
-.cap[data-rol="vigila"]     { border-inline-start-style: solid; }
+.cap[data-rol="vigila"]     { border-inline-start: 0; }
 .cap[data-rol="elimina"]    { border-inline-start: 0; }
 .cap[data-rol="elimina"]::before {
   content: "";
@@ -200,7 +200,15 @@ h1 {
   background: repeating-linear-gradient(45deg, var(--rol) 0 2px, transparent 2px 7px);
   border-inline-start: 3px solid var(--rol);
 }
-.cap[data-rol="elimina"] { padding-inline-start: calc(clamp(0.9rem, 3vw, 1.75rem) + 8px); }
+.cap[data-rol="vigila"]::before {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 10px;
+  background: radial-gradient(circle at 0 50%, transparent 3px, var(--rol) 3px 5px, transparent 5px) 0 0 / 10px 12px repeat-y;
+}
+.cap[data-rol="elimina"], .cap[data-rol="vigila"] { padding-inline-start: calc(clamp(0.9rem, 3vw, 1.75rem) + 10px); }
 
 .cap-head {
   display: flex;
@@ -213,7 +221,7 @@ h1 {
   display: inline-block;
   min-width: 2.2rem;
   padding: 0.05rem 0.5rem;
-  background: var(--rol);
+  background: var(--rol-t);
   color: var(--sheet);
   font-family: var(--f-titulo);
   font-weight: 800;
