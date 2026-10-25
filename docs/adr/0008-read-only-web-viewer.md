@@ -44,7 +44,10 @@ excludes an operating dashboard).
 - Manual prerequisite, once: Settings -> Pages -> Source = GitHub Actions. Without it the
   deploy job fails.
 - Published analyses are public. Only commit sidecars you are willing to show.
-- The viewer is only as fresh as the last commit of `reports/*/analysis/*.json`.
+- The viewer is only as fresh as the last commit of `reports/*/analysis/*.json`. Since
+  2026-10-24 the weekly cron job (`scripts/weekly.sh`) runs `bot analyze --from-screen` and
+  `scripts/publish_site.sh` pushes the sidecars to `master` from a detached worktree, so the
+  site refreshes every Saturday without a manual commit.
 - Changing the sidecar shape means bumping `SCHEMA_VERSION` and teaching `web/index.py`
   to handle or skip older versions.
 - Known visual residuals: tornado text is small at 1440px wide; on mobile the value line

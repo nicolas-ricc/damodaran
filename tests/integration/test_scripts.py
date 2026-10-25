@@ -18,7 +18,7 @@ from dotenv import dotenv_values
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VENV_BIN = Path(sys.executable).parent
-SCRIPTS = ["bootstrap.sh", "install_cron.sh", "daily.sh", "weekly.sh"]
+SCRIPTS = ["bootstrap.sh", "install_cron.sh", "daily.sh", "weekly.sh", "publish_site.sh"]
 
 # `uv run <cmd> ...` -> `<test venv>/bin/<cmd> ...`: real `bot`, no new venv.
 _UV_SHIM = f"""#!/usr/bin/env bash
@@ -253,7 +253,11 @@ def test_install_cron_rejects_bad_arguments_before_reading_the_crontab(
 
 _WRAPPERS = {
     "daily.sh": ["run bot refresh --prices --fx", "run bot portfolio"],
-    "weekly.sh": ["run bot refresh --all", "run bot screen --preset damodaran_value"],
+    "weekly.sh": [
+        "run bot refresh --all",
+        "run bot screen --preset damodaran_value",
+        "run bot analyze --from-screen",
+    ],
 }
 
 
@@ -294,7 +298,25 @@ def test_weekly_exits_with_screen_failure(repo: Path, recorder_bin: Path, calls:
     result = _run(repo / "scripts" / "weekly.sh", env=_env(recorder_bin, FAKE_SCREEN_EXIT="4"))
 
     assert result.returncode == 4
+    assert _calls(calls) == _WRAPPERS["weekly.sh"][:2]
+
+
+def test_weekly_publishes_the_site_after_analyze(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    result = _run(repo / "scripts" / "weekly.sh", env=_env(recorder_bin))
+
+    assert result.returncode == 0, result.stderr
     assert _calls(calls) == _WRAPPERS["weekly.sh"]
+    assert "publish_site:" in (repo / ".cache" / "weekly.log").read_text()
+
+
+def test_weekly_failing_analyze_skips_publish(repo: Path, recorder_bin: Path, calls: Path) -> None:
+    result = _run(repo / "scripts" / "weekly.sh", env=_env(recorder_bin, FAKE_ANALYZE_EXIT="5"))
+
+    assert result.returncode == 5
+    assert _calls(calls) == _WRAPPERS["weekly.sh"]
+    assert "publish_site:" not in (repo / ".cache" / "weekly.log").read_text()
 
 
 def test_wrapper_appends_to_the_log(repo: Path, recorder_bin: Path) -> None:
@@ -594,3 +616,153 @@ def test_bootstrap_prints_the_tws_checklist_and_next_steps(repo: Path, recorder_
         "uv run bot analyze",
     ):
         assert needle in out, needle
+
+
+# --- publish_site.sh: sidecars -> master, through a worktree under .cache --------------
+
+_GIT_ENV = {
+    "GIT_AUTHOR_NAME": "t",
+    "GIT_AUTHOR_EMAIL": "t@example.com",
+    "GIT_COMMITTER_NAME": "t",
+    "GIT_COMMITTER_EMAIL": "t@example.com",
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_SYSTEM": os.devnull,
+}
+
+
+def _git(cwd: Path, *args: str) -> str:
+    result = subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        env={**os.environ, **_GIT_ENV},
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout.strip()
+
+
+@pytest.fixture
+def git_repo(tmp_path: Path, repo: Path) -> Path:
+    """``repo`` as a clone of a bare ``origin`` whose ``master`` holds scripts/ and .gitignore."""
+    origin = tmp_path / "origin.git"
+    _git(tmp_path, "init", "-q", "--bare", "-b", "master", str(origin))
+    shutil.copy2(REPO_ROOT / ".gitignore", repo / ".gitignore")
+    _git(repo, "init", "-q", "-b", "master")
+    _git(repo, "remote", "add", "origin", str(origin))
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "init")
+    _git(repo, "push", "-q", "-u", "origin", "master")
+    return repo
+
+
+def _origin_master(repo: Path) -> str:
+    return _git(repo, "ls-remote", "origin", "refs/heads/master").split()[0]
+
+
+def _origin_files(repo: Path) -> list[str]:
+    _git(repo, "fetch", "-q", "origin")
+    return _git(repo, "ls-tree", "-r", "--name-only", "origin/master").splitlines()
+
+
+def _sidecar(repo: Path, day: str, ticker: str, body: str = "{}") -> Path:
+    path = repo / "reports" / day / "analysis" / f"{ticker}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(body)
+    return path
+
+
+def _publish(repo: Path, shim_bin: Path) -> subprocess.CompletedProcess[str]:
+    return _run(repo / "scripts" / "publish_site.sh", env=_env(shim_bin, **_GIT_ENV))
+
+
+def test_publish_pushes_the_sidecars_to_origin_master(git_repo: Path, shim_bin: Path) -> None:
+    before = _origin_master(git_repo)
+    _sidecar(git_repo, "2026-10-24", "AAPL")
+    _sidecar(git_repo, "2026-10-24", "AAPL", body="x")  # the .md/.html next to it stay local
+    (git_repo / "reports" / "2026-10-24" / "analysis" / "AAPL.md").write_text("# report")
+
+    result = _publish(git_repo, shim_bin)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _origin_master(git_repo) != before
+    assert "reports/2026-10-24/analysis/AAPL.json" in _origin_files(git_repo)
+    assert "reports/2026-10-24/analysis/AAPL.md" not in _origin_files(git_repo)
+    assert "publish_site: pushed" in result.stdout
+
+
+def test_publish_leaves_the_checkout_branch_and_changes_alone(
+    git_repo: Path, shim_bin: Path
+) -> None:
+    _git(git_repo, "checkout", "-q", "-b", "feature/wip")
+    (git_repo / "scripts" / "daily.sh").write_text("# edited, not committed\n")
+    (git_repo / "untracked.txt").write_text("scratch")
+    _sidecar(git_repo, "2026-10-24", "MSFT")
+
+    assert _publish(git_repo, shim_bin).returncode == 0
+
+    assert _git(git_repo, "rev-parse", "--abbrev-ref", "HEAD") == "feature/wip"
+    status = [line.strip() for line in _git(git_repo, "status", "--porcelain").splitlines()]
+    assert "M scripts/daily.sh" in status
+    assert "?? untracked.txt" in status
+    assert "?? reports/" in status  # still untracked here: nothing was staged in this checkout
+    assert "scripts/daily.sh" in _origin_files(git_repo)
+    assert "untracked.txt" not in _origin_files(git_repo)
+    assert "# edited" not in _git(git_repo, "show", "origin/master:scripts/daily.sh")
+
+
+def test_publish_without_new_analyses_makes_no_commit(git_repo: Path, shim_bin: Path) -> None:
+    _sidecar(git_repo, "2026-10-24", "AAPL")
+    assert _publish(git_repo, shim_bin).returncode == 0
+    after_first = _origin_master(git_repo)
+
+    result = _publish(git_repo, shim_bin)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _origin_master(git_repo) == after_first
+    assert "publish_site: no new analyses" in result.stdout
+
+
+def test_publish_without_any_sidecar_exits_zero_and_touches_no_git(
+    git_repo: Path, shim_bin: Path
+) -> None:
+    before = _origin_master(git_repo)
+
+    result = _publish(git_repo, shim_bin)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert _origin_master(git_repo) == before
+    assert not (git_repo / ".cache" / "site-publish").exists()
+    assert "publish_site: no analyses to publish" in result.stdout
+
+
+def test_publish_picks_up_commits_landed_on_origin_in_between(
+    git_repo: Path, shim_bin: Path, tmp_path: Path
+) -> None:
+    _sidecar(git_repo, "2026-10-17", "AAPL")
+    assert _publish(git_repo, shim_bin).returncode == 0
+    other = tmp_path / "other"
+    _git(tmp_path, "clone", "-q", str(tmp_path / "origin.git"), str(other))
+    (other / "NEWS.md").write_text("landed elsewhere")
+    _git(other, "add", "NEWS.md")
+    _git(other, "commit", "-q", "-m", "elsewhere")
+    _git(other, "push", "-q")
+    _sidecar(git_repo, "2026-10-24", "AAPL")
+
+    result = _publish(git_repo, shim_bin)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    files = _origin_files(git_repo)
+    assert "NEWS.md" in files
+    assert "reports/2026-10-17/analysis/AAPL.json" in files
+    assert "reports/2026-10-24/analysis/AAPL.json" in files
+
+
+def test_publish_fails_loudly_when_the_push_is_refused(git_repo: Path, shim_bin: Path) -> None:
+    _sidecar(git_repo, "2026-10-24", "AAPL")
+    _git(git_repo, "remote", "set-url", "--push", "origin", str(git_repo / "nowhere.git"))
+
+    result = _publish(git_repo, shim_bin)
+
+    assert result.returncode != 0
+    assert "publish_site: push failed" in result.stdout + result.stderr

@@ -122,7 +122,14 @@ uv run bot show AAPL             # show a US company's fundamentals (M1)
 - **Daily** (weekdays 09:00): `bot refresh --prices --fx && bot portfolio`. Fundamentals are
   quarterly and are not refreshed daily. `bot portfolio` fails while TWS is not running and
   logged in; that is logged, not a bug.
-- **Weekly** (Saturday 10:00): `bot refresh --all && bot screen --preset damodaran_value`.
+- **Weekly** (Saturday 10:00): `bot refresh --all && bot screen --preset damodaran_value &&
+  bot analyze --from-screen && scripts/publish_site.sh`. The last step commits only the
+  `reports/*/analysis/*.json` sidecars and pushes them to `master`, which redeploys the
+  viewer ([ADR 0008](docs/adr/0008-read-only-web-viewer.md)). It works through a detached
+  worktree in `.cache/site-publish`, so your checked-out branch and uncommitted changes are
+  never touched. cron has no ssh-agent:
+  the push needs an SSH key that works without a passphrase (a deploy key with write access
+  is fine). Everything the screen shortlists becomes public once pushed.
 
 Each run appends to `.cache/daily.log` / `.cache/weekly.log` under a `=== <timestamp> run ===`
 header; the job's exit code is the bot's. Running the installer again adds nothing; lines are

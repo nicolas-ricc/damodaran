@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Weekly cron job (Saturdays 10:00, installed by scripts/install_cron.sh):
-# refresh every source, then run the Damodaran value screen.
+# refresh every source, run the Damodaran value screen, analyze its shortlist,
+# then publish the analysis sidecars to master so the Pages viewer rebuilds
+# (scripts/publish_site.sh). Each step runs only if the previous one succeeded.
 #
-# Output appends to .cache/weekly.log; the exit code is the bot's.
+# Output appends to .cache/weekly.log; the exit code is the first failing step's.
 set -uo pipefail
 
 # Repo root = parent of this script's directory (resolve symlinks for cron).
@@ -19,5 +21,8 @@ LOG="$REPO/.cache/weekly.log"
 
 {
   echo "=== $(date -Is) run ==="
-  uv run bot refresh --all && uv run bot screen --preset damodaran_value
+  uv run bot refresh --all \
+    && uv run bot screen --preset damodaran_value \
+    && uv run bot analyze --from-screen \
+    && "$SCRIPT_DIR/publish_site.sh"
 } >> "$LOG" 2>&1
