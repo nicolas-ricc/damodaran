@@ -653,3 +653,175 @@ def test_quarter_created_only_by_a_column_the_table_does_not_store_is_dropped() 
         }
     )
     assert parse_company_facts("AAPL", facts).quarterly == []
+
+
+# ---------- #123: concept resolved per period, not per column ----------
+
+
+def test_concept_resolved_per_period_higher_priority_wins_overlap() -> None:
+    # Revenues (X) only for 2017-2018; SalesRevenueNet (Y) for 2014-2017.
+    facts = _facts(
+        {
+            "Revenues": [
+                _fact("2017-12-31", 17_000_000_000, start="2017-01-01"),
+                _fact("2018-12-31", 18_000_000_000, start="2018-01-01"),
+            ],
+            "SalesRevenueNet": [
+                _fact("2014-12-31", 14_000_000_000, start="2014-01-01"),
+                _fact("2015-12-31", 15_000_000_000, start="2015-01-01"),
+                _fact("2016-12-31", 16_000_000_000, start="2016-01-01"),
+                _fact("2017-12-31", 16_900_000_000, start="2017-01-01"),
+            ],
+        }
+    )
+    annual = _annual(facts)
+    assert sorted(annual) == [2014, 2015, 2016, 2017, 2018]
+    assert [annual[y]["revenue"] for y in range(2014, 2019)] == [
+        14_000_000_000,
+        15_000_000_000,
+        16_000_000_000,
+        17_000_000_000,
+        18_000_000_000,
+    ]
+
+
+# The next three already held under the per-column rule; they guard the per-period one.
+def test_short_fact_under_first_concept_does_not_block_second() -> None:
+    facts = _facts(
+        {
+            "Revenues": [_fact("2011-01-31", 249_000_000, start="2011-01-01")],
+            "SalesRevenueNet": [_fact("2011-02-26", 49_694_000_000, start="2010-02-28")],
+        }
+    )
+    annual = _annual(facts)
+    assert sorted(annual) == [2011]
+    assert annual[2011]["revenue"] == 49_694_000_000
+
+
+def test_higher_priority_concept_wins_even_if_lower_filed_later() -> None:
+    facts = _facts(
+        {
+            "Revenues": [_fact("2025-12-31", 26_885_000_000, start="2025-01-01")],
+            "SalesRevenueNet": [
+                _fact(
+                    "2025-12-31",
+                    26_000_000_000,
+                    start="2025-01-01",
+                    filed="2026-06-01",
+                    accn="0000063908-26-000099",
+                )
+            ],
+        }
+    )
+    assert _annual(facts)[2025]["revenue"] == 26_885_000_000
+
+
+def test_losing_concept_amendment_does_not_mark_restated() -> None:
+    facts = _facts(
+        {
+            "Revenues": [_fact("2025-12-31", 26_885_000_000, start="2025-01-01")],
+            "SalesRevenueNet": [
+                _fact("2025-12-31", 26_000_000_000, start="2025-01-01", form="10-K/A")
+            ],
+        }
+    )
+    row = _annual(facts)[2025]
+    assert row["revenue"] == 26_885_000_000
+    assert row["is_restated"] is False
+
+
+def test_quarterly_concept_resolved_per_period() -> None:
+    def q(end: str, start: str, val: float, fp: str) -> dict[str, object]:
+        return _fact(end, val, start=start, form="10-Q", fy=2025, fp=fp, filed="2025-08-01")
+
+    facts = _facts(
+        {
+            "Revenues": [
+                q("2025-03-31", "2025-01-01", 6_000_000_000, "Q1"),
+                q("2025-06-30", "2025-01-01", 12_500_000_000, "Q2"),  # 181-day YTD
+            ],
+            "SalesRevenueNet": [q("2025-06-30", "2025-04-01", 6_500_000_000, "Q2")],
+        }
+    )
+    quarterly = _quarterly(facts)
+    assert sorted(quarterly) == [(2025, 1), (2025, 2)]
+    assert quarterly[(2025, 1)]["revenue"] == 6_000_000_000
+    assert quarterly[(2025, 2)]["revenue"] == 6_500_000_000
+
+
+def test_revenue_list_extended_after_existing_three() -> None:
+    from bot.ingest.sec_edgar import ANNUAL_CONCEPT_MAP
+
+    assert ANNUAL_CONCEPT_MAP["revenue"] == [
+        "Revenues",
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "SalesRevenueNet",
+        "RevenueFromContractWithCustomerIncludingAssessedTax",
+        "SalesRevenueGoodsNet",
+    ]
+
+
+def test_new_revenue_concepts_fill_periods_the_others_miss() -> None:
+    facts = _facts(
+        {
+            "SalesRevenueNet": [_fact("2023-12-31", 23_000_000_000, start="2023-01-01")],
+            "RevenueFromContractWithCustomerIncludingAssessedTax": [
+                _fact("2023-12-31", 23_500_000_000, start="2023-01-01"),
+                _fact("2024-12-31", 24_000_000_000, start="2024-01-01"),
+            ],
+            "SalesRevenueGoodsNet": [_fact("2025-12-31", 25_000_000_000, start="2025-01-01")],
+        }
+    )
+    annual = _annual(facts)
+    assert annual[2023]["revenue"] == 23_000_000_000
+    assert annual[2024]["revenue"] == 24_000_000_000
+    assert annual[2025]["revenue"] == 25_000_000_000
+
+
+def test_instant_concept_resolved_per_period() -> None:
+    facts = _facts(
+        {
+            "Revenues": [
+                _fact("2024-12-31", 25_920_000_000, start="2024-01-01"),
+                _fact("2025-12-31", 26_885_000_000, start="2025-01-01"),
+            ],
+            "LongTermDebt": [_fact("2024-12-31", 38_000_000_000)],
+            "LongTermDebtNoncurrent": [
+                _fact("2024-12-31", 37_000_000_000),
+                _fact("2025-12-31", 39_000_000_000),
+            ],
+        }
+    )
+    annual = _annual(facts)
+    assert annual[2024]["total_debt"] == 38_000_000_000
+    assert annual[2025]["total_debt"] == 39_000_000_000
+
+
+# Best Buy fiscal year ends; the year ending 2013-02-02 is an 11-month transition.
+_BBY_ENDS = [
+    "2008-03-01", "2009-02-28", "2010-02-27", "2011-02-26", "2012-03-03", "2013-02-02",
+    "2014-02-01", "2015-01-31", "2016-01-30", "2017-01-28", "2018-02-03", "2019-02-02",
+    "2020-02-01", "2021-01-30", "2022-01-29", "2023-01-28", "2024-02-03", "2025-02-01",
+]  # fmt: skip
+
+
+def test_bby_shaped_series_has_revenue_every_year_from_2009() -> None:
+    def year(i: int, val: float, filed: str) -> dict[str, object]:
+        # fy is irrelevant here: fp="FY" never feeds the quarterly fallback label.
+        start = date.fromisoformat(_BBY_ENDS[i - 1]).toordinal() + 1
+        return _fact(
+            _BBY_ENDS[i], val, start=date.fromordinal(start).isoformat(), fy=0, filed=filed
+        )
+
+    sales = [year(i, 40e9 + i * 1e8, f"{_BBY_ENDS[i][:4]}-03-25") for i in range(1, 11)]
+    revenues = [year(i, 40e9 + i * 1e8, f"{_BBY_ENDS[i][:4]}-03-26") for i in range(9, 18)]
+    revenues += [
+        _fact("2011-01-31", 249_000_000, start="2011-01-01", filed="2014-03-28"),
+        _fact("2012-01-31", 189_000_000, start="2012-01-01", filed="2014-03-28"),
+    ]
+    annual = _annual(_facts({"Revenues": revenues, "SalesRevenueNet": sales}))
+    expected = [y for y in range(2009, 2026) if y != 2013]  # 2013: 335-day transition
+    assert sorted(annual) == expected
+    assert all(
+        r["revenue"] is not None and r["revenue"] >= 1_000_000_000 for r in annual.values()
+    )
