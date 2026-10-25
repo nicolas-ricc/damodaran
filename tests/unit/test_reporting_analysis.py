@@ -16,6 +16,10 @@ from bot.reporting.analysis_report import render_analysis
 from bot.storage.db import apply_schema, connect
 from bot.valuator.analysis import Analysis, analyze
 
+# Fixture money and share counts are written in millions; the valuator refuses
+# share counts below 1,000,000, so seeds are scaled up by this factor.
+_MILLIONS = 1_000_000.0
+
 
 def _seed(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute(
@@ -55,8 +59,9 @@ def _seed(conn: duckdb.DuckDBPyConnection) -> None:
             "(ticker, fiscal_year, revenue, ebit, net_income, total_debt, cash, "
             "shares_diluted, is_restated, source) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ["AAPL", year, revenue, revenue * 0.30, 100_000.0, 110_000.0, 60_000.0,
-             15_500.0, False, "sec_edgar"],
+            ["AAPL", year, revenue * _MILLIONS, revenue * 0.30 * _MILLIONS,
+             100_000.0 * _MILLIONS, 110_000.0 * _MILLIONS, 60_000.0 * _MILLIONS,
+             15_500.0 * _MILLIONS, False, "sec_edgar"],
         )
     conn.execute(
         "INSERT INTO prices_daily (ticker, date, close, currency, source) "

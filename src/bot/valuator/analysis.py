@@ -47,6 +47,12 @@ from bot.valuator.story_types import (
 #: assumptions module default; roughly long-run US nominal GDP).
 _DEFAULT_GDP_NOMINAL = 0.04
 
+# Plausible range for a diluted share count (bounds inclusive). Outside it the
+# figure is almost certainly mis-scaled (e.g. reported in millions), and a
+# per-share value built on it would be silently wrong.
+MIN_PLAUSIBLE_SHARES = 1_000_000.0
+MAX_PLAUSIBLE_SHARES = 100_000_000_000.0
+
 
 @dataclass(frozen=True)
 class SanityCheck:
@@ -587,7 +593,9 @@ def analyze(
         LookupError: If ``ticker`` is unknown or has no annual financials.
         ValueError: If the resolved assumptions are too incomplete to value the
             company (propagated from :meth:`Assumptions.to_dcf_assumptions` /
-            :func:`bot.valuator.dcf.dcf`).
+            :func:`bot.valuator.dcf.dcf`), or if the latest diluted share count
+            is missing, non-positive, or outside the plausible range
+            (``MIN_PLAUSIBLE_SHARES``..``MAX_PLAUSIBLE_SHARES``).
     """
     ticker = ticker.upper()
     if company is None:
@@ -640,6 +648,12 @@ def analyze(
         raise ValueError(f"{ticker}: no revenue on the latest financials — cannot value")
     if latest.shares_diluted is None or latest.shares_diluted <= 0.0:
         raise ValueError(f"{ticker}: missing/non-positive diluted shares — cannot value")
+    shares = latest.shares_diluted
+    if not MIN_PLAUSIBLE_SHARES <= shares <= MAX_PLAUSIBLE_SHARES:
+        raise ValueError(
+            f"{ticker}: implausible diluted share count {shares:,.1f} "
+            "(outside 1,000,000–100,000,000,000) — cannot value"  # noqa: RUF001
+        )
     financials = Financials(
         revenue=latest.revenue,
         net_debt=latest.net_debt if latest.net_debt is not None else 0.0,

@@ -20,6 +20,10 @@ from bot.valuator.narrative_flags import FlagColor
 from bot.valuator.sensitivity import SensitivityAxis
 from bot.valuator.story_types import StoryType
 
+# Fixture money and share counts are written in millions; the valuator refuses
+# share counts below 1,000,000, so seeds are scaled up by this factor.
+_MILLIONS = 1_000_000.0
+
 
 def _seed(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute(
@@ -69,13 +73,13 @@ def _seed(conn: duckdb.DuckDBPyConnection) -> None:
             [
                 "AAPL",
                 year,
-                revenue,
-                revenue * 0.30,
-                incomes[year],
-                3_000.0,
-                110_000.0,
-                60_000.0,
-                15_500.0,
+                revenue * _MILLIONS,
+                revenue * 0.30 * _MILLIONS,
+                incomes[year] * _MILLIONS,
+                3_000.0 * _MILLIONS,
+                110_000.0 * _MILLIONS,
+                60_000.0 * _MILLIONS,
+                15_500.0 * _MILLIONS,
                 False,
                 "sec_edgar",
             ],
@@ -83,7 +87,7 @@ def _seed(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute(
         "INSERT INTO prices_daily (ticker, date, close, market_cap, currency, source) "
         "VALUES (?, ?, ?, ?, ?, ?)",
-        ["AAPL", "2026-05-29", 150.0, 2_325_000.0, "USD", "fmp"],
+        ["AAPL", "2026-05-29", 150.0, 2_325_000.0 * _MILLIONS, "USD", "fmp"],
     )
 
 
@@ -164,13 +168,13 @@ def _seed_volatile_financials(conn: duckdb.DuckDBPyConnection, ticker: str) -> N
             [
                 ticker,
                 year,
-                revenue,
-                net_income * 1.2,
-                net_income,
+                revenue * _MILLIONS,
+                net_income * 1.2 * _MILLIONS,
+                net_income * _MILLIONS,
                 0.0,
-                200.0,
-                50.0,
-                100.0,
+                200.0 * _MILLIONS,
+                50.0 * _MILLIONS,
+                100.0 * _MILLIONS,
                 False,
                 "sec_edgar",
             ],
@@ -192,14 +196,14 @@ def _seed_leveraged_financials(conn: duckdb.DuckDBPyConnection, ticker: str) -> 
             [
                 ticker,
                 year,
-                revenue,
-                revenue * 0.30,
-                revenue * 0.20,
-                3_000.0,
-                200_000.0,
-                60_000.0,
-                163_636.0,
-                15_500.0,
+                revenue * _MILLIONS,
+                revenue * 0.30 * _MILLIONS,
+                revenue * 0.20 * _MILLIONS,
+                3_000.0 * _MILLIONS,
+                200_000.0 * _MILLIONS,
+                60_000.0 * _MILLIONS,
+                163_636.0 * _MILLIONS,
+                15_500.0 * _MILLIONS,
                 False,
                 "sec_edgar",
             ],
@@ -375,13 +379,13 @@ def _seed_high_cagr_financials(conn: duckdb.DuckDBPyConnection, ticker: str) -> 
             [
                 ticker,
                 year,
-                revenue,
-                revenue * 0.15,
-                revenue * 0.10,
+                revenue * _MILLIONS,
+                revenue * 0.15 * _MILLIONS,
+                revenue * 0.10 * _MILLIONS,
                 0.0,
                 0.0,
                 0.0,
-                1_000.0,
+                1_000.0 * _MILLIONS,
                 False,
                 "sec_edgar",
             ],
