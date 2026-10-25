@@ -16,11 +16,12 @@ from typing import Any, get_args
 import duckdb
 import pytest
 
-from bot.ingest.provider import ProviderRateLimitError
+from bot.ingest.provider import FundamentalsBundle, ParsedCompanyData, ProviderRateLimitError
 from bot.ingest.universe import (
     TickerOutcome,
     TickerStatus,
     default_universe_path,
+    import_company,
     latest_local_filing_date,
     load_universe,
     refresh_universe,
@@ -343,9 +344,6 @@ def test_provider_neutral_writers_require_an_explicit_source() -> None:
 
 
 def test_import_company_records_shares_rescaled() -> None:
-    from bot.ingest.provider import FundamentalsBundle, ParsedCompanyData
-    from bot.ingest.universe import import_company
-
     company = {"ticker": "MCD", "name": "MCD", "currency": "USD", "source": "fake"}
     bundle = FundamentalsBundle(
         info=None,
@@ -360,8 +358,6 @@ def test_import_company_records_shares_rescaled() -> None:
 
 
 def test_import_company_records_zero_shares_rescaled_by_default() -> None:
-    from bot.ingest.universe import import_company
-
     result = import_company(_db(), ticker="AAPL", provider=FakeProvider())
     assert result.is_success(), result.error_message
     assert result.details["shares_rescaled"] == 0
