@@ -337,3 +337,31 @@ def test_ticker_status_names_the_four_outcomes() -> None:
 def test_provider_neutral_writers_require_an_explicit_source() -> None:
     for fn in (upsert_prices_daily, upsert_fx_rates, latest_local_filing_date):
         assert inspect.signature(fn).parameters["source"].default is inspect.Parameter.empty
+
+
+# ---------- share-count rescales in the import log (#124) ----------
+
+
+def test_import_company_records_shares_rescaled() -> None:
+    from bot.ingest.provider import FundamentalsBundle, ParsedCompanyData
+    from bot.ingest.universe import import_company
+
+    company = {"ticker": "MCD", "name": "MCD", "currency": "USD", "source": "fake"}
+    bundle = FundamentalsBundle(
+        info=None,
+        annual=ParsedCompanyData(company=company, shares_rescaled=1),
+        quarterly=ParsedCompanyData(company=company),
+        filings=[],
+    )
+    provider = FakeProvider(bundles={"MCD": bundle})
+    result = import_company(_db(), ticker="MCD", provider=provider)
+    assert result.is_success(), result.error_message
+    assert result.details["shares_rescaled"] == 1
+
+
+def test_import_company_records_zero_shares_rescaled_by_default() -> None:
+    from bot.ingest.universe import import_company
+
+    result = import_company(_db(), ticker="AAPL", provider=FakeProvider())
+    assert result.is_success(), result.error_message
+    assert result.details["shares_rescaled"] == 0

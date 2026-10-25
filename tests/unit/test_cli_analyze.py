@@ -374,3 +374,34 @@ def test_analyze_writes_json_sidecar(tmp_path: Path, monkeypatch) -> None:
     assert payload["schema_version"] == 1
     assert payload["verdict"] == margin_verdict(payload["analysis"]["margin_of_safety"])
     assert "AAPL.json" in result.stdout
+
+
+def test_analyze_refuses_implausible_shares_and_continues_batch(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "bot.duckdb"
+    reports_dir = tmp_path / "reports"
+    monkeypatch.setenv("BOT_DB_PATH", str(db_path))
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(reports_dir))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+
+    conn = connect(db_path)
+    apply_schema(conn)
+    _seed(conn, "MCD")
+    _seed(conn, "AAPL")
+    # MCD's filer tagged the latest year's diluted shares in millions (#124).
+    conn.execute(
+        "UPDATE financials_annual SET shares_diluted = 732.3 "
+        "WHERE ticker = 'MCD' AND fiscal_year = 2025"
+    )
+    conn.close()
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["analyze", "MCD", "AAPL"])
+    assert result.exit_code == 1, result.output
+    assert "MCD: cannot value" in result.output
+    assert "implausible diluted share count" in result.output
+
+    out_dir = next(reports_dir.glob("*/analysis"))
+    assert (out_dir / "AAPL.md").exists()
+    assert not (out_dir / "MCD.md").exists()

@@ -12,6 +12,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import duckdb
+import pytest
 from structlog.testing import capture_logs
 
 from bot.ingest.base import IngestResult
@@ -178,3 +179,58 @@ def test_import_company_from_sec_reports_null_revenue_count() -> None:
     assert len(events) == 1
     assert events[0]["annual_revenue_null"] == 1
     assert events[0]["ticker"] == "AAPL"
+
+
+# ---------------------------------------------------------------------------
+# #124 — share-count rescales are counted in the import log
+# ---------------------------------------------------------------------------
+
+
+def _mcd_shares_facts() -> dict[str, Any]:
+    years = {2019: 750_100_000.0, 2020: 741_300_000.0, 2021: 751_800_000.0, 2022: 732.3, 2023: 721.9}
+
+    def entry(year: int, val: float) -> dict[str, Any]:
+        return {
+            "start": f"{year}-01-01",
+            "end": f"{year}-12-31",
+            "val": val,
+            "accn": f"0000063908-{year + 1}-000010",
+            "fy": year,
+            "fp": "FY",
+            "form": "10-K",
+            "filed": f"{year + 1}-02-20",
+        }
+
+    return {
+        "cik": 63908,
+        "entityName": "McDonald's Corp",
+        "facts": {
+            "us-gaap": {
+                "Revenues": {"units": {"USD": [entry(y, 25e9) for y in years]}},
+                "WeightedAverageNumberOfDilutedSharesOutstanding": {
+                    "units": {"shares": [entry(y, v) for y, v in years.items()]}
+                },
+            }
+        },
+    }
+
+
+def test_import_company_from_sec_records_shares_rescaled() -> None:
+    conn = duckdb.connect(":memory:")
+    apply_schema(conn)
+    with (
+        patch("bot.ingest.sec_edgar.SecEdgarClient.lookup_cik", return_value="0000063908"),
+        patch(
+            "bot.ingest.sec_edgar.SecEdgarClient.fetch_company_facts",
+            return_value=_mcd_shares_facts(),
+        ),
+    ):
+        result = import_company_from_sec(conn, ticker="MCD", user_agent="Test t@example.com")
+
+    assert result.is_success(), result.error_message
+    assert result.details["shares_rescaled"] == 2
+    stored = conn.execute(
+        "SELECT fiscal_year, shares_diluted FROM financials_annual "
+        "WHERE ticker = 'MCD' AND fiscal_year >= 2022 ORDER BY fiscal_year"
+    ).fetchall()
+    assert stored == [(2022, pytest.approx(732_300_000)), (2023, pytest.approx(721_900_000))]

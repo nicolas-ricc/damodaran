@@ -432,3 +432,31 @@ def test_analyze_explicit_age_years_wins_over_ipo_date(
     result = analyze("EXPLICIT", conn, age_years=40)
 
     assert result.story_type != StoryType.HIGH_GROWTH.value
+
+
+# --- #124: implausible share counts are refused ---------------------------------
+
+
+def _set_latest_shares(conn: duckdb.DuckDBPyConnection, shares: float) -> None:
+    conn.execute(
+        "UPDATE financials_annual SET shares_diluted = ? WHERE ticker = 'AAPL' "
+        "AND fiscal_year = (SELECT max(fiscal_year) FROM financials_annual WHERE ticker = 'AAPL')",
+        [shares],
+    )
+
+
+@pytest.mark.parametrize("shares", [732.3, 999_999.0, 100_000_000_001.0])
+def test_analyze_refuses_implausible_share_count(
+    seeded_conn: duckdb.DuckDBPyConnection, shares: float
+) -> None:
+    _set_latest_shares(seeded_conn, shares)
+    with pytest.raises(ValueError, match="implausible diluted share count"):
+        analyze("AAPL", seeded_conn)
+
+
+@pytest.mark.parametrize("shares", [1_000_000.0, 100_000_000_000.0])
+def test_analyze_accepts_share_count_at_bounds(
+    seeded_conn: duckdb.DuckDBPyConnection, shares: float
+) -> None:
+    _set_latest_shares(seeded_conn, shares)
+    analyze("AAPL", seeded_conn)
