@@ -12,6 +12,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import duckdb
+from structlog.testing import capture_logs
 
 from bot.ingest.base import IngestResult
 from bot.ingest.sec_edgar import import_company_from_sec, upsert_company
@@ -143,8 +144,6 @@ def _annual_fact(start: str, end: str, val: float) -> dict[str, Any]:
 
 
 def test_import_company_from_sec_reports_null_revenue_count() -> None:
-    from structlog.testing import capture_logs
-
     facts: dict[str, Any] = {
         "cik": 320193,
         "entityName": "Apple Inc.",
