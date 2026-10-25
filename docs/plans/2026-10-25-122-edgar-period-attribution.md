@@ -90,7 +90,7 @@ def test_malformed_entries_are_skipped():
 
 - [ ] **Step 3: Run tests to verify they fail** — `uv run pytest tests/unit/test_sec_edgar_parser.py -q`; expected: the new tests FAIL (MCD returns 2025=25,494M), existing tests PASS.
 
-- [ ] **Step 4: Implement** — In `_collect_period_rows`: for each column/concept, filter entries by form, parse `start`/`end` with `coerce_date` (from `bot.ingest.base`), classify duration (`start` present) vs instant; keep duration entries inside `span_days`; sort accepted entries by `(filed, accn)` ascending and let later ones overwrite the slot keyed `(end, db_col)`. A concept counts as "found" when it produced any accepted entry (duration or instant). After all columns: rows = ends with ≥1 duration fact; attach instant values for the same end; drop instant-only ends. `is_restated` = any accepted fact used for that row (duration or attached instant) had a form ending `/A` — track all accepted forms per `end`, not only winners (preserves `test_is_restated_true_when_amendment_in_history_even_if_later_10k_wins`). In `parse_company_facts`: stamp `fiscal_year = end.year`; on collision keep the later `end` and `log.warning("sec_edgar.fiscal_year_collision", ticker=..., fiscal_year=..., kept=..., dropped=...)`.
+- [ ] **Step 4: Implement** — In `_collect_period_rows`: for each column/concept, filter entries by form, skip entries with `val is None` or an `end` that `coerce_date` (from `bot.ingest.base`, returns `None` on unparsable text) cannot parse; classify duration (`start` present and parseable) vs instant (`start` absent; an unparseable `start` skips the entry); keep duration entries inside `span_days`; sort accepted entries by `(filed, accn)` ascending (ISO strings compared as strings, missing → `""`) and let later ones overwrite the slot keyed `(end, db_col)`. Two phases: (a) duration facts for every column decide the row ends; (b) instant facts are then matched to those ends. A concept counts as "found" (stopping the per-column fallback) only when it contributed an accepted duration fact, or, for instant facts, an instant whose `end` matches a row end — so a first concept whose instants all miss falls through to the next concept. Add `test_instant_concept_with_no_matching_end_falls_back_to_next_concept` (`LongTermDebt` instant at 2024-12-31 only, `LongTermDebtNoncurrent` instant at 2025-12-31, revenue row ends 2025-12-31 → `total_debt` from `LongTermDebtNoncurrent`). After all columns: rows = ends with ≥1 duration fact; attach instant values for the same end; drop instant-only ends. `is_restated` = any accepted fact used for that row (duration or attached instant) had a form ending `/A` — track all accepted forms per `end`, not only winners (preserves `test_is_restated_true_when_amendment_in_history_even_if_later_10k_wins`). In `parse_company_facts`: stamp `fiscal_year = end.year`; on collision keep the later `end` and `log.warning("sec_edgar.fiscal_year_collision", ticker=..., fiscal_year=..., kept=..., dropped=...)`.
 
 - [ ] **Step 5: Run tests to verify they pass** — `uv run pytest tests/unit/test_sec_edgar_parser.py tests/unit/test_sec_edgar_derived.py tests/unit/test_sec_edgar_importer.py -q` all PASS.
 
@@ -109,7 +109,8 @@ def test_malformed_entries_are_skipped():
 Algorithm for `_fiscal_quarter_key` (all day counts are `(a - b).days`, quarter length 91.3 days):
 1. Next annual end `N` = smallest annual end `>= quarter_end` with `N - quarter_end <= 380`: `fiscal_year = N.year`, `fiscal_quarter = 4 - round((N - quarter_end) / 91.3)`.
 2. Else previous annual end `P` = largest annual end `< quarter_end` with `quarter_end - P <= 380`: `fiscal_year = P.year + 1`, `fiscal_quarter = round((quarter_end - P) / 91.3)`.
-3. Result outside 1..4, or no `N`/`P`: return `fallback` = `(fy, int(fp[1:]))` of the earliest-filed (then lowest `accn`) accepted entry for that quarter end whose `fp` is `Q1`–`Q4`; `None` if no such entry (row dropped).
+`annual_ends` holds every accepted annual end, including one dropped by a fiscal-year collision (Task 1), so that year's quarters are still numbered against their real year-end.
+3. Result outside 1..4, or no `N`/`P`: return `fallback` = `(fy, int(fp[1:]))` of the earliest-filed (then lowest `accn`) accepted entry for that quarter end whose `fp` is `Q1`–`Q4` and whose `fy` is an int, taken across every column/concept accepted for that end; `None` if no such entry (row dropped). Earliest, because a fact is first reported in the filing of its own period, where `fy`/`fp` describe that period; later filings re-report it as a comparative under their own `fy`/`fp`.
 
 `fiscal_year` of a quarter is the fiscal year it belongs to (the calendar year of that fiscal year's end), matching the annual rule and how companies label quarters ("Q1 FY2026"). Collision on `(fiscal_year, fiscal_quarter)`: keep later end, `log.warning("sec_edgar.fiscal_quarter_collision", ...)`. `_collect_period_rows` must expose the fallback `(fy, fp)` per end: add `"_first_fy_fp"` to each row (popped before return from `parse_company_facts`).
 
@@ -197,3 +198,21 @@ assert newest == (2025, date(2025, 9, 27))  # latest FY end in the committed cas
   `- **Fiscal year** (`fiscal_year`): the calendar year of the period's end date. An annual row is a duration fact of 350–380 days; Best Buy's year ending 2014-02-01 is fiscal_year 2014. A quarter belongs to the fiscal year it falls in, numbered by its position in it. Never the SEC `fy` field, which names the filing, nor `frame`.`
 - [ ] **Step 3: Run** `uv run ruff check . && uv run mypy src && uv run pytest -q` and the plano/leccion checks; all green.
 - [ ] **Step 4: Commit** — `git commit -m "docs(#122): define fiscal_year; pin AAPL newest annual period"`
+
+## Assumptions
+
+Technical decisions taken during plan review (no written source; any option satisfies the issue). Listed again in the PR.
+
+- Rows are keyed by period `end`; one row per period with a merged `is_restated` flag, as today (`sec_edgar.py:314-323` builds one row per `(fy, q)`). Rejected: one row per (`end`, `is_restated`), which the PK allows but nothing produces today.
+- Fiscal-year collision (two accepted annual ends in one calendar year): keep the later `end`, log `sec_edgar.fiscal_year_collision`. The PK `(ticker, fiscal_year, is_restated)` admits one. Rejected: keep the earlier one (older data, and the valuator reads the latest year).
+- A quarterly row's `fiscal_year` is the fiscal year the quarter belongs to (calendar year of that year's end), following the issue's "as the company itself labels it". Rejected: calendar year of the quarter's own end, which makes AAPL's Q1 FY2026 (ends 2025-12-27) collide with Q1 FY2025 on `(2025, 1)`.
+- `fiscal_quarter` comes from the distance to the neighbouring annual end in 91.3-day steps. The first-reporting filing's `fy`/`fp` is the fallback, as the issue prescribes. Rejected: counting the accepted quarters in a year, which breaks when one is missing.
+- A concept wins the per-column fallback only through facts that actually land in a row (see Task 1 Step 4).
+- `filed`/`accn` are compared as strings (ISO dates sort correctly as strings, as today at `sec_edgar.py:303`).
+
+## Grilling
+
+- Rounds: 1 (17 questions). The revisions were clarifications on the same seam, so no second round.
+- Sources: CODE 12, ISSUE 3, NO SOURCE → technical assumption 4 (Q3, Q4, Q6, Q10). Spec ambiguity: 0. Out of scope: 0.
+- Assumptions: see above.
+- Issues opened: none.
