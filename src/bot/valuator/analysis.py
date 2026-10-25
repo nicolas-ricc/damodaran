@@ -652,12 +652,12 @@ def analyze(
     if not MIN_PLAUSIBLE_SHARES <= shares <= MAX_PLAUSIBLE_SHARES:
         raise ValueError(
             f"{ticker}: implausible diluted share count {shares:,.1f} "
-            "(outside 1,000,000–100,000,000,000) — cannot value"  # noqa: RUF001
+            f"(outside {MIN_PLAUSIBLE_SHARES:,.0f} to {MAX_PLAUSIBLE_SHARES:,.0f}) — cannot value"
         )
     financials = Financials(
         revenue=latest.revenue,
         net_debt=latest.net_debt if latest.net_debt is not None else 0.0,
-        shares_diluted=latest.shares_diluted,
+        shares_diluted=shares,
     )
 
     dcf_assumptions = assumptions.to_dcf_assumptions()

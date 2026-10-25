@@ -19,7 +19,7 @@
 - Values `<= 0` are skipped (left unchanged; the valuator already refuses them) and never divided by.
 - Every correction logs a structlog **warning** `sec_edgar.shares_rescaled` with keys `ticker`, `fiscal_year`, `original`, `factor`.
 - The count of corrections goes in `refresh_log` details under the key `shares_rescaled` (an int, `0` when none).
-- Valuator guard bounds: refuse when latest `shares_diluted < 1_000_000` or `> 100_000_000_000`. Message: `f"{ticker}: implausible diluted share count {shares:,.1f} (outside 1,000,000–100,000,000,000) — cannot value"`, raised as `ValueError` like the neighbouring checks.
+- Valuator guard bounds: refuse when latest `shares_diluted < 1_000_000` or `> 100_000_000_000`. Message: `f"{ticker}: implausible diluted share count {shares:,.1f} (outside 1,000,000 to 100,000,000,000) — cannot value"`, raised as `ValueError` like the neighbouring checks.
 - Type hints everywhere (`mypy --strict`); `uv run ruff check . && uv run mypy src && uv run pytest -q` green.
 - Commits: Conventional Commits with `(#124)` scope.
 
