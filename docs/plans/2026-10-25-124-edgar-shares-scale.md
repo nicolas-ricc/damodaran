@@ -31,6 +31,17 @@
 4. The bulk `bot refresh --fundamentals` path (`EdgarProviderBase._restamp` rebuilds `ParsedCompanyData`) must not drop `shares_rescaled` before it reaches `universe.import_company`. Test in Task 2.
 5. The guard fires before any DCF computation and on the batched screener path (`analyze(company=...)`), not only through the CLI. Test in Task 3 calls `analyze` directly.
 
+## Assumptions
+
+Technical decisions taken during plan grilling (none changes what a user sees beyond the issue's specification):
+
+- Factor-2 bands are inclusive (`5e5 <= r <= 2e6`, `500 <= r <= 2000`). Rejected: exclusive bounds — the issue says "within a factor of 2" and the MCD-like mixed-median case sits near the lower edge.
+- Every `r` is computed from the original parsed values. Rejected: iterative correction, which makes the result depend on row order.
+- Values `<= 0` and `None` are neither corrected nor used as comparators. Rejected: counting zeros in the median (CEG's `0.0` would drag it down).
+- The correction count travels as `ParsedCompanyData.shares_rescaled` (plain mutable dataclass, `src/bot/ingest/provider.py:17`). Rejected: re-deriving the count from logs, or a separate return value that changes `parse_company_facts`' signature for both callers.
+- `refresh_log` details get `shares_rescaled` on both import paths (`sec_edgar.import_company_from_sec` and `universe.import_company`, the one `bot refresh --fundamentals` uses). Rejected: only the first — the issue names it, but the bulk refresh is how MCD is re-imported.
+- The guard's bounds are module constants in `analysis.py`. Rejected: configuration settings — nothing asks for them to be tunable.
+
 ---
 
 ### Task 1: Rescale mis-scaled annual share counts at parse time
@@ -51,7 +62,7 @@
   - `test_share_split_is_left_unchanged`: 3.0e9, 3.0e9, 3.0e9, 3.0e8, 3.0e8 → all unchanged, `shares_rescaled == 0`.
   - `test_value_15000x_off_is_left_unchanged`: 750e6 ×4 then 50_000.0 → unchanged, count 0.
   - `test_fewer_than_three_other_years_no_correction`: 750.1e6, 741.3e6, 732.3 → unchanged, count 0.
-  - `test_majority_misscaled_never_inflates_correct_values`: 750.1e6, 741.3e6, 732.3, 721.9, 716.4 → the two correct values unchanged (and no row ends above 1e12).
+  - `test_majority_misscaled_never_inflates_correct_values`: 750.1e6, 741.3e6, 732.3, 721.9, 716.4 → the two correct values unchanged (and no row ends above 1e12). The three small ones each have `r` ≈ 5.06e5–5.17e5 (median of others = mean of one correct and one mis-scaled value), inside the inclusive ×1e6 band, so assert they become `732_300_000`, `721_900_000`, `716_400_000` — the test pins this near-the-edge behaviour on purpose.
   - `test_none_and_zero_shares_are_ignored`: 750e6 ×4, one year with no share fact (None) and one with `0.0` → None stays None, 0.0 stays 0.0, count 0.
 
 - [ ] **Step 2: Run them to verify they fail**
@@ -105,7 +116,7 @@ Expected: PASS (whole file, existing tests included).
   - `test_analyze_refuses_implausible_shares_and_continues_batch` in `test_cli_analyze.py`: seed `MCD` with latest `shares_diluted = 732.3` and `AAPL` normal; `bot analyze MCD AAPL` → `exit_code == 1`, stderr/output contains `MCD: cannot value` and `implausible diluted share count`, `AAPL.md` written, no `MCD.md`.
 - [ ] **Step 2: Run them to verify they fail** — `uv run pytest -q -k implausible` → FAIL.
 - [ ] **Step 3: Implement the guard** after the non-positive check, before `Financials(...)`.
-- [ ] **Step 4: Fix fixtures.** Run `uv run pytest -q`; for each test failing on the new error, scale that fixture's monetary columns **and** `shares_diluted` by the same factor (`1_000` or `1_000_000`) so per-share values, margins and ratios are unchanged. Only absolute-money assertions (enterprise value, net debt, revenue as printed) may change, by the same factor; per-share and ratio assertions must not be edited. Never weaken an assertion.
+- [ ] **Step 4: Fix fixtures.** Money is formatted with B/M breakpoints (`src/bot/reporting/analysis_report.py:59`), so a printed amount may change suffix as well as magnitude; that is the only kind of assertion edit allowed. Run `uv run pytest -q`; for each test failing on the new error, scale that fixture's monetary columns **and** `shares_diluted` by the same factor (`1_000` or `1_000_000`) so per-share values, margins and ratios are unchanged. Only absolute-money assertions (enterprise value, net debt, revenue as printed) may change, by the same factor; per-share and ratio assertions must not be edited. Never weaken an assertion.
 - [ ] **Step 5: Run** `uv run pytest -q` → all green.
 - [ ] **Step 6: Commit** — `feat(#124): refuse to value implausible diluted share counts`
 
@@ -118,3 +129,11 @@ Expected: PASS (whole file, existing tests included).
 - [ ] **Step 1:** `python3 docs/plano/build.py && python3 docs/leccion/check.py` → both succeed (no stale symbol). Commit regenerated output if it changed.
 - [ ] **Step 2:** `uv run ruff check . && uv run mypy src && uv run pytest -q` → green.
 - [ ] **Step 3: Manual verification (live network, not CI):** `bot refresh --fundamentals --force` (with MCD in the universe) then `bot analyze MCD` → intrinsic value per share within 10× of price and the JSON sidecar written. Record the outcome in the PR description.
+
+## Grilling
+
+- Rounds: 1 (griller model: fable). The plan changed only by clarification, so no second round.
+- Questions: 15. Sources: ISSUE 8 (Q1, Q3 rule, Q4, Q12, Q13, Q2 the force refresh, Q14 criteria), CODE 11 (Q2 `upsert_financials_annual` deletes then inserts per ticker `sec_edgar.py:523-541`; `scripts/weekly.sh:24-26`; Q5 `analysis_report.py:59`; Q6 `FINANCIALS_QUARTERLY_COLS` has no `shares_diluted`, only `financials_annual` is read `screener/engine.py:265`, `valuator/analysis.py:183`; Q7 `analysis.py:641-642`, `cli.py:470-475`, `cli.py:443-445`; Q8 `_label_rows` keys one row per fiscal_year `sec_edgar.py:282-314`; Q9 constructors `edgar_base.py:138`, `fmp.py:573`, `tests/fake_provider.py:18`; Q10 `tests/integration/test_e2e_edgar_stooq.py:40`, `tests/unit/test_sec_edgar_importer.py:43`; Q11 `tests/unit/test_sec_edgar_parser.py:384`; Q15 `cli.py:474`), DOC 1 (Q14 `docs/leccion/README.md`: check.py fails when a cited symbol vanishes; `CONTEXT.md` "Working with the plans"). Some questions cite more than one source type.
+- Assumptions: see `## Assumptions` (6).
+- Spec ambiguities: none. Issues opened: none.
+- Note (Q2): existing databases keep MCD's `732.3` until a forced re-import (`bot refresh --fundamentals --force`, from #122); until then the guard refuses MCD, which is the issue's chosen policy. The weekly `refresh --all` skips tickers with no newer filing, so the forced refresh is an operator step, done here as manual verification.
