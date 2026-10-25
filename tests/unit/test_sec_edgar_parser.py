@@ -1,3 +1,5 @@
+import pytest
+
 from bot.ingest.sec_edgar import parse_company_facts
 
 FAKE_FACTS = {
@@ -10,30 +12,37 @@ FAKE_FACTS = {
                 "units": {
                     "USD": [
                         {
+                            "start": "2022-09-25",
                             "end": "2023-09-30",
                             "val": 383285000000,
+                            "accn": "0000320193-23-000106",
                             "fy": 2023,
                             "fp": "FY",
                             "form": "10-K",
                             "filed": "2023-11-03",
                         },
                         {
+                            "start": "2022-09-25",
                             "end": "2023-09-30",
                             "val": 383285000000,
+                            "accn": "0000320193-24-000007",
                             "fy": 2023,
                             "fp": "FY",
                             "form": "10-K/A",
                             "filed": "2024-01-15",
                         },
                         {
+                            "start": "2021-09-26",
                             "end": "2022-09-30",
                             "val": 394328000000,
+                            "accn": "0000320193-22-000108",
                             "fy": 2022,
                             "fp": "FY",
                             "form": "10-K",
                             "filed": "2022-10-28",
                         },
                         {
+                            "start": "2023-12-31",
                             "end": "2024-03-30",
                             "val": 90753000000,
                             "fy": 2024,
@@ -49,6 +58,7 @@ FAKE_FACTS = {
                 "units": {
                     "USD": [
                         {
+                            "start": "2022-09-25",
                             "end": "2023-09-30",
                             "val": 96995000000,
                             "fy": 2023,
@@ -127,6 +137,7 @@ FAKE_FACTS_RESTATEMENT = {
                     "USD": [
                         # 10-K/A filed first for 2022
                         {
+                            "start": "2021-09-26",
                             "end": "2022-09-30",
                             "val": 394000000000,
                             "fy": 2022,
@@ -136,6 +147,7 @@ FAKE_FACTS_RESTATEMENT = {
                         },
                         # Later 10-K supersedes the /A for 2022 — winning form is 10-K
                         {
+                            "start": "2021-09-26",
                             "end": "2022-09-30",
                             "val": 394328000000,
                             "fy": 2022,
@@ -176,6 +188,7 @@ FAKE_FACTS_10KSB = {
                     "USD": [
                         # 10-KSB should NOT be included in annual rows
                         {
+                            "start": "2005-01-01",
                             "end": "2005-12-31",
                             "val": 1000000,
                             "fy": 2005,
@@ -195,3 +208,317 @@ def test_10ksb_excluded_from_annual_rows():
     """10-KSB is not a valid annual form and must not appear in annual_rows."""
     result = parse_company_facts("SMCO", FAKE_FACTS_10KSB)
     assert result.annual == [], "10-KSB entries must be excluded from annual rows"
+
+
+# --- #122: attribute each fact by its own start/end, never by the filing's fy/fp ---
+
+
+def _fact(
+    end: str,
+    val: float,
+    *,
+    start: str | None = None,
+    form: str = "10-K",
+    fy: int = 2025,
+    fp: str = "FY",
+    filed: str = "2026-02-20",
+    accn: str = "0000063908-26-000010",
+) -> dict[str, object]:
+    fact: dict[str, object] = {
+        "end": end,
+        "val": val,
+        "accn": accn,
+        "fy": fy,
+        "fp": fp,
+        "form": form,
+        "filed": filed,
+    }
+    if start is not None:
+        fact["start"] = start
+    return fact
+
+
+def _facts(concepts: dict[str, list[dict[str, object]]], unit: str = "USD") -> dict[str, object]:
+    return {
+        "cik": 63908,
+        "entityName": "McDonald's Corp",
+        "facts": {
+            "us-gaap": {name: {"units": {unit: entries}} for name, entries in concepts.items()}
+        },
+    }
+
+
+def _annual(facts: dict[str, object]) -> dict[int, dict[str, object]]:
+    return {r["fiscal_year"]: r for r in parse_company_facts("MCD", facts).annual}
+
+
+def _quarterly(facts: dict[str, object]) -> dict[tuple[int, int], dict[str, object]]:
+    return {
+        (r["fiscal_year"], r["fiscal_quarter"]): r
+        for r in parse_company_facts("MCD", facts).quarterly
+    }
+
+
+def test_mcd_shape_three_comparatives_in_one_10k() -> None:
+    # One FY2025 10-K carries three annual comparatives, all tagged fy=2025, oldest first.
+    facts = _facts(
+        {
+            "Revenues": [
+                _fact("2023-12-31", 25_494_000_000, start="2023-01-01"),
+                _fact("2024-12-31", 25_920_000_000, start="2024-01-01"),
+                _fact("2025-12-31", 26_885_000_000, start="2025-01-01"),
+            ]
+        }
+    )
+    annual = _annual(facts)
+    assert sorted(annual) == [2023, 2024, 2025]
+    assert annual[2025]["revenue"] == 26_885_000_000
+    assert annual[2024]["revenue"] == 25_920_000_000
+    assert annual[2023]["revenue"] == 25_494_000_000
+    assert str(annual[2025]["period_end_date"]) == "2025-12-31"
+
+
+def test_quarter_length_fy_fact_never_lands_in_annual() -> None:
+    facts = _facts({"Revenues": [_fact("2025-12-31", 6_900_000_000, start="2025-10-01")]})
+    assert parse_company_facts("MCD", facts).annual == []
+
+
+def test_transition_period_of_335_days_rejected() -> None:
+    facts = _facts({"Revenues": [_fact("2025-12-31", 24_000_000_000, start="2025-01-30")]})
+    assert parse_company_facts("MCD", facts).annual == []
+
+
+def test_instant_fact_attaches_to_annual_row_with_same_end() -> None:
+    facts = _facts(
+        {
+            "Revenues": [_fact("2025-12-31", 26_885_000_000, start="2025-01-01")],
+            "Assets": [_fact("2025-12-31", 59_000_000_000)],
+        }
+    )
+    annual = _annual(facts)
+    assert annual[2025]["total_assets"] == 59_000_000_000
+
+
+def test_instant_fact_without_matching_duration_row_is_dropped() -> None:
+    facts = _facts(
+        {
+            "Revenues": [_fact("2025-12-31", 26_885_000_000, start="2025-01-01")],
+            "Assets": [_fact("2024-12-31", 55_000_000_000)],
+        }
+    )
+    annual = _annual(facts)
+    assert sorted(annual) == [2025]
+    assert annual[2025].get("total_assets") is None
+
+
+def test_instant_concept_with_no_matching_end_falls_back_to_next_concept() -> None:
+    facts = _facts(
+        {
+            "Revenues": [_fact("2025-12-31", 26_885_000_000, start="2025-01-01")],
+            "LongTermDebt": [_fact("2024-12-31", 38_000_000_000)],
+            "LongTermDebtNoncurrent": [_fact("2025-12-31", 39_000_000_000)],
+        }
+    )
+    assert _annual(facts)[2025]["total_debt"] == 39_000_000_000
+
+
+def test_52_53_week_year_of_371_days_accepted() -> None:
+    facts = _facts({"Revenues": [_fact("2014-02-02", 42_000_000_000, start="2013-01-27")]})
+    annual = _annual(facts)
+    assert sorted(annual) == [2014]
+    assert annual[2014]["revenue"] == 42_000_000_000
+
+
+def test_january_year_end_is_fiscal_year_of_end() -> None:
+    # Best Buy: year ending 2014-02-01 carries frame CY2013 but is fiscal 2014.
+    bby = _fact("2014-02-01", 42_410_000_000, start="2013-02-03", fy=2014, filed="2014-03-28")
+    bby["frame"] = "CY2013"
+    annual = _annual(_facts({"Revenues": [bby]}))
+    assert sorted(annual) == [2014]
+    assert annual[2014]["revenue"] == 42_410_000_000
+
+
+@pytest.mark.parametrize("newest_first", [True, False])
+def test_later_filed_wins_regardless_of_list_order(newest_first: bool) -> None:
+    old = _fact(
+        "2024-12-31",
+        25_000_000_000,
+        start="2024-01-01",
+        fy=2024,
+        filed="2025-02-20",
+        accn="0000063908-25-000010",
+    )
+    new = _fact(
+        "2024-12-31",
+        25_920_000_000,
+        start="2024-01-01",
+        fy=2025,
+        filed="2026-02-20",
+        accn="0000063908-26-000010",
+    )
+    entries = [new, old] if newest_first else [old, new]
+    assert _annual(_facts({"Revenues": entries}))[2024]["revenue"] == 25_920_000_000
+
+
+@pytest.mark.parametrize("higher_accn_first", [True, False])
+def test_equal_filed_latest_accn_wins(higher_accn_first: bool) -> None:
+    low = _fact("2025-12-31", 1.0, start="2025-01-01", accn="0000063908-26-000010")
+    high = _fact("2025-12-31", 2.0, start="2025-01-01", accn="0000063908-26-000011")
+    entries = [high, low] if higher_accn_first else [low, high]
+    assert _annual(_facts({"Revenues": entries}))[2025]["revenue"] == 2.0
+
+
+def test_fiscal_year_collision_keeps_later_end() -> None:
+    # Fiscal-year-end change: two accepted annual periods end in calendar 2014.
+    facts = _facts(
+        {
+            "Revenues": [
+                _fact("2014-02-01", 1.0, start="2013-02-03", fy=2014, filed="2014-03-28"),
+                _fact("2014-12-31", 2.0, start="2014-01-01", fy=2014, filed="2015-03-01"),
+            ]
+        }
+    )
+    rows = parse_company_facts("MCD", facts).annual
+    assert len(rows) == 1
+    assert rows[0]["fiscal_year"] == 2014
+    assert str(rows[0]["period_end_date"]) == "2014-12-31"
+    assert rows[0]["revenue"] == 2.0
+
+
+def test_malformed_entries_are_skipped() -> None:
+    good = _fact("2025-12-31", 26_885_000_000, start="2025-01-01")
+    no_end = _fact("2025-12-31", 1.0, start="2025-01-01")
+    del no_end["end"]
+    no_val = _fact("2024-12-31", 1.0, start="2024-01-01")
+    no_val["val"] = None
+    bad_start = _fact("2023-12-31", 1.0, start="not-a-date")
+    bad_end = _fact("not-a-date", 1.0, start="2023-01-01")
+    facts = _facts({"Revenues": [no_end, no_val, bad_start, bad_end, good]})
+    annual = _annual(facts)
+    assert sorted(annual) == [2025]
+    assert annual[2025]["revenue"] == 26_885_000_000
+
+
+def test_181_day_10q_fact_never_lands_in_quarterly() -> None:
+    ytd = _fact("2025-06-30", 13_000_000_000, start="2025-01-01", form="10-Q", fp="Q2")
+    assert parse_company_facts("MCD", _facts({"Revenues": [ytd]})).quarterly == []
+
+
+def test_quarter_ordinal_within_calendar_fiscal_year() -> None:
+    facts = _facts(
+        {
+            "Revenues": [
+                _fact("2024-12-31", 25_920_000_000, start="2024-01-01", fy=2024),
+                _fact(
+                    "2025-03-31",
+                    6_000_000_000,
+                    start="2025-01-01",
+                    form="10-Q",
+                    fy=2025,
+                    fp="Q1",
+                    filed="2025-05-01",
+                ),
+                _fact(
+                    "2024-06-30",
+                    6_500_000_000,
+                    start="2024-04-01",
+                    form="10-Q",
+                    fy=2024,
+                    fp="Q2",
+                    filed="2024-08-01",
+                ),
+            ]
+        }
+    )
+    quarterly = _quarterly(facts)
+    assert sorted(quarterly) == [(2024, 2), (2025, 1)]
+    assert quarterly[(2025, 1)]["revenue"] == 6_000_000_000
+    assert quarterly[(2024, 2)]["revenue"] == 6_500_000_000
+
+
+def test_in_progress_fiscal_year_quarter_for_september_filer() -> None:
+    # AAPL: Q1 FY2025 ends 2024-12-28, Q1 FY2026 ends 2025-12-27; newest 10-K ends 2025-09-27.
+    facts = _facts(
+        {
+            "Revenues": [
+                _fact("2024-09-28", 391_035_000_000, start="2023-10-01", fy=2024),
+                _fact("2025-09-27", 416_161_000_000, start="2024-09-29", fy=2025),
+                _fact(
+                    "2024-12-28",
+                    124_300_000_000,
+                    start="2024-09-29",
+                    form="10-Q",
+                    fy=2025,
+                    fp="Q1",
+                    filed="2025-01-31",
+                ),
+                _fact(
+                    "2025-12-27",
+                    143_756_000_000,
+                    start="2025-09-28",
+                    form="10-Q",
+                    fy=2026,
+                    fp="Q1",
+                    filed="2026-01-30",
+                ),
+            ]
+        }
+    )
+    quarterly = _quarterly(facts)
+    assert sorted(quarterly) == [(2025, 1), (2026, 1)]
+    assert quarterly[(2025, 1)]["revenue"] == 124_300_000_000
+    assert quarterly[(2026, 1)]["revenue"] == 143_756_000_000
+
+
+def test_quarter_without_annual_context_falls_back_to_first_filing_fp() -> None:
+    first = _fact(
+        "2025-03-31",
+        6_000_000_000,
+        start="2025-01-01",
+        form="10-Q",
+        fy=2025,
+        fp="Q1",
+        filed="2025-05-01",
+        accn="0000063908-25-000020",
+    )
+    comparative = _fact(
+        "2025-03-31",
+        6_000_000_000,
+        start="2025-01-01",
+        form="10-Q",
+        fy=2026,
+        fp="Q1",
+        filed="2026-05-01",
+        accn="0000063908-26-000020",
+    )
+    quarterly = _quarterly(_facts({"Revenues": [comparative, first]}))
+    assert sorted(quarterly) == [(2025, 1)]
+
+
+def test_quarterly_instant_attaches_by_end_and_prior_year_end_instant_dropped() -> None:
+    facts = _facts(
+        {
+            "Revenues": [
+                _fact(
+                    "2025-03-31",
+                    6_000_000_000,
+                    start="2025-01-01",
+                    form="10-Q",
+                    fy=2025,
+                    fp="Q1",
+                    filed="2025-05-01",
+                )
+            ],
+            "CashAndCashEquivalentsAtCarryingValue": [
+                _fact(
+                    "2025-03-31", 1_200_000_000, form="10-Q", fy=2025, fp="Q1", filed="2025-05-01"
+                ),
+                _fact(
+                    "2024-12-31", 1_100_000_000, form="10-Q", fy=2025, fp="Q1", filed="2025-05-01"
+                ),
+            ],
+        }
+    )
+    quarterly = _quarterly(facts)
+    assert sorted(quarterly) == [(2025, 1)]
+    assert quarterly[(2025, 1)]["cash"] == 1_200_000_000

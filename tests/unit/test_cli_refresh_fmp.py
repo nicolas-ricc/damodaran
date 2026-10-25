@@ -210,3 +210,20 @@ def test_universe_tickers_defaults_to_the_packaged_universe() -> None:
     path, tickers = _universe_tickers(None, limit=3)
     assert path == default_universe_path()
     assert len(tickers) == 3
+
+
+@pytest.mark.parametrize(("argv", "expected"), [([], False), (["--force"], True)])
+def test_refresh_fundamentals_forwards_force(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, argv: list[str], expected: bool
+) -> None:
+    _env(tmp_path, monkeypatch)
+    captured: dict[str, object] = {}
+
+    def fake_refresh(conn: object, **kwargs: object) -> UniverseRefreshResult:
+        captured.update(kwargs)
+        return _result(total=1, failed=0, status="success")
+
+    with patch("bot.cli.refresh_universe", side_effect=fake_refresh):
+        result = CliRunner().invoke(app, ["refresh", "--fundamentals", "--limit", "1", *argv])
+    assert result.exit_code == 0, result.output
+    assert captured["force"] is expected
