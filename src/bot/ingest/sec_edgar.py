@@ -178,12 +178,15 @@ def latest_filing_date_from_submissions(submissions: dict[str, Any]) -> date | N
 
 
 # XBRL concept (us-gaap) -> our DB column. Multiple alternative concepts per column;
-# parser uses the first one with data.
+# parser resolves each period end separately: the first concept in list order with an
+# accepted fact for that period wins it; later concepts only fill periods still unfilled.
 ANNUAL_CONCEPT_MAP: dict[str, list[str]] = {
     "revenue": [
         "Revenues",
         "RevenueFromContractWithCustomerExcludingAssessedTax",
         "SalesRevenueNet",
+        "RevenueFromContractWithCustomerIncludingAssessedTax",
+        "SalesRevenueGoodsNet",
     ],
     "cogs": ["CostOfRevenue", "CostOfGoodsAndServicesSold"],
     "gross_profit": ["GrossProfit"],
@@ -377,7 +380,10 @@ def _collect_period_rows(
     ``span_days``) ends on that date; instant facts (no ``start``) attach to the
     row with the same ``end`` and are dropped otherwise. With ``row_cols``, only
     a duration fact of one of those columns creates a row (others still fill it).
-    Facts for one ``end`` share a slot whatever their ``start``: one row per
+    Concepts resolve per period end, not per column: for each column the first
+    concept in list order with an accepted fact for an end wins that end, and later
+    concepts only fill ends still unfilled. ``is_restated`` and ``_first_fy_fp``
+    come from the winning concept's facts only. Facts for one ``end`` share a slot whatever their ``start``: one row per
     period end. Each row carries
     ``_first_fy_fp``: the (fy, quarter number) of the earliest-filed accepted duration fact
     ending there whose fp is Q1-Q4 and fy an int (else None), the fallback label
@@ -397,13 +403,15 @@ def _collect_period_rows(
         entries: list[dict[str, Any]] = unit_map.get("USD") or unit_map.get("shares") or []
         return entries
 
-    # Phase a: duration facts decide which period ends have a row.
+    # Phase a: duration facts decide which period ends have a row. Per column, an
+    # earlier concept wins every end it has an accepted fact for.
     for db_col, concepts in ANNUAL_CONCEPT_MAP.items():
+        resolved: set[date] = set()
         for concept in concepts:
             accepted = [
                 (end, e)
                 for start, end, e in _accepted_entries(entries_of(concept), allowed_forms)
-                if start is not None and lo <= (end - start).days <= hi
+                if start is not None and lo <= (end - start).days <= hi and end not in resolved
             ]
             if not accepted:
                 continue
@@ -420,26 +428,25 @@ def _collect_period_rows(
                     and (end not in first_seen or order < first_seen[end][:2])
                 ):
                     first_seen[end] = (*order, fy, fp)
+            resolved.update(end for end, _ in accepted)
             duration_cols.add(db_col)
-            break  # found a concept with data — don't fall through
 
-    # Phase b: instant facts attach to existing period ends only; a concept whose
-    # instants all miss is not "found", so the column falls through to the next one.
+    # Phase b: instant facts attach to existing period ends only; same per-period
+    # concept order, so a concept whose instants all miss leaves the ends to the next.
     for db_col, concepts in ANNUAL_CONCEPT_MAP.items():
         if db_col in duration_cols:
             continue
+        resolved = set()
         for concept in concepts:
             matched = [
                 (end, e)
                 for start, end, e in _accepted_entries(entries_of(concept), allowed_forms)
-                if start is None and end in row_ends
+                if start is None and end in row_ends and end not in resolved
             ]
-            if not matched:
-                continue
             for end, e in matched:
                 values[end][db_col] = e["val"]
                 forms_seen[end].add(e["form"])
-            break
+            resolved.update(end for end, _ in matched)
 
     out: dict[date, dict[str, Any]] = {}
     for end in row_ends:
