@@ -86,6 +86,22 @@ def test_skips_ticker_when_remote_filing_not_advanced() -> None:
     assert result.status == "success"
 
 
+def test_force_reimports_ticker_whose_filing_has_not_advanced() -> None:
+    conn = _db()
+    conn.execute(
+        "INSERT INTO filings_log (ticker, filing_type, filing_date, source) "
+        "VALUES ('AAPL', 'FY', '2023-11-03', 'fake')"
+    )
+    provider = FakeProvider(filing_dates={"AAPL": date(2023, 11, 3)})
+
+    result = refresh_universe(conn, provider=provider, tickers=["AAPL"], force=True)
+
+    assert ("fundamentals", "AAPL") in provider.calls
+    assert ("latest_filing_date", "AAPL") not in provider.calls  # no probe when forced
+    assert result.imported == 1
+    assert result.skipped == 0
+
+
 def test_imports_when_remote_filing_advanced() -> None:
     conn = _db()
     conn.execute(

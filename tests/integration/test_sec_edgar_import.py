@@ -1,3 +1,5 @@
+from datetime import date
+
 import pytest
 
 from bot.ingest.sec_edgar import import_company_from_sec
@@ -25,6 +27,14 @@ def test_import_company_from_sec_populates_db():
         "SELECT COUNT(*) FROM financials_annual WHERE ticker = 'AAPL'"
     ).fetchone()[0]
     assert annual_count >= 5  # AAPL has > 5 years of XBRL filings
+
+    # Facts are attributed by their own period: the newest annual row is the
+    # latest fiscal year end in the cassette, not a comparative re-filed later.
+    newest = conn.execute(
+        "SELECT fiscal_year, period_end_date FROM financials_annual "
+        "WHERE ticker = 'AAPL' ORDER BY period_end_date DESC LIMIT 1"
+    ).fetchone()
+    assert newest == (2025, date(2025, 9, 27))
 
     filings_count = conn.execute(
         "SELECT COUNT(*) FROM filings_log WHERE ticker = 'AAPL'"

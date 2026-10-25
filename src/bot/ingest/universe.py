@@ -318,6 +318,7 @@ def refresh_universe(
     tickers: list[str],
     progress_every: int = DEFAULT_PROGRESS_EVERY,
     mapping_path: Path | None = None,
+    force: bool = False,
 ) -> UniverseRefreshResult:
     """Bulk-import ``tickers`` through ``provider``, skipping unchanged ones.
 
@@ -331,6 +332,10 @@ def refresh_universe(
     2. Otherwise import the ticker via :func:`import_company`. Any exception or
        error ``IngestResult`` is caught, recorded as a **failed** outcome, and
        the run continues.
+
+    With ``force=True`` step 1 is bypassed: neither the local filing date is read
+    nor the provider probed, and every ticker is re-imported (e.g. after a parser
+    fix, so stored rows get recomputed).
 
     A :class:`~bot.ingest.provider.ProviderRateLimitError` (from either the
     probe or the import) stops the run cleanly: the remaining tickers are
@@ -351,7 +356,7 @@ def refresh_universe(
         conn,
         items=tickers,
         process=lambda ticker: _refresh_one(
-            conn, ticker=ticker, provider=provider, mapping=mapping
+            conn, ticker=ticker, provider=provider, mapping=mapping, force=force
         ),
         source=f"{provider.name}_universe",
         label="universe",
@@ -660,14 +665,16 @@ def _refresh_one(
     ticker: str,
     provider: MarketDataProvider,
     mapping: IndustryMapping,
+    force: bool,
 ) -> TickerOutcome:
     """Refresh a single ticker, never raising. Returns its outcome."""
     sym = ticker.upper()
     try:
-        local_latest = latest_local_filing_date(conn, sym, provider.name)
-        if local_latest is not None and _should_skip(sym, local_latest, provider):
-            log.info("universe.refresh.skip", ticker=sym, latest_filing=local_latest)
-            return TickerOutcome(ticker=sym, status="skipped")
+        if not force:
+            local_latest = latest_local_filing_date(conn, sym, provider.name)
+            if local_latest is not None and _should_skip(sym, local_latest, provider):
+                log.info("universe.refresh.skip", ticker=sym, latest_filing=local_latest)
+                return TickerOutcome(ticker=sym, status="skipped")
 
         result = import_company(conn, ticker=sym, provider=provider, mapping=mapping)
         if result.is_success():

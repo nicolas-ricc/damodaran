@@ -32,7 +32,8 @@ Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
    </details>
 3. `uv run bot refresh --fundamentals && uv run bot refresh --prices` — load the universe.
    Fundamentals come from EDGAR (no key; its own throttling defers, not skips — the next run
-   resumes). Prices come from Tiingo.
+   resumes). Prices come from Tiingo. `bot refresh --fundamentals --force` re-imports every
+   ticker even if its filing date has not advanced (e.g. after a parser fix).
 
    **Tiingo's free tier is rate-capped** (a few hundred requests per hourly window, 500 unique
    symbols/month), so the shipped universe is trimmed to 498 names to fit the monthly cap, and a

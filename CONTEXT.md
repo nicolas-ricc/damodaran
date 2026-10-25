@@ -16,6 +16,7 @@ Current version: US-only (S&P 500).
 - **Sector benchmark**: the Damodaran medians for one `(industry, region, year)`, against which a company's cheapness and quality are judged.
 - **Coverage gate**: the eliminatory filter that removes a company with no usable sector benchmark from the universe. See [ADR 0006](docs/adr/0006-unmeasurable-companies-leave-the-universe.md).
 - **Measured company**: one that has every input its screening and ranking require. Only measured companies enter the ranking percentiles.
+- **Fiscal year** (`fiscal_year`): the calendar year of the period's end date. An annual row is a duration fact of 350–380 days; Best Buy's year ending 2014-02-01 is fiscal_year 2014. A quarter belongs to the fiscal year it falls in, numbered by its position in it. Never the SEC `fy` field, which names the filing, nor `frame`.
 - **Capas A/B/C**: see spec §3 — data / mechanical screener / interpretive analysis.
 - **Listing currency**: the currency a share trades in on its exchange. Belongs to the price feed.
   _Avoid_: currency, local currency, trading currency.
