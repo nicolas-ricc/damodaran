@@ -685,6 +685,7 @@ def test_concept_resolved_per_period_higher_priority_wins_overlap() -> None:
     ]
 
 
+# The next three already held under the per-column rule; they guard the per-period one.
 def test_short_fact_under_first_concept_does_not_block_second() -> None:
     facts = _facts(
         {
@@ -730,8 +731,8 @@ def test_losing_concept_amendment_does_not_mark_restated() -> None:
 
 
 def test_quarterly_concept_resolved_per_period() -> None:
-    def q(concept_end: str, start: str, val: float, fp: str) -> dict[str, object]:
-        return _fact(concept_end, val, start=start, form="10-Q", fy=2025, fp=fp, filed="2025-08-01")
+    def q(end: str, start: str, val: float, fp: str) -> dict[str, object]:
+        return _fact(end, val, start=start, form="10-Q", fy=2025, fp=fp, filed="2025-08-01")
 
     facts = _facts(
         {
@@ -806,6 +807,7 @@ _BBY_ENDS = [
 
 def test_bby_shaped_series_has_revenue_every_year_from_2009() -> None:
     def year(i: int, val: float, filed: str) -> dict[str, object]:
+        # fy is irrelevant here: fp="FY" never feeds the quarterly fallback label.
         start = date.fromisoformat(_BBY_ENDS[i - 1]).toordinal() + 1
         return _fact(
             _BBY_ENDS[i], val, start=date.fromordinal(start).isoformat(), fy=0, filed=filed

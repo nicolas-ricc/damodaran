@@ -383,8 +383,8 @@ def _collect_period_rows(
     Concepts resolve per period end, not per column: for each column the first
     concept in list order with an accepted fact for an end wins that end, and later
     concepts only fill ends still unfilled. ``is_restated`` and ``_first_fy_fp``
-    come from the winning concept's facts only. Facts for one ``end`` share a slot whatever their ``start``: one row per
-    period end. Each row carries
+    come from the winning concept's facts only. Facts for one ``end`` share a slot
+    whatever their ``start``: one row per period end. Each row carries
     ``_first_fy_fp``: the (fy, quarter number) of the earliest-filed accepted duration fact
     ending there whose fp is Q1-Q4 and fy an int (else None), the fallback label
     for quarters with no annual end to count from.
@@ -392,7 +392,8 @@ def _collect_period_rows(
     lo, hi = span_days
     # values: end -> db_col -> val. Later (filed, accn) overwrites earlier.
     values: dict[date, dict[str, Any]] = {}
-    # forms_seen: ALL accepted forms per end, so is_restated survives a later plain filing
+    # forms_seen: forms of every fact used per end, so is_restated survives a later
+    # plain filing
     forms_seen: dict[date, set[str]] = {}
     first_seen: dict[date, tuple[str, str, int, str]] = {}
     duration_cols: set[str] = set()
@@ -436,17 +437,17 @@ def _collect_period_rows(
     for db_col, concepts in ANNUAL_CONCEPT_MAP.items():
         if db_col in duration_cols:
             continue
-        resolved = set()
+        resolved_instants: set[date] = set()
         for concept in concepts:
             matched = [
                 (end, e)
                 for start, end, e in _accepted_entries(entries_of(concept), allowed_forms)
-                if start is None and end in row_ends and end not in resolved
+                if start is None and end in row_ends and end not in resolved_instants
             ]
             for end, e in matched:
                 values[end][db_col] = e["val"]
                 forms_seen[end].add(e["form"])
-            resolved.update(end for end, _ in matched)
+            resolved_instants.update(end for end, _ in matched)
 
     out: dict[date, dict[str, Any]] = {}
     for end in row_ends:
