@@ -122,3 +122,60 @@ def test_upsert_filings_preserves_fetched_at() -> None:
 
     rows = conn.execute("SELECT accession_number, fetched_at FROM filings_log").fetchall()
     assert rows == [("0002", first_seen)]
+
+
+# ---------------------------------------------------------------------------
+# #123 — count of annual periods still without revenue
+# ---------------------------------------------------------------------------
+
+
+def _annual_fact(start: str, end: str, val: float) -> dict[str, Any]:
+    return {
+        "start": start,
+        "end": end,
+        "val": val,
+        "accn": "0000320193-25-000001",
+        "fy": 2025,
+        "fp": "FY",
+        "form": "10-K",
+        "filed": "2025-11-01",
+    }
+
+
+def test_import_company_from_sec_reports_null_revenue_count() -> None:
+    from structlog.testing import capture_logs
+
+    facts: dict[str, Any] = {
+        "cik": 320193,
+        "entityName": "Apple Inc.",
+        "facts": {
+            "us-gaap": {
+                "Revenues": {
+                    "units": {"USD": [_annual_fact("2024-01-01", "2024-12-31", 1e9)]}
+                },
+                "NetIncomeLoss": {
+                    "units": {
+                        "USD": [
+                            _annual_fact("2024-01-01", "2024-12-31", 1e8),
+                            _annual_fact("2025-01-01", "2025-12-31", 2e8),
+                        ]
+                    }
+                },
+            }
+        },
+    }
+    conn = duckdb.connect(":memory:")
+    apply_schema(conn)
+    with (
+        patch("bot.ingest.sec_edgar.SecEdgarClient.lookup_cik", return_value="0000320193"),
+        patch("bot.ingest.sec_edgar.SecEdgarClient.fetch_company_facts", return_value=facts),
+        capture_logs() as logs,
+    ):
+        result = import_company_from_sec(conn, ticker="AAPL", user_agent="Test test@example.com")
+
+    assert result.is_success()
+    assert result.details["annual_revenue_null"] == 1
+    events = [e for e in logs if e["event"] == "ingest.annual_revenue_null"]
+    assert len(events) == 1
+    assert events[0]["annual_revenue_null"] == 1
+    assert events[0]["ticker"] == "AAPL"
