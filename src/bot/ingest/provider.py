@@ -26,6 +26,7 @@ class ParsedCompanyData:
     annual: list[dict[str, Any]] = field(default_factory=list)
     quarterly: list[dict[str, Any]] = field(default_factory=list)
     filings: list[dict[str, Any]] = field(default_factory=list)
+    shares_rescaled: int = 0
 
 
 @dataclass(frozen=True)
