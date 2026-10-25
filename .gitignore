@@ -21,6 +21,7 @@ reports/*/analysis/*
 !reports/*/analysis/*.json
 reports-freestack/
 logs/
+.cache/
 
 # VCR — record locally, ignore re-records
 tests/fixtures/cassettes/**/*.yaml.tmp
