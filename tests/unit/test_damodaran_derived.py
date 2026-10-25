@@ -187,14 +187,16 @@ def test_analyze_values_a_us_company_after_the_real_import() -> None:
         "VALUES ('SEMI', 'Semi Co', 'United States', 'USD', 'Semiconductors', "
         "'Semiconductor', 'fmp')"
     )
+    # Fixture is written in millions; the valuator refuses share counts < 1,000,000.
+    scale = 1_000_000.0
     for year, revenue in ((2022, 1000.0), (2023, 1150.0), (2024, 1300.0), (2025, 1450.0)):
         conn.execute(
             "INSERT INTO financials_annual "
             "(ticker, fiscal_year, revenue, ebit, net_income, total_debt, cash, "
             "shares_diluted, is_restated, source) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            ["SEMI", year, revenue, revenue * 0.22, revenue * 0.15, 200.0, 150.0,
-             100.0, False, "fmp"],
+            ["SEMI", year, revenue * scale, revenue * 0.22 * scale, revenue * 0.15 * scale,
+             200.0 * scale, 150.0 * scale, 100.0 * scale, False, "fmp"],
         )
     conn.execute(
         "INSERT INTO prices_daily (ticker, date, close, currency, source) "

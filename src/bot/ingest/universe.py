@@ -314,6 +314,7 @@ def import_company(
             "annual": annual,
             "quarterly": quarterly,
             "filings": filings,
+            "shares_rescaled": bundle.annual.shares_rescaled,
             "currency": currency,
             "annual_revenue_null": null_revenue,
         }

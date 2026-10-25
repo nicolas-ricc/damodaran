@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection
 from datetime import date
+from statistics import median
 from typing import Any
 
 import duckdb
@@ -28,6 +29,10 @@ COMPANY_CONCEPT_URL_TEMPLATE = (
 ANNUAL_SPAN_DAYS: tuple[int, int] = (350, 380)
 QUARTERLY_SPAN_DAYS: tuple[int, int] = (80, 100)
 _QUARTER_DAYS = 91.3
+# Factors tried in order when an annual share count is a whole scale off its peers.
+_SHARE_SCALE_FACTORS = (1_000_000, 1_000)
+_MIN_SHARE_COMPARATORS = 3
+_SHARE_SCALE_TOLERANCE = 2.0
 
 _FINANCIAL_FORMS = {"10-K", "10-K/A", "10-Q", "10-Q/A", "20-F", "20-F/A"}
 
@@ -273,13 +278,46 @@ def parse_company_facts(ticker: str, facts: dict[str, Any]) -> ParsedCompanyData
         collision_event="sec_edgar.fiscal_quarter_collision",
     )
     filings = _collect_filings(ticker, us_gaap)
+    shares_rescaled = _rescale_shares_diluted(ticker, annual_rows)
 
     return ParsedCompanyData(
         company=company,
         annual=annual_rows,
         quarterly=quarterly_rows,
         filings=filings,
+        shares_rescaled=shares_rescaled,
     )
+
+
+def _rescale_shares_diluted(ticker: str, rows: list[dict[str, Any]]) -> int:
+    """Fix annual ``shares_diluted`` reported in millions or thousands; return the count.
+
+    Each value is compared with the median of the other positive annual values
+    (all taken from the original parse). Needs at least three comparators.
+    """
+    original = [row.get("shares_diluted") for row in rows]
+    corrected = 0
+    for i, row in enumerate(rows):
+        value = original[i]
+        if value is None or value <= 0:
+            continue
+        others = [v for j, v in enumerate(original) if j != i and v is not None and v > 0]
+        if len(others) < _MIN_SHARE_COMPARATORS:
+            continue
+        ratio = median(others) / value
+        for factor in _SHARE_SCALE_FACTORS:
+            if factor / _SHARE_SCALE_TOLERANCE <= ratio <= factor * _SHARE_SCALE_TOLERANCE:
+                row["shares_diluted"] = value * factor
+                corrected += 1
+                log.warning(
+                    "sec_edgar.shares_rescaled",
+                    ticker=ticker,
+                    fiscal_year=row.get("fiscal_year"),
+                    original=value,
+                    factor=factor,
+                )
+                break
+    return corrected
 
 
 def _label_rows(
@@ -667,6 +705,7 @@ def import_company_from_sec(
             "ticker": ticker,
             "annual": annual,
             "quarterly": quarterly,
+            "shares_rescaled": parsed.shares_rescaled,
             "filings": filings,
             "annual_revenue_null": null_revenue,
         }

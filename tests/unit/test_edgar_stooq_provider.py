@@ -11,7 +11,7 @@ import httpx
 import pytest
 
 from bot.ingest.edgar_stooq import EdgarStooqProvider
-from bot.ingest.provider import MarketDataProvider, ProviderRateLimitError
+from bot.ingest.provider import MarketDataProvider, ParsedCompanyData, ProviderRateLimitError
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
 
@@ -258,3 +258,8 @@ def test_daily_prices_from_dir_still_stamps_market_cap_when_fresh(tmp_path: Path
 def test_daily_prices_missing_csv_names_the_recipe(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError, match="stooq_browser_fetch"):
         _file_provider(tmp_path).daily_prices("MSFT", since=None)
+
+
+def test_restamp_keeps_shares_rescaled() -> None:
+    parsed = ParsedCompanyData(company={"ticker": "MCD"}, shares_rescaled=3)
+    assert _provider()._restamp(parsed).shares_rescaled == 3

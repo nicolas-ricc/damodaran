@@ -825,3 +825,145 @@ def test_bby_shaped_series_has_revenue_every_year_from_2009() -> None:
     assert all(
         r["revenue"] is not None and r["revenue"] >= 1_000_000_000 for r in annual.values()
     )
+
+
+# --- #124: filer scale errors on diluted shares ------------------------------------
+
+
+def _shares_facts(values: dict[int, float | None]) -> dict[str, object]:
+    """One 10-K Revenues row per year, plus diluted shares where ``values`` has one."""
+    revenues = [
+        _fact(f"{year}-12-31", 25_000_000_000, start=f"{year}-01-01") for year in values
+    ]
+    shares = [
+        _fact(f"{year}-12-31", val, start=f"{year}-01-01")
+        for year, val in values.items()
+        if val is not None
+    ]
+    return {
+        "cik": 63908,
+        "entityName": "McDonald's Corp",
+        "facts": {
+            "us-gaap": {
+                "Revenues": {"units": {"USD": revenues}},
+                "WeightedAverageNumberOfDilutedSharesOutstanding": {
+                    "units": {"shares": shares}
+                },
+            }
+        },
+    }
+
+
+def _shares_by_year(values: dict[int, float | None]) -> tuple[dict[int, object], int]:
+    parsed = parse_company_facts("MCD", _shares_facts(values))
+    return {r["fiscal_year"]: r.get("shares_diluted") for r in parsed.annual}, parsed.shares_rescaled
+
+
+def test_shares_scaled_in_millions_are_rescaled() -> None:
+    values: dict[int, float | None] = {
+        2019: 750_100_000.0,
+        2020: 741_300_000.0,
+        2021: 751_800_000.0,
+        2022: 732.3,
+        2023: 721.9,
+    }
+    with capture_logs() as logs:
+        shares, rescaled = _shares_by_year(values)
+    assert shares[2019] == 750_100_000.0
+    assert shares[2020] == 741_300_000.0
+    assert shares[2021] == 751_800_000.0
+    assert shares[2022] == pytest.approx(732_300_000)
+    assert shares[2023] == pytest.approx(721_900_000)
+    assert rescaled == 2
+    events = [e for e in logs if e["event"] == "sec_edgar.shares_rescaled"]
+    assert len(events) == 2
+    by_year = {e["fiscal_year"]: e for e in events}
+    for year, original in ((2022, 732.3), (2023, 721.9)):
+        event = by_year[year]
+        assert event["log_level"] == "warning"
+        assert event["ticker"] == "MCD"
+        assert event["original"] == original
+        assert event["factor"] == 1_000_000
+
+
+def test_shares_scaled_in_thousands_are_rescaled() -> None:
+    values: dict[int, float | None] = {
+        2020: 750_100_000.0,
+        2021: 750_100_000.0,
+        2022: 750_100_000.0,
+        2023: 741_300.0,
+    }
+    with capture_logs() as logs:
+        shares, rescaled = _shares_by_year(values)
+    assert shares[2023] == pytest.approx(741_300_000)
+    assert rescaled == 1
+    (event,) = [e for e in logs if e["event"] == "sec_edgar.shares_rescaled"]
+    assert event["factor"] == 1_000
+
+
+def test_share_split_is_left_unchanged() -> None:
+    values: dict[int, float | None] = {
+        2019: 3.0e9,
+        2020: 3.0e9,
+        2021: 3.0e9,
+        2022: 3.0e8,
+        2023: 3.0e8,
+    }
+    shares, rescaled = _shares_by_year(values)
+    assert shares == values
+    assert rescaled == 0
+
+
+def test_value_15000x_off_is_left_unchanged() -> None:
+    values: dict[int, float | None] = {
+        2019: 750_000_000.0,
+        2020: 750_000_000.0,
+        2021: 750_000_000.0,
+        2022: 750_000_000.0,
+        2023: 50_000.0,
+    }
+    shares, rescaled = _shares_by_year(values)
+    assert shares == values
+    assert rescaled == 0
+
+
+def test_fewer_than_three_other_years_no_correction() -> None:
+    values: dict[int, float | None] = {2021: 750_100_000.0, 2022: 741_300_000.0, 2023: 732.3}
+    with capture_logs() as logs:
+        shares, rescaled = _shares_by_year(values)
+    assert shares == values
+    assert rescaled == 0
+    assert not [e for e in logs if e["event"] == "sec_edgar.shares_rescaled"]
+
+
+def test_majority_misscaled_never_inflates_correct_values() -> None:
+    # The median of the others mixes one correct and one mis-scaled value, so r sits
+    # near the band's inclusive lower edge (about 5.1e5) and the small values are fixed.
+    values: dict[int, float | None] = {
+        2019: 750_100_000.0,
+        2020: 741_300_000.0,
+        2021: 732.3,
+        2022: 721.9,
+        2023: 716.4,
+    }
+    shares, rescaled = _shares_by_year(values)
+    assert shares[2019] == 750_100_000.0
+    assert shares[2020] == 741_300_000.0
+    assert shares[2021] == pytest.approx(732_300_000)
+    assert shares[2022] == pytest.approx(721_900_000)
+    assert shares[2023] == pytest.approx(716_400_000)
+    assert rescaled == 3
+
+
+def test_none_and_zero_shares_are_ignored() -> None:
+    values: dict[int, float | None] = {
+        2018: 750_000_000.0,
+        2019: 750_000_000.0,
+        2020: 750_000_000.0,
+        2021: 750_000_000.0,
+        2022: None,
+        2023: 0.0,
+    }
+    shares, rescaled = _shares_by_year(values)
+    assert shares == values
+    assert rescaled == 0
