@@ -705,6 +705,7 @@ def import_company_from_sec(
             "ticker": ticker,
             "annual": annual,
             "quarterly": quarterly,
+            "shares_rescaled": parsed.shares_rescaled,
             "filings": filings,
             "annual_revenue_null": null_revenue,
         }

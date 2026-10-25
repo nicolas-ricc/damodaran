@@ -140,6 +140,7 @@ class EdgarPricedProvider:
             annual=[{**row, "source": self.name} for row in parsed.annual],
             quarterly=[{**row, "source": self.name} for row in parsed.quarterly],
             filings=[{**row, "source": self.name} for row in parsed.filings],
+            shares_rescaled=parsed.shares_rescaled,
         )
 
     def _stamp_market_cap(self, bars: list[PriceBar], sym: str) -> list[PriceBar]:
