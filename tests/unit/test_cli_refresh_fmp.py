@@ -50,7 +50,12 @@ def test_refresh_fmp_uses_default_universe(tmp_path: Path, monkeypatch: pytest.M
     captured: dict[str, object] = {}
 
     def fake_refresh(
-        conn: object, *, provider: object, tickers: list[str], mapping_path: Path | None
+        conn: object,
+        *,
+        provider: object,
+        tickers: list[str],
+        mapping_path: Path | None,
+        force: bool = False,
     ) -> UniverseRefreshResult:
         captured["tickers"] = tickers
         return _result(total=len(tickers), failed=0, status="success")
@@ -72,7 +77,12 @@ def test_refresh_fmp_custom_universe(tmp_path: Path, monkeypatch: pytest.MonkeyP
     captured: dict[str, object] = {}
 
     def fake_refresh(
-        conn: object, *, provider: object, tickers: list[str], mapping_path: Path | None
+        conn: object,
+        *,
+        provider: object,
+        tickers: list[str],
+        mapping_path: Path | None,
+        force: bool = False,
     ) -> UniverseRefreshResult:
         captured["tickers"] = tickers
         return _result(total=len(tickers), failed=0, status="success")
@@ -92,7 +102,12 @@ def test_refresh_fmp_exit_code_2_when_over_threshold(
     uni.write_text("ticker\n" + "\n".join(f"T{i}" for i in range(20)) + "\n")
 
     def fake_refresh(
-        conn: object, *, provider: object, tickers: list[str], mapping_path: Path | None
+        conn: object,
+        *,
+        provider: object,
+        tickers: list[str],
+        mapping_path: Path | None,
+        force: bool = False,
     ) -> UniverseRefreshResult:
         return _result(total=20, failed=6, status="error")
 
@@ -113,7 +128,12 @@ def test_refresh_fmp_partial_still_exits_2(
     uni.write_text("ticker\n" + "\n".join(f"T{i}" for i in range(20)) + "\n")
 
     def fake_refresh(
-        conn: object, *, provider: object, tickers: list[str], mapping_path: Path | None
+        conn: object,
+        *,
+        provider: object,
+        tickers: list[str],
+        mapping_path: Path | None,
+        force: bool = False,
     ) -> UniverseRefreshResult:
         return _result(total=20, failed=2, status="partial")
 
@@ -145,7 +165,12 @@ def test_refresh_fmp_deferred_exits_0_and_mentions_deferred(
     uni.write_text("ticker\n" + "\n".join(f"T{i}" for i in range(5)) + "\n")
 
     def fake_refresh(
-        conn: object, *, provider: object, tickers: list[str], mapping_path: Path | None
+        conn: object,
+        *,
+        provider: object,
+        tickers: list[str],
+        mapping_path: Path | None,
+        force: bool = False,
     ) -> UniverseRefreshResult:
         return _result(total=5, failed=0, status="success", deferred=3)
 
@@ -180,7 +205,12 @@ def test_refresh_fmp_forwards_the_configured_industry_mapping_path(
     captured: dict[str, object] = {}
 
     def fake_refresh(
-        conn: object, *, provider: object, tickers: list[str], mapping_path: Path | None
+        conn: object,
+        *,
+        provider: object,
+        tickers: list[str],
+        mapping_path: Path | None,
+        force: bool = False,
     ) -> UniverseRefreshResult:
         captured["mapping_path"] = mapping_path
         return _result(total=len(tickers), failed=0, status="success")

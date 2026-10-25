@@ -146,6 +146,12 @@ def refresh(
         "so repeated runs fill the unpriced remainder — the first-fill mode for a "
         "rate-capped free tier like Tiingo.",
     ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="With --fundamentals: re-import every ticker even if its latest filing date "
+        "has not advanced. Ignored without --fundamentals/--all.",
+    ),
 ) -> None:
     """Refresh data from external sources.
 
@@ -182,7 +188,7 @@ def refresh(
             _refresh_damodaran(conn, region=region, year=year, download_dir=download_dir),
         )
     if fmp:
-        exit_code = max(exit_code, _refresh_fmp_universe(conn, settings, universe, limit))
+        exit_code = max(exit_code, _refresh_fmp_universe(conn, settings, universe, limit, force))
     if prices:
         exit_code = max(exit_code, _refresh_prices(conn, settings, universe, limit, only_missing))
     if fx:
@@ -225,6 +231,7 @@ def _refresh_fmp_universe(
     settings: Settings,
     universe: Path | None,
     limit: int | None = None,
+    force: bool = False,
 ) -> int:
     """Run a bulk FMP universe refresh and map its outcome to an exit code.
 
@@ -244,6 +251,7 @@ def _refresh_fmp_universe(
             provider=provider,
             tickers=tickers,
             mapping_path=settings.industry_mapping_path,
+            force=force,
         )
     _report_universe_refresh(result)
 
