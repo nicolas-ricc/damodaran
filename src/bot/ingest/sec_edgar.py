@@ -619,6 +619,11 @@ def upsert_filings(conn: duckdb.DuckDBPyConnection, filings: list[dict[str, Any]
     return len(filings)
 
 
+def count_null_revenue(rows: list[dict[str, Any]]) -> int:
+    """Number of annual rows whose ``revenue`` is missing (NULL after resolution)."""
+    return sum(1 for r in rows if r.get("revenue") is None)
+
+
 def import_company_from_sec(
     conn: duckdb.DuckDBPyConnection,
     *,
@@ -649,11 +654,20 @@ def import_company_from_sec(
             filings = upsert_filings(conn, parsed.filings)
 
         run.rows_affected = 1 + annual + quarterly + filings
+        null_revenue = count_null_revenue(parsed.annual)
+        log.info(
+            "ingest.annual_revenue_null",
+            ticker=ticker,
+            source="sec_edgar",
+            annual_revenue_null=null_revenue,
+            annual=annual,
+        )
         run.details = {
             "ticker": ticker,
             "annual": annual,
             "quarterly": quarterly,
             "filings": filings,
+            "annual_revenue_null": null_revenue,
         }
     assert run.result is not None  # refresh_run always sets it on exit
     return run.result

@@ -54,6 +54,7 @@ from bot.ingest.provider import (
     ProviderRateLimitError,
 )
 from bot.ingest.sec_edgar import (
+    count_null_revenue,
     upsert_company,
     upsert_filings,
     upsert_financials_annual,
@@ -300,12 +301,21 @@ def import_company(
             quarterly = upsert_financials_quarterly(conn, bundle.quarterly.quarterly)
             filings = upsert_filings(conn, bundle.filings)
         run.rows_affected = 1 + annual + quarterly + filings
+        null_revenue = count_null_revenue(bundle.annual.annual)
+        log.info(
+            "ingest.annual_revenue_null",
+            ticker=sym,
+            source=provider.name,
+            annual_revenue_null=null_revenue,
+            annual=annual,
+        )
         run.details = {
             "ticker": sym,
             "annual": annual,
             "quarterly": quarterly,
             "filings": filings,
             "currency": currency,
+            "annual_revenue_null": null_revenue,
         }
     assert run.result is not None  # refresh_run always sets it on exit
     return run.result
