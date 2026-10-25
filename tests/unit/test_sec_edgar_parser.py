@@ -565,17 +565,17 @@ def test_quarterly_fiscal_quarter_collision_keeps_later_end() -> None:
 
 def test_annual_end_dropped_by_year_collision_still_numbers_quarters() -> None:
     # Annual periods ending 2014-02-01 and 2014-12-31 collide on fiscal_year 2014 and the
-    # first is dropped; the quarter ending 2014-05-03 still counts from its real year end.
+    # first is dropped; the quarter ending 2013-11-02 is in range of only that dropped end.
     facts = _facts(
         {
             "Revenues": [
                 _fact("2014-02-01", 1.0, start="2013-02-03", fy=2014, filed="2014-03-28"),
                 _fact("2014-12-31", 2.0, start="2014-01-01", fy=2014, filed="2015-03-01"),
-                _q("2014-05-03", "2014-02-02", fy=2014, fp="Q9", filed="2014-06-01"),
+                _q("2013-11-02", "2013-08-04", fy=2013, fp="Q9", filed="2013-12-01"),
             ]
         }
     )
-    assert sorted(_quarterly(facts)) == [(2014, 1)]
+    assert sorted(_quarterly(facts)) == [(2014, 3)]
 
 
 def test_fiscal_quarter_key_counts_back_from_next_annual_end() -> None:

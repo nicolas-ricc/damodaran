@@ -26,6 +26,7 @@ COMPANY_CONCEPT_URL_TEMPLATE = (
 # rejects transition periods and year-to-date spans; quarterly rejects the same.
 ANNUAL_SPAN_DAYS: tuple[int, int] = (350, 380)
 QUARTERLY_SPAN_DAYS: tuple[int, int] = (80, 100)
+_QUARTER_DAYS = 91.3
 
 _FINANCIAL_FORMS = {"10-K", "10-K/A", "10-Q", "10-Q/A", "20-F", "20-F/A"}
 
@@ -316,9 +317,6 @@ def _quarterly_rows(
     return out
 
 
-_QUARTER_DAYS = 91.3
-
-
 def _fiscal_quarter_key(
     quarter_end: date, annual_ends: list[date], fallback: tuple[int, int] | None
 ) -> tuple[int, int] | None:
@@ -380,7 +378,7 @@ def _collect_period_rows(
     period. A row exists only when an accepted duration fact (span inside
     ``span_days``) ends on that date; instant facts (no ``start``) attach to the
     row with the same ``end`` and are dropped otherwise. Each row carries
-    ``_first_fy_fp``: the (fy, fp) of the earliest-filed accepted duration fact
+    ``_first_fy_fp``: the (fy, quarter number) of the earliest-filed accepted duration fact
     ending there whose fp is Q1-Q4 and fy an int (else None), the fallback label
     for quarters with no annual end to count from.
     """
