@@ -22,6 +22,11 @@ COMPANY_CONCEPT_URL_TEMPLATE = (
     "EntityCommonStockSharesOutstanding.json"
 )
 
+# Accepted duration spans in days. Annual covers 52/53-week years (363 to 371) and
+# rejects transition periods and year-to-date spans; quarterly rejects the same.
+ANNUAL_SPAN_DAYS: tuple[int, int] = (350, 380)
+QUARTERLY_SPAN_DAYS: tuple[int, int] = (80, 100)
+
 _FINANCIAL_FORMS = {"10-K", "10-K/A", "10-Q", "10-Q/A", "20-F", "20-F/A"}
 
 
@@ -237,14 +242,16 @@ def parse_company_facts(ticker: str, facts: dict[str, Any]) -> ParsedCompanyData
     }
 
     us_gaap = facts.get("facts", {}).get("us-gaap", {})
-    annual_rows = _collect_period_rows(
-        ticker, us_gaap, fiscal_period="FY", allowed_forms={"10-K", "10-K/A"}
-    )
-    quarterly_rows = _collect_period_rows(
+    annual_rows = _annual_rows(
         ticker,
-        us_gaap,
-        fiscal_period_set={"Q1", "Q2", "Q3", "Q4"},
-        allowed_forms={"10-Q", "10-Q/A"},
+        _collect_period_rows(
+            ticker, us_gaap, span_days=ANNUAL_SPAN_DAYS, allowed_forms={"10-K", "10-K/A"}
+        ),
+    )
+    quarterly_rows = _provisional_quarterly_rows(
+        _collect_period_rows(
+            ticker, us_gaap, span_days=QUARTERLY_SPAN_DAYS, allowed_forms={"10-Q", "10-Q/A"}
+        )
     )
     filings = _collect_filings(ticker, us_gaap)
 
@@ -256,81 +263,146 @@ def parse_company_facts(ticker: str, facts: dict[str, Any]) -> ParsedCompanyData
     )
 
 
+def _annual_rows(ticker: str, rows: dict[date, dict[str, Any]]) -> list[dict[str, Any]]:
+    """Stamp ``fiscal_year`` = calendar year of the period end; on a clash keep the later end."""
+    by_year: dict[int, date] = {}
+    for end in sorted(rows):
+        if end.year in by_year:
+            log.warning(
+                "sec_edgar.fiscal_year_collision",
+                ticker=ticker,
+                fiscal_year=end.year,
+                kept=end.isoformat(),
+                dropped=by_year[end.year].isoformat(),
+            )
+        by_year[end.year] = end
+    out: list[dict[str, Any]] = []
+    for year, end in by_year.items():
+        row = rows[end]
+        row.pop("_first_fy_fp", None)
+        row["fiscal_year"] = year
+        out.append(row)
+    return out
+
+
+def _provisional_quarterly_rows(rows: dict[date, dict[str, Any]]) -> list[dict[str, Any]]:
+    """Key quarters by the first-reporting filing's fy/fp (replaced by period-derived ordinals)."""
+    by_key: dict[tuple[int, int], dict[str, Any]] = {}
+    for end in sorted(rows):
+        row = rows[end]
+        fy, fp = row.pop("_first_fy_fp")
+        if fy is None or not isinstance(fp, str) or fp not in {"Q1", "Q2", "Q3", "Q4"}:
+            continue
+        row["fiscal_year"] = fy
+        row["fiscal_quarter"] = int(fp[1:])
+        by_key[(fy, row["fiscal_quarter"])] = row
+    return list(by_key.values())
+
+
+def _accepted_entries(
+    entries: list[dict[str, Any]], allowed_forms: set[str]
+) -> list[tuple[date | None, date, dict[str, Any]]]:
+    """(start, end, entry) for well-formed entries on an allowed form, oldest filing first.
+
+    ``start`` is None for instant facts. Entries with no value, an unparsable
+    ``end``, or a present-but-unparsable ``start`` are skipped. Sorting by
+    (filed, accn) makes "later write wins" independent of the API's list order.
+    """
+    out: list[tuple[date | None, date, dict[str, Any]]] = []
+    for e in sorted(entries, key=lambda x: (x.get("filed") or "", x.get("accn") or "")):
+        if e.get("form", "") not in allowed_forms or e.get("val") is None:
+            continue
+        end = coerce_date(e.get("end"))
+        if end is None:
+            continue
+        start = None
+        if e.get("start") is not None:
+            start = coerce_date(e["start"])
+            if start is None:
+                continue
+        out.append((start, end, e))
+    return out
+
+
 def _collect_period_rows(
     ticker: str,
     us_gaap: dict[str, Any],
     *,
-    fiscal_period: str | None = None,
-    fiscal_period_set: set[str] | None = None,
+    span_days: tuple[int, int],
     allowed_forms: set[str],
-) -> list[dict[str, Any]]:
-    """Build per-period rows from the XBRL facts. Latest filing wins per (period, column)."""
-    # accum: (fy, quarter_or_None) -> { db_col -> {"val", "filed", "form", "end"} }
-    accum: dict[tuple[int, int | None], dict[str, dict[str, Any]]] = {}
-    # forms_seen: track ALL forms observed for each (fy, q) slot to compute is_restated correctly
-    forms_seen: dict[tuple[int, int | None], set[str]] = {}
+) -> dict[date, dict[str, Any]]:
+    """Build rows keyed by period ``end`` from facts attributed by their own start/end.
 
+    ``fy``/``fp`` describe the filing, not the fact, so they never pick the
+    period. A row exists only when an accepted duration fact (span inside
+    ``span_days``) ends on that date; instant facts (no ``start``) attach to the
+    row with the same ``end`` and are dropped otherwise. Each row carries
+    ``_first_fy_fp``: the (fy, fp) of the earliest-filed accepted duration fact
+    ending there, for callers that must label quarters.
+    """
+    lo, hi = span_days
+    # values: end -> db_col -> val. Later (filed, accn) overwrites earlier.
+    values: dict[date, dict[str, Any]] = {}
+    # forms_seen: ALL accepted forms per end, so is_restated survives a later plain filing
+    forms_seen: dict[date, set[str]] = {}
+    first_seen: dict[date, tuple[str, str, Any, Any]] = {}
+    duration_cols: set[str] = set()
+
+    def entries_of(concept: str) -> list[dict[str, Any]]:
+        unit_map = us_gaap.get(concept, {}).get("units", {})
+        entries: list[dict[str, Any]] = unit_map.get("USD") or unit_map.get("shares") or []
+        return entries
+
+    # Phase a: duration facts decide which period ends have a row.
     for db_col, concepts in ANNUAL_CONCEPT_MAP.items():
         for concept in concepts:
-            unit_map = us_gaap.get(concept, {}).get("units", {})
-            entries = unit_map.get("USD") or unit_map.get("shares") or []
-            if not entries:
+            accepted = [
+                (end, e)
+                for start, end, e in _accepted_entries(entries_of(concept), allowed_forms)
+                if start is not None and lo <= (end - start).days <= hi
+            ]
+            if not accepted:
                 continue
-            found_any = False
-            for e in entries:
-                fp = e.get("fp")
-                form = e.get("form", "")
-                if form not in allowed_forms:
-                    continue
-                if fiscal_period and fp != fiscal_period:
-                    continue
-                if fiscal_period_set and fp not in fiscal_period_set:
-                    continue
-                fy = e.get("fy")
-                if fy is None:
-                    continue
-                q = None
-                if fp and fp.startswith("Q"):
-                    try:
-                        q = int(fp[1:])
-                    except ValueError:
-                        q = None
-                key = (fy, q)
-                # Track every form seen for this period slot
-                forms_seen.setdefault(key, set()).add(form)
-                slot = accum.setdefault(key, {})
-                existing = slot.get(db_col)
-                if existing is None or e.get("filed", "") > existing.get("filed", ""):
-                    slot[db_col] = {
-                        "val": e.get("val"),
-                        "filed": e.get("filed"),
-                        "form": form,
-                        "end": e.get("end"),
-                    }
-                    found_any = True
-            if found_any:
-                break  # found a concept with data — don't fall through
+            for end, e in accepted:
+                values.setdefault(end, {})[db_col] = e["val"]
+                forms_seen.setdefault(end, set()).add(e["form"])
+                order = (e.get("filed") or "", e.get("accn") or "")
+                if end not in first_seen or order < first_seen[end][:2]:
+                    first_seen[end] = (*order, e.get("fy"), e.get("fp"))
+            duration_cols.add(db_col)
+            break  # found a concept with data — don't fall through
 
-    out: list[dict[str, Any]] = []
-    for (fy, q), cols in accum.items():
-        # is_restated is True if ANY historical form for this period was an amendment (/A)
-        is_restated = any(f.endswith("/A") for f in forms_seen.get((fy, q), set()))
+    # Phase b: instant facts attach to existing period ends only; a concept whose
+    # instants all miss is not "found", so the column falls through to the next one.
+    for db_col, concepts in ANNUAL_CONCEPT_MAP.items():
+        if db_col in duration_cols:
+            continue
+        for concept in concepts:
+            matched = [
+                (end, e)
+                for start, end, e in _accepted_entries(entries_of(concept), allowed_forms)
+                if start is None and end in values
+            ]
+            if not matched:
+                continue
+            for end, e in matched:
+                values[end][db_col] = e["val"]
+                forms_seen[end].add(e["form"])
+            break
+
+    out: dict[date, dict[str, Any]] = {}
+    for end, cols in values.items():
         row: dict[str, Any] = {
             "ticker": ticker,
-            "fiscal_year": fy,
             "currency": "USD",
             "source": "sec_edgar",
-            "is_restated": is_restated,
+            "is_restated": any(f.endswith("/A") for f in forms_seen[end]),
+            "period_end_date": end.isoformat(),
+            **cols,
         }
-        if q is not None:
-            row["fiscal_quarter"] = q
-        end_dates: list[str] = [c["end"] for c in cols.values() if c.get("end")]
-        if end_dates:
-            row["period_end_date"] = max(end_dates)
-        for db_col, info in cols.items():
-            row[db_col] = info["val"]
         _derive_financial_fields(row)
-        out.append(row)
+        row["_first_fy_fp"] = first_seen[end][2:]
+        out[end] = row
     return out
 
 

@@ -44,6 +44,7 @@ def _edgar_handler(request: httpx.Request) -> httpx.Response:
                             "units": {
                                 "USD": [
                                     {
+                                        "start": "2024-09-29",
                                         "end": "2025-09-27",
                                         "val": 400000000000,
                                         "fy": 2025,
