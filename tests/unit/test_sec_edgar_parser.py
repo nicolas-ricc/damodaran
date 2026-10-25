@@ -1,6 +1,9 @@
-import pytest
+from datetime import date
 
-from bot.ingest.sec_edgar import parse_company_facts
+import pytest
+from structlog.testing import capture_logs
+
+from bot.ingest.sec_edgar import _fiscal_quarter_key, parse_company_facts
 
 FAKE_FACTS = {
     "cik": 320193,
@@ -522,3 +525,103 @@ def test_quarterly_instant_attaches_by_end_and_prior_year_end_instant_dropped() 
     quarterly = _quarterly(facts)
     assert sorted(quarterly) == [(2025, 1)]
     assert quarterly[(2025, 1)]["cash"] == 1_200_000_000
+
+
+def _q(
+    end: str, start: str, *, fy: int, fp: str, filed: str, val: float = 1.0
+) -> dict[str, object]:
+    return _fact(end, val, start=start, form="10-Q", fy=fy, fp=fp, filed=filed)
+
+
+def test_quarter_number_comes_from_period_not_first_filing_fp() -> None:
+    facts = _facts(
+        {
+            "Revenues": [
+                _fact("2024-12-31", 25_920_000_000, start="2024-01-01", fy=2024),
+                _q("2025-03-31", "2025-01-01", fy=2025, fp="Q3", filed="2025-05-01"),
+            ]
+        }
+    )
+    assert sorted(_quarterly(facts)) == [(2025, 1)]
+
+
+def test_quarterly_fiscal_quarter_collision_keeps_later_end() -> None:
+    facts = _facts(
+        {
+            "Revenues": [
+                _fact("2024-12-31", 25_920_000_000, start="2024-01-01", fy=2024),
+                _q("2025-03-31", "2025-01-01", fy=2025, fp="Q1", filed="2025-05-01", val=1.0),
+                _q("2025-04-20", "2025-01-21", fy=2025, fp="Q2", filed="2025-06-01", val=2.0),
+            ]
+        }
+    )
+    with capture_logs() as logs:
+        quarterly = _quarterly(facts)
+    assert sorted(quarterly) == [(2025, 1)]
+    assert quarterly[(2025, 1)]["revenue"] == 2.0
+    assert str(quarterly[(2025, 1)]["period_end_date"]) == "2025-04-20"
+    assert [entry["event"] for entry in logs] == ["sec_edgar.fiscal_quarter_collision"]
+
+
+def test_annual_end_dropped_by_year_collision_still_numbers_quarters() -> None:
+    # Annual periods ending 2014-02-01 and 2014-12-31 collide on fiscal_year 2014 and the
+    # first is dropped; the quarter ending 2014-05-03 still counts from its real year end.
+    facts = _facts(
+        {
+            "Revenues": [
+                _fact("2014-02-01", 1.0, start="2013-02-03", fy=2014, filed="2014-03-28"),
+                _fact("2014-12-31", 2.0, start="2014-01-01", fy=2014, filed="2015-03-01"),
+                _q("2014-05-03", "2014-02-02", fy=2014, fp="Q9", filed="2014-06-01"),
+            ]
+        }
+    )
+    assert sorted(_quarterly(facts)) == [(2014, 1)]
+
+
+def test_fiscal_quarter_key_counts_back_from_next_annual_end() -> None:
+    annual_ends = [date(2024, 12, 31)]
+    assert _fiscal_quarter_key(date(2024, 9, 30), annual_ends, None) == (2024, 3)
+
+
+def test_fiscal_quarter_key_counts_forward_from_previous_annual_end() -> None:
+    annual_ends = [date(2023, 9, 30)]
+    assert _fiscal_quarter_key(date(2024, 3, 30), annual_ends, None) == (2024, 2)
+
+
+def test_fiscal_quarter_key_prefers_next_annual_end() -> None:
+    annual_ends = [date(2023, 12, 31), date(2024, 12, 31)]
+    assert _fiscal_quarter_key(date(2024, 3, 31), annual_ends, None) == (2024, 1)
+
+
+def test_fiscal_quarter_key_without_annual_end_in_range_uses_fallback() -> None:
+    assert _fiscal_quarter_key(date(2025, 3, 31), [], (2025, 1)) == (2025, 1)
+    assert _fiscal_quarter_key(date(2025, 3, 31), [date(2020, 12, 31)], (2025, 1)) == (2025, 1)
+
+
+def test_fiscal_quarter_key_out_of_range_ordinal_uses_fallback() -> None:
+    # 10 days after the previous annual end rounds to ordinal 0, outside 1..4.
+    assert _fiscal_quarter_key(date(2025, 1, 10), [date(2024, 12, 31)], (2025, 1)) == (2025, 1)
+    assert _fiscal_quarter_key(date(2025, 1, 10), [date(2024, 12, 31)], None) is None
+
+
+def test_fiscal_quarter_key_none_without_fallback() -> None:
+    assert _fiscal_quarter_key(date(2025, 3, 31), [], None) is None
+
+
+def test_quarter_with_no_annual_context_and_no_quarter_fp_is_dropped() -> None:
+    odd = _q("2025-03-31", "2025-01-01", fy=2025, fp="FY", filed="2025-05-01")
+    assert parse_company_facts("MCD", _facts({"Revenues": [odd]})).quarterly == []
+
+
+def test_fallback_uses_earliest_entry_with_a_quarter_fp() -> None:
+    # Earliest-filed entry carries a non-quarter fp; the earliest valid one labels the quarter.
+    facts = _facts(
+        {
+            "Revenues": [
+                _q("2025-03-31", "2025-01-01", fy=2025, fp="FY", filed="2025-04-01"),
+                _q("2025-03-31", "2025-01-01", fy=2025, fp="Q1", filed="2025-05-01"),
+                _q("2025-03-31", "2025-01-01", fy=2026, fp="Q1", filed="2026-05-01"),
+            ]
+        }
+    )
+    assert sorted(_quarterly(facts)) == [(2025, 1)]
