@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable, Collection
 from datetime import date
 from typing import Any
 
@@ -248,13 +249,25 @@ def parse_company_facts(ticker: str, facts: dict[str, Any]) -> ParsedCompanyData
     )
     # Every accepted annual end, also one an annual fiscal-year collision drops.
     annual_ends = list(annual_by_end)
-    annual_rows = _annual_rows(ticker, annual_by_end)
-    quarterly_rows = _quarterly_rows(
+    annual_rows = _label_rows(
+        ticker,
+        annual_by_end,
+        lambda end, _row: (end.year,),
+        fields=("fiscal_year",),
+        collision_event="sec_edgar.fiscal_year_collision",
+    )
+    quarterly_rows = _label_rows(
         ticker,
         _collect_period_rows(
-            ticker, us_gaap, span_days=QUARTERLY_SPAN_DAYS, allowed_forms={"10-Q", "10-Q/A"}
+            ticker,
+            us_gaap,
+            span_days=QUARTERLY_SPAN_DAYS,
+            allowed_forms={"10-Q", "10-Q/A"},
+            row_cols=FINANCIALS_QUARTERLY_COLS,
         ),
-        annual_ends,
+        lambda end, row: _fiscal_quarter_key(end, annual_ends, row["_first_fy_fp"]),
+        fields=("fiscal_year", "fiscal_quarter"),
+        collision_event="sec_edgar.fiscal_quarter_collision",
     )
     filings = _collect_filings(ticker, us_gaap)
 
@@ -266,53 +279,37 @@ def parse_company_facts(ticker: str, facts: dict[str, Any]) -> ParsedCompanyData
     )
 
 
-def _annual_rows(ticker: str, rows: dict[date, dict[str, Any]]) -> list[dict[str, Any]]:
-    """Stamp ``fiscal_year`` = calendar year of the period end; on a clash keep the later end."""
-    by_year: dict[int, date] = {}
-    for end in sorted(rows):
-        if end.year in by_year:
-            log.warning(
-                "sec_edgar.fiscal_year_collision",
-                ticker=ticker,
-                fiscal_year=end.year,
-                kept=end.isoformat(),
-                dropped=by_year[end.year].isoformat(),
-            )
-        by_year[end.year] = end
-    out: list[dict[str, Any]] = []
-    for year, end in by_year.items():
-        row = rows[end]
-        row.pop("_first_fy_fp", None)
-        row["fiscal_year"] = year
-        out.append(row)
-    return out
-
-
-def _quarterly_rows(
-    ticker: str, rows: dict[date, dict[str, Any]], annual_ends: list[date]
+def _label_rows(
+    ticker: str,
+    rows: dict[date, dict[str, Any]],
+    label: Callable[[date, dict[str, Any]], tuple[int, ...] | None],
+    *,
+    fields: tuple[str, ...],
+    collision_event: str,
 ) -> list[dict[str, Any]]:
-    """Stamp each quarter with its ``(fiscal_year, fiscal_quarter)``; on a clash keep the later end."""
-    by_key: dict[tuple[int, int], date] = {}
+    """Stamp each row with its ``label`` under ``fields``; on a clash keep the later end.
+
+    ``label`` returning None drops the row.
+    """
+    by_key: dict[tuple[int, ...], date] = {}
     for end in sorted(rows):
-        key = _fiscal_quarter_key(end, annual_ends, rows[end]["_first_fy_fp"])
+        key = label(end, rows[end])
         if key is None:
             continue
         if key in by_key:
             log.warning(
-                "sec_edgar.fiscal_quarter_collision",
+                collision_event,
                 ticker=ticker,
-                fiscal_year=key[0],
-                fiscal_quarter=key[1],
+                **dict(zip(fields, key, strict=True)),
                 kept=end.isoformat(),
                 dropped=by_key[key].isoformat(),
             )
         by_key[key] = end
     out: list[dict[str, Any]] = []
-    for (year, quarter), end in by_key.items():
+    for key, end in by_key.items():
         row = rows[end]
         row.pop("_first_fy_fp", None)
-        row["fiscal_year"] = year
-        row["fiscal_quarter"] = quarter
+        row.update(zip(fields, key, strict=True))
         out.append(row)
     return out
 
@@ -371,13 +368,17 @@ def _collect_period_rows(
     *,
     span_days: tuple[int, int],
     allowed_forms: set[str],
+    row_cols: Collection[str] | None = None,
 ) -> dict[date, dict[str, Any]]:
     """Build rows keyed by period ``end`` from facts attributed by their own start/end.
 
     ``fy``/``fp`` describe the filing, not the fact, so they never pick the
     period. A row exists only when an accepted duration fact (span inside
     ``span_days``) ends on that date; instant facts (no ``start``) attach to the
-    row with the same ``end`` and are dropped otherwise. Each row carries
+    row with the same ``end`` and are dropped otherwise. With ``row_cols``, only
+    a duration fact of one of those columns creates a row (others still fill it).
+    Facts for one ``end`` share a slot whatever their ``start``: one row per
+    period end. Each row carries
     ``_first_fy_fp``: the (fy, quarter number) of the earliest-filed accepted duration fact
     ending there whose fp is Q1-Q4 and fy an int (else None), the fallback label
     for quarters with no annual end to count from.
@@ -389,6 +390,7 @@ def _collect_period_rows(
     forms_seen: dict[date, set[str]] = {}
     first_seen: dict[date, tuple[str, str, int, str]] = {}
     duration_cols: set[str] = set()
+    row_ends: set[date] = set()
 
     def entries_of(concept: str) -> list[dict[str, Any]]:
         unit_map = us_gaap.get(concept, {}).get("units", {})
@@ -407,6 +409,8 @@ def _collect_period_rows(
                 continue
             for end, e in accepted:
                 values.setdefault(end, {})[db_col] = e["val"]
+                if row_cols is None or db_col in row_cols:
+                    row_ends.add(end)
                 forms_seen.setdefault(end, set()).add(e["form"])
                 order = (e.get("filed") or "", e.get("accn") or "")
                 fy, fp = e.get("fy"), e.get("fp")
@@ -428,7 +432,7 @@ def _collect_period_rows(
             matched = [
                 (end, e)
                 for start, end, e in _accepted_entries(entries_of(concept), allowed_forms)
-                if start is None and end in values
+                if start is None and end in row_ends
             ]
             if not matched:
                 continue
@@ -438,7 +442,8 @@ def _collect_period_rows(
             break
 
     out: dict[date, dict[str, Any]] = {}
-    for end, cols in values.items():
+    for end in row_ends:
+        cols = values[end]
         row: dict[str, Any] = {
             "ticker": ticker,
             "currency": "USD",

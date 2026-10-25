@@ -381,11 +381,13 @@ def test_fiscal_year_collision_keeps_later_end() -> None:
             ]
         }
     )
-    rows = parse_company_facts("MCD", facts).annual
+    with capture_logs() as logs:
+        rows = parse_company_facts("MCD", facts).annual
     assert len(rows) == 1
     assert rows[0]["fiscal_year"] == 2014
     assert str(rows[0]["period_end_date"]) == "2014-12-31"
     assert rows[0]["revenue"] == 2.0
+    assert [entry["event"] for entry in logs] == ["sec_edgar.fiscal_year_collision"]
 
 
 def test_malformed_entries_are_skipped() -> None:
@@ -625,3 +627,29 @@ def test_fallback_uses_earliest_entry_with_a_quarter_fp() -> None:
         }
     )
     assert sorted(_quarterly(facts)) == [(2025, 1)]
+
+
+def test_quarter_created_only_by_a_column_the_table_does_not_store_is_dropped() -> None:
+    # AAPL 10-Qs re-report the prior fiscal-year-end quarter's dividends only; that
+    # column is not in financials_quarterly, so no (fy, 4) row of bare balances.
+    facts = _facts(
+        {
+            "PaymentsOfDividends": [
+                _fact(
+                    "2013-09-28",
+                    2_800_000_000,
+                    start="2013-06-30",
+                    form="10-Q",
+                    fy=2014,
+                    fp="Q1",
+                    filed="2014-01-28",
+                )
+            ],
+            "CashAndCashEquivalentsAtCarryingValue": [
+                _fact(
+                    "2013-09-28", 14_259_000_000, form="10-Q", fy=2014, fp="Q1", filed="2014-01-28"
+                ),
+            ],
+        }
+    )
+    assert parse_company_facts("AAPL", facts).quarterly == []
