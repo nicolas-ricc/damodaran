@@ -1,6 +1,6 @@
 # EDGAR per-period concept resolution Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `subagent-driven-development` (`.agents/skills/`), with `test-driven-development` for new code. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Resolve each `ANNUAL_CONCEPT_MAP` column's XBRL concept per period instead of per column, so a company that switches revenue concepts mid-series (BBY: `SalesRevenueNet` through 2018-02-03, `Revenues` after) keeps a value for every year. Log how many annual rows still lack revenue after each import.
 
@@ -122,3 +122,18 @@ def test_import_company_reports_zero_when_no_annual_rows() -> None:
 ## Manual verification (not automatable here)
 
 - `bot refresh --fundamentals --force` against live EDGAR: BBY has non-NULL revenue on every annual row from 2009 on, and no row is below 1e9. The sandbox gets HTTP 403 from data.sec.gov, so `test_bby_shaped_series_has_revenue_every_year_from_2009` stands in for this check, using the period layout described in the issue.
+
+## Assumptions
+
+- **A1. Keying on `end` alone stays.** `_label_rows` collapses two annual ends in one calendar year: it keeps the later one and logs `sec_edgar.fiscal_year_collision`. A concept switch that coincides with a fiscal-year-end shift therefore gets the same handling #122 defined (`src/bot/ingest/sec_edgar.py` `_label_rows`). Rejected alternative: matching periods across concepts by a fuzzy window, which neither issue asks for.
+- **A2. The duration-column rule stays.** If any concept gave a column a duration fact, phase b skips that column's instants. This keeps today's `duration_cols` rule (`sec_edgar.py` phase b, `if db_col in duration_cols: continue`). No column in the map mixes duration and instant concepts. Rejected alternative: falling back from durations to instants per period.
+- **A3. `is_restated` follows the facts used.** Inside the winning concept for a period, every accepted fact's form still counts, as #122 decided (`test_is_restated_true_when_amendment_in_history_even_if_later_10k_wins`). Facts from losing concepts do not count. Rejected alternative: counting every concept, which would mark rows restated because of data that was never used.
+- **A4. `row_ends` is the union across all columns,** as it is today (`sec_edgar.py`, the `row_ends` set built in phase a). An instant concept for column C attaches at any end that a duration fact of any column created.
+- **A5. The count includes FMP imports.** The NULL-revenue count also runs for non-EDGAR providers through `universe.import_company`. FMP rows use the same `revenue` key (`src/bot/ingest/fmp.py:440`). Rejected alternative: counting only for EDGAR, which would need provider-specific branching in a generic importer.
+
+## Grilling
+
+- Rounds: 1. Questions: 16. Griller model: fable.
+- Sources: ISSUE 6 (Q1, Q2, Q4, Q7 and Q15 via the acceptance criteria, Q9 partly), CODE 8 (Q5, Q9, Q10, Q11, Q12, Q13, Q16, Q6), DOC 1 (Q14, AGENTS.md), NO SOURCE resolved as technical assumptions 4 (A1 for Q3, A2 for Q5, A3 for Q6, A4 for Q16). Q8 is procedural: the stage-3 evals do not exist yet and will replace the `<X value>` placeholder with concrete values.
+- Spec ambiguities: none. Follow-up issues opened: none.
+- Q9 is answered by the code: `upsert_financials_annual` and `upsert_financials_quarterly` delete every row of the ticker before inserting, so a re-import fully replaces the old rows. Old data only changes after `bot refresh --fundamentals --force` (#122). That is the PR's manual verification step.
