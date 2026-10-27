@@ -44,9 +44,41 @@ VERDICT_TEXT: dict[Verdict, str] = {
 }
 _TEXT_TO_VERDICT = {text: verdict for verdict, text in VERDICT_TEXT.items()}
 
+#: The short name of each verdict, as the filter chips and the legend print it.
+VERDICT_LABEL: dict[Verdict, str] = {
+    Verdict.UNDERVALUED: "undervalued",
+    Verdict.FAIR: "fair",
+    Verdict.OVERVALUED: "overvalued",
+    Verdict.NA: "no verdict",
+}
+
+#: Margin-of-safety thresholds behind :func:`margin_verdict`, as the viewer explains them.
+MOS_UNDERVALUED = 1.3
+MOS_FAIR = 1.0
+
 FILTERS = ("all", "undervalued", "fair", "overvalued", "na")
 SORTS = ("ticker", "mos", "date")
 DIRECTIONS = ("asc", "desc")
+
+#: Flag colours as the valuator writes them, read as a severity word.
+FLAG_SEVERITY: dict[str, str] = {
+    "green": "pass",
+    "yellow": "warning",
+    "red": "fail",
+}
+_NOT_EVALUATED = "not evaluated"
+
+#: Assumption sources as the valuator writes them, read as words.
+_SOURCE_LABEL: dict[str, str] = {
+    "sector_default_damodaran": "sector default (Damodaran)",
+    "historical_average": "historical average",
+    "rule_based": "rule",
+    "override": "manual override",
+}
+_SECTOR_DEFAULT = "sector_default_damodaran"
+
+#: Corporate suffixes that stay upper-case when a name is re-cased.
+_KEEP_UPPER = frozenset({"LLC", "PLC", "SA", "NV", "AG", "SE", "LP", "AB", "ASA", "SPA", "ADR"})
 
 
 def verdict_of(margin_of_safety: float | None) -> Verdict:
@@ -57,6 +89,29 @@ def verdict_of(margin_of_safety: float | None) -> Verdict:
 def verdict_from_text(text: str) -> Verdict:
     """Inverse of :data:`VERDICT_TEXT`; unknown text is ``NA``."""
     return _TEXT_TO_VERDICT.get(text, Verdict.NA)
+
+
+def flag_severity(color: str) -> str:
+    """``pass`` / ``warning`` / ``fail``, or ``not evaluated`` for any other colour."""
+    return FLAG_SEVERITY.get(color, _NOT_EVALUATED)
+
+
+def source_label(source: str) -> str:
+    """An assumption source identifier as words."""
+    return _SOURCE_LABEL.get(source, source.replace("_", " "))
+
+
+def display_name(name: str) -> str:
+    """EDGAR's upper-case company names re-cased; mixed-case names pass through."""
+    if name != name.upper():
+        return name
+    words = []
+    for word in name.split():
+        if word in _KEEP_UPPER or not word.isalpha():
+            words.append(word)
+        else:
+            words.append(word.capitalize())
+    return " ".join(words)
 
 
 @dataclass(frozen=True)
@@ -71,11 +126,35 @@ class ValueLine:
 
     @property
     def fair(self) -> float:
-        return self.price
+        return self.price * MOS_FAIR
 
     @property
     def undervalued(self) -> float:
-        return self.price * 1.3
+        return self.price * MOS_UNDERVALUED
+
+
+@dataclass(frozen=True)
+class FlagView:
+    name: str
+    color: str
+    reason: str
+
+    @property
+    def severity(self) -> str:
+        return flag_severity(self.color)
+
+    @property
+    def label(self) -> str:
+        return self.name.replace("_", " ")
+
+    @property
+    def detail(self) -> str:
+        """The reason without the ``not evaluated:`` prefix the severity already states."""
+        prefix = f"{_NOT_EVALUATED}:"
+        text = self.reason.strip()
+        if text.lower().startswith(prefix):
+            text = text[len(prefix) :].strip()
+        return text
 
 
 @dataclass(frozen=True)
@@ -87,7 +166,7 @@ class RowView:
     price: str
     intrinsic: str
     story: str
-    flags: tuple[str, ...]
+    flags: tuple[FlagView, ...]
     date: dt.date
     value_line: ValueLine | None
 
@@ -118,13 +197,6 @@ class LabelledValue:
 
 
 @dataclass(frozen=True)
-class FlagView:
-    name: str
-    color: str
-    reason: str
-
-
-@dataclass(frozen=True)
 class DetailView:
     ticker: str
     name: str
@@ -140,11 +212,24 @@ class DetailView:
     grid: ScenarioGrid | None
     tornado: tuple[TornadoBar, ...]
     assumptions: tuple[LabelledValue, ...]
+    defaulted: int
     flags: tuple[FlagView, ...]
     sanity: tuple[LabelledValue, ...]
     dcf_rows: tuple[tuple[str, ...], ...]
     dcf_totals: tuple[LabelledValue, ...]
     history: tuple[dt.date, ...]
+
+    @property
+    def mos_note(self) -> str:
+        """One sentence that turns the margin of safety into its verdict."""
+        if self.price is None:
+            return "No price, so no margin of safety and no verdict."
+        return (
+            f"Intrinsic value {fmt_per_share(self.intrinsic)} is {self.mos} the price of "
+            f"{fmt_per_share(self.price)}. At or above {MOS_UNDERVALUED:.1f}\u00d7 reads as "
+            f"undervalued, between {MOS_FAIR:.1f}\u00d7 and {MOS_UNDERVALUED:.1f}\u00d7 as fair, "
+            f"below {MOS_FAIR:.1f}\u00d7 as overvalued."
+        )
 
 
 def value_line(analysis: Mapping[str, Any]) -> ValueLine | None:
@@ -161,7 +246,7 @@ def value_line(analysis: Mapping[str, Any]) -> ValueLine | None:
     ]
     range_low = min([intrinsic, *extremes])
     range_high = max([intrinsic, *extremes])
-    points = [price, price * 1.3, range_low, range_high]
+    points = [price, price * MOS_UNDERVALUED, range_low, range_high]
     low, high = min(points), max(points)
     pad = (high - low) * 0.05 or 1.0
     return ValueLine(
@@ -200,19 +285,21 @@ def scenario_grid(analysis: Mapping[str, Any]) -> ScenarioGrid | None:
     )
 
 
+def _flags(analysis: Mapping[str, Any]) -> tuple[FlagView, ...]:
+    return tuple(FlagView(f["name"], f["color"], f["reason"]) for f in analysis["narrative_flags"])
+
+
 def row_view(ref: AnalysisRef) -> RowView:
     analysis = ref.data["analysis"]
     return RowView(
         ticker=ref.ticker,
-        name=analysis["name"],
+        name=display_name(analysis["name"]),
         verdict=verdict_from_text(ref.data["verdict"]),
         mos=analysis.get("margin_of_safety"),
         price=fmt_per_share(analysis.get("current_price")),
         intrinsic=fmt_per_share(analysis["dcf_result"]["intrinsic_value"]),
         story=analysis.get("story_type") or _DASH,
-        flags=tuple(
-            f["color"] for f in analysis["narrative_flags"] if f["color"] in ("red", "yellow")
-        ),
+        flags=tuple(f for f in _flags(analysis) if f.color in ("red", "yellow")),
         date=ref.date,
         value_line=value_line(analysis),
     )
@@ -239,9 +326,15 @@ _ASSUMPTION_ROWS: tuple[tuple[str, str, Callable[[Any], str]], ...] = (
 
 def _assumptions(assumptions: Mapping[str, Any]) -> tuple[LabelledValue, ...]:
     return tuple(
-        LabelledValue(label, fmt(assumptions[key]["value"]), str(assumptions[key]["source"]))
+        LabelledValue(
+            label, fmt(assumptions[key]["value"]), source_label(str(assumptions[key]["source"]))
+        )
         for label, key, fmt in _ASSUMPTION_ROWS
     )
+
+
+def _defaulted(assumptions: Mapping[str, Any]) -> int:
+    return sum(1 for _, key, _ in _ASSUMPTION_ROWS if assumptions[key]["source"] == _SECTOR_DEFAULT)
 
 
 def _sanity(check: Mapping[str, Any] | None) -> tuple[LabelledValue, ...]:
@@ -254,6 +347,21 @@ def _sanity(check: Mapping[str, Any] | None) -> tuple[LabelledValue, ...]:
             f"{fmt_num(check['implied_ev_sales'])} / {fmt_num(check['sector_ev_sales'])}",
             "",
         ),
+    )
+
+
+def _dcf_totals(dcf: Mapping[str, Any], financials: Mapping[str, Any]) -> tuple[LabelledValue, ...]:
+    """The DCF as a sum: discounted cash flows plus terminal value, down to a share."""
+    pv_sum = sum(float(p["present_value"]) for p in dcf["projections"])
+    enterprise = float(dcf["enterprise_value"])
+    return (
+        LabelledValue("Present value of FCFF, years 1-5", fmt_money(pv_sum), ""),
+        LabelledValue("Terminal value, discounted", fmt_money(enterprise - pv_sum), ""),
+        LabelledValue("Enterprise value", fmt_money(enterprise), ""),
+        LabelledValue("Net debt", fmt_money(financials["net_debt"]), ""),
+        LabelledValue("Equity value", fmt_money(dcf["equity_value"]), ""),
+        LabelledValue("Diluted shares", fmt_money(financials["shares_diluted"]), ""),
+        LabelledValue("Intrinsic value per share", fmt_per_share(dcf["intrinsic_value"]), ""),
     )
 
 
@@ -273,7 +381,7 @@ def detail_view(entry: CompanyEntry, ref: AnalysisRef) -> DetailView:
     )
     return DetailView(
         ticker=ref.ticker,
-        name=analysis["name"],
+        name=display_name(analysis["name"]),
         date=ref.date,
         story=analysis.get("story_type") or _DASH,
         story_reasons=tuple(analysis["story_reasons"]),
@@ -286,9 +394,8 @@ def detail_view(entry: CompanyEntry, ref: AnalysisRef) -> DetailView:
         grid=scenario_grid(analysis),
         tornado=tornado,
         assumptions=_assumptions(analysis["assumptions"]),
-        flags=tuple(
-            FlagView(f["name"], f["color"], f["reason"]) for f in analysis["narrative_flags"]
-        ),
+        defaulted=_defaulted(analysis["assumptions"]),
+        flags=_flags(analysis),
         sanity=_sanity(analysis.get("sanity_check")),
         dcf_rows=tuple(
             (
@@ -300,11 +407,7 @@ def detail_view(entry: CompanyEntry, ref: AnalysisRef) -> DetailView:
             )
             for p in dcf["projections"]
         ),
-        dcf_totals=(
-            LabelledValue("Enterprise value", fmt_money(dcf["enterprise_value"]), ""),
-            LabelledValue("Net debt", fmt_money(analysis["financials"]["net_debt"]), ""),
-            LabelledValue("Equity value", fmt_money(dcf["equity_value"]), ""),
-        ),
+        dcf_totals=_dcf_totals(dcf, analysis["financials"]),
         history=tuple(r.date for r in entry.history),
     )
 

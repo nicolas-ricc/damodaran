@@ -64,7 +64,8 @@ def test_row_uses_the_stored_verdict() -> None:
 def test_row_flags_are_only_red_and_yellow() -> None:
     row = row_view(_ref(make_sidecar("AAA", red_flag=True)))
     # seeded flags: green, green, unknown, yellow, unknown; the first turned red
-    assert row.flags == ("red", "yellow")
+    assert [f.color for f in row.flags] == ["red", "yellow"]
+    assert [f.severity for f in row.flags] == ["fail", "warning"]
 
 
 def test_no_price_means_na_without_value_line_or_grid() -> None:
@@ -143,7 +144,8 @@ def test_scenario_grid_counts_matching_cells_and_skips_none() -> None:
         1
         for row in cells
         for cell in row
-        if cell["margin_of_safety"] is not None and verdict_of(cell["margin_of_safety"]) == Verdict.OVERVALUED
+        if cell["margin_of_safety"] is not None
+        and verdict_of(cell["margin_of_safety"]) == Verdict.OVERVALUED
     )
     assert grid.matching == expected
     assert grid.cells[0][0] is None
@@ -174,7 +176,18 @@ def test_detail_from_a_real_analysis() -> None:
     assert [f.color for f in detail.flags] == ["green", "green", "unknown", "yellow", "unknown"]
     assert [s.label for s in detail.sanity] == ["P/E", "EV/Sales"]
     assert len(detail.dcf_rows) == len(payload["analysis"]["dcf_result"]["projections"])
-    assert [t.label for t in detail.dcf_totals] == ["Enterprise value", "Net debt", "Equity value"]
+    assert [t.label for t in detail.dcf_totals] == [
+        "Present value of FCFF, years 1-5",
+        "Terminal value, discounted",
+        "Enterprise value",
+        "Net debt",
+        "Equity value",
+        "Diluted shares",
+        "Intrinsic value per share",
+    ]
+    assert "sector default" in " ".join(a.source for a in detail.assumptions)
+    assert 0 <= detail.defaulted <= len(detail.assumptions)
+    assert "reads as undervalued" in detail.mos_note
     assert detail.tornado
     assert detail.grid is not None
 

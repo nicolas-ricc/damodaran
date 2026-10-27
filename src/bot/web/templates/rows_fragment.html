@@ -1,5 +1,8 @@
-{% from "_controls.html" import filter_nav, list_head, count with context %}
+{% from "_controls.html" import filter_nav, list_head, count, empty_detail with context %}
 {% include "_rows.html" %}
 {{ filter_nav(True) }}
 {{ list_head(True) }}
 {{ count(True) }}
+{% if not rows %}
+{{ empty_detail(True) }}
+{% endif %}

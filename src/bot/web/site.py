@@ -16,9 +16,8 @@ from bot.reporting.analysis_report import fmt_ratio
 from bot.web.index import CompanyEntry, scan
 from bot.web.svg import (
     flag_mark,
-    scenario_grid_svg,
-    seed_of,
-    tornado_svg,
+    scenario_grid_table,
+    tornado_table,
     value_line_svg,
     verdict_mark,
 )
@@ -88,11 +87,10 @@ def _environment(base_url: str) -> Environment:
     )
     env.globals.update(
         value_line_svg=value_line_svg,
-        scenario_grid_svg=scenario_grid_svg,
-        tornado_svg=tornado_svg,
+        scenario_grid_table=scenario_grid_table,
+        tornado_table=tornado_table,
         verdict_mark=verdict_mark,
         flag_mark=flag_mark,
-        seed_of=seed_of,
         fmt_ratio=fmt_ratio,
         rows_href=lambda f, s, d: f"{base_url}rows/{f}-{s}-{d}.html",
         list_href=lambda f, s, d: f"{base_url}l/{f}-{s}-{d}.html",
@@ -166,6 +164,11 @@ def build(reports_dir: Path, out_dir: Path, base_url: str) -> int:
 
     default_rows = filter_sort(all_rows, *_DEFAULT)
     _write(out / "index.html", list_page(default_rows, _DEFAULT))
+    # GitHub Pages serves a root 404.html for any missing path; the fragments are not pages.
+    _write(out / "404.html", env.get_template("404.html").render(**context([], _DEFAULT)))
+    _write(
+        out / "robots.txt", f"User-agent: *\nDisallow: {base_url}f/\nDisallow: {base_url}rows/\n"
+    )
 
     for f in FILTERS:
         for s in SORTS:

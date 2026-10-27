@@ -1,53 +1,60 @@
 {% set latest = detail.history | max %}
 <header class="detail-head">
-  <h1><span class="big-ticker">{{ detail.ticker }}</span> <span class="co-name">{{ detail.name }}</span></h1>
+  <h1 tabindex="-1"><span class="big-ticker">{{ detail.ticker }}</span> <span class="co-name">{{ detail.name }}</span></h1>
   {% if detail.history | length > 1 %}
-  <p class="history">
+  <nav class="history" aria-label="Analysis date">
     {% for d in detail.history %}
     {% set path = "c/" ~ detail.ticker ~ ".html" if d == latest else "c/" ~ detail.ticker ~ "/" ~ d ~ ".html" %}
     {% set frag = "f/" ~ detail.ticker ~ ".html" if d == latest else "f/" ~ detail.ticker ~ "/" ~ d ~ ".html" %}
-    <a href="{{ base_url }}{{ path }}" hx-get="{{ base_url }}{{ frag }}" hx-target="#detail" hx-swap="innerHTML swap:120ms" hx-push-url="{{ base_url }}{{ path }}" hx-indicator="#detail"{% if d == detail.date %} aria-current="true"{% endif %}>{{ d }}</a>
+    <a href="{{ base_url }}{{ path }}" hx-get="{{ base_url }}{{ frag }}" hx-target="#detail" hx-swap="innerHTML settle:220ms" hx-push-url="{{ base_url }}{{ path }}" hx-indicator="#detail"{% if d == detail.date %} aria-current="page"{% endif %}>{{ d }}</a>
     {% endfor %}
-  </p>
+  </nav>
   {% endif %}
 </header>
 
-<section class="instrument ticks" aria-label="Verdict">
+<section class="instrument" aria-label="Verdict">
 <p class="verdict">{{ verdict_mark(detail.verdict) }} <span class="verdict-text">{{ detail.verdict_text }}</span></p>
+<p class="verdict-note">{{ detail.mos_note }}</p>
 
 <dl class="facts">
-  <div class="lead-figure"><dt>MoS</dt><dd class="num">{{ detail.mos }}</dd></div>
+  <div class="lead-figure"><dt><abbr title="Margin of safety: intrinsic value divided by price">MoS</abbr></dt><dd class="num">{{ detail.mos }}</dd></div>
   <div><dt>Price</dt><dd class="num">{{ "%.2f" | format(detail.price) if detail.price is not none else "n/a" }}</dd></div>
   <div><dt>Intrinsic</dt><dd class="num">{{ "%.2f" | format(detail.intrinsic) }}</dd></div>
   <div><dt>Story</dt><dd class="story">{{ detail.story }}</dd></div>
   <div><dt>Date</dt><dd><time datetime="{{ detail.date }}">{{ detail.date }}</time></dd></div>
 </dl>
+{% if detail.story_reasons %}
+<p class="story-note">Story type sets the shape of the projection. {{ detail.story }}: {{ detail.story_reasons | join("; ") }}.</p>
+{% endif %}
 
 {% if detail.value_line %}
-<div class="value-line-wrap">{{ value_line_svg(detail.value_line, mini=False, seed=seed_of(detail.ticker)) }}</div>
+{{ value_line_svg(detail.value_line, mini=False) }}
 {% endif %}
 </section>
 
 {% if detail.tornado %}
 <section class="drivers">
   <div class="head-row"><h2>Drivers</h2></div>
-  <div class="chart">{{ tornado_svg(detail.tornado, price=detail.price, seed=seed_of(detail.ticker ~ "tornado")) }}</div>
+  <p class="lede">Intrinsic value per share when each input alone moves 20% either way. The vertical line is today's price; a bar that crosses it means that input alone can flip the verdict.</p>
+  {{ tornado_table(detail.tornado, price=detail.price) }}
 </section>
 {% endif %}
 
 <div class="pair-grid">
   {% if detail.grid %}
   <section class="scenarios">
-    <div class="head-row"><h2>Scenarios</h2><p class="count-line">{{ detail.grid.matching }}/{{ detail.grid.total }}</p></div>
-    {{ scenario_grid_svg(detail.grid, seed=seed_of(detail.ticker ~ "grid")) }}
+    <div class="head-row"><h2>Scenarios</h2><p class="count-line"><span class="num">{{ detail.grid.matching }}</span> of <span class="num">{{ detail.grid.total }}</span> agree</p></div>
+    <p class="lede">The verdict when {{ detail.grid.axis_a }} and {{ detail.grid.axis_b }} move together, each by up to 20%. The glyphs are the ones in the verdict filter.</p>
+    {{ scenario_grid_table(detail.grid) }}
   </section>
   {% endif %}
   {% if detail.flags %}
   <section class="flag-list">
     <div class="head-row"><h2>Flags</h2></div>
+    <p class="lede">Checks on the story behind the numbers. A failed check does not change the verdict; it tells you how much to trust it.</p>
     <ul>
     {% for f in detail.flags %}
-      <li>{{ flag_mark(f.color) }} <span class="id">{{ f.name }}</span> <span class="reason">{{ f.reason }}</span></li>
+      <li class="flag flag-{{ f.severity | replace(" ", "-") }}">{{ flag_mark(f.color) }} <span class="severity">{{ f.severity }}</span> <span class="id">{{ f.label }}</span> <span class="reason">{{ f.detail }}</span></li>
     {% endfor %}
     </ul>
   </section>
@@ -56,11 +63,12 @@
 
 <div class="pair-grid wide-first">
   <section class="assumptions">
-    <div class="head-row"><h2>Assumptions</h2></div>
+    <div class="head-row"><h2>Assumptions</h2>{% if detail.defaulted %}<p class="count-line"><span class="num">{{ detail.defaulted }}</span> of <span class="num">{{ detail.assumptions | length }}</span> are sector defaults</p>{% endif %}</div>
+    <p class="lede">The inputs of the DCF and where each came from. A sector default is Damodaran's industry average, not a fact about this company.</p>
     <table>
       <tbody>
       {% for a in detail.assumptions %}
-        <tr><th scope="row">{{ a.label }}</th><td class="num">{{ a.value }}</td><td class="id src">{{ a.source }}</td></tr>
+        <tr><th scope="row">{{ a.label }}</th><td class="num">{{ a.value }}</td><td class="src">{{ a.source }}</td></tr>
       {% endfor %}
       </tbody>
     </table>
@@ -68,16 +76,18 @@
   {% if detail.sanity %}
   <section class="sanity">
     <div class="head-row"><h2>Sanity</h2></div>
-    <p>{% for s in detail.sanity %}<span class="pair"><span class="key">{{ s.label }}</span> <span class="num">{{ s.value }}</span></span> {% endfor %}</p>
+    <p class="lede">Multiples implied by the intrinsic value, against the sector median: implied / sector.</p>
+    <p class="pairs">{% for s in detail.sanity %}<span class="pair"><span class="key">{{ s.label }}</span> <span class="num">{{ s.value }}</span></span> {% endfor %}</p>
   </section>
   {% endif %}
 </div>
 
 <details class="dcf">
-  <summary>DCF</summary>
+  <summary><abbr title="Discounted cash flow">DCF</abbr></summary>
+  <p class="lede">Five years of projected free cash flow to the firm, discounted, plus a terminal value for everything after. Money in the company's reporting currency.</p>
   <div class="scroll">
   <table>
-    <thead><tr><th scope="col">Year</th><th scope="col">Revenue</th><th scope="col">EBIT</th><th scope="col">FCFF</th><th scope="col">PV</th></tr></thead>
+    <thead><tr><th scope="col">Year</th><th scope="col">Revenue</th><th scope="col"><abbr title="Earnings before interest and taxes">EBIT</abbr></th><th scope="col"><abbr title="Free cash flow to the firm">FCFF</abbr></th><th scope="col"><abbr title="Present value of that year's FCFF">PV</abbr></th></tr></thead>
     <tbody>
     {% for row in detail.dcf_rows %}
       <tr>{% for cell in row %}<td class="num">{{ cell }}</td>{% endfor %}</tr>

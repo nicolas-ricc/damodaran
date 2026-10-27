@@ -252,7 +252,7 @@ def _token(block: str, name: str) -> str:
 
 
 def test_tokens_come_from_design_md() -> None:
-    design = (_ROOT / "docs" / "DESIGN.md").read_text(encoding="utf-8")
+    design = (_ROOT / "docs" / "plano" / "DESIGN.md").read_text(encoding="utf-8")
     root = _light_root()
     for name, value in _DESIGN_TOKENS.items():
         assert value in design, (name, "no longer in DESIGN.md")

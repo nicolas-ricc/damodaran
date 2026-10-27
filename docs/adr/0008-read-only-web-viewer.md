@@ -50,5 +50,9 @@ excludes an operating dashboard).
   site refreshes every Saturday without a manual commit.
 - Changing the sidecar shape means bumping `SCHEMA_VERSION` and teaching `web/index.py`
   to handle or skip older versions.
-- Known visual residuals: tornado text is small at 1440px wide; on mobile the value line
-  and drivers scroll inside their box.
+- Visual system: the viewer uses the Rim theme documented in `docs/DESIGN.md` (dark only,
+  Switzer and Geist Mono), not the hand-drawn kraft system of the explanatory pieces. Chart
+  labels are HTML and the drivers and scenario grid are tables, so no text scales with the
+  pane; the facts strip and the pairs reflow on the detail pane's own width (container
+  queries). Filter and sort swaps keep keyboard focus on the activated control, and the
+  detail pane announces one line per company instead of the whole analysis.

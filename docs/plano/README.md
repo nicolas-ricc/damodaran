@@ -130,5 +130,5 @@ una deuda de diseño que ya pagaste.
   propósito: dos codificaciones de color en el mismo dibujo no se leen. El rol
   sigue disponible en el plano hermano.
 
-Ver `docs/PRODUCT.md` y `docs/DESIGN.md` para el registro, la audiencia y el
+Ver `docs/PRODUCT.md` y `docs/plano/DESIGN.md` para el registro, la audiencia y el
 sistema visual.
