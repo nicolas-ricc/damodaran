@@ -1,16 +1,18 @@
 {% extends "base.html" %}
-{% from "_controls.html" import filter_nav, list_head, count with context %}
-{% block title %}{% if page_class == "page-detail" and detail %}{{ detail.ticker }}{% else %}Analyses{% endif %}{% endblock %}
+{% from "_controls.html" import filter_nav, list_head, count, empty_detail, page_title with context %}
+{% block title %}{% if page_class == "page-detail" and detail %}{{ detail.ticker }} · {{ detail.name }} · Analyses{% else %}{{ page_title() }}{% endif %}{% endblock %}
 {% block body_class %}{{ page_class | default("page-list") }}{% endblock %}
 {% block content %}
 {% if total == 0 %}
 <main class="empty">
-  <p>No analyses</p>
+  <h1>No analyses yet</h1>
+  <p>Each company the bot analyses appears here with its verdict. Run one to populate the viewer:</p>
   <p><code>bot analyze --from-screen</code></p>
 </main>
 {% else %}
 <main class="split">
   <div class="list-pane">
+    <h1 class="sr">Analyses</h1>
     <div class="list-controls">
       {{ filter_nav(False) }}
       {{ count(False) }}
@@ -21,9 +23,13 @@
     </table>
   </div>
   <div class="detail-pane">
-    <section id="detail" aria-live="polite">
-      {% if detail %}{% include "detail.html" %}{% endif %}
+    {% if detail %}
+    <section id="detail">
+      {% include "detail.html" %}
     </section>
+    {% else %}
+    {{ empty_detail(False) }}
+    {% endif %}
   </div>
 </main>
 {% endif %}

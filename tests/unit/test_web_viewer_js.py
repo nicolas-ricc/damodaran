@@ -18,6 +18,15 @@ def test_rows_do_not_gate_the_click_in_the_template() -> None:
     assert "matchMedia" not in (_WEB / "templates" / "_rows.html").read_text()
 
 
-def test_detail_links_use_the_crossfade_delay() -> None:
+def test_detail_links_settle_long_enough_for_the_arrival_animation() -> None:
     for name in ("_rows.html", "detail.html"):
-        assert 'hx-swap="innerHTML swap:120ms"' in (_WEB / "templates" / name).read_text()
+        assert 'hx-swap="innerHTML settle:220ms"' in (_WEB / "templates" / name).read_text()
+    assert "swap:" not in (_WEB / "templates" / "_rows.html").read_text()
+
+
+def test_focus_is_restored_after_a_filter_swap() -> None:
+    script = (_WEB / "static" / "viewer.js").read_text()
+    assert "htmx:beforeRequest" in script
+    assert "htmx:afterSettle" in script
+    assert "focus(" in script
+    assert "announce" in script

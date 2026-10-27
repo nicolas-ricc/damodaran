@@ -13,7 +13,7 @@ from bot.reporting.analysis_json import render_analysis_json
 from bot.storage.db import apply_schema, connect
 from bot.valuator.analysis import analyze
 from bot.web.site import MARKER, build
-from bot.web.svg import scenario_grid_svg, tornado_svg
+from bot.web.svg import scenario_grid_table, tornado_table
 from bot.web.views import ScenarioGrid, TornadoBar, Verdict
 from tests.unit.test_reporting_analysis import _seed
 from tests.web_sidecars import make_sidecar, write_sidecar
@@ -30,9 +30,7 @@ def test_incomplete_sidecar_is_skipped_not_fatal(tmp_path: Path) -> None:
     with capture_logs() as logs:
         assert build(reports, tmp_path / "site", "/") == 1
     assert not (tmp_path / "site" / "c" / "EEE.html").exists()
-    assert any(
-        log["event"] == "web.sidecar_skipped" and log.get("ticker") == "EEE" for log in logs
-    )
+    assert any(log["event"] == "web.sidecar_skipped" and log.get("ticker") == "EEE" for log in logs)
 
 
 def test_incomplete_older_analysis_keeps_the_company(tmp_path: Path) -> None:
@@ -87,9 +85,9 @@ def test_charts_have_accessible_names() -> None:
         matching=25,
         total=25,
     )
-    assert 'aria-label="Scenarios 25/25"' in str(scenario_grid_svg(grid, seed=1))
+    assert 'aria-label="Scenarios 25/25"' in str(scenario_grid_table(grid))
     bars = [TornadoBar("tax_rate", 1.0, 2.0)]
-    assert 'aria-label="Drivers"' in str(tornado_svg(bars, price=1.5, seed=1))
+    assert 'aria-label="Drivers"' in str(tornado_table(bars, price=1.5))
 
 
 def test_non_finite_numbers_fail_at_write_time() -> None:

@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Read-only viewer of the bot's company analyses: each company's verdict, its margin of safety and the assumptions behind it.">
 <title>{% block title %}{% endblock %}</title>
+<link rel="preload" href="{{ base_url }}static/fonts/switzer-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="{{ base_url }}static/fonts/geist-mono-400.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="{{ base_url }}static/app.css">
 <script src="{{ base_url }}static/htmx.min.js" defer></script>
 <script src="{{ base_url }}static/viewer.js" defer></script>
@@ -12,32 +14,17 @@
 <body class="{% block body_class %}page-list{% endblock %}">
 <svg class="defs" width="0" height="0" aria-hidden="true" focusable="false">
   <defs>
-    {# the charts reference these filters by id; at zero displacement every edge stays hard #}
-    <filter id="wobble-1" x="0" y="0" width="100%" height="100%">
-      <feTurbulence type="fractalNoise" baseFrequency="0.02" numOctaves="1" seed="3"/>
-      <feDisplacementMap in="SourceGraphic" scale="0" xChannelSelector="R" yChannelSelector="G"/>
-    </filter>
-    <filter id="wobble-2" x="0" y="0" width="100%" height="100%">
-      <feTurbulence type="fractalNoise" baseFrequency="0.02" numOctaves="1" seed="7"/>
-      <feDisplacementMap in="SourceGraphic" scale="0" xChannelSelector="R" yChannelSelector="G"/>
-    </filter>
-    <filter id="wobble-3" x="0" y="0" width="100%" height="100%">
-      <feTurbulence type="fractalNoise" baseFrequency="0.02" numOctaves="1" seed="11"/>
-      <feDisplacementMap in="SourceGraphic" scale="0" xChannelSelector="R" yChannelSelector="G"/>
-    </filter>
-    <filter id="wobble-4" x="0" y="0" width="100%" height="100%">
-      <feTurbulence type="fractalNoise" baseFrequency="0.02" numOctaves="1" seed="19"/>
-      <feDisplacementMap in="SourceGraphic" scale="0" xChannelSelector="R" yChannelSelector="G"/>
-    </filter>
+    {# the overvalued glyph is hatched as well as coloured, so it survives greyscale #}
     <pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-      <line x1="0" y1="0" x2="0" y2="4" stroke="var(--p-elimina)" stroke-width="1.4"/>
+      <line x1="0" y1="0" x2="0" y2="4" stroke="var(--color-over)" stroke-width="1.4"/>
     </pattern>
   </defs>
 </svg>
 <header class="bar">
   <a class="brand back" href="{{ base_url }}index.html" aria-label="Analyses, all companies">Analyses</a>
-  {% if total %}<p class="note"><span class="num">{{ total }}</span> companies</p>{% endif %}
+  {% if total %}<p class="note"><span class="num">{{ total }}</span> {{ "company" if total == 1 else "companies" }}</p>{% endif %}
 </header>
+<p id="announce" class="sr" aria-live="polite"></p>
 {% block content %}{% endblock %}
 </body>
 </html>

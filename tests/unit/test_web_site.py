@@ -119,12 +119,37 @@ def test_no_price_shows_na_without_value_line_or_scenarios(reports: Path, tmp_pa
     assert "Scenarios" in aaa
 
 
-def test_wobble_only_in_detail(reports: Path, tmp_path: Path) -> None:
+def test_charts_are_tables_with_html_labels(reports: Path, tmp_path: Path) -> None:
     out = tmp_path / "site"
     build(reports, out, "/")
-    for path in (out / "rows").glob("*.html"):
-        assert "filter=" not in path.read_text(), path
-    assert 'filter="url(#wobble-' in (out / "f" / "AAA.html").read_text()
+    detail = (out / "f" / "AAA.html").read_text()
+    assert "filter=" not in detail
+    assert '<table class="tornado"' in detail
+    assert '<table class="scenario-grid"' in detail
+    assert 'class="axis-label price' in detail
+
+
+def test_404_and_robots_are_written(reports: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    build(reports, out, "/sub/")
+    page = (out / "404.html").read_text()
+    assert "No analysis at this address" in page
+    assert 'href="/sub/index.html"' in page
+    assert (
+        out / "robots.txt"
+    ).read_text() == "User-agent: *\nDisallow: /sub/f/\nDisallow: /sub/rows/\n"
+
+
+def test_empty_filter_swaps_in_an_empty_detail(reports: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    build(reports, out, "/")
+    fragment = (out / "rows" / "fair-mos-desc.html").read_text()
+    assert 'id="detail" hx-swap-oob="true"' in fragment
+    assert "No company is fair yet" in fragment
+    assert 'id="detail"' not in (out / "rows" / "all-mos-desc.html").read_text()
+    page = (out / "l" / "fair-mos-desc.html").read_text()
+    assert "No company is fair yet" in page
+    assert "<title>Fair · by margin of safety ↓ · Analyses</title>" in page
 
 
 @pytest.mark.parametrize("page", ["index.html", "c/AAA.html", "l/all-ticker-asc.html"])
@@ -139,7 +164,9 @@ def test_ids_are_unique_per_page(reports: Path, tmp_path: Path, page: str) -> No
 def test_filter_with_no_match_shows_zero_of_n(reports: Path, tmp_path: Path) -> None:
     out = tmp_path / "site"
     build(reports, out, "/")
-    assert "0 of 3" in (out / "rows" / "fair-mos-desc.html").read_text()
+    fragment = (out / "rows" / "fair-mos-desc.html").read_text()
+    assert "0 of 3" in fragment
+    assert "No company is fair yet" in fragment
 
 
 def test_empty_reports_dir_renders_the_empty_state(tmp_path: Path) -> None:
@@ -221,4 +248,5 @@ def test_marks_pair_colour_with_a_title(reports: Path, tmp_path: Path) -> None:
     build(reports, out, "/")
     rows = (out / "rows" / "all-mos-desc.html").read_text()
     assert "<title>potentially undervalued</title>" in rows or "<title>undervalued</title>" in rows
-    assert "<title>red</title>" in rows
+    assert "<title>fail: " in rows
+    assert "<title>red</title>" not in rows

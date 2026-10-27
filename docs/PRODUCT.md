@@ -68,8 +68,12 @@ que un humano investigue, y la pieza tiene que sonar así.
    opuestas.
 4. **Honestidad sobre los límites.** El spec admite en §6.7 y §16 lo que el bot
    no puede hacer. La pieza lo hereda: donde hay un supuesto frágil, se dice.
-5. **Dibujado, no renderizado.** El temblor de la línea es parte del mensaje:
-   esto es un modelo de alguien, no una verdad de máquina.
+5. **Dibujado, no renderizado** en las piezas explicativas. El temblor de la
+   línea es parte del mensaje: esto es un modelo de alguien, no una verdad de
+   máquina. El visor web (ADR 0008) es la excepción deliberada: es un
+   instrumento de lectura, no un dibujo, y se ve como herramienta (tema Rim,
+   `docs/DESIGN.md`). Lo que hereda del plano no es el trazo sino la
+   honestidad: cada número dice de dónde salió.
 
 ## Accessibility & Inclusion
 

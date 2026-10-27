@@ -1,0 +1,119 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-27T14:00:00Z",
+  "title": "Design System: Analysis viewer",
+  "extensions": {
+    "colorMeta": {
+      "ember": { "role": "primary", "displayName": "Ember", "canonical": "oklch(72% 0.17 45)", "tonalRamp": ["oklch(15% 0.06 45)", "oklch(25% 0.09 45)", "oklch(38% 0.12 45)", "oklch(50% 0.15 45)", "oklch(62% 0.17 45)", "oklch(72% 0.17 45)", "oklch(84% 0.12 45)", "oklch(95% 0.04 45)"] },
+      "sky": { "role": "secondary", "displayName": "Sky", "canonical": "oklch(74% 0.12 250)", "tonalRamp": ["oklch(15% 0.05 250)", "oklch(25% 0.08 250)", "oklch(38% 0.10 250)", "oklch(50% 0.12 250)", "oklch(62% 0.12 250)", "oklch(74% 0.12 250)", "oklch(85% 0.08 250)", "oklch(95% 0.03 250)"] },
+      "verdict-under": { "role": "tertiary", "displayName": "Verdict green", "canonical": "oklch(74% 0.15 150)", "tonalRamp": ["oklch(15% 0.05 150)", "oklch(25% 0.08 150)", "oklch(38% 0.11 150)", "oklch(50% 0.13 150)", "oklch(62% 0.15 150)", "oklch(74% 0.15 150)", "oklch(85% 0.10 150)", "oklch(95% 0.04 150)"] },
+      "verdict-fair": { "role": "tertiary", "displayName": "Verdict amber", "canonical": "oklch(80% 0.13 85)", "tonalRamp": ["oklch(15% 0.04 85)", "oklch(25% 0.07 85)", "oklch(38% 0.10 85)", "oklch(50% 0.12 85)", "oklch(65% 0.13 85)", "oklch(80% 0.13 85)", "oklch(88% 0.09 85)", "oklch(95% 0.04 85)"] },
+      "verdict-over": { "role": "tertiary", "displayName": "Verdict red", "canonical": "oklch(66% 0.19 22)", "tonalRamp": ["oklch(15% 0.06 22)", "oklch(25% 0.10 22)", "oklch(38% 0.14 22)", "oklch(50% 0.17 22)", "oklch(66% 0.19 22)", "oklch(76% 0.14 22)", "oklch(86% 0.08 22)", "oklch(95% 0.03 22)"] },
+      "paper": { "role": "neutral", "displayName": "Paper", "canonical": "oklch(9% 0.008 75)", "tonalRamp": ["oklch(6.5% 0.007 75)", "oklch(9% 0.008 75)", "oklch(12.5% 0.009 75)", "oklch(16% 0.009 78)", "oklch(25% 0.010 78)", "oklch(50% 0.010 80)", "oklch(68% 0.012 80)", "oklch(94% 0.010 80)"] },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "oklch(94% 0.010 80)", "tonalRamp": ["oklch(16% 0.009 78)", "oklch(25% 0.010 78)", "oklch(50% 0.010 80)", "oklch(68% 0.012 80)", "oklch(84% 0.011 80)", "oklch(94% 0.010 80)", "oklch(97% 0.006 80)", "oklch(99% 0.003 80)"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "The ticker in the detail head; the only display-size text." },
+      "headline": { "displayName": "Headline", "purpose": "The lead figure (MoS), set in mono." },
+      "title": { "displayName": "Title", "purpose": "Section headings, the company name, the DCF summary." },
+      "body": { "displayName": "Body", "purpose": "Verdict note, ledes, flag reasons; capped at 60ch." },
+      "label": { "displayName": "Label", "purpose": "Column heads, facts labels, filter chips. Sentence case." },
+      "figure": { "displayName": "Figure", "purpose": "Every number, date, ratio and identifier." }
+    },
+    "shadows": [],
+    "motion": [
+      { "name": "ease-out", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Every transition and the arrival animation." },
+      { "name": "dur-micro", "value": "120ms", "purpose": "Request dimming of the swapped region." },
+      { "name": "dur-short", "value": "220ms", "purpose": "Chip hover, the detail's arrival (opacity and a 4px rise)." }
+    ],
+    "breakpoints": [
+      { "name": "phone", "value": "699px" },
+      { "name": "split", "value": "1100px" },
+      { "name": "wide-ledger", "value": "1600px" },
+      { "name": "facts-3", "value": "28rem (container)" },
+      { "name": "facts-5", "value": "44rem (container)" },
+      { "name": "pairs", "value": "46rem (container)" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Filter chip",
+      "kind": "chip",
+      "refersTo": "filter-chip",
+      "description": "One segment of the verdict filter; the current one carries an ember inset top line.",
+      "html": "<nav class=\"ds-filter\"><a class=\"ds-chip\" href=\"#\" aria-current=\"page\">all <span class=\"ds-num\">12</span></a><a class=\"ds-chip\" href=\"#\">undervalued <span class=\"ds-num\">3</span></a><a class=\"ds-chip\" href=\"#\">fair <span class=\"ds-num\">5</span></a></nav>",
+      "css": ".ds-filter { display: flex; flex-wrap: wrap; padding: 1px 0 0 1px; font: 500 0.875rem/1.55 Switzer, system-ui, sans-serif; } .ds-chip { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 12px; margin: -1px 0 0 -1px; color: var(--color-ink-2, oklch(84% 0.011 80)); text-decoration: none; border: 1px solid var(--color-rule, oklch(25% 0.010 78)); box-shadow: inset 0 2px 0 transparent; transition: background-color 220ms cubic-bezier(0.16,1,0.3,1), color 220ms cubic-bezier(0.16,1,0.3,1); } .ds-chip:hover { background: var(--color-paper-3, oklch(6.5% 0.007 75)); color: var(--color-ink, oklch(94% 0.010 80)); } .ds-chip:focus-visible { outline: 2px solid var(--color-focus, oklch(78% 0.15 45)); outline-offset: 2px; } .ds-chip[aria-current] { color: var(--color-ink, oklch(94% 0.010 80)); box-shadow: inset 0 2px 0 var(--color-accent, oklch(72% 0.17 45)); } .ds-num { font-family: 'Geist Mono', ui-monospace, monospace; font-weight: 400; color: var(--color-muted, oklch(68% 0.012 80)); }"
+    },
+    {
+      "name": "Sort link",
+      "kind": "nav",
+      "refersTo": "sort-link",
+      "description": "A sortable column head; the sorted one is ink with an ember underline and an arrow.",
+      "html": "<div class=\"ds-heads\"><a class=\"ds-sort\" href=\"#\">Ticker</a><a class=\"ds-sort ds-sort-on\" href=\"#\">MoS<span class=\"ds-arrow\">↓</span></a><a class=\"ds-sort\" href=\"#\">Date</a></div>",
+      "css": ".ds-heads { display: flex; gap: 16px; font: 500 0.875rem/1.55 Switzer, system-ui, sans-serif; } .ds-sort { display: inline-block; padding: 4px 0; color: var(--color-muted, oklch(68% 0.012 80)); text-decoration: none; border-bottom: 2px solid transparent; } .ds-sort:hover { color: var(--color-ink, oklch(94% 0.010 80)); } .ds-sort:focus-visible { outline: 2px solid var(--color-focus, oklch(78% 0.15 45)); outline-offset: 2px; } .ds-sort-on { color: var(--color-ink, oklch(94% 0.010 80)); border-bottom-color: var(--color-accent, oklch(72% 0.17 45)); } .ds-arrow { font-family: 'Geist Mono', ui-monospace, monospace; color: var(--color-muted, oklch(68% 0.012 80)); margin-left: 4px; }"
+    },
+    {
+      "name": "Facts strip",
+      "kind": "custom",
+      "refersTo": "instrument",
+      "description": "The measurements under the verdict: a lead figure and four facts on hairline dividers.",
+      "html": "<dl class=\"ds-facts\"><div class=\"ds-lead\"><dt>MoS</dt><dd>1.30x</dd></div><div><dt>Price</dt><dd>24.79</dd></div><div><dt>Intrinsic</dt><dd>32.23</dd></div></dl>",
+      "css": ".ds-facts { display: grid; grid-template-columns: 1.3fr 1fr 1fr; margin: 0; padding: 16px 24px; background: var(--color-paper-2, oklch(12.5% 0.009 75)); font-family: Switzer, system-ui, sans-serif; } .ds-facts > div { padding: 4px 16px; border-left: 1px solid var(--color-rule, oklch(25% 0.010 78)); } .ds-facts > div:first-child { padding-left: 0; border-left: 0; } .ds-facts dt { font-weight: 500; font-size: 0.875rem; color: var(--color-muted, oklch(68% 0.012 80)); } .ds-facts dd { margin: 4px 0 0; font: 400 1.44rem/1.1 'Geist Mono', ui-monospace, monospace; font-variant-numeric: tabular-nums; letter-spacing: -0.03em; color: var(--color-ink, oklch(94% 0.010 80)); } .ds-facts .ds-lead dd { font-size: 2.074rem; }"
+    },
+    {
+      "name": "Content link",
+      "kind": "button",
+      "refersTo": "filter-chip",
+      "description": "A link inside content or an empty state: ember, underlined.",
+      "html": "<a class=\"ds-link\" href=\"#\">Show all companies</a>",
+      "css": ".ds-link { font: 400 1rem/1.55 Switzer, system-ui, sans-serif; color: var(--color-accent, oklch(72% 0.17 45)); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 0.16em; } .ds-link:hover { color: var(--color-ink, oklch(94% 0.010 80)); } .ds-link:focus-visible { outline: 2px solid var(--color-focus, oklch(78% 0.15 45)); outline-offset: 2px; }"
+    },
+    {
+      "name": "Verdict glyphs",
+      "kind": "custom",
+      "refersTo": "instrument",
+      "description": "Check, open circle, hatched gate, dash: the verdict by shape first, pigment second.",
+      "html": "<div class=\"ds-glyphs\"><svg viewBox=\"0 0 16 16\" width=\"20\" height=\"20\" role=\"img\"><title>undervalued</title><path d=\"M3 8.5 L6.5 12 L13 4\" fill=\"none\" stroke=\"oklch(74% 0.15 150)\" stroke-width=\"3\" stroke-linecap=\"round\"/></svg><svg viewBox=\"0 0 16 16\" width=\"20\" height=\"20\" role=\"img\"><title>fair</title><circle cx=\"8\" cy=\"8\" r=\"5\" fill=\"none\" stroke=\"oklch(80% 0.13 85)\" stroke-width=\"2\"/></svg><svg viewBox=\"0 0 16 16\" width=\"20\" height=\"20\" role=\"img\"><title>overvalued</title><rect x=\"2\" y=\"3\" width=\"8\" height=\"10\" fill=\"none\" stroke=\"oklch(66% 0.19 22)\" stroke-width=\"1.6\"/><path d=\"M10 10 L14 10 L14 14\" fill=\"none\" stroke=\"oklch(66% 0.19 22)\" stroke-width=\"1.6\" stroke-linecap=\"round\"/></svg><svg viewBox=\"0 0 16 16\" width=\"20\" height=\"20\" role=\"img\"><title>no verdict</title><path d=\"M4 8 L12 8\" fill=\"none\" stroke=\"oklch(68% 0.012 80)\" stroke-width=\"2\" stroke-linecap=\"round\"/></svg></div>",
+      "css": ".ds-glyphs { display: flex; gap: 16px; align-items: center; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Night Ledger",
+    "overview": "The viewer is read at a desk, beside a terminal, late. It lists the companies the bot has analysed and, for each one, shows why it got its verdict. It is an instrument, not a drawing: the hand-drawn kraft system of the explanatory pieces stops at its door. What crosses over is the honesty, not the stroke. Every number on the page says where it came from, and the page admits what it does not know.\n\nThe system is dark only, by decision, and warm: near-black paper tinted toward the ember accent, three steps of it for depth, no shadows. One grotesk sans carries every label and sentence; a mono carries every figure, date and identifier so that a number is recognisable as a number before it is read. Colour is notation. Green, amber and red belong to verdicts and to nothing else; sky-blue belongs to the intrinsic value; ember belongs to the interface's own state and to nothing else.",
+    "keyCharacteristics": [
+      "Dark, warm, flat. Depth from three paper tones and hairline rules, never shadows or blur.",
+      "One sans for words, one mono for figures. The mono is a signal, not a style.",
+      "Colour is semantic: three verdict pigments, one intrinsic blue, one interface ember.",
+      "Charts that do not shrink their text: HTML labels beside scaled SVG, tables where a chart would hide the numbers.",
+      "Everything is a real link to a real page; htmx only makes it faster."
+    ],
+    "rules": [
+      { "name": "The Notation Rule", "body": "A colour means one thing on every screen. Green, amber and red are verdicts; sky is intrinsic value; ember is the interface. If a new element needs colour and none of those meanings fit, it is drawn in ink or muted.", "section": "colors" },
+      { "name": "The Shape-First Rule", "body": "No verdict is told by colour alone. The check, the open circle, the hatched gate and the dash carry the verdict in greyscale; the pigment confirms it.", "section": "colors" },
+      { "name": "The Muted Floor Rule", "body": "muted is the lightest colour text may use. muted-stroke is for lines. A label that needs to recede goes smaller or lighter in weight, not greyer.", "section": "colors" },
+      { "name": "The Mono Means Data Rule", "body": "Geist Mono is never used for a word that is not a value, a date, a ticker or an identifier out of the analysis code. Labels and sentences stay in Switzer.", "section": "typography" },
+      { "name": "The Fixed Scale Rule", "body": "Sizes come from the rem scale (0.875, 1, 1.2, 1.44, 1.728, 2.074). No clamp(); the layout reflows structurally instead.", "section": "typography" },
+      { "name": "The Flat Night Rule", "body": "If an element needs to come forward, it gets a lighter surface or a rule above it, never a shadow. If it needs to recede, it gets the deeper paper.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do keep every control reachable by keyboard and keep focus on the control that was activated after a swap.",
+      "Do set figures, dates and identifiers in Geist Mono with tabular numerals, right-aligned in tables.",
+      "Do explain a chart in one sentence under its heading, and name the thresholds the verdict depends on (1.0×, 1.3×).",
+      "Do give every verdict a shape and a title as well as a colour.",
+      "Do reflow on the detail pane's own width (container queries), not the window's.",
+      "Do keep text out of scaled SVG; label with HTML or use a table."
+    ],
+    "donts": [
+      "Don't build the fintech dashboard: no navy and gold, no big metric cards, no green lines.",
+      "Don't build the SaaS landing page: no gradients, no isometric illustration, no grid of identical cards.",
+      "Don't build the Confluence diagram: grey boxes, straight arrows, system type, no hierarchy.",
+      "Don't take the editorial-typographic lane: italic serif display, mono labels, rules and monochrome.",
+      "Don't use a cream, sand or near-white paper; the viewer is dark only.",
+      "Don't use ember on content or on a verdict; it belongs to the interface's state.",
+      "Don't use border-left or border-right wider than 1px as a coloured stripe.",
+      "Don't use gradient text, glass, blur, shadows, bounce or elastic easing.",
+      "Don't gate any content on an animation; motion is 120 to 220ms, opacity and a 4px rise, and disappears under reduced motion.",
+      "Don't ship session notes, provenance comments or unused tokens in the stylesheet."
+    ]
+  }
+}
