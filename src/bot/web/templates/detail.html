@@ -12,9 +12,11 @@
   {% endif %}
 </header>
 
-<p class="verdict">{{ verdict_mark(detail.verdict) }} <span class="verdict-text">{{ detail.verdict_text }}</span> <span class="mos">MoS {{ detail.mos }}</span></p>
+<section class="instrument ticks" aria-label="Verdict">
+<p class="verdict">{{ verdict_mark(detail.verdict) }} <span class="verdict-text">{{ detail.verdict_text }}</span></p>
 
 <dl class="facts">
+  <div class="lead-figure"><dt>MoS</dt><dd class="num">{{ detail.mos }}</dd></div>
   <div><dt>Price</dt><dd class="num">{{ "%.2f" | format(detail.price) if detail.price is not none else "n/a" }}</dd></div>
   <div><dt>Intrinsic</dt><dd class="num">{{ "%.2f" | format(detail.intrinsic) }}</dd></div>
   <div><dt>Story</dt><dd class="story">{{ detail.story }}</dd></div>
@@ -24,6 +26,7 @@
 {% if detail.value_line %}
 <div class="value-line-wrap">{{ value_line_svg(detail.value_line, mini=False, seed=seed_of(detail.ticker)) }}</div>
 {% endif %}
+</section>
 
 {% if detail.tornado %}
 <section class="drivers">
@@ -65,7 +68,7 @@
   {% if detail.sanity %}
   <section class="sanity">
     <div class="head-row"><h2>Sanity</h2></div>
-    <p>{% for s in detail.sanity %}<span class="pair"><span class="id">{{ s.label }}</span> <span class="num">{{ s.value }}</span></span> {% endfor %}</p>
+    <p>{% for s in detail.sanity %}<span class="pair"><span class="key">{{ s.label }}</span> <span class="num">{{ s.value }}</span></span> {% endfor %}</p>
   </section>
   {% endif %}
 </div>

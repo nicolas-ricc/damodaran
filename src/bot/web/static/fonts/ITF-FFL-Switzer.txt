@@ -1,0 +1,12 @@
+Switzer, by the Indian Type Foundry, distributed through Fontshare.
+Licensed under the ITF Free Font License (FFL), version 2.0, 17 Aug 2026:
+www.fontshare.com/licenses/itf-ffl
+
+Section 01, Grant of License, in part: "You may self-host the Font Software on
+your own servers or infrastructure for use on your own websites and
+applications, including through standard webfont technologies such as CSS
+@font-face. Self-hosting by end users is permitted and recommended."
+
+The files switzer-400.woff2 and switzer-500.woff2 are the official versions as
+served by Fontshare, unmodified. They may not be redistributed outside this
+site, modified, or made available for third parties to use (sections 02 to 05).
