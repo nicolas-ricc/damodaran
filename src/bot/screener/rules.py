@@ -228,7 +228,9 @@ class MinInterestCoverage(Rule):
     """Quality gate: EBIT covers interest (spec §6.2, default EBIT/Interest > 2).
 
     No interest expense (zero/negative) means coverage is effectively infinite,
-    so the gate passes.
+    so the gate passes. An *unreported* interest expense passes only when the
+    balance sheet carries no debt either (debt-free filers tag no interest
+    concept at all); with debt on the books it is a real gap and the gate fails.
     """
 
     name = "min_interest_coverage"
@@ -239,9 +241,13 @@ class MinInterestCoverage(Rule):
     def evaluate(
         self, company: CompanyData, benchmarks: IndustryBenchmarks
     ) -> RuleResult:
-        if company.ebit is None or company.interest_expense is None:
+        if company.ebit is None:
+            return RuleResult(passed=False, reason="ebit unavailable")
+        if company.interest_expense is None:
+            if not company.total_debt:
+                return RuleResult(passed=True, reason="no debt, no interest to cover")
             return RuleResult(
-                passed=False, reason="ebit or interest_expense unavailable"
+                passed=False, reason="interest_expense unavailable with debt on the books"
             )
         if company.interest_expense <= 0:
             return RuleResult(passed=True, reason="no interest expense")
