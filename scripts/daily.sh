@@ -26,22 +26,24 @@ export PATH="$PATH:$HOME/.local/bin:/usr/local/bin:/usr/bin"
 mkdir -p "$REPO/.cache"
 LOG="$REPO/.cache/daily.log"
 
-ROUNDS="${BOT_PRICE_ROUNDS:-12}"
+ROUNDS="${BOT_PRICE_ROUNDS:-10}"
+# At least one round, whatever the value: non-numeric or < 1 means one.
+[[ "$ROUNDS" =~ ^[0-9]+$ ]] && ROUNDS=$((10#$ROUNDS)) || ROUNDS=1
 PAUSE="${BOT_PRICE_RETRY_PAUSE:-3600}"
 
 # Refresh prices until no tickers are deferred. Returns the failing round's
 # exit code; running out of rounds is not a failure.
 refresh_prices() {
   local round out status
-  for ((round = 1; round <= ROUNDS; round++)); do
+  for ((round = 1; ; round++)); do
     out="$(uv run bot refresh --prices 2>&1)"
     status=$?
     echo "$out"
     ((status == 0)) || return "$status"
     [[ "$out" == *"tickers deferred"* ]] || return 0
-    ((round < ROUNDS)) && sleep "$PAUSE"
+    ((round < ROUNDS)) || return 0
+    sleep "$PAUSE"
   done
-  return 0
 }
 
 {

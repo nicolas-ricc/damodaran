@@ -328,6 +328,17 @@ def test_daily_stops_after_max_rounds_and_still_runs_fx_and_portfolio(
     assert _calls(calls) == [_PRICES] * 3 + _WRAPPERS["daily.sh"][1:]
 
 
+@pytest.mark.parametrize("rounds", ["0", "abc"])
+def test_daily_runs_one_round_when_max_rounds_is_invalid(
+    repo: Path, recorder_bin: Path, calls: Path, rounds: str
+) -> None:
+    env = _env(recorder_bin, FAKE_DEFERRED_ROUNDS="99", BOT_PRICE_ROUNDS=rounds, **_NO_PAUSE)
+    result = _run(repo / "scripts" / "daily.sh", env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls) == [_PRICES, *_WRAPPERS["daily.sh"][1:]]
+
+
 def test_daily_failing_price_round_stops_everything(
     repo: Path, recorder_bin: Path, calls: Path
 ) -> None:
