@@ -1010,3 +1010,32 @@ def test_interest_expense_income_statement_concept_beats_cash_paid() -> None:
         }
     )
     assert _annual(facts)[2025]["interest_expense"] == 350_000_000
+
+
+# ---------- ebit: filers without an operating-income line ----------
+
+
+def test_ebit_derived_from_pretax_concepts_when_operating_income_absent() -> None:
+    pretax = "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest"
+    pretax_alt = (
+        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAnd"
+        "IncomeLossFromEquityMethodInvestments"
+    )
+    facts = _facts(
+        {
+            "OperatingIncomeLoss": [_fact("2023-12-31", 900_000_000, start="2023-01-01")],
+            pretax: [
+                _fact("2023-12-31", 700_000_000, start="2023-01-01"),
+                _fact("2024-12-31", 800_000_000, start="2024-01-01"),
+            ],
+            pretax_alt: [_fact("2025-12-31", 850_000_000, start="2025-01-01")],
+            "InterestExpenseNonoperating": [
+                _fact("2024-12-31", 100_000_000, start="2024-01-01"),
+                _fact("2025-12-31", 110_000_000, start="2025-01-01"),
+            ],
+        }
+    )
+    annual = _annual(facts)
+    assert annual[2023]["ebit"] == 900_000_000  # reported operating income wins
+    assert annual[2024]["ebit"] == 900_000_000  # 800M pretax + 100M interest
+    assert annual[2025]["ebit"] == 960_000_000  # alternative pretax concept
