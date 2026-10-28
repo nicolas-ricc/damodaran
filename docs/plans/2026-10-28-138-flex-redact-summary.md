@@ -46,18 +46,18 @@
 
 **Files:**
 - Modify: `src/bot/ingest/ibkr_flex.py` (`parse_flex_statement`, ~lines 140-177)
-- Test: `tests/unit/test_ibkr_flex_capture.py` (new; the parser test file stays unchanged)
+- Test: `tests/unit/test_ibkr_flex_row.py` (new; the parser test file stays unchanged)
 
 **Interfaces:**
 - Produces: `parse_flex_row(el: xml.etree.ElementTree.Element) -> CorporateActionRecord | None` (public, in `bot.ingest.ibkr_flex`).
 
-- [ ] **Step 1: Write the failing tests** in `tests/unit/test_ibkr_flex_capture.py` (fixture path `tests/fixtures/ibkr_flex/statement_sample.xml`):
+- [ ] **Step 1: Write the failing tests** in `tests/unit/test_ibkr_flex_row.py` (fixture path `tests/fixtures/ibkr_flex/statement_sample.xml`):
   - `test_parse_flex_row_matches_parser`: for every `CorporateAction` then `CashTransaction` element of the sample, collect non-`None` `parse_flex_row` results; equal to `parse_flex_statement(sample)`.
   - `test_parse_flex_row_skips_non_dividend_cash`: the `transactionID="2002"` element → `None`.
   - `test_parse_flex_row_rejects_other_tags`: `parse_flex_row(ET.Element("FlexStatement"))` raises `ValueError` matching `"not a Flex row: FlexStatement"`.
-- [ ] **Step 2: Run** `uv run pytest -q tests/unit/test_ibkr_flex_capture.py` → FAIL (ImportError).
+- [ ] **Step 2: Run** `uv run pytest -q tests/unit/test_ibkr_flex_row.py` → FAIL (ImportError).
 - [ ] **Step 3: Implement** `parse_flex_row` by moving the two loop bodies into it (tag dispatch); `parse_flex_statement` becomes two loops calling it. Docstring states the per-tag rules.
-- [ ] **Step 4: Run** `uv run pytest -q tests/unit/test_ibkr_flex_capture.py tests/unit/test_ibkr_flex_parser.py` → PASS.
+- [ ] **Step 4: Run** `uv run pytest -q tests/unit/test_ibkr_flex_row.py tests/unit/test_ibkr_flex_parser.py` → PASS.
 - [ ] **Step 5: Commit** `refactor(#138): extract parse_flex_row`.
 
 ### Task 2: `redact_statement` and `_fake_number`
