@@ -44,6 +44,35 @@ def test_derivation_never_overwrites_reported_values() -> None:
     assert row["ebitda"] == pytest.approx(999.0)
 
 
+def test_derives_ebit_from_pretax_income_plus_interest() -> None:
+    # No operating-income line (banks, insurers, some industrials): EBIT is
+    # approximated as pretax income plus interest expense.
+    row: dict[str, Any] = {"_pretax_income": 80.0, "interest_expense": 20.0, "depreciation": 5.0}
+    _derive_financial_fields(row)
+    assert row["ebit"] == pytest.approx(100.0)
+    assert row["ebitda"] == pytest.approx(105.0)  # derived EBIT feeds EBITDA
+    assert "_pretax_income" not in row
+
+
+def test_derived_ebit_treats_missing_interest_as_zero() -> None:
+    row: dict[str, Any] = {"_pretax_income": 80.0}
+    _derive_financial_fields(row)
+    assert row["ebit"] == pytest.approx(80.0)
+
+
+def test_derived_ebit_never_overwrites_reported_operating_income() -> None:
+    row: dict[str, Any] = {"ebit": 100.0, "_pretax_income": 500.0, "interest_expense": 20.0}
+    _derive_financial_fields(row)
+    assert row["ebit"] == pytest.approx(100.0)
+    assert "_pretax_income" not in row
+
+
+def test_ebit_stays_none_without_pretax_income() -> None:
+    row: dict[str, Any] = {"interest_expense": 20.0}
+    _derive_financial_fields(row)
+    assert row.get("ebit") is None
+
+
 def test_shares_outstanding_returns_newest_value() -> None:
     payload = json.loads((FIXTURES / "aapl_shares_concept.json").read_text("utf-8"))
 
