@@ -32,7 +32,10 @@
 ## Assumptions
 
 - Sign handling in `_fake_number`: the sign is `"-"` when the `Decimal` is negative, else `""` (a leading `+` is dropped). Rejected: echoing a literal `+`; Flex does not emit it.
-- `d` (decimals) is the count of characters after the `.` in the stripped text; `n` is the digit count of `int(abs(Decimal(text)))`, so leading zeros (`007`) do not count and exponent notation is handled. Rejected: counting characters of the text's integer part, which miscounts `1E+3` and `007`.
+- `d` (decimals) is `max(0, -Decimal(text).as_tuple().exponent)`: for plain text it equals the count of characters after the `.` (the issue's definition); for exponent notation it gives the decimals of the value (`1.5E+3` → 0, `7.5E-3` → 4). `n` is the digit count of `int(abs(Decimal(text)))`, so leading zeros (`007`) do not count. Rejected: counting characters after the `.` in the text, which gives `d=4` for `1.5E+3`.
+- "Not parseable" means `decimal.InvalidOperation` from `Decimal(text)`. Text with thousands separators (`1,234.56`) is therefore left unchanged, as the issue's rule says; the #110 Flex query asks for raw numeric columns and no source shows separators.
+- The summary reuses `_flex_date` by importing it from `bot.ingest.ibkr_flex` (same package, the issue says "parse the first 8 chars like `_flex_date` does"). Rejected: duplicating it. Ruff's selected rules (`pyproject.toml` `[tool.ruff.lint]`) do not flag private imports.
+- `summarize_statement` calls `parse_flex_row`, which emits the parser's `ibkr_flex_row_skipped` WARNING for incomplete rows; that is accepted (the summary is the parser's own view). Whether #139 logs them twice is #139's call.
 - Non-finite `Decimal` values are left unchanged, like non-numeric text.
 - `summarize_statement` iterates `CorporateAction` then `CashTransaction` (same order as the parser), so `parse_flex_row` WARNING logs for skipped rows appear in the parser's order.
 - Unparseable `fromDate`/`toDate` values are ignored for the min/max.
@@ -68,7 +71,7 @@
 - Produces: `REDACTED_ACCOUNT: str = "U0000000"`; `redact_statement(xml: str) -> str`; private `_fake_number(value: str) -> str` (tests import it).
 
 - [ ] **Step 1: Write the failing tests:**
-  - `test_fake_number` parametrised over `75.00→10.00`, `-11.25→-10.00`, `48.50→10.00`, `4750→1000`, `-700→-100`, `300→100`, `-50→-10`, `1.00→1.00`, `0→0`, `0.75→0.10`, `""→""`, plus `-0.00→-0.00`, `-0.75→-0.10`, `1E+3→1000`, `abc→abc`, `" 75.00 "→10.00`.
+  - `test_fake_number` parametrised over `75.00→10.00`, `-11.25→-10.00`, `48.50→10.00`, `4750→1000`, `-700→-100`, `300→100`, `-50→-10`, `1.00→1.00`, `0→0`, `0.75→0.10`, `""→""`, plus `-0.00→-0.00`, `-0.75→-0.10`, `1E+3→1000`, `1.5E+3→1000`, `7.5E-3→0.1000`, `007→1`, `1,234.56→1,234.56`, `abc→abc`, `" 75.00 "→10.00`.
   - `test_fake_number_leaves_non_finite_unchanged` over `NaN`, `Infinity`, `-Infinity`, `sNaN`.
   - `test_redaction_is_deterministic`: two calls equal; starts with `'<?xml version="1.0" encoding="UTF-8"?>\n'`; ends with `"\n"`.
   - `test_redaction_leaves_only_placeholder_account`: `set(re.findall(r"\bU\d{6,9}\b", redacted)) == {"U0000000"}`.
@@ -78,7 +81,7 @@
   - `test_redaction_blanks_alias`: an inline `FlexQueryResponse` with `acctAlias="Mine"` on `FlexStatement` → `acctAlias=""` in the output.
   - `test_redact_rejects_other_root`: `redact_statement("<Foo/>")` raises `ValueError`.
 - [ ] **Step 2: Run** → FAIL (ImportError).
-- [ ] **Step 3: Implement.** `redact_statement` walks `root.iter()`; `accountId` → `REDACTED_ACCOUNT`, `acctAlias` present → `""`, `amount`/`proceeds`/`value`/`quantity` → `_fake_number`. Header comment (module constant, no `--`, no `U`-digit token) states: redacted real statement captured by `bot flex-capture` for #110; account ids and money/quantity columns are fakes; symbols, conids, isins, ids, dates, types and descriptions are real. `_fake_number` per the issue: n ≥ 1 → `sign + str(10 ** (n - 1))` + (`"." + "0" * d` if d > 0); integer part 0 → `sign + "0." + "1" + "0" * (d - 1)`; see Assumptions for sign, `d`, `n`, non-finite.
+- [ ] **Step 3: Implement.** `_fake_number`: strip; empty → unchanged; `Decimal` raises `InvalidOperation` or is not finite → unchanged; `== 0` (covers `0`, `-0.00`) → unchanged (original text). `redact_statement` walks `root.iter()`; `accountId` → `REDACTED_ACCOUNT`, `acctAlias` present → `""`, `amount`/`proceeds`/`value`/`quantity` → `_fake_number`. Header comment (module constant, no `--`, no `U`-digit token) states: redacted real statement captured by `bot flex-capture` for #110; account ids and money/quantity columns are fakes; symbols, conids, isins, ids, dates, types and descriptions are real. `_fake_number` per the issue: n ≥ 1 → `sign + str(10 ** (n - 1))` + (`"." + "0" * d` if d > 0); integer part 0 → `sign + "0." + "1" + "0" * (d - 1)`; see Assumptions for sign, `d`, `n`, non-finite.
 - [ ] **Step 4: Run** → PASS; `uv run mypy src && uv run ruff check .` clean.
 - [ ] **Step 5: Commit** `feat(#138): redact_statement`.
 
@@ -90,7 +93,7 @@
 
 **Interfaces:**
 - Consumes: `parse_flex_row` (Task 1), `redact_statement` (Task 2, tests only).
-- Produces: `@dataclass(frozen=True) class FlexSummary` with fields `accounts: int`, `from_date: str | None`, `to_date: str | None`, `rows: int`, `corporate_action_types: dict[str, int]`, `cash_transaction_types: dict[str, int]`, `parsed: int`, `parsed_by_action_type: dict[str, int]`, `skipped: dict[str, int]`; method `to_json(self) -> str`; `summarize_statement(xml: str) -> FlexSummary`.
+- Produces: `@dataclass(frozen=True) class FlexSummary` with fields `accounts: int` (number of `FlexStatement` elements, not distinct ids, so it survives redaction), `from_date: str | None`, `to_date: str | None`, `rows: int`, `corporate_action_types: dict[str, int]`, `cash_transaction_types: dict[str, int]`, `parsed: int`, `parsed_by_action_type: dict[str, int]`, `skipped: dict[str, int]`; method `to_json(self) -> str`; `summarize_statement(xml: str) -> FlexSummary`.
 
 - [ ] **Step 1: Write the failing tests:**
   - `test_summary_of_sample`: `summarize_statement(sample) == FlexSummary(accounts=2, from_date="2026-09-01", to_date="2026-09-30", rows=7, corporate_action_types={"FS": 1, "RS": 1, "TC": 1}, cash_transaction_types={"Dividends": 2, "Payment In Lieu Of Dividends": 1, "Withholding Tax": 1}, parsed=5, parsed_by_action_type={"dividend": 2, "split": 2, "tc": 1}, skipped={"CashTransaction/Dividends": 1, "CashTransaction/Withholding Tax": 1})`.
@@ -101,6 +104,13 @@
   - `test_summary_missing_type_counts_under_empty`: inline statement with a `CorporateAction` lacking `type` → `corporate_action_types == {"": 1}`.
   - `test_summarize_rejects_other_root`: `summarize_statement("<Foo/>")` raises `ValueError`.
 - [ ] **Step 2: Run** → FAIL.
-- [ ] **Step 3: Implement.** Dates: first 8 chars parsed like `_flex_date`, emitted as `date.isoformat()`; min `fromDate`, max `toDate`. Counts via `collections.Counter`, converted to `dict(sorted(...))`. `skipped` key `f"{el.tag}/{raw type}"`. `to_json` = `json.dumps(dataclasses.asdict(self), indent=2, sort_keys=True) + "\n"`.
+- [ ] **Step 3: Implement.** Dates: first 8 chars parsed like `_flex_date`, via `_flex_date` imported from `bot.ingest.ibkr_flex`, emitted as `date.isoformat()`; min `fromDate`, max `toDate`. `rows` counts only `CorporateAction` + `CashTransaction` elements (other sections a real statement may carry are ignored). Counts via `collections.Counter`, converted to `dict(sorted(...))`. `skipped` key `f"{el.tag}/{raw type}"`. `to_json` = `json.dumps(dataclasses.asdict(self), indent=2, sort_keys=True) + "\n"`.
 - [ ] **Step 4: Run** the three test files from the issue's "How to test", then `uv run ruff check . && uv run mypy src` and `uv run pytest -q` → all green.
 - [ ] **Step 5: Commit** `feat(#138): summarize_statement`.
+
+## Grilling
+
+- Rounds: 1 (griller model: fable). Revisions were clarifications, no step added or removed and the same seam, so no second round.
+- Questions: 16. Sources: ISSUE 9 (Q1 accounts definition, Q3 zero rule, Q4 attribute list incl. #110's Flex query columns, Q5 descriptions kept, Q7 unparseable rule, Q12 skipped key, Q13 rows definition, Q15 output format, Q10 partly); CODE 5 (Q2 `_record` reads only `el`, `ibkr_flex.py:94-139`; Q8 malformed rows return `None` with WARNING, `ibkr_flex.py:109-125`; Q9 seam test scans every `src/bot/**/*.py`, `tests/unit/test_seam_enforcement.py:15-21,55-56`; Q11 log asserted in `tests/unit/test_ibkr_flex_parser.py:81-84`; Q14 `details: dict[str, str]`, `ibkr_flex.py:77`); NO SOURCE 4 → technical assumptions (Q6 exponent decimals, Q7 thousands separators, Q10 private import, Q11 double logging in #139, Q16 reversibility: the branch is unmerged and squash-merged, so an abandoned task leaves nothing on BASE).
+- Assumptions added: `d` from the `Decimal` exponent; `InvalidOperation` is "not parseable"; `_flex_date` imported; WARNINGs from the summary accepted.
+- Spec ambiguities: none. Follow-up issues opened: none.
