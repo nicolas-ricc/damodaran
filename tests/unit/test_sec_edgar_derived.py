@@ -100,6 +100,34 @@ def test_interest_derived_from_net_feeds_ebit_derivation() -> None:
     assert row["ebit"] == pytest.approx(100.0)
 
 
+def test_derives_total_debt_from_noncurrent_plus_current_portion() -> None:
+    row: dict[str, Any] = {"_debt_noncurrent": 900.0, "_debt_current": 100.0}
+    _derive_financial_fields(row)
+    assert row["total_debt"] == pytest.approx(1000.0)
+    assert "_debt_noncurrent" not in row and "_debt_current" not in row
+
+
+def test_derives_total_debt_from_a_single_tranche() -> None:
+    row: dict[str, Any] = {"_debt_noncurrent": 900.0}
+    _derive_financial_fields(row)
+    assert row["total_debt"] == pytest.approx(900.0)
+    row = {"_debt_current": 100.0}
+    _derive_financial_fields(row)
+    assert row["total_debt"] == pytest.approx(100.0)
+
+
+def test_total_debt_total_concept_beats_tranches() -> None:
+    row: dict[str, Any] = {"total_debt": 1500.0, "_debt_noncurrent": 900.0, "_debt_current": 100.0}
+    _derive_financial_fields(row)
+    assert row["total_debt"] == pytest.approx(1500.0)
+
+
+def test_total_debt_stays_none_without_any_debt_concept() -> None:
+    row: dict[str, Any] = {"cash": 50.0}
+    _derive_financial_fields(row)
+    assert row.get("total_debt") is None
+
+
 def test_shares_outstanding_returns_newest_value() -> None:
     payload = json.loads((FIXTURES / "aapl_shares_concept.json").read_text("utf-8"))
 

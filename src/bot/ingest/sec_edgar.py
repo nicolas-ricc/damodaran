@@ -213,7 +213,14 @@ ANNUAL_CONCEPT_MAP: dict[str, list[str]] = {
     "tax_expense": ["IncomeTaxExpenseBenefit"],
     "net_income": ["NetIncomeLoss", "ProfitLoss"],
     "total_assets": ["Assets"],
-    "total_debt": ["LongTermDebt", "LongTermDebtNoncurrent"],
+    # Whole-debt concepts only; split tranches below are summed in
+    # _derive_financial_fields when none of these is tagged.
+    "total_debt": [
+        "LongTermDebt",
+        "DebtLongtermAndShorttermCombinedAmount",
+        "DebtAndCapitalLeaseObligations",
+        "LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities",
+    ],
     "cash": ["CashAndCashEquivalentsAtCarryingValue", "Cash"],
     "total_equity": ["StockholdersEquity"],
     "goodwill": ["Goodwill"],
@@ -231,13 +238,33 @@ ANNUAL_CONCEPT_MAP: dict[str, list[str]] = {
     # Signed net interest (income positive, expense negative), only to derive
     # interest_expense when no gross expense concept is tagged.
     "_net_interest": ["InterestIncomeExpenseNonoperatingNet", "InterestIncomeExpenseNet"],
+    # Debt tranches, only to derive total_debt for filers that tag no whole-debt
+    # concept (lease-inclusive presentations are the common case).
+    "_debt_noncurrent": [
+        "LongTermDebtNoncurrent",
+        "LongTermDebtAndCapitalLeaseObligations",
+        "ConvertibleLongTermNotesPayable",
+        "ConvertibleDebtNoncurrent",
+        "UnsecuredLongTermDebt",
+        "OtherLongTermDebtNoncurrent",
+    ],
+    "_debt_current": [
+        "LongTermDebtCurrent",
+        "LongTermDebtAndCapitalLeaseObligationsCurrent",
+        "DebtCurrent",
+        "OtherLongTermDebtCurrent",
+        "ShortTermBorrowings",
+    ],
     "_current_assets": ["AssetsCurrent"],
     "_current_liabilities": ["LiabilitiesCurrent"],
 }
 
 
 def _derive_financial_fields(row: dict[str, Any]) -> None:
-    """Fill ebitda / free_cashflow / working_capital when their inputs exist.
+    """Fill the aggregates EDGAR does not report when their inputs exist.
+
+    Covers ebitda, free_cashflow, working_capital, and the gap-fills for
+    interest_expense, ebit and total_debt.
 
     EDGAR facts report the components, not the aggregates FMP pre-computed.
     Derivations only fill gaps — a reported aggregate is never overwritten —
@@ -262,6 +289,10 @@ def _derive_financial_fields(row: dict[str, Any]) -> None:
     ocf, capex = row.get("operating_cashflow"), row.get("capex")
     if row.get("free_cashflow") is None:
         row["free_cashflow"] = ocf - capex if ocf is not None and capex is not None else None
+    debt_noncurrent = row.pop("_debt_noncurrent", None)
+    debt_current = row.pop("_debt_current", None)
+    if row.get("total_debt") is None and (debt_noncurrent is not None or debt_current is not None):
+        row["total_debt"] = (debt_noncurrent or 0.0) + (debt_current or 0.0)
     ca = row.pop("_current_assets", None)
     cl = row.pop("_current_liabilities", None)
     if row.get("working_capital") is None:

@@ -1055,3 +1055,30 @@ def test_interest_expense_from_signed_net_interest_concepts() -> None:
     annual = _annual(facts)
     assert annual[2024]["interest_expense"] == 126_000_000
     assert annual[2025]["interest_expense"] == 0.0
+
+
+# ---------- total_debt: lease-inclusive and split-tranche filers ----------
+
+
+def test_total_debt_from_lease_inclusive_tranches() -> None:
+    # Balance-sheet instants attach to the revenue period end.
+    facts = _facts(
+        {
+            "Revenues": [_fact("2025-12-31", 10_000_000_000, start="2025-01-01")],
+            "LongTermDebtAndCapitalLeaseObligations": [_fact("2025-12-31", 3_000_000_000)],
+            "LongTermDebtAndCapitalLeaseObligationsCurrent": [_fact("2025-12-31", 400_000_000)],
+        }
+    )
+    assert _annual(facts)[2025]["total_debt"] == 3_400_000_000
+
+
+def test_total_debt_combined_total_concept_wins_over_tranches() -> None:
+    facts = _facts(
+        {
+            "Revenues": [_fact("2025-12-31", 10_000_000_000, start="2025-01-01")],
+            "DebtLongtermAndShorttermCombinedAmount": [_fact("2025-12-31", 5_000_000_000)],
+            "LongTermDebtNoncurrent": [_fact("2025-12-31", 3_000_000_000)],
+            "LongTermDebtCurrent": [_fact("2025-12-31", 400_000_000)],
+        }
+    )
+    assert _annual(facts)[2025]["total_debt"] == 5_000_000_000
