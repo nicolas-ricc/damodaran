@@ -308,7 +308,7 @@ def _report_universe_refresh(result: UniverseRefreshResult) -> None:
     if result.deferred:
         typer.echo(
             f"NOTE — {result.deferred} tickers deferred (provider rate limit); "
-            "re-run the same command to continue (add --only-missing for prices).",
+            "re-run to continue with the stalest tickers.",
         )
 
 

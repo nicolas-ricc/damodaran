@@ -383,6 +383,7 @@ def _run_bulk_refresh(
     source: str,
     label: str,
     progress_every: int,
+    current: list[str] | None = None,
 ) -> UniverseRefreshResult:
     """Drive a bulk refresh: loop ``items`` through ``process``, tally outcomes,
     log progress under ``{label}.refresh.*``, and write one ``source`` summary row
@@ -390,11 +391,13 @@ def _run_bulk_refresh(
 
     The caller owns the provider's lifecycle and binds it into ``process``; this
     driver only sequences the per-item work and aggregates the result, shared by
-    the universe / prices / fx refreshes.
+    the universe / prices / fx refreshes. ``current`` tickers need no work: they are
+    appended as ``skipped`` outcomes after the loop and counted in ``total``.
     """
     started = datetime.now()
     run_id = str(uuid.uuid4())
-    total = len(items)
+    current = current or []
+    total = len(items) + len(current)
     outcomes: list[TickerOutcome] = []
     counts: Counter[TickerStatus] = Counter()
     rate_limited = False
@@ -427,6 +430,10 @@ def _run_bulk_refresh(
                 failed=counts["failed"],
                 deferred=counts["deferred"],
             )
+
+    for item in current:
+        outcomes.append(TickerOutcome(ticker=item.upper(), status="skipped"))
+        counts["skipped"] += 1
 
     finished = datetime.now()
     attempted = total - counts["deferred"]
@@ -526,6 +533,7 @@ def refresh_prices(
     since_date: date | None = None,
     only_missing: bool = False,
     progress_every: int = DEFAULT_PROGRESS_EVERY,
+    today: date | None = None,
 ) -> UniverseRefreshResult:
     """Bulk-refresh EOD prices for ``tickers`` through ``provider`` (incremental
     per ticker).
@@ -540,12 +548,24 @@ def refresh_prices(
     the run, so no provider request (and no rate-limit quota) is spent on them.
     This is the first-fill mode for a rate-capped free tier: each run advances
     through the unpriced remainder rather than re-probing the same head.
+
+    Tickers whose newest bar is on or after the last weekday before ``today``
+    (default ``date.today()``) are up to date: recorded as ``skipped`` without a
+    request. The rest are requested stale-first (never priced, then oldest
+    newest-bar first, ties in input order), so a rate-limited run spends its
+    quota on the stalest tickers and consecutive runs cover the universe.
     """
     if only_missing:
         tickers = [t for t in tickers if _max_price_date(conn, t) is None]
+    newest = _newest_price_dates(conn)
+    cutoff = _last_weekday_before(today or date.today())
+    current = [t for t in tickers if (d := newest.get(t.upper())) is not None and d >= cutoff]
+    current_set = set(current)
+    pending = [t for t in tickers if t not in current_set]
     return _run_bulk_refresh(
         conn,
-        items=tickers,
+        items=_stale_first(pending, newest),
+        current=current,
         process=lambda ticker: _refresh_one_price(
             conn, ticker=ticker, provider=provider, since_date=since_date
         ),
@@ -553,6 +573,34 @@ def refresh_prices(
         label="prices",
         progress_every=progress_every,
     )
+
+
+def _newest_price_dates(conn: duckdb.DuckDBPyConnection) -> dict[str, date | None]:
+    """Newest stored price date per upper-cased ticker, in one query."""
+    rows = conn.execute("SELECT ticker, max(date) FROM prices_daily GROUP BY ticker").fetchall()
+    return {str(r[0]).upper(): coerce_date(r[1]) for r in rows}
+
+
+def _stale_first(tickers: list[str], newest: dict[str, date | None]) -> list[str]:
+    """Reorder ``tickers``: never priced first, then oldest newest-bar first.
+
+    ``newest`` is from ``_newest_price_dates``. Stable, so ties keep input order.
+    Tickers keep their original spelling.
+    """
+
+    def key(ticker: str) -> tuple[bool, date]:
+        d = newest.get(ticker.upper())
+        return (d is not None, d or date.min)
+
+    return sorted(tickers, key=key)
+
+
+def _last_weekday_before(day: date) -> date:
+    """The closest weekday (Mon-Fri) strictly before ``day``."""
+    prev = day - timedelta(days=1)
+    while prev.weekday() >= 5:
+        prev -= timedelta(days=1)
+    return prev
 
 
 def _refresh_one_price(

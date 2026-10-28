@@ -189,7 +189,7 @@ INVENTARIO = {
  ("bootstrap", "scripts/bootstrap.sh", "hecho", "scripts/bootstrap.sh",
   "Crea .env desde .env.example y pide solo las dos claves obligatorias que falten (BOT_SEC_USER_AGENT, BOT_TIINGO_API_KEY); --yes las toma del entorno. Carga Damodaran, imprime el checklist de TWS y corre bot doctor, cuyo exit code es el suyo. Re-ejecutable sin cambios. Tests en tests/integration/test_scripts.py (#33)."),
  ("cron", "scripts/install_cron.sh", "hecho", "scripts/install_cron.sh; scripts/daily.sh; scripts/weekly.sh",
-  "Instala dos líneas marcadas (# bot-daily, # bot-weekly), idempotente; --remove borra solo esas. daily.sh (precios + FX, luego portfolio) y weekly.sh (refresh --all, luego screen) loguean a .cache/*.log con el exit code del bot (#33)."),
+  "Instala dos líneas marcadas (# bot-daily, # bot-weekly), idempotente; --remove borra solo esas. daily.sh (precios en rondas horarias, del más viejo al más nuevo, hasta que no quede ninguno diferido por el límite de Tiingo (#136); luego FX y portfolio) y weekly.sh (refresh --all, luego screen) loguean a .cache/*.log con el exit code del bot (#33)."),
  ("logs", "Log a archivo", "falta", "utils/logging.py:25",
   "Todo va a stdout y en formato de consola, nunca JSON. Un cron corriendo esto no deja rastro auditable."),
  ("backup", "Respaldo", "falta", "spec §13.4", None),
