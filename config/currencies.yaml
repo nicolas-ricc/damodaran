@@ -99,7 +99,7 @@ BRL:
   # bond 13.86% (Ba1) - default spread 2.13% = 0.1173
   risk_free_rate: 0.1173
   # IMF BRA 2030: real 2.5, CPI 3.0
-  nominal_gdp_growth: 0.0557
+  nominal_gdp_growth: 0.0558
   source: https://aswathdamodaran.blogspot.com/2026/02/data-update-4-for-2026-global.html
   gdp_source: https://www.imf.org/external/datamapper/datasets/WEO
   as_of: 2026-01-01
