@@ -228,6 +228,9 @@ ANNUAL_CONCEPT_MAP: dict[str, list[str]] = {
         "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
         "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
     ],
+    # Signed net interest (income positive, expense negative), only to derive
+    # interest_expense when no gross expense concept is tagged.
+    "_net_interest": ["InterestIncomeExpenseNonoperatingNet", "InterestIncomeExpenseNet"],
     "_current_assets": ["AssetsCurrent"],
     "_current_liabilities": ["LiabilitiesCurrent"],
 }
@@ -245,6 +248,11 @@ def _derive_financial_fields(row: dict[str, Any]) -> None:
     # both: median error 5%, p90 37%, so a reported figure always wins. A missing
     # interest expense counts as zero (post-2024 fallbacks leave it null almost
     # only for debt-free filers).
+    # Filers that net interest against interest income tag only the signed net
+    # figure: a net cost is the expense, a net income means nothing to cover.
+    net_interest = row.pop("_net_interest", None)
+    if row.get("interest_expense") is None and net_interest is not None:
+        row["interest_expense"] = max(0.0, -net_interest)
     pretax = row.pop("_pretax_income", None)
     if row.get("ebit") is None and pretax is not None:
         row["ebit"] = pretax + (row.get("interest_expense") or 0.0)

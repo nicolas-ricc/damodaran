@@ -1039,3 +1039,19 @@ def test_ebit_derived_from_pretax_concepts_when_operating_income_absent() -> Non
     assert annual[2023]["ebit"] == 900_000_000  # reported operating income wins
     assert annual[2024]["ebit"] == 900_000_000  # 800M pretax + 100M interest
     assert annual[2025]["ebit"] == 960_000_000  # alternative pretax concept
+
+
+def test_interest_expense_from_signed_net_interest_concepts() -> None:
+    facts = _facts(
+        {
+            "InterestIncomeExpenseNonoperatingNet": [
+                _fact("2024-12-31", -126_000_000, start="2024-01-01"),
+            ],
+            "InterestIncomeExpenseNet": [
+                _fact("2025-12-31", 29_000_000, start="2025-01-01"),
+            ],
+        }
+    )
+    annual = _annual(facts)
+    assert annual[2024]["interest_expense"] == 126_000_000
+    assert annual[2025]["interest_expense"] == 0.0
