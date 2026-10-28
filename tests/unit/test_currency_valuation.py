@@ -14,9 +14,9 @@ from pathlib import Path
 
 import duckdb
 import pytest
-from bot.reference.currencies import CurrencyRates, CurrencyTable, load_currency_table
 from structlog.testing import capture_logs
 
+from bot.reference.currencies import CurrencyRates, CurrencyTable, load_currency_table
 from bot.storage.db import apply_schema, connect
 from bot.valuator.assumptions import (
     AssumptionSource,
@@ -224,3 +224,18 @@ def test_uncovered_currency_warns_once_per_bulk_load(conn: duckdb.DuckDBPyConnec
     events = [e for e in logs if e["event"] == "assumptions.currency_uncovered"]
     assert len(events) == 1
     assert events[0]["currency"] == "XYZ"
+
+
+def test_shared_warned_set_logs_each_currency_once_per_run(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed(conn, "XA", ("XYZ",))
+    _seed(conn, "XB", ("XYZ",))
+    warned: set[str | None] = set()
+    with capture_logs() as logs:
+        load_assumption_inputs(conn, "XA", currencies=TABLE, warned=warned)
+        load_assumption_inputs(conn, "XB", currencies=TABLE, warned=warned)
+        bulk_load_assumption_inputs(conn, ["XA", "XB"], currencies=TABLE, warned=warned)
+    events = [e for e in logs if e["event"] == "assumptions.currency_uncovered"]
+    assert len(events) == 1
+    assert warned == {"XYZ"}

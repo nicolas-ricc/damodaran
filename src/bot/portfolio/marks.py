@@ -128,6 +128,7 @@ def mark_holdings(
         from bot.valuator import analysis as valuator
 
         table = currencies if currencies is not None else load_currency_table()
+        warned: set[str | None] = set()
 
         def analyze_fn_default(ticker: str, conn: duckdb.DuckDBPyConnection) -> Analysis:
             return valuator.analyze(
@@ -135,6 +136,7 @@ def mark_holdings(
                 conn,
                 conventional_override_path(assumptions_dir, ticker),
                 currencies=table,
+                warned=warned,
             )
 
         analyze_fn = analyze_fn_default

@@ -93,6 +93,7 @@ def _batch_dcf_margins(
     tickers: tuple[str, ...],
     assumptions_dir: Path | None = None,
     currencies: CurrencyTable | None = None,
+    warned: set[str | None] | None = None,
 ) -> dict[str, float | None]:
     """Real DCF margin of safety for every shortlisted ticker (the F7 N+1 fix).
 
@@ -112,7 +113,9 @@ def _batch_dcf_margins(
     (spec §7.6), so the screener's second pass agrees with ``bot analyze`` for
     the same ticker.
     """
-    preloaded = bulk_load_valuation_inputs(conn, tickers, currencies=currencies)
+    preloaded = bulk_load_valuation_inputs(
+        conn, tickers, currencies=currencies, warned=warned
+    )
     margins: dict[str, float | None] = {}
     for ticker in tickers:
         inputs = preloaded.get(ticker.upper())
@@ -805,7 +808,9 @@ def run_screen(
     shortlist_tickers = tuple(s.ticker for s in first_pass)
     if valuator is _dcf_margin_of_safety:
         table = currencies if currencies is not None else load_currency_table()
-        raw_margins = _batch_dcf_margins(conn, shortlist_tickers, assumptions_dir, table)
+        raw_margins = _batch_dcf_margins(
+            conn, shortlist_tickers, assumptions_dir, table, warned=set()
+        )
     elif valuator is None:
         raw_margins = {ticker: None for ticker in shortlist_tickers}
     else:

@@ -309,7 +309,12 @@ def _currency_rates(
     return code, (table.get(code) if code is not None else None)
 
 
-def _warn_uncovered(currency: str | None) -> None:
+def _warn_uncovered(currency: str | None, warned: set[str | None] | None) -> None:
+    """Log ``currency`` as uncovered unless the run-scoped ``warned`` set has it."""
+    if warned is not None:
+        if currency in warned:
+            return
+        warned.add(currency)
     log.warning("assumptions.currency_uncovered", currency=currency)
 
 
@@ -318,6 +323,7 @@ def load_assumption_inputs(
     ticker: str,
     *,
     currencies: CurrencyTable | None = None,
+    warned: set[str | None] | None = None,
 ) -> AssumptionInputs:
     """Load every DB row :func:`resolve_assumptions` needs for ``ticker``.
 
@@ -326,7 +332,8 @@ def load_assumption_inputs(
 
     ``currencies`` is the table of per-currency rates; ``None`` loads the default
     file. An uncovered valuation currency is logged once as
-    ``assumptions.currency_uncovered``.
+    ``assumptions.currency_uncovered``; pass one ``warned`` set across calls to
+    log each currency once per run (``None`` warns on every call).
 
     Raises:
         LookupError: If ``ticker`` is unknown.
@@ -345,7 +352,7 @@ def load_assumption_inputs(
     ).fetchone()
     valuation_currency, rates = _currency_rates(latest[0] if latest else None, table)
     if rates is None:
-        _warn_uncovered(valuation_currency)
+        _warn_uncovered(valuation_currency, warned)
     return AssumptionInputs(
         company=company,
         country=country,
@@ -364,13 +371,15 @@ def bulk_load_assumption_inputs(
     tickers: Iterable[str],
     *,
     currencies: CurrencyTable | None = None,
+    warned: set[str | None] | None = None,
 ) -> dict[str, AssumptionInputs]:
     """Load :func:`load_assumption_inputs` for many tickers in four queries.
 
     Returns exactly what the per-ticker loader returns for each ticker, keyed by
     upper-cased ticker. Tickers absent from ``companies`` are omitted rather than
     raising, so a caller can pass a whole shortlist. Each distinct uncovered
-    valuation currency is logged once, not once per company.
+    valuation currency is logged once, not once per company (and once per run
+    when a shared ``warned`` set is passed).
     """
     table = currencies if currencies is not None else load_currency_table()
     wanted = sorted({t.upper() for t in tickers})
@@ -452,7 +461,7 @@ def bulk_load_assumption_inputs(
             currency_rates=rates,
         )
     for currency in sorted(uncovered, key=lambda c: c or ""):
-        _warn_uncovered(currency)
+        _warn_uncovered(currency, warned)
     return result
 
 

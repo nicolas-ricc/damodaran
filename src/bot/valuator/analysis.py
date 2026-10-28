@@ -333,6 +333,7 @@ def load_valuation_input(
     ticker: str,
     *,
     currencies: CurrencyTable | None = None,
+    warned: set[str | None] | None = None,
 ) -> ValuationInput:
     """Load every DB row :func:`analyze` needs for ``ticker`` in one place.
 
@@ -360,7 +361,9 @@ def load_valuation_input(
         ebit_history=ebit_history,
         sector=sector,
         current_price=current_price,
-        assumption_inputs=load_assumption_inputs(conn, ticker, currencies=currencies),
+        assumption_inputs=load_assumption_inputs(
+            conn, ticker, currencies=currencies, warned=warned
+        ),
     )
 
 
@@ -369,6 +372,7 @@ def bulk_load_valuation_inputs(
     tickers: Iterable[str],
     *,
     currencies: CurrencyTable | None = None,
+    warned: set[str | None] | None = None,
 ) -> dict[str, ValuationInput]:
     """Load :func:`load_valuation_input` for many tickers in a constant number of queries.
 
@@ -437,7 +441,9 @@ def bulk_load_valuation_inputs(
             [industries],
         ).fetchall()
     }
-    assumption_inputs = bulk_load_assumption_inputs(conn, kept, currencies=currencies)
+    assumption_inputs = bulk_load_assumption_inputs(
+        conn, kept, currencies=currencies, warned=warned
+    )
 
     result: dict[str, ValuationInput] = {}
     for t in kept:
@@ -569,6 +575,7 @@ def analyze(
     age_years: int | None = None,
     company: ValuationInput | None = None,
     currencies: CurrencyTable | None = None,
+    warned: set[str | None] | None = None,
 ) -> Analysis:
     """Run the full §7.7 analysis pipeline for ``ticker``.
 
@@ -593,6 +600,8 @@ def analyze(
         currencies: Per-currency risk-free rate and GDP table used when ``company``
             is ``None`` (``None`` loads the default file). Ignored otherwise: the
             pre-loaded inputs already carry their currency rates.
+        warned: Run-scoped set of currencies already logged as uncovered; share one
+            across calls to warn once per currency per run. Used like ``currencies``.
 
     Returns:
         An :class:`Analysis` carrying everything the §7.7 report renders.
@@ -607,7 +616,7 @@ def analyze(
     """
     ticker = ticker.upper()
     if company is None:
-        company = load_valuation_input(conn, ticker, currencies=currencies)
+        company = load_valuation_input(conn, ticker, currencies=currencies, warned=warned)
     inputs = company
     company_row = inputs.company
     latest = inputs.latest

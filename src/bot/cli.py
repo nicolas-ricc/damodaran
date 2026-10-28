@@ -441,9 +441,12 @@ def analyze(
         tickers = [str(r[0]) for r in rows]
 
     currencies = load_currency_table(settings.currencies_path)
+    warned: set[str | None] = set()
     exit_code = 0
     for ticker in tickers:
-        exit_code = max(exit_code, _analyze_one(conn, settings, ticker, override, currencies))
+        exit_code = max(
+            exit_code, _analyze_one(conn, settings, ticker, override, currencies, warned)
+        )
     raise typer.Exit(code=exit_code)
 
 
@@ -453,6 +456,7 @@ def _analyze_one(
     ticker: str,
     override: Path | None,
     currencies: CurrencyTable,
+    warned: set[str | None],
 ) -> int:
     """Analyze one ticker and write its §7.7 reports. Returns its exit code.
 
@@ -466,7 +470,9 @@ def _analyze_one(
         override = conventional_override_path(settings.assumptions_dir, ticker)
 
     try:
-        analysis = run_analysis(ticker, conn, override_path=override, currencies=currencies)
+        analysis = run_analysis(
+            ticker, conn, override_path=override, currencies=currencies, warned=warned
+        )
     except LookupError as exc:
         typer.echo(f"{ticker}: {exc}", err=True)
         return 2
