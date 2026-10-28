@@ -411,7 +411,7 @@ h1 {
         <li>La compuerta de cobertura vive en <code data-symbol="bot.screener.engine.run_screen">bot.screener.engine.run_screen</code> · <code class="at">src/bot/screener/engine.py:731</code>: anota <code>RejectedCompany(ticker, (razón,))</code> con una sola razón de <code>CoverageReason</code>, por precedencia (<code>industry_unmapped</code>, <code>benchmark_missing</code>, <code>currency_uncovered</code>), y sigue con la próxima.</li>
       </ul>
     </div>
-    <aside class="caveat"><p>El ADR 0005 pide valuar a cada empresa en su propia moneda y convertir recién al calcular. Está aceptado pero no está implementado. Hoy no se nota porque el universo es solo de EE. UU.: precio, balance y vara están todos en dólares. El día que entren empresas de otros países, esto tiene que resolverse antes.</p></aside>
+    <aside class="caveat"><p>El ADR 0005 pide valuar a cada empresa en su propia moneda y convertir recién al calcular. Está implementado a medias: la parte de la tasa libre de riesgo y el PBI por moneda (§4) ya funciona, con una tabla por moneda y una empresa fuera de la tabla que sale del universo. Siguen faltando el §1 al §3: separar la moneda de cotización de la de reporte y convertir el precio. Hoy no se nota porque el universo es solo de EE. UU.: precio, balance y vara están todos en dólares. El día que entren empresas de otros países, esto tiene que resolverse antes.</p></aside>
   </section>
 
   <section id="cap-3" class="cap" data-rol="elimina" aria-labelledby="cap-3-t">
@@ -619,7 +619,7 @@ h1 {
       <div class="tabla"><table>
         <thead><tr><th scope="col">Etiqueta</th><th scope="col">Crecimiento de ventas</th><th scope="col">Margen operativo</th></tr></thead>
         <tbody>
-          <tr><th scope="row"><code>high-growth</code></th><td>Baja en línea recta desde el promedio histórico de la empresa hasta el PBI nominal (4 % por defecto) a lo largo de los cinco años. Si no hay historia, no ramifica y cae en la regla general.</td><td>Sube o baja en línea recta desde el margen actual de la empresa hasta la mediana del sector. Si falta alguno de los dos márgenes, la mediana del sector, plana.</td></tr>
+          <tr><th scope="row"><code>high-growth</code></th><td>Baja en línea recta desde el promedio histórico de la empresa hasta el PBI nominal de la moneda de valuación a lo largo de los cinco años. Si no hay historia, no ramifica y cae en la regla general; si la moneda no tiene PBI en la tabla, queda en el promedio histórico plano.</td><td>Sube o baja en línea recta desde el margen actual de la empresa hasta la mediana del sector. Si falta alguno de los dos márgenes, la mediana del sector, plana.</td></tr>
           <tr><th scope="row"><code>cyclical</code></th><td>Igual que cualquier otra: el promedio histórico.</td><td>El promedio del propio ciclo de la empresa (no el del último año), si hay al menos 4 años de márgenes; con menos, la mediana del sector.</td></tr>
           <tr><th scope="row"><code>mature-stable</code>, <code>mature-decline</code>, <code>distressed</code></th><td>Sin tratamiento propio: el promedio histórico (o el PBI nominal si no hay historia).</td><td>Sin tratamiento propio: la mediana del sector, plana.</td></tr>
         </tbody>
