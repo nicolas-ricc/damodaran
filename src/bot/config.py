@@ -80,6 +80,10 @@ class Settings(BaseSettings):
         default=Path("./config/presets"),
         description="Directory holding screener preset YAMLs (resolved by `bot screen --preset`).",
     )
+    currencies_path: Path = Field(
+        default=Path("./config/currencies.yaml"),
+        description="Curated per-currency risk-free rate and nominal GDP growth table (#109).",
+    )
     assumptions_dir: Path = Field(
         default=Path("./config/assumptions"),
         description="Convention-based overrides directory: <TICKER>.yaml (spec §7.6).",
