@@ -13,11 +13,17 @@ Resolution order (highest-priority source wins, spec §7.3/§7.6)::
                             feed, so this layer falls back to the company's own
                             historical average (HISTORICAL_AVERAGE).
     3. Sector default     — medians from damodaran_industry (and the country's
-                            risk-free rate / ERP from damodaran_country).
-    4. Rule-based         — e.g. terminal_growth = min(risk_free_rate, GDP).
+                            ERP / tax rate from damodaran_country).
+    4. Rule-based         — e.g. terminal_growth = min(rfr_ccy, gdp_ccy), where
+                            both come from the company's valuation currency in
+                            ``config/currencies.yaml`` (#109).
+
+The valuation currency is the currency of the company's latest non-restated
+``financials_annual`` row. A currency missing from the table (or a NULL one)
+leaves the GDP-anchored assumptions ``UNRESOLVED``; there is no USD fallback.
 
 This module is a pure function of ``(ticker, conn, override_path)`` plus a
-nominal-GDP scalar: it reads, it does not write, and it holds no global state.
+currency table: it reads, it does not write, and it holds no global state.
 
 The DCF's WACC is *computed* from its components (``cost_of_equity``,
 ``pretax_cost_of_debt``, the weights and the tax rate) by ``dcf._wacc``; there is
@@ -41,6 +47,12 @@ from typing import Any, TypeVar
 import duckdb
 import yaml
 
+from bot.reference.currencies import (
+    CurrencyRates,
+    CurrencyTable,
+    load_currency_table,
+    normalize_currency,
+)
 from bot.reference.regions import dataset_region
 from bot.utils.logging import get_logger
 from bot.valuator.dcf import Assumptions as DCFAssumptions
@@ -60,11 +72,6 @@ _HORIZON = 5
 # least one full business cycle of annual margins; fewer years fall back to the
 # sector median rather than averaging a half-cycle.
 _MIN_CYCLE_YEARS = 4
-
-# Default nominal GDP growth used as the terminal-growth ceiling and the
-# rule-based revenue-growth anchor when no better figure is supplied. Roughly
-# long-run US nominal GDP; callers pass a country-specific value when known.
-_DEFAULT_GDP_NOMINAL = 0.04
 
 # Rule-based marginal tax rate used when neither a manual override nor a
 # Damodaran sector/country tax rate is available. A neutral mid-rate so the DCF
@@ -164,6 +171,9 @@ class Assumptions:
                 so the caller cannot silently feed a half-built model into the
                 DCF.
         """
+        # terminal_growth first: an uncovered currency leaves it (and often the
+        # no-history revenue path) unresolved, and it names the actual cause.
+        terminal_growth = _require(self.terminal_growth, "terminal_growth")
         growth = _require(self.revenue_growth, "revenue_growth")
         margin_path = _require(self.operating_margin, "operating_margin")
         if len(margin_path) < len(growth):
@@ -173,7 +183,7 @@ class Assumptions:
             operating_margin=margin_path[: len(growth)],
             tax_rate=_require(self.tax_rate, "tax_rate"),
             sales_to_capital=_require(self.sales_to_capital, "sales_to_capital"),
-            terminal_growth=_require(self.terminal_growth, "terminal_growth"),
+            terminal_growth=terminal_growth,
             cost_of_equity=_require(self.cost_of_equity, "cost_of_equity"),
             pretax_cost_of_debt=_require(self.pretax_cost_of_debt, "pretax_cost_of_debt"),
             equity_weight=_require(self.equity_weight, "equity_weight"),
@@ -274,6 +284,10 @@ class AssumptionInputs:
         operating_margin_history: The company's own EBIT / revenue ratio for
             every year of financials history, used to average a cyclical
             story's own cycle (spec §7.1). Empty when there is no history.
+        valuation_currency: The normalised currency of the latest non-restated
+            ``financials_annual`` row, or ``None`` when there is none.
+        currency_rates: That currency's risk-free rate and nominal-GDP growth
+            from the currency table, or ``None`` when it is uncovered.
     """
 
     company: _Company
@@ -283,25 +297,55 @@ class AssumptionInputs:
     sector_is_cross_region: bool = False
     company_operating_margin: float | None = None
     operating_margin_history: tuple[float, ...] = ()
+    valuation_currency: str | None = None
+    currency_rates: CurrencyRates | None = None
+
+
+def _currency_rates(
+    currency: str | None, table: CurrencyTable
+) -> tuple[str | None, CurrencyRates | None]:
+    """Normalise a raw ``financials_annual.currency`` and look it up in ``table``."""
+    code = normalize_currency(currency)
+    return code, (table.get(code) if code is not None else None)
+
+
+def _warn_uncovered(currency: str | None) -> None:
+    log.warning("assumptions.currency_uncovered", currency=currency)
 
 
 def load_assumption_inputs(
-    conn: duckdb.DuckDBPyConnection, ticker: str
+    conn: duckdb.DuckDBPyConnection,
+    ticker: str,
+    *,
+    currencies: CurrencyTable | None = None,
 ) -> AssumptionInputs:
     """Load every DB row :func:`resolve_assumptions` needs for ``ticker``.
 
     Pure in the project sense (accepts the connection, reads only). The result
     can be reused across calls so the per-ticker reads happen exactly once.
 
+    ``currencies`` is the table of per-currency rates; ``None`` loads the default
+    file. An uncovered valuation currency is logged once as
+    ``assumptions.currency_uncovered``.
+
     Raises:
         LookupError: If ``ticker`` is unknown.
     """
+    table = currencies if currencies is not None else load_currency_table()
     company = _load_company(conn, ticker)
     country = _load_country(conn, company.country)
     region = dataset_region(company.country, country.region if country is not None else None)
     sector, cross_region = _load_sector_with_fallback(conn, company.industry_damodaran, region)
     historical_growth_path = _historical_growth_path(conn, ticker)
     margins = _operating_margin_history(conn, ticker)
+    latest = conn.execute(
+        "SELECT currency FROM financials_annual "
+        "WHERE ticker = ? AND is_restated = FALSE ORDER BY fiscal_year DESC LIMIT 1",
+        [ticker],
+    ).fetchone()
+    valuation_currency, rates = _currency_rates(latest[0] if latest else None, table)
+    if rates is None:
+        _warn_uncovered(valuation_currency)
     return AssumptionInputs(
         company=company,
         country=country,
@@ -310,18 +354,25 @@ def load_assumption_inputs(
         sector_is_cross_region=cross_region,
         company_operating_margin=margins[-1] if margins else None,
         operating_margin_history=margins,
+        valuation_currency=valuation_currency,
+        currency_rates=rates,
     )
 
 
 def bulk_load_assumption_inputs(
-    conn: duckdb.DuckDBPyConnection, tickers: Iterable[str]
+    conn: duckdb.DuckDBPyConnection,
+    tickers: Iterable[str],
+    *,
+    currencies: CurrencyTable | None = None,
 ) -> dict[str, AssumptionInputs]:
     """Load :func:`load_assumption_inputs` for many tickers in four queries.
 
     Returns exactly what the per-ticker loader returns for each ticker, keyed by
     upper-cased ticker. Tickers absent from ``companies`` are omitted rather than
-    raising, so a caller can pass a whole shortlist.
+    raising, so a caller can pass a whole shortlist. Each distinct uncovered
+    valuation currency is logged once, not once per company.
     """
+    table = currencies if currencies is not None else load_currency_table()
     wanted = sorted({t.upper() for t in tickers})
     if not wanted:
         return {}
@@ -359,15 +410,19 @@ def bulk_load_assumption_inputs(
         exact.setdefault((industry, region), row)
         fallback.setdefault(industry, (row, region))
     history: dict[str, list[tuple[Any, Any]]] = {}
-    for ticker, revenue, ebit in conn.execute(
-        "SELECT ticker, revenue, ebit FROM financials_annual "
+    latest_currency: dict[str, str | None] = {}
+    # Oldest first, so the last row seen per ticker is its latest non-restated year.
+    for ticker, revenue, ebit, currency in conn.execute(
+        "SELECT ticker, revenue, ebit, currency FROM financials_annual "
         "WHERE ticker IN (SELECT unnest(?::VARCHAR[])) AND is_restated = FALSE "
         "ORDER BY ticker, fiscal_year",
         [wanted],
     ).fetchall():
         history.setdefault(ticker, []).append((revenue, ebit))
+        latest_currency[ticker] = currency
 
     result: dict[str, AssumptionInputs] = {}
+    uncovered: set[str | None] = set()
     for ticker, company in companies.items():
         country = country_rows.get(company.country) if company.country is not None else None
         region = dataset_region(company.country, country.region if country is not None else None)
@@ -380,6 +435,9 @@ def bulk_load_assumption_inputs(
         )
         rows = history.get(ticker, [])
         margins = _margins_from_rows((e, r) for r, e in rows)
+        valuation_currency, rates = _currency_rates(latest_currency.get(ticker), table)
+        if rates is None:
+            uncovered.add(valuation_currency)
         result[ticker] = AssumptionInputs(
             company=company,
             country=country,
@@ -390,7 +448,11 @@ def bulk_load_assumption_inputs(
             sector_is_cross_region=cross_region,
             company_operating_margin=margins[-1] if margins else None,
             operating_margin_history=margins,
+            valuation_currency=valuation_currency,
+            currency_rates=rates,
         )
+    for currency in sorted(uncovered, key=lambda c: c or ""):
+        _warn_uncovered(currency)
     return result
 
 
@@ -626,9 +688,9 @@ def resolve_assumptions(
     conn: duckdb.DuckDBPyConnection,
     override_path: Path | None = None,
     *,
-    gdp_nominal: float = _DEFAULT_GDP_NOMINAL,
     auto_story_type: StoryType | None = None,
     db_inputs: AssumptionInputs | None = None,
+    currencies: CurrencyTable | None = None,
 ) -> Assumptions:
     """Resolve the six critical DCF assumptions for ``ticker`` (spec §7.3).
 
@@ -637,8 +699,6 @@ def resolve_assumptions(
         conn: Open DuckDB connection with the schema applied.
         override_path: Optional ``config/assumptions/<TICKER>.yaml``. A
             non-existent path is treated as "no overrides".
-        gdp_nominal: Country nominal-GDP growth used as the terminal-growth
-            ceiling and the rule-based revenue-growth anchor.
         auto_story_type: The story type the classifier
             (:func:`bot.valuator.story_types.classify`) assigned this company.
             It fills ``story_type`` only when the override YAML does not set one
@@ -647,6 +707,9 @@ def resolve_assumptions(
             supplied, every per-ticker read is skipped and these rows are used
             verbatim, so a batched caller issues zero queries (the F7 N+1 fix,
             #53). When ``None`` (the default) the rows are loaded from ``conn``.
+        currencies: Per-currency rates used when ``db_inputs`` is ``None``;
+            ``None`` loads the default file. Ignored when ``db_inputs`` is given
+            (its ``currency_rates`` already hold the lookup).
 
     Returns:
         An :class:`Assumptions` bundle where every field carries its source.
@@ -655,7 +718,7 @@ def resolve_assumptions(
         LookupError: If ``ticker`` is unknown.
     """
     if db_inputs is None:
-        db_inputs = load_assumption_inputs(conn, ticker)
+        db_inputs = load_assumption_inputs(conn, ticker, currencies=currencies)
     country = db_inputs.country
     sector = _SectorDefaults(
         row=db_inputs.sector, cross_region=db_inputs.sector_is_cross_region
@@ -671,8 +734,12 @@ def resolve_assumptions(
         )
     story_type = StoryType(story_label) if story_label in _STORY_TYPE_VALUES else None
 
+    rates = db_inputs.currency_rates
     revenue_growth = _resolve_revenue_growth(
-        db_inputs.historical_growth_path, override, gdp_nominal, story_type=story_type
+        db_inputs.historical_growth_path,
+        override,
+        rates.nominal_gdp_growth if rates is not None else None,
+        story_type=story_type,
     )
     operating_margin = _resolve_operating_margin(
         override,
@@ -691,7 +758,7 @@ def resolve_assumptions(
         override, sector, key="pretax_cost_of_debt", attr="cost_of_debt"
     )
     equity_weight, debt_weight = _resolve_weights(override, sector)
-    terminal_growth = _resolve_terminal_growth(override, country, gdp_nominal)
+    terminal_growth = _resolve_terminal_growth(override, rates)
     probability_of_bankruptcy = _resolve_probability_of_bankruptcy(override)
     distress_value_per_share = _resolve_distress_value_per_share(override)
     tax_rate = _resolve_tax_rate(override, sector, country)
@@ -736,7 +803,7 @@ def _linear_path(start: float, end: float, n: int = _HORIZON) -> tuple[float, ..
 def _resolve_revenue_growth(
     historical: tuple[float, ...] | None,
     override: dict[str, Any],
-    gdp_nominal: float,
+    gdp: float | None,
     *,
     story_type: StoryType | None = None,
 ) -> Sourced[tuple[float, ...] | None]:
@@ -749,21 +816,26 @@ def _resolve_revenue_growth(
 
     A high-growth story is the one archetype that does branch here (spec §7.1): fast
     growth fades toward the economy, so the path linearly fades from the mean of the
-    historical path down to nominal GDP over the explicit horizon instead of staying flat.
+    historical path down to the valuation currency's nominal GDP over the explicit horizon
+    instead of staying flat. Without a GDP figure (uncovered currency) the fade has no
+    target, so it falls through to the historical average; with no history either the
+    path is ``UNRESOLVED``.
     """
     manual = _override_path_field(override, "revenue_growth")
     if manual is not None:
         return manual
-    if story_type is StoryType.HIGH_GROWTH and historical is not None:
+    if story_type is StoryType.HIGH_GROWTH and historical is not None and gdp is not None:
         return Sourced(
-            value=_linear_path(fmean(historical), gdp_nominal),
+            value=_linear_path(fmean(historical), gdp),
             source=AssumptionSource.STORY_PATTERN,
         )
     # M1 universe: no analyst-consensus feed → historical average.
     if historical is not None:
         return Sourced(value=historical, source=AssumptionSource.HISTORICAL_AVERAGE)
     # No history at all: rule-based flat path anchored on nominal GDP.
-    return Sourced(value=(gdp_nominal,) * _HORIZON, source=AssumptionSource.RULE_BASED)
+    if gdp is None:
+        return Sourced(value=None, source=AssumptionSource.UNRESOLVED)
+    return Sourced(value=(gdp,) * _HORIZON, source=AssumptionSource.RULE_BASED)
 
 
 def _resolve_sector_scalar(
@@ -879,16 +951,18 @@ def _resolve_weights(
 
 
 def _resolve_terminal_growth(
-    override: dict[str, Any], country: _CountryRow | None, gdp_nominal: float
+    override: dict[str, Any], rates: CurrencyRates | None
 ) -> Sourced[float | None]:
     manual = _override_scalar(override, "terminal_growth")
     if manual is not None:
         return manual
-    # Rule-based cap: g = min(risk_free_rate, GDP nominal) (spec §7.3).
-    rfr = country.risk_free_rate if country is not None else None
-    if rfr is None:
-        return Sourced(value=gdp_nominal, source=AssumptionSource.RULE_BASED)
-    return Sourced(value=min(rfr, gdp_nominal), source=AssumptionSource.RULE_BASED)
+    # Rule-based cap: g = min(rfr_ccy, gdp_ccy) (spec §7.3). No currency, no cap.
+    if rates is None:
+        return Sourced(value=None, source=AssumptionSource.UNRESOLVED)
+    return Sourced(
+        value=min(rates.risk_free_rate, rates.nominal_gdp_growth),
+        source=AssumptionSource.RULE_BASED,
+    )
 
 
 def _resolve_tax_rate(

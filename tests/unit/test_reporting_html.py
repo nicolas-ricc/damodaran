@@ -76,8 +76,8 @@ def _seed(conn: duckdb.DuckDBPyConnection) -> None:
         conn.execute(
             "INSERT INTO financials_annual "
             "(ticker, fiscal_year, revenue, ebit, net_income, total_debt, cash, "
-            "shares_diluted, is_restated, source) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "shares_diluted, is_restated, source, currency) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
             [
                 "AAPL",
                 year,

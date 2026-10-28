@@ -68,8 +68,8 @@ def _seed(conn: duckdb.DuckDBPyConnection) -> None:
         conn.execute(
             "INSERT INTO financials_annual "
             "(ticker, fiscal_year, revenue, ebit, net_income, interest_expense, "
-            "total_debt, cash, shares_diluted, is_restated, source) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "total_debt, cash, shares_diluted, is_restated, source, currency) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
             [
                 "AAPL",
                 year,
@@ -163,8 +163,8 @@ def _seed_volatile_financials(conn: duckdb.DuckDBPyConnection, ticker: str) -> N
         conn.execute(
             "INSERT INTO financials_annual "
             "(ticker, fiscal_year, revenue, ebit, net_income, interest_expense, "
-            "total_debt, cash, shares_diluted, is_restated, source) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "total_debt, cash, shares_diluted, is_restated, source, currency) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
             [
                 ticker,
                 year,
@@ -191,8 +191,8 @@ def _seed_leveraged_financials(conn: duckdb.DuckDBPyConnection, ticker: str) -> 
         conn.execute(
             "INSERT INTO financials_annual "
             "(ticker, fiscal_year, revenue, ebit, net_income, interest_expense, "
-            "total_debt, cash, total_equity, shares_diluted, is_restated, source) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "total_debt, cash, total_equity, shares_diluted, is_restated, source, currency) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
             [
                 ticker,
                 year,
@@ -345,6 +345,17 @@ def test_analyze_manual_override_applied(
     assert analysis.override_notes == "Services mix lifts steady-state margin."
 
 
+def test_analyze_uncovered_currency_raises_value_error(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """A currency outside the table leaves terminal_growth unresolved (#109)."""
+    _seed_company(conn, ticker="XCO", industry_damodaran="Computers/Peripherals")
+    _seed_leveraged_financials(conn, ticker="XCO")
+    conn.execute("UPDATE financials_annual SET currency = 'XYZ' WHERE ticker = 'XCO'")
+    with pytest.raises(ValueError, match="terminal_growth"):
+        analyze("XCO", conn)
+
+
 def test_analyze_unknown_ticker_raises(seeded_conn: duckdb.DuckDBPyConnection) -> None:
     with pytest.raises(LookupError):
         analyze("NOPE", seeded_conn)
@@ -374,8 +385,8 @@ def _seed_high_cagr_financials(conn: duckdb.DuckDBPyConnection, ticker: str) -> 
         conn.execute(
             "INSERT INTO financials_annual "
             "(ticker, fiscal_year, revenue, ebit, net_income, interest_expense, "
-            "total_debt, cash, shares_diluted, is_restated, source) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "total_debt, cash, shares_diluted, is_restated, source, currency) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
             [
                 ticker,
                 year,

@@ -57,8 +57,8 @@ def _seed_one(conn: duckdb.DuckDBPyConnection, ticker: str = "TST") -> None:
             "INSERT INTO financials_annual "
             "(ticker, fiscal_year, revenue, ebit, ebitda, interest_expense, net_income, "
             "total_assets, total_debt, cash, total_equity, goodwill, operating_cashflow, "
-            "free_cashflow, shares_diluted, is_restated, source) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "free_cashflow, shares_diluted, is_restated, source, currency) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
             [
                 ticker,
                 2020 + offset,
@@ -182,8 +182,8 @@ def test_build_company_data_roic_uses_country_tax_rate(
         "INSERT INTO financials_annual "
         "(ticker, fiscal_year, revenue, ebit, ebitda, interest_expense, net_income, "
         "total_assets, total_debt, cash, total_equity, goodwill, operating_cashflow, "
-        "free_cashflow, shares_diluted, is_restated, source) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "free_cashflow, shares_diluted, is_restated, source, currency) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
         [
             "DEU",
             2026,
@@ -307,8 +307,8 @@ def test_load_all_annual_groups_oldest_first_per_ticker(
     _seed_company(conn, "BBB")
     # A restated row must be excluded.
     conn.execute(
-        "INSERT INTO financials_annual (ticker, fiscal_year, revenue, is_restated, source) "
-        "VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO financials_annual (ticker, fiscal_year, revenue, is_restated, source, currency) "
+        "VALUES (?, ?, ?, ?, ?, 'USD')",
         ["AAA", 2030, 9999.0, True, "fmp"],
     )
 
@@ -575,8 +575,8 @@ def _seed_company(conn: duckdb.DuckDBPyConnection, ticker: str) -> None:
             "INSERT INTO financials_annual "
             "(ticker, fiscal_year, revenue, ebit, ebitda, interest_expense, net_income, "
             "total_assets, total_debt, cash, total_equity, goodwill, operating_cashflow, "
-            "free_cashflow, shares_diluted, is_restated, source) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "free_cashflow, shares_diluted, is_restated, source, currency) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
             [
                 ticker,
                 2020 + offset,

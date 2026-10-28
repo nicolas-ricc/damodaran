@@ -9,7 +9,7 @@ The resolution order is:
 1. Manual override from ``config/assumptions/<TICKER>.yaml`` if present
 2. Analyst consensus (FMP, M2 — for the M1 universe, fall back to historical)
 3. Sector default from ``damodaran_industry`` / ``damodaran_country``
-4. Rule-based (e.g. ``terminal_growth = min(risk_free_rate, gdp_nominal)``)
+4. Rule-based (e.g. ``terminal_growth = min(rfr_ccy, gdp_ccy)``)
 
 These tests exercise each branch in isolation against an in-memory DuckDB and a
 temporary override file, so resolution stays a pure function of (ticker, conn,
@@ -19,11 +19,13 @@ override_path).
 from __future__ import annotations
 
 import itertools
+from datetime import date
 from pathlib import Path
 
 import duckdb
 import pytest
 
+from bot.reference.currencies import CurrencyRates, CurrencyTable
 from bot.storage.db import apply_schema, connect
 from bot.valuator import assumptions as assumptions_mod
 from bot.valuator.assumptions import (
@@ -41,6 +43,19 @@ from bot.valuator.story_types import StoryType
 # --------------------------------------------------------------------------- #
 
 GDP_NOMINAL_US = 0.04  # rule-based terminal-growth cap input (US nominal GDP).
+
+
+def _usd(rfr: float = 0.03, gdp: float = GDP_NOMINAL_US) -> CurrencyTable:
+    """A one-row currency table for the USD companies these tests seed (#109)."""
+    return {
+        "USD": CurrencyRates(
+            risk_free_rate=rfr,
+            nominal_gdp_growth=gdp,
+            source="https://example.org/rfr",
+            gdp_source="https://example.org/gdp",
+            as_of=date(2026, 1, 1),
+        )
+    }
 
 
 @pytest.fixture
@@ -126,7 +141,7 @@ def _seed_financials(
     for fiscal_year, revenue, ebit in rows:
         conn.execute(
             "INSERT INTO financials_annual "
-            "(ticker, fiscal_year, revenue, ebit, source) VALUES (?, ?, ?, ?, ?)",
+            "(ticker, fiscal_year, revenue, ebit, source, currency) VALUES (?, ?, ?, ?, ?, 'USD')",
             [ticker, fiscal_year, revenue, ebit, "test"],
         )
 
@@ -203,7 +218,8 @@ def test_probability_of_bankruptcy_defaults_to_zero_rule_based(
 def test_terminal_growth_capped_by_risk_free_rate(conn: duckdb.DuckDBPyConnection) -> None:
     """rfr (0.03) < gdp (0.04) → terminal_growth = rfr."""
     _seed_full_sector(conn)
-    result = resolve_assumptions("ACME", conn, gdp_nominal=GDP_NOMINAL_US)
+    _seed_financials(conn, rows=((2024, 100.0, 18.0),))
+    result = resolve_assumptions("ACME", conn, currencies=_usd())
     assert result.terminal_growth.value == pytest.approx(0.03)
     assert result.terminal_growth.source is AssumptionSource.RULE_BASED
 
@@ -212,8 +228,8 @@ def test_terminal_growth_capped_by_gdp_when_rfr_higher(conn: duckdb.DuckDBPyConn
     """rfr (0.06) > gdp (0.04) → terminal_growth = gdp."""
     _seed_company(conn)
     _seed_industry(conn)
-    _seed_country(conn, risk_free_rate=0.06)
-    result = resolve_assumptions("ACME", conn, gdp_nominal=GDP_NOMINAL_US)
+    _seed_financials(conn, rows=((2024, 100.0, 18.0),))
+    result = resolve_assumptions("ACME", conn, currencies=_usd(rfr=0.06))
     assert result.terminal_growth.value == pytest.approx(0.04)
     assert result.terminal_growth.source is AssumptionSource.RULE_BASED
 
@@ -242,7 +258,8 @@ def test_revenue_growth_without_history_falls_back_to_rule_based_gdp(
 ) -> None:
     """No financial history → rule-based growth path anchored on nominal GDP."""
     _seed_full_sector(conn)
-    result = resolve_assumptions("ACME", conn, gdp_nominal=GDP_NOMINAL_US)
+    _seed_financials(conn, rows=((2024, 100.0, 18.0),))
+    result = resolve_assumptions("ACME", conn, currencies=_usd())
     assert result.revenue_growth.source is AssumptionSource.RULE_BASED
     assert all(g == pytest.approx(GDP_NOMINAL_US) for g in result.revenue_growth.value)
 
@@ -395,7 +412,7 @@ def test_high_growth_revenue_path_fades_from_history_to_gdp(
         conn,
         rows=((2022, 100.0, 18.0), (2023, 130.0, 20.0), (2024, 169.0, 22.0)),
     )
-    a = resolve_assumptions("ACME", conn, gdp_nominal=0.04, auto_story_type=StoryType.HIGH_GROWTH)
+    a = resolve_assumptions("ACME", conn, currencies=_usd(), auto_story_type=StoryType.HIGH_GROWTH)
     path = a.revenue_growth.value
     assert path is not None
     assert a.revenue_growth.source == AssumptionSource.STORY_PATTERN
@@ -492,12 +509,13 @@ def test_missing_sector_row_leaves_field_unresolved(
     sector-sourced fields marked unavailable (value None) rather than crashing."""
     _seed_company(conn, industry_damodaran="Obscure")
     _seed_country(conn)
-    result = resolve_assumptions("ACME", conn, gdp_nominal=GDP_NOMINAL_US)
+    _seed_financials(conn, rows=((2024, 100.0, 18.0),))
+    result = resolve_assumptions("ACME", conn, currencies=_usd())
     assert result.operating_margin.value is None
     assert result.operating_margin.source is AssumptionSource.UNRESOLVED
     assert result.sales_to_capital.value is None
     assert result.sales_to_capital.source is AssumptionSource.UNRESOLVED
-    # Country-derived rule-based terminal growth still resolves.
+    # Currency-derived rule-based terminal growth still resolves.
     assert result.terminal_growth.value == pytest.approx(0.03)
 
 
@@ -508,7 +526,7 @@ def test_to_dcf_assumptions_roundtrip(conn: duckdb.DuckDBPyConnection) -> None:
         conn,
         rows=((2022, 100.0, 18.0), (2023, 110.0, 20.0), (2024, 121.0, 22.0)),
     )
-    result = resolve_assumptions("ACME", conn, gdp_nominal=GDP_NOMINAL_US)
+    result = resolve_assumptions("ACME", conn, currencies=_usd())
     dcf_assumptions = result.to_dcf_assumptions()
     assert dcf_assumptions.terminal_growth == pytest.approx(0.03)
     assert dcf_assumptions.operating_margin == tuple(
@@ -731,7 +749,7 @@ def test_distress_value_per_share_override_reaches_the_dcf(
         conn,
         rows=((2022, 100.0, 18.0), (2023, 110.0, 20.0), (2024, 121.0, 22.0)),
     )
-    baseline = resolve_assumptions("ACME", conn, gdp_nominal=GDP_NOMINAL_US)
+    baseline = resolve_assumptions("ACME", conn, currencies=_usd())
     assert baseline.distress_value_per_share.value == pytest.approx(0.0)
     assert baseline.distress_value_per_share.source is AssumptionSource.RULE_BASED
     baseline_dcf = baseline.to_dcf_assumptions()
@@ -743,7 +761,7 @@ def test_distress_value_per_share_override_reaches_the_dcf(
         "probability_of_bankruptcy: 0.5\ndistress_value_per_share: 3.5\n"
     )
     distressed = resolve_assumptions(
-        "ACME", conn, override_path=override, gdp_nominal=GDP_NOMINAL_US
+        "ACME", conn, override_path=override, currencies=_usd()
     )
     assert distressed.probability_of_bankruptcy.value == pytest.approx(0.5)
     assert distressed.distress_value_per_share.value == pytest.approx(3.5)

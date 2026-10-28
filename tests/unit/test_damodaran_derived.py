@@ -136,8 +136,8 @@ def test_dcf_assumptions_resolve_after_the_real_import() -> None:
     for year, revenue in ((2022, 100.0), (2023, 115.0), (2024, 130.0)):
         conn.execute(
             "INSERT INTO financials_annual "
-            "(ticker, fiscal_year, revenue, ebit, shares_diluted, source) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "(ticker, fiscal_year, revenue, ebit, shares_diluted, source, currency) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'USD')",
             ["SEMI", year, revenue, revenue * 0.25, 10.0, "fmp"],
         )
 
@@ -193,8 +193,8 @@ def test_analyze_values_a_us_company_after_the_real_import() -> None:
         conn.execute(
             "INSERT INTO financials_annual "
             "(ticker, fiscal_year, revenue, ebit, net_income, total_debt, cash, "
-            "shares_diluted, is_restated, source) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "shares_diluted, is_restated, source, currency) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
             ["SEMI", year, revenue * scale, revenue * 0.22 * scale, revenue * 0.15 * scale,
              200.0 * scale, 150.0 * scale, 100.0 * scale, False, "fmp"],
         )
