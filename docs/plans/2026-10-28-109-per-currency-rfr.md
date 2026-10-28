@@ -17,7 +17,7 @@
 - Missing or malformed file → one warning and an empty mapping (spec §13.2). A malformed file is one that is unparsable, not a mapping, has a key that is not an ISO code, or is missing a field. A `risk_free_rate` outside the open interval `(-0.05, 0.30)` or a `nominal_gdp_growth` outside `(-0.05, 0.25)` raises `ValueError` at load time.
 - Valuation currency = `financials_annual.currency` of the latest (`max fiscal_year`) row with `is_restated = FALSE`. A NULL currency, or no row at all, counts as uncovered. There is no USD fallback.
 - Terminal growth = `min(rfr_ccy, gdp_ccy)`. The `0.04` constants (`_DEFAULT_GDP_NOMINAL` in `valuator/assumptions.py` and `valuator/analysis.py`) and the `gdp_nominal` keyword are deleted.
-- When the currency is uncovered, terminal growth and any GDP-anchored revenue-growth path are `AssumptionSource.UNRESOLVED`. There is no error at resolve time, and one warning is logged per currency per load call (bulk or single).
+- When the currency is uncovered, terminal growth is `AssumptionSource.UNRESOLVED`. The rule-based no-history revenue path (flat GDP) is `UNRESOLVED` too. A high-growth story with history but no GDP falls back to the flat historical average (`HISTORICAL_AVERAGE`), because the fade has no target. There is no error at resolve time, and one warning is logged per currency per load call (bulk or single).
 - Coverage reasons, in precedence order (one reason per company): `industry_unmapped` (no `industry_damodaran`), `benchmark_missing` (no benchmark row, or a NULL `wacc`), `currency_uncovered`. `ScreenResult.no_coverage` keeps listing all three.
 - Seeded rows: USD, EUR, JPY, GBP, CHF, CAD, AUD, CNY, INR, BRL. `risk_free_rate` is Damodaran's "Government Bond Rates and Riskfree Rates, by Currency on January 1, 2026" table (net of the rating-based default spread). `nominal_gdp_growth` is `(1 + real_2030)(1 + cpi_2030) - 1` from IMF WEO October 2026 (`NGDP_RPCH`, `PCPIPCH`; euro area = `EURO`). The one exception is USD, which keeps `0.04` so that acceptance criterion 1 holds; it is flagged in a YAML comment and in the PR. `as_of: 2026-01-01`.
 - `ruff`, `mypy --strict` (`uv run mypy src`), `uv run pytest -q`, `python3 docs/plano/build.py`, `python3 docs/leccion/check.py` and `python3 docs/plano/build_estado.py` all pass.
@@ -72,7 +72,7 @@ Seed values (rfr from Damodaran, GDP from IMF):
   - `test_table_is_immutable`: item assignment raises `TypeError`.
   - `test_settings_currencies_path_default_and_override` (`monkeypatch.setenv("BOT_CURRENCIES_PATH", ...)`).
 - [ ] **Step 2:** Run `uv run pytest tests/unit/test_currencies.py -q`. Expected: FAIL (module missing).
-- [ ] **Step 3:** Implement the loader. Use `yaml.safe_load`; PyYAML gives `as_of` as a `date`, and a string `as_of` must be parsed with `date.fromisoformat`. Write `config/currencies.yaml` with the table above and a header comment naming both sources and the USD flag. `source` is `https://aswathdamodaran.blogspot.com/2026/02/data-update-4-for-2026-global.html`; `gdp_source` is `https://www.imf.org/external/datamapper/datasets/WEO`.
+- [ ] **Step 3:** Implement the loader. Use `yaml.safe_load`; PyYAML gives `as_of` as a `date`, and a string `as_of` must be parsed with `date.fromisoformat`. Write `config/currencies.yaml` with the table above. The header comment names both sources: the Damodaran table date, and the IMF WEO October 2026 vintage with its series `NGDP_RPCH`/`PCPIPCH`, year 2030, and formula. It also carries the USD flag. Each row gets a comment with its government bond rate and the default spread subtracted, so a curator can reproduce it. `source` is `https://aswathdamodaran.blogspot.com/2026/02/data-update-4-for-2026-global.html`; `gdp_source` is `https://www.imf.org/external/datamapper/datasets/WEO`.
 - [ ] **Step 4:** Run the tests. Expected: PASS.
 - [ ] **Step 5:** Commit: `feat(#109): curated per-currency risk-free and GDP table`.
 
@@ -80,7 +80,7 @@ Seed values (rfr from Damodaran, GDP from IMF):
 
 **Files:**
 - Modify: `src/bot/valuator/assumptions.py`, `src/bot/valuator/analysis.py`, `src/bot/cli.py` (`_analyze_one` / `analyze`, `portfolio`), `src/bot/portfolio/marks.py`, `src/bot/portfolio/command.py`, `src/bot/screener/engine.py` (`_batch_dcf_margins` passes the table through)
-- Test: `tests/unit/test_valuator_assumptions.py`, `tests/unit/test_valuation_bulk_load.py`, `tests/unit/test_valuator_analysis.py`, and every test seeding `financials_annual` for a valued company (add `currency = 'USD'`)
+- Test: `tests/unit/test_valuator_assumptions.py`, `tests/unit/test_valuation_bulk_load.py`, `tests/unit/test_valuator_analysis.py`, and the `INSERT INTO financials_annual` seeds (19 sites in 13 files: `tests/integration/test_screen_cli.py`, `tests/unit/test_cli_analyze.py`, `test_cli_show.py`, `test_damodaran_derived.py` (2), `test_portfolio_marks.py`, `test_reporting_analysis.py`, `test_reporting_html.py`, `test_screener_engine.py` (4), `test_screener_extra_presets.py`, `test_screener_second_pass_golden.py`, `test_valuation_bulk_load.py`, `test_valuator_analysis.py` (4), `test_valuator_assumptions.py`). Add `currency = 'USD'` where the company is valued or screened. CLI tests set `BOT_CURRENCIES_PATH` to the repo file's absolute path instead of relying on CWD.
 
 **Interfaces:**
 - Consumes: Task 1's `CurrencyTable`, `CurrencyRates`, `load_currency_table`, `normalize_currency`.
@@ -101,6 +101,8 @@ Seed values (rfr from Damodaran, GDP from IMF):
   - `test_no_history_revenue_growth_unresolved_when_currency_uncovered`, and with USD it is `(0.04,)*5` `RULE_BASED`.
   - `test_high_growth_fade_targets_the_currency_gdp`: JPY, high-growth, history → the path ends at 0.0261.
   - `test_manual_terminal_growth_wins_over_uncovered_currency`.
+  - `test_high_growth_without_currency_falls_back_to_historical_average`.
+  - `test_analyze_uncovered_currency_raises_value_error` (`test_valuator_analysis.py`): `analyze` on an XYZ company raises `ValueError` naming `terminal_growth`. The existing `except ValueError` branches turn that into exit 1 (`cli.py:470`), MoS `None` (`engine.py` `_batch_dcf_margins`) and a skipped mark (`marks.py:142`).
   - `test_null_or_missing_currency_is_uncovered`: a NULL currency, and a company with only restated rows.
   - Bulk/single parity: extend the existing parity test in `test_valuation_bulk_load.py` to compare `valuation_currency` and `currency_rates`.
 - [ ] **Step 2:** Run them. Expected: FAIL.
@@ -124,7 +126,7 @@ Seed values (rfr from Damodaran, GDP from IMF):
   - In `test_damodaran_import.py`, replace the US `risk_free_rate == 0.0395` assertion with the column-absent check. Keep the tax assertions. Replace `test_terminal_growth_is_capped_by_the_imported_risk_free_rate` with `test_terminal_growth_uses_the_currency_file_usd_rate`: import the fixtures, seed ACME with a `currency='USD'` annual row, `resolve_assumptions(..., currencies=load_currency_table(REPO/"config/currencies.yaml"))` gives `terminal_growth == 0.0395`. Its docstring says the US pin moved from the importer to the currency file (#51 → #109).
   - `test_import_never_reads_the_preheader_scalar`: `hasattr(damodaran, "parse_preheader_scalar") is False`.
 - [ ] **Step 2:** Run them. Expected: FAIL.
-- [ ] **Step 3:** Implement. Add `ALTER TABLE damodaran_country DROP COLUMN IF EXISTS risk_free_rate;` after the `CREATE TABLE`. Remove `risk_free_rate` from every test INSERT. In the live test, drop the rfr assertion and the `damodaran.risk_free_rate.unavailable` event from its watched list.
+- [ ] **Step 3:** Implement. Add `ALTER TABLE damodaran_country DROP COLUMN IF EXISTS risk_free_rate;` after the `CREATE TABLE`. Remove `risk_free_rate` from every test INSERT. The PR body documents the rollback (`ALTER TABLE damodaran_country ADD COLUMN risk_free_rate DOUBLE` before reverting), since the repo has no migration framework. In the live test, drop the rfr assertion and the `damodaran.risk_free_rate.unavailable` event from its watched list.
 - [ ] **Step 4:** Run `uv run pytest -q`. Expected: PASS. `tests/unit/test_cli_refresh.py` and the fixture import test (`import_damodaran_from_files` → `success`) still pass, which covers "`bot refresh --damodaran` still succeeds".
 - [ ] **Step 5:** Commit: `refactor(#109): drop the US risk-free broadcast from damodaran_country`.
 
@@ -166,3 +168,22 @@ Seed values (rfr from Damodaran, GDP from IMF):
 - [ ] **Step 3:** Re-audit and update `docs/plano/estado.py`: the importer rfr entry (line ~46), `adr-0005` (~183) and the matching BRECHA (~208); the coverage-gate entries (~83, ~99, ~186) for the reason names. Set `AUDITADO_EN`/`AUDITADO_EL` to the current HEAD and `28 de octubre de 2026`.
 - [ ] **Step 4:** Run `python3 docs/plano/build.py && python3 docs/plano/build_estado.py && python3 docs/leccion/check.py && uv run pytest tests/unit/test_leccion.py -q`. Expected: no errors; fix any cited symbol or line that moved.
 - [ ] **Step 5:** Commit: `docs(#109): ADR 0005 §4 implemented; glossary and plans updated`.
+
+## Assumptions
+
+Technical decisions taken at plan review. None has a source in the issue; each one is listed for the PR.
+
+1. **Currency on ingest.** `financials_annual.currency` is filled by `sec_edgar.py:249` (always `"USD"`) and by `fmp.py:524` (`reportedCurrency`). The column is nullable, and a NULL counts as uncovered. Production fill rates are not measured.
+2. **Restated rows.** "Latest annual row" means latest **non-restated** row, the same filter every existing loader uses (`assumptions.py` `_operating_margin_history`, `engine.py` `_load_all_annual`). Rejected: including restated rows.
+3. **One reason per company.** Precedence is `industry_unmapped` > `benchmark_missing` > `currency_uncovered`. An unmapped industry always also lacks a benchmark, so tagging every applicable reason would double-count. Rejected: a tuple of all applicable reasons.
+4. **CWD-relative default path.** `load_currency_table(None)` reads the CWD-relative `config/currencies.yaml`, the same as `presets_dir` (`config.py:79`, `Path("./config/presets")`). The CLI always passes `settings.currencies_path`; the `None` default serves library and test callers. Rejected: packaging the YAML like `industry_mapping.csv`, because the issue names `config/currencies.yaml`.
+5. **`as_of`.** It is the observation date of the risk-free rate (2026-01-01). The GDP vintage lives in `gdp_source` and the header comment. **`gdp_source` is a field the issue does not list**, added because the GDP figures come from a different publisher than the rates. Rejected: one `source` covering both.
+6. **Schema change.** Applied with an idempotent trailing `ALTER TABLE ... DROP COLUMN IF EXISTS`. `apply_schema` runs `schema.sql` in a single `conn.execute` (`db.py:35-38`), there are no views or indexes on `damodaran_country`, and the pinned DuckDB is 1.5.3. Rejected: a migration framework, which does not exist in the repo.
+7. **Intermediate commits.** Between the Task 2 and Task 4 commits, an uncovered company reaching the second pass gets MoS `None` (`ValueError` caught at `engine.py:122-124`). Only the final branch state is merged.
+
+## Grilling
+
+- Rounds: 1 (the revision clarified wording and added tests; it moved no seam and added no task, so no second round).
+- Questions: 17. Answered from ISSUE: 6 (Q2 AC1 verbatim, Q5 bounds and degrade rule, Q6 the "deleting the currency file" AC, Q11 the brief's valuation-currency definition, Q15 bounds, plus the §13.2 quote from the spec doc). From CODE: 8 (Q4, Q8, Q10, Q13, Q16, Q17, Q1 ingest paths, Q7 `presets_dir`). From DOC: 1 (Q11, CONTEXT.md "Valuation currency"). NO SOURCE → technical assumptions: 7 (listed above). Spec ambiguities: 0. Out of scope: 0.
+- Issues opened: none.
+- Result: `ok`.
