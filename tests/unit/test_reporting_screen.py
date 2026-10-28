@@ -7,7 +7,7 @@ import io
 from datetime import date
 
 from bot.reporting.screen_report import COLUMNS, render_csv, render_markdown
-from bot.screener.engine import ScreenedCompany, ScreenResult
+from bot.screener.engine import RejectedCompany, ScreenedCompany, ScreenResult
 
 
 def _company(ticker: str, *, sector: str | None = "Software") -> ScreenedCompany:
@@ -57,9 +57,13 @@ def test_markdown_reports_no_coverage_exclusions() -> None:
         shortlist=(_company("AAA"),),
         screened=1,
         no_coverage=("AAA", "BBB"),
+        rejected=(
+            RejectedCompany("AAA", ("benchmark_missing",)),
+            RejectedCompany("BBB", ("currency_uncovered",)),
+        ),
     )
     md = render_markdown(result, generated_on=date(2026, 5, 30))
-    assert "Excluded (no sector benchmark, ADR 0006): 2" in md
+    assert "Excluded by coverage gate (ADR 0006): 2 (" in md
 
 
 def test_markdown_empty_shortlist() -> None:

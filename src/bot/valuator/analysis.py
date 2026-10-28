@@ -23,6 +23,7 @@ from typing import Any
 
 import duckdb
 
+from bot.reference.currencies import CurrencyTable
 from bot.reference.regions import dataset_region
 from bot.reference.sectors import is_cyclical
 from bot.utils.finance import cagr
@@ -42,10 +43,6 @@ from bot.valuator.story_types import (
     StoryType,
     classify,
 )
-
-#: Default nominal-GDP growth ceiling when a country row is missing (matches the
-#: assumptions module default; roughly long-run US nominal GDP).
-_DEFAULT_GDP_NOMINAL = 0.04
 
 # Plausible range for a diluted share count (bounds inclusive). Outside it the
 # figure is almost certainly mis-scaled (e.g. reported in millions), and a
@@ -332,14 +329,19 @@ class ValuationInput:
 
 
 def load_valuation_input(
-    conn: duckdb.DuckDBPyConnection, ticker: str
+    conn: duckdb.DuckDBPyConnection,
+    ticker: str,
+    *,
+    currencies: CurrencyTable | None = None,
+    warned: set[str | None] | None = None,
 ) -> ValuationInput:
     """Load every DB row :func:`analyze` needs for ``ticker`` in one place.
 
     Pure in the project sense (accepts the connection, reads only). The result
     can be reused across calls so each company's per-ticker reads happen exactly
     once; :func:`bulk_load_valuation_inputs` builds the same bundles for many
-    tickers in a constant number of queries.
+    tickers in a constant number of queries. ``currencies`` is the per-currency
+    rate table (``None`` loads the default file).
 
     Raises:
         LookupError: If ``ticker`` is unknown or has no annual financials.
@@ -359,12 +361,18 @@ def load_valuation_input(
         ebit_history=ebit_history,
         sector=sector,
         current_price=current_price,
-        assumption_inputs=load_assumption_inputs(conn, ticker),
+        assumption_inputs=load_assumption_inputs(
+            conn, ticker, currencies=currencies, warned=warned
+        ),
     )
 
 
 def bulk_load_valuation_inputs(
-    conn: duckdb.DuckDBPyConnection, tickers: Iterable[str]
+    conn: duckdb.DuckDBPyConnection,
+    tickers: Iterable[str],
+    *,
+    currencies: CurrencyTable | None = None,
+    warned: set[str | None] | None = None,
 ) -> dict[str, ValuationInput]:
     """Load :func:`load_valuation_input` for many tickers in a constant number of queries.
 
@@ -433,7 +441,9 @@ def bulk_load_valuation_inputs(
             [industries],
         ).fetchall()
     }
-    assumption_inputs = bulk_load_assumption_inputs(conn, kept)
+    assumption_inputs = bulk_load_assumption_inputs(
+        conn, kept, currencies=currencies, warned=warned
+    )
 
     result: dict[str, ValuationInput] = {}
     for t in kept:
@@ -564,6 +574,8 @@ def analyze(
     is_cyclical_sector: bool | None = None,
     age_years: int | None = None,
     company: ValuationInput | None = None,
+    currencies: CurrencyTable | None = None,
+    warned: set[str | None] | None = None,
 ) -> Analysis:
     """Run the full §7.7 analysis pipeline for ``ticker``.
 
@@ -585,6 +597,11 @@ def analyze(
             :func:`bulk_load_valuation_inputs` (the F7 N+1 fix, #53). When ``None`` (the
             default) the rows are loaded from ``conn``. ``ticker`` must match
             ``company.ticker``.
+        currencies: Per-currency risk-free rate and GDP table used when ``company``
+            is ``None`` (``None`` loads the default file). Ignored otherwise: the
+            pre-loaded inputs already carry their currency rates.
+        warned: Run-scoped set of currencies already logged as uncovered; share one
+            across calls to warn once per currency per run. Used like ``currencies``.
 
     Returns:
         An :class:`Analysis` carrying everything the §7.7 report renders.
@@ -599,7 +616,7 @@ def analyze(
     """
     ticker = ticker.upper()
     if company is None:
-        company = load_valuation_input(conn, ticker)
+        company = load_valuation_input(conn, ticker, currencies=currencies, warned=warned)
     inputs = company
     company_row = inputs.company
     latest = inputs.latest
@@ -633,12 +650,10 @@ def analyze(
     )
     auto_story = classify(classification, SectorContext(is_cyclical=cyclical))
 
-    gdp_nominal = _DEFAULT_GDP_NOMINAL
     assumptions = resolve_assumptions(
         ticker,
         conn,
         override_path=override_path,
-        gdp_nominal=gdp_nominal,
         auto_story_type=auto_story,
         db_inputs=inputs.assumption_inputs,
     )

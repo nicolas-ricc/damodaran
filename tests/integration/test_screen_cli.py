@@ -82,12 +82,12 @@ def _add_company(
             "INSERT INTO financials_annual "
             "(ticker, fiscal_year, revenue, ebit, ebitda, interest_expense, net_income, "
             "total_assets, total_debt, cash, total_equity, goodwill, operating_cashflow, "
-            "free_cashflow, shares_diluted, is_restated, source) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "free_cashflow, shares_diluted, is_restated, source, currency) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [
                 ticker, year, rev, rev * op_margin, ebitda, interest, net_income,
                 total_assets, total_debt, cash, total_equity, goodwill,
-                fcf + 100_000_000.0, fcf, shares, False, "fmp",
+                fcf + 100_000_000.0, fcf, shares, False, "fmp", "USD",
             ],
         )
     conn.execute(
@@ -129,6 +129,10 @@ def screened(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Pat
     monkeypatch.setenv("BOT_DB_PATH", str(db_path))
     monkeypatch.setenv("BOT_REPORTS_DIR", str(reports_dir))
     monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.setenv(
+        "BOT_CURRENCIES_PATH",
+        str(Path(__file__).resolve().parents[2] / "config" / "currencies.yaml"),
+    )
 
     conn = connect(db_path)
     apply_schema(conn)
@@ -138,6 +142,8 @@ def screened(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Pat
     runner = CliRunner()
     result = runner.invoke(app, ["screen", "--preset", "damodaran_value", "--top", "5"])
     assert result.exit_code == 0, result.stdout
+    # #109: the coverage-gate exclusions are broken down by named reason.
+    assert "currency_uncovered" in result.stdout
     return db_path, reports_dir
 
 

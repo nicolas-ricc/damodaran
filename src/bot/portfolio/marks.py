@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Protocol
 import duckdb
 
 from bot.ingest.base import transaction
+from bot.reference.currencies import CurrencyTable, load_currency_table
 from bot.screener.engine import load_holding_inputs
 from bot.screener.rules import Rule
 from bot.screener.types import IndustryBenchmarks
@@ -113,19 +114,29 @@ def mark_holdings(
     analyze_fn: AnalyzeFn | None = None,
     quality_gates: Sequence[Rule] = (),
     assumptions_dir: Path | None = None,
+    currencies: CurrencyTable | None = None,
 ) -> list[HoldingMark]:
     """Value and gate every ticker held on ``snapshot_date``, and persist the marks.
 
     The default valuator picks up ``<assumptions_dir>/<TICKER>.yaml`` the way
     ``bot analyze`` does, so a holding's mark agrees with its analysis report.
+    ``currencies`` is the per-currency rate table the default valuator uses; ``None``
+    loads the default file once for the whole run.
     Persisting opens its own transaction: do not call this inside another one.
     """
     if analyze_fn is None:
         from bot.valuator import analysis as valuator
 
+        table = currencies if currencies is not None else load_currency_table()
+        warned: set[str | None] = set()
+
         def analyze_fn_default(ticker: str, conn: duckdb.DuckDBPyConnection) -> Analysis:
             return valuator.analyze(
-                ticker, conn, conventional_override_path(assumptions_dir, ticker)
+                ticker,
+                conn,
+                conventional_override_path(assumptions_dir, ticker),
+                currencies=table,
+                warned=warned,
             )
 
         analyze_fn = analyze_fn_default

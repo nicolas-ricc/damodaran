@@ -316,7 +316,7 @@ def test_pipeline_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     screen_md = next(reports.rglob("screen/damodaran_value.md")).read_text()
     assert "GOODCO" in screen_md
     assert "TRAPCO" not in screen_md
-    assert "Excluded (no sector benchmark, ADR 0006): 1" in screen_md
+    assert "Excluded by coverage gate (ADR 0006): 1 (" in screen_md
 
     # The second pass ran the real DCF, not the placeholder fallback (#104): a
     # Damodaran header rename that NULLs op_margin/sales_to_capital would leave

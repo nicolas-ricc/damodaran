@@ -20,7 +20,7 @@ def test_show_existing_ticker(tmp_path, monkeypatch):
         ["FAKE", "Fake Co", "US", "USD", "sec_edgar"],
     )
     conn.execute(
-        "INSERT INTO financials_annual (ticker, fiscal_year, revenue, source) VALUES (?, ?, ?, ?)",
+        "INSERT INTO financials_annual (ticker, fiscal_year, revenue, source, currency) VALUES (?, ?, ?, ?, 'USD')",
         ["FAKE", 2023, 1_000_000_000, "sec_edgar"],
     )
     conn.close()

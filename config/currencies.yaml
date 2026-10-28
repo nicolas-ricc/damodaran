@@ -1,0 +1,105 @@
+# Curated per-currency risk-free rate and nominal GDP growth (#109, ADR 0005 section 4).
+#
+# Values are decimals (0.042, not 4.2). Terminal growth = min(risk_free_rate, nominal_gdp_growth).
+#
+# risk_free_rate: Damodaran, "Government Bond Rates and Riskfree Rates, by Currency on
+#   January 1, 2026": local government bond rate on 12/31/25 minus the rating-based
+#   default spread. Per-row comments show both so a curator can reproduce the figure.
+# nominal_gdp_growth: IMF World Economic Outlook, October 2026 vintage, year 2030, series
+#   NGDP_RPCH (real GDP growth %) and PCPIPCH (CPI inflation %); euro area code is EURO.
+#   Formula: (1 + real) * (1 + cpi) - 1.
+# as_of is the observation date of the risk-free rate.
+#
+# FLAG for maintainer: USD nominal_gdp_growth is 0.04, NOT the IMF-derived 0.0373. It is kept
+#   at master's former constant so USD valuations are unchanged (issue #109 AC1).
+#   Maintainer to decide whether to switch to 0.0373.
+
+USD:
+  # bond 4.18% (Aa1) - default spread 0.23% = 0.0395
+  risk_free_rate: 0.0395
+  # IMF USA 2030: real 1.8, CPI 1.9 -> 0.0373; FLAG: 0.04 kept for AC1, maintainer to decide
+  nominal_gdp_growth: 0.04
+  source: https://aswathdamodaran.blogspot.com/2026/02/data-update-4-for-2026-global.html
+  gdp_source: https://www.imf.org/external/datamapper/datasets/WEO
+  as_of: 2026-01-01
+
+EUR:
+  # bond 2.90% (Aaa) - default spread 0.00% = 0.0290
+  risk_free_rate: 0.0290
+  # IMF EURO 2030: real 1.1, CPI 2.0
+  nominal_gdp_growth: 0.0312
+  source: https://aswathdamodaran.blogspot.com/2026/02/data-update-4-for-2026-global.html
+  gdp_source: https://www.imf.org/external/datamapper/datasets/WEO
+  as_of: 2026-01-01
+
+JPY:
+  # bond 2.07% (A1) - default spread 0.60% = 0.0147
+  risk_free_rate: 0.0147
+  # IMF JPN 2030: real 0.6, CPI 2.0
+  nominal_gdp_growth: 0.0261
+  source: https://aswathdamodaran.blogspot.com/2026/02/data-update-4-for-2026-global.html
+  gdp_source: https://www.imf.org/external/datamapper/datasets/WEO
+  as_of: 2026-01-01
+
+GBP:
+  # bond 4.54% (Aa3) - default spread 0.51% = 0.0403
+  risk_free_rate: 0.0403
+  # IMF GBR 2030: real 1.4, CPI 2.0
+  nominal_gdp_growth: 0.0343
+  source: https://aswathdamodaran.blogspot.com/2026/02/data-update-4-for-2026-global.html
+  gdp_source: https://www.imf.org/external/datamapper/datasets/WEO
+  as_of: 2026-01-01
+
+CHF:
+  # bond 0.31% (Aaa) - default spread 0.00% = 0.0031
+  risk_free_rate: 0.0031
+  # IMF CHE 2030: real 1.8, CPI 0.7
+  nominal_gdp_growth: 0.0251
+  source: https://aswathdamodaran.blogspot.com/2026/02/data-update-4-for-2026-global.html
+  gdp_source: https://www.imf.org/external/datamapper/datasets/WEO
+  as_of: 2026-01-01
+
+CAD:
+  # bond 3.47% (Aaa) - default spread 0.00% = 0.0347
+  risk_free_rate: 0.0347
+  # IMF CAN 2030: real 1.7, CPI 2.0
+  nominal_gdp_growth: 0.0373
+  source: https://aswathdamodaran.blogspot.com/2026/02/data-update-4-for-2026-global.html
+  gdp_source: https://www.imf.org/external/datamapper/datasets/WEO
+  as_of: 2026-01-01
+
+AUD:
+  # bond 4.81% (Aaa) - default spread 0.00% = 0.0481
+  risk_free_rate: 0.0481
+  # IMF AUS 2030: real 2.1, CPI 2.5
+  nominal_gdp_growth: 0.0465
+  source: https://aswathdamodaran.blogspot.com/2026/02/data-update-4-for-2026-global.html
+  gdp_source: https://www.imf.org/external/datamapper/datasets/WEO
+  as_of: 2026-01-01
+
+CNY:
+  # bond 1.86% (A1) - default spread 0.60% = 0.0126
+  risk_free_rate: 0.0126
+  # IMF CHN 2030: real 3.3, CPI 2.0
+  nominal_gdp_growth: 0.0537
+  source: https://aswathdamodaran.blogspot.com/2026/02/data-update-4-for-2026-global.html
+  gdp_source: https://www.imf.org/external/datamapper/datasets/WEO
+  as_of: 2026-01-01
+
+INR:
+  # bond 6.61% (Baa3) - default spread 1.87% = 0.0474
+  risk_free_rate: 0.0474
+  # IMF IND 2030: real 6.8, CPI 4.0
+  nominal_gdp_growth: 0.1107
+  source: https://aswathdamodaran.blogspot.com/2026/02/data-update-4-for-2026-global.html
+  gdp_source: https://www.imf.org/external/datamapper/datasets/WEO
+  as_of: 2026-01-01
+
+BRL:
+  # bond 13.86% (Ba1) - default spread 2.13% = 0.1173
+  risk_free_rate: 0.1173
+  # IMF BRA 2030: real 2.5, CPI 3.0
+  nominal_gdp_growth: 0.0558
+  source: https://aswathdamodaran.blogspot.com/2026/02/data-update-4-for-2026-global.html
+  gdp_source: https://www.imf.org/external/datamapper/datasets/WEO
+  as_of: 2026-01-01

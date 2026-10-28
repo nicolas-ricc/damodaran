@@ -36,6 +36,7 @@ from bot.portfolio.marks import mark_holdings
 from bot.portfolio.report import build_report, render_alerts, render_portfolio
 from bot.portfolio.sync import PortfolioSource, sync_portfolio
 from bot.portfolio.trades import TradeSource, sync_trades
+from bot.reference.currencies import CurrencyTable
 from bot.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -89,6 +90,7 @@ def run_portfolio(
     quality_gates: Sequence[Rule] = (),
     assumptions_dir: Path | None = None,
     corporate_actions_fn: Callable[[duckdb.DuckDBPyConnection], int | None] | None = None,
+    currencies: CurrencyTable | None = None,
 ) -> PortfolioRunResult:
     """Run the full sync -> diff -> report cycle and write both report files.
 
@@ -105,6 +107,8 @@ def run_portfolio(
             by ``mark_holdings`` when marking each holding; empty means no gating.
         assumptions_dir: ``config/assumptions`` directory (spec §7.6); the default
             valuator applies a holding's ``<TICKER>.yaml`` as ``bot analyze`` does.
+        currencies: Per-currency rate table threaded to ``mark_holdings``; ``None``
+            loads the default file.
         corporate_actions_fn: Optional best-effort importer called right after the
             snapshot sync (the IBKR Flex importer in the CLI). Any exception it
             raises is logged as a WARNING (message only, no traceback) and ignored.
@@ -136,6 +140,7 @@ def run_portfolio(
         analyze_fn=analyze_fn,
         quality_gates=quality_gates,
         assumptions_dir=assumptions_dir,
+        currencies=currencies,
     )
     events = compute_events(conn, prev_date, run_day)
     persist_events(conn, events)

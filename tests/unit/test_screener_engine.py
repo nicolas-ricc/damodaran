@@ -57,8 +57,8 @@ def _seed_one(conn: duckdb.DuckDBPyConnection, ticker: str = "TST") -> None:
             "INSERT INTO financials_annual "
             "(ticker, fiscal_year, revenue, ebit, ebitda, interest_expense, net_income, "
             "total_assets, total_debt, cash, total_equity, goodwill, operating_cashflow, "
-            "free_cashflow, shares_diluted, is_restated, source) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "free_cashflow, shares_diluted, is_restated, source, currency) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
             [
                 ticker,
                 2020 + offset,
@@ -182,8 +182,8 @@ def test_build_company_data_roic_uses_country_tax_rate(
         "INSERT INTO financials_annual "
         "(ticker, fiscal_year, revenue, ebit, ebitda, interest_expense, net_income, "
         "total_assets, total_debt, cash, total_equity, goodwill, operating_cashflow, "
-        "free_cashflow, shares_diluted, is_restated, source) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "free_cashflow, shares_diluted, is_restated, source, currency) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
         [
             "DEU",
             2026,
@@ -307,8 +307,8 @@ def test_load_all_annual_groups_oldest_first_per_ticker(
     _seed_company(conn, "BBB")
     # A restated row must be excluded.
     conn.execute(
-        "INSERT INTO financials_annual (ticker, fiscal_year, revenue, is_restated, source) "
-        "VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO financials_annual (ticker, fiscal_year, revenue, is_restated, source, currency) "
+        "VALUES (?, ?, ?, ?, ?, 'USD')",
         ["AAA", 2030, 9999.0, True, "fmp"],
     )
 
@@ -575,8 +575,8 @@ def _seed_company(conn: duckdb.DuckDBPyConnection, ticker: str) -> None:
             "INSERT INTO financials_annual "
             "(ticker, fiscal_year, revenue, ebit, ebitda, interest_expense, net_income, "
             "total_assets, total_debt, cash, total_equity, goodwill, operating_cashflow, "
-            "free_cashflow, shares_diluted, is_restated, source) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "free_cashflow, shares_diluted, is_restated, source, currency) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
             [
                 ticker,
                 2020 + offset,
@@ -631,7 +631,7 @@ def test_no_coverage_companies_appear_as_rejected_by_the_coverage_gate(
     )
     result = run_screen(conn, _adr0006_preset(), valuator=None)
     rejected = {r.ticker: r.failed_gates for r in result.rejected}
-    assert rejected["NOMAP"] == ("coverage_gate",)
+    assert rejected["NOMAP"] == ("industry_unmapped",)
 
 
 def test_run_screen_uses_valuator_mos(conn: duckdb.DuckDBPyConnection) -> None:
@@ -758,9 +758,9 @@ def _seed_valuable_sector(conn: duckdb.DuckDBPyConnection) -> None:
     """
     conn.execute(
         "INSERT INTO damodaran_country "
-        "(country, year, region, risk_free_rate, erp, tax_rate) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        ["United States", 2026, "US", 0.04, 0.045, 0.21],
+        "(country, year, region, erp, tax_rate) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ["United States", 2026, "US", 0.045, 0.21],
     )
     conn.execute(
         "INSERT INTO damodaran_industry "

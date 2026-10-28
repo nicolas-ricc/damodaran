@@ -29,12 +29,15 @@ CREATE TABLE IF NOT EXISTS damodaran_country (
     year            INTEGER NOT NULL,
     erp             DOUBLE,
     country_risk_premium DOUBLE,
-    risk_free_rate  DOUBLE,
     tax_rate        DOUBLE,
     rating          VARCHAR,
     region          VARCHAR,
     PRIMARY KEY (country, year)
 );
+
+-- Drops the pre-#109 column from existing DBs (risk-free now comes per currency
+-- from config/currencies.yaml). Idempotent. Rollback: ADD COLUMN risk_free_rate DOUBLE.
+ALTER TABLE damodaran_country DROP COLUMN IF EXISTS risk_free_rate;
 
 -- Daily FX rates against USD (M2.5). One row per (currency, date).
 -- `rate_to_usd` is the multiplier that converts 1 unit of `currency` into USD:

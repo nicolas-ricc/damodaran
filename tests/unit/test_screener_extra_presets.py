@@ -86,8 +86,8 @@ def _add_company(
             "INSERT INTO financials_annual "
             "(ticker, fiscal_year, revenue, ebit, ebitda, interest_expense, net_income, "
             "total_assets, total_debt, cash, total_equity, goodwill, operating_cashflow, "
-            "free_cashflow, shares_diluted, is_restated, source) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "free_cashflow, shares_diluted, is_restated, source, currency) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
             [
                 ticker, 2020 + offset, rev, rev * op_margin, ebitda, interest,
                 net_income, 6_000_000_000.0, total_debt, cash,
