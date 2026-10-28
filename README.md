@@ -54,8 +54,12 @@ Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
    # remove when done:  crontab -l | grep -v 'bot-price-fill' | crontab -
    ```
 
-   Once the universe is filled, plain `uv run bot refresh --prices` does cheap daily
-   incremental updates (one bar/ticker).
+   A plain `uv run bot refresh --prices` also advances: it skips tickers that are already
+   up to date (no request spent) and refreshes the rest stalest-first, so re-running it walks
+   through the universe. `scripts/daily.sh` therefore repeats the price refresh (up to
+   `BOT_PRICE_ROUNDS`, default 12, pausing `BOT_PRICE_RETRY_PAUSE` seconds, default 3600,
+   between rounds) until no tickers are deferred. Once the universe is filled, the plain run
+   does cheap daily incremental updates (one bar/ticker).
    For the full S&P 500 priced daily without the drip, Tiingo Power (~$30/mo) lifts the caps —
    same `edgar-tiingo` provider, just a paid key, and re-add the trimmed names.
 
