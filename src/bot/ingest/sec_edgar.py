@@ -197,7 +197,19 @@ ANNUAL_CONCEPT_MAP: dict[str, list[str]] = {
     "gross_profit": ["GrossProfit"],
     "operating_expenses": ["OperatingExpenses"],
     "ebit": ["OperatingIncomeLoss"],
-    "interest_expense": ["InterestExpense"],
+    # FASB's 2024 taxonomy deprecated InterestExpense; filers moved to the
+    # Nonoperating / Debt / Operating variants, so a FY2025 10-K carries the old
+    # concept only on its comparatives. Income-statement concepts first; the
+    # cash-flow interest paid is a last resort when none is tagged.
+    "interest_expense": [
+        "InterestExpense",
+        "InterestExpenseNonoperating",
+        "InterestExpenseDebt",
+        "InterestAndDebtExpense",
+        "InterestExpenseOperating",
+        "InterestPaidNet",
+        "InterestPaid",
+    ],
     "tax_expense": ["IncomeTaxExpenseBenefit"],
     "net_income": ["NetIncomeLoss", "ProfitLoss"],
     "total_assets": ["Assets"],
