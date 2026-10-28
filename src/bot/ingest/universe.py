@@ -564,7 +564,7 @@ def refresh_prices(
     pending = [t for t in tickers if t not in current_set]
     return _run_bulk_refresh(
         conn,
-        items=_stale_first(conn, pending),
+        items=_stale_first(pending, newest),
         current=current,
         process=lambda ticker: _refresh_one_price(
             conn, ticker=ticker, provider=provider, since_date=since_date
@@ -581,13 +581,11 @@ def _newest_price_dates(conn: duckdb.DuckDBPyConnection) -> dict[str, date | Non
     return {str(r[0]).upper(): coerce_date(r[1]) for r in rows}
 
 
-def _stale_first(conn: duckdb.DuckDBPyConnection, tickers: list[str]) -> list[str]:
+def _stale_first(tickers: list[str], newest: dict[str, date | None]) -> list[str]:
     """Reorder ``tickers``: never priced first, then oldest newest-bar first.
 
-    Stable, so ties keep input order. Tickers keep their original spelling.
+    ``newest`` is from ``_newest_price_dates``. Stable, so ties keep input order. Tickers keep their original spelling.
     """
-    newest = _newest_price_dates(conn)
-
     def key(ticker: str) -> tuple[bool, date]:
         d = newest.get(ticker.upper())
         return (d is not None, d or date.min)
