@@ -248,8 +248,6 @@ def test_only_missing_skips_tickers_that_already_have_prices() -> None:
     assert result.total == 1
 
 
-# --- #136: stale-first ordering, up-to-date skip --------------------------------
-
 _TODAY = date(2026, 10, 28)  # a Wednesday
 _LAST_WEEKDAY = date(2026, 10, 27)
 
