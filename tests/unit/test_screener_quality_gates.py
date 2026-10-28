@@ -358,3 +358,47 @@ def test_max_goodwill_to_assets_configurable(benchmarks: IndustryBenchmarks) -> 
         _company(goodwill=600.0, total_assets=1000.0), benchmarks
     )
     assert result.passed is True
+
+
+def test_min_interest_coverage_null_interest_with_no_debt_passes(
+    benchmarks: IndustryBenchmarks,
+) -> None:
+    # Debt-free filers tag no interest concept at all: nothing to cover.
+    result = MinInterestCoverage().evaluate(
+        _company(ebit=10.0, interest_expense=None, net_debt=None), benchmarks
+    )
+    assert result.passed is True
+    assert "no debt" in result.reason
+
+
+def test_min_interest_coverage_null_interest_with_net_cash_passes(
+    benchmarks: IndustryBenchmarks,
+) -> None:
+    # Cash but no debt: net_debt is negative, still nothing to cover.
+    result = MinInterestCoverage().evaluate(
+        _company(ebit=10.0, interest_expense=None, net_debt=-500.0, total_debt=None),
+        benchmarks,
+    )
+    assert result.passed is True
+
+
+def test_min_interest_coverage_null_interest_with_debt_fails(
+    benchmarks: IndustryBenchmarks,
+) -> None:
+    # Debt on the balance sheet but no interest tagged (AAPL since FY2023): a
+    # real gap, the coverage cannot be measured.
+    result = MinInterestCoverage().evaluate(
+        _company(ebit=10.0, interest_expense=None, total_debt=90e9, net_debt=50e9),
+        benchmarks,
+    )
+    assert result.passed is False
+    assert "unavailable" in result.reason
+
+
+def test_min_interest_coverage_null_ebit_still_fails(
+    benchmarks: IndustryBenchmarks,
+) -> None:
+    result = MinInterestCoverage().evaluate(
+        _company(ebit=None, interest_expense=None, total_debt=None), benchmarks
+    )
+    assert result.passed is False

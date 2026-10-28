@@ -442,6 +442,7 @@ def build_company_data(
     )
 
     net_debt: float | None = None
+    total_debt: float | None = None
     pe = pbv = ev_ebitda = roe = roic = fcf_yield = None
     ebit = ebitda = interest_expense = goodwill = total_assets = None
     net_income = operating_cashflow = None
@@ -449,6 +450,7 @@ def build_company_data(
         ebit = latest.ebit
         ebitda = latest.ebitda
         interest_expense = latest.interest_expense
+        total_debt = latest.total_debt
         goodwill = latest.goodwill
         total_assets = latest.total_assets
         net_income = latest.net_income
@@ -502,6 +504,7 @@ def build_company_data(
         years_of_financials=len(annual),
         is_financial_services=industry_is_financial_services(company.industry_damodaran),
         net_debt=net_debt,
+        total_debt=total_debt,
         ebitda=ebitda,
         ebit=ebit,
         interest_expense=interest_expense,
