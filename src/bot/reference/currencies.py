@@ -12,7 +12,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
@@ -58,6 +58,19 @@ class _MalformedError(Exception):
     pass
 
 
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """``SafeLoader`` that rejects a repeated key instead of keeping the last one."""
+
+    def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
+        seen: set[Any] = set()
+        for key_node, _ in node.value:
+            key = self.construct_object(key_node, deep=deep)
+            if key in seen:
+                raise _MalformedError(f"duplicate key {key!r}")
+            seen.add(key)
+        return super().construct_mapping(node, deep=deep)
+
+
 def _number(raw: Any, code: str, field: str) -> float:
     if isinstance(raw, bool) or not isinstance(raw, int | float):
         raise _MalformedError(f"{code}.{field}: not a number")
@@ -71,6 +84,8 @@ def _text(raw: Any, code: str, field: str) -> str:
 
 
 def _date(raw: Any, code: str) -> date:
+    if isinstance(raw, datetime):
+        return raw.date()
     if isinstance(raw, date):
         return raw
     if isinstance(raw, str):
@@ -138,8 +153,8 @@ def load_currency_table(path: Path | None = None) -> CurrencyTable:
         log.warning("currencies.absent", path=str(target))
         return MappingProxyType({})
     try:
-        table = _parse(target, yaml.safe_load(target.read_text()))
-    except (yaml.YAMLError, _MalformedError) as exc:
+        table = _parse(target, yaml.load(target.read_text(), Loader=_UniqueKeyLoader))
+    except (yaml.YAMLError, _MalformedError, OSError, UnicodeDecodeError) as exc:
         log.warning("currencies.malformed", path=str(target), reason=str(exc))
         return MappingProxyType({})
     log.info("currencies.loaded", path=str(target), entries=len(table))

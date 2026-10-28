@@ -17,7 +17,7 @@ The golden file was captured on commit ``556aa2b`` (before the refactor) with::
 
 Regenerate it the same way only when a deliberate behavior change is intended.
 
-Note note: the seeded companies are USD and the USD pair now comes from
+Note: the seeded companies are USD and the USD pair now comes from
 ``config/currencies.yaml`` (#109), not from ``damodaran_country``; terminal
 growth is ``min(0.0395, 0.04)``, so the golden was regenerated for #109.
 """

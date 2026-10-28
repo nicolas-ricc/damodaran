@@ -449,7 +449,7 @@ def _to_normalized_rows(
 
 
 # ---------------------------------------------------------------------------
-# Derived columns and out-of-table scalars
+# Derived columns and the country tax sheet
 # ---------------------------------------------------------------------------
 
 #: Sheet of ctryprem.xls carrying per-country corporate tax rates. The main

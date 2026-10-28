@@ -120,6 +120,7 @@ def render_markdown(result: ScreenResult, *, generated_on: date | None = None) -
         "",
         f"Generated: {stamp}  ·  Screened {result.screened} companies  ·  "
         f"Shortlist {len(result.shortlist)}",
+        "",
         format_coverage_counts(result),
         "",
     ]

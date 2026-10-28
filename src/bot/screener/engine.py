@@ -232,7 +232,7 @@ def format_coverage_counts(result: ScreenResult) -> str:
     """The coverage-gate breakdown line shared by the Markdown report and the CLI."""
     counts = result.coverage_counts
     detail = " · ".join(f"{reason.value} {counts[reason]}" for reason in CoverageReason)
-    return f"Excluded by coverage gate (ADR 0006): {len(result.no_coverage)} ({detail})"
+    return f"Excluded by coverage gate (ADR 0006): {sum(counts.values())} ({detail})"
 
 
 # --------------------------------------------------------------------------- #

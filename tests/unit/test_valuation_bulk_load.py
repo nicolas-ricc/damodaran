@@ -92,12 +92,12 @@ def _price(
 
 
 def _country(
-    conn: duckdb.DuckDBPyConnection, country: str, year: int, region: str, rate: float
+    conn: duckdb.DuckDBPyConnection, country: str, year: int, region: str, erp: float
 ) -> None:
     conn.execute(
         "INSERT INTO damodaran_country (country, year, region, erp, tax_rate) "
         "VALUES (?, ?, ?, ?, ?)",
-        [country, year, region, rate + 0.01, 0.21],
+        [country, year, region, erp, 0.21],
     )
 
 

@@ -13,10 +13,10 @@ from datetime import date
 from pathlib import Path
 
 import pytest
-from bot.reference.currencies import CurrencyRates, load_currency_table, normalize_currency
 from structlog.testing import capture_logs
 
 from bot.config import Settings
+from bot.reference.currencies import CurrencyRates, load_currency_table, normalize_currency
 
 REPO_FILE = Path(__file__).resolve().parents[2] / "config" / "currencies.yaml"
 
@@ -123,3 +123,26 @@ def test_settings_currencies_path_default_and_override(
     assert Settings(_env_file=None).currencies_path == Path("./config/currencies.yaml")  # type: ignore[call-arg]
     monkeypatch.setenv("BOT_CURRENCIES_PATH", str(tmp_path / "c.yaml"))
     assert Settings(_env_file=None).currencies_path == tmp_path / "c.yaml"  # type: ignore[call-arg]
+
+
+def test_unreadable_path_warns_and_is_empty(tmp_path: Path) -> None:
+    with capture_logs() as logs:
+        table = load_currency_table(tmp_path)  # a directory, not a file
+    assert dict(table) == {}
+    assert "currencies.malformed" in [e["event"] for e in logs]
+
+
+def test_duplicate_currency_key_is_malformed(tmp_path: Path) -> None:
+    text = "USD:\n" + _ROW.format(rfr=0.0395, gdp=0.04) + "USD:\n" + _ROW.format(rfr=0.05, gdp=0.04)
+    with capture_logs() as logs:
+        table = load_currency_table(_write(tmp_path, text))
+    assert dict(table) == {}
+    assert "currencies.malformed" in [e["event"] for e in logs]
+
+
+def test_datetime_as_of_is_narrowed_to_date(tmp_path: Path) -> None:
+    text = "USD:\n" + _ROW.format(rfr=0.0395, gdp=0.04).replace(
+        "as_of: 2026-01-01", "as_of: 2026-01-01T00:00:00"
+    )
+    as_of = load_currency_table(_write(tmp_path, text))["USD"].as_of
+    assert type(as_of) is date
