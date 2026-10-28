@@ -43,9 +43,9 @@ def _seed(conn: duckdb.DuckDBPyConnection) -> None:
         ["AAPL", "Apple Inc", "United States", "USD", "Computers/Peripherals", "sec_edgar"],
     )
     conn.execute(
-        "INSERT INTO damodaran_country (country, year, erp, risk_free_rate, tax_rate, region) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        ["United States", 2026, 0.045, 0.04, 0.21, "US"],
+        "INSERT INTO damodaran_country (country, year, erp, tax_rate, region) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ["United States", 2026, 0.045, 0.21, "US"],
     )
     conn.execute(
         "INSERT INTO damodaran_industry "

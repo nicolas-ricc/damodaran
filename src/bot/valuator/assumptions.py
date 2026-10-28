@@ -251,7 +251,6 @@ class _SectorDefaults:
 @dataclass(frozen=True)
 class _CountryRow:
     region: str | None
-    risk_free_rate: float | None
     erp: float | None
     tax_rate: float | None
 
@@ -395,9 +394,9 @@ def bulk_load_assumption_inputs(
     }
     countries = sorted({c.country for c in companies.values() if c.country is not None})
     country_rows = {
-        r[0]: _CountryRow(region=r[1], risk_free_rate=r[2], erp=r[3], tax_rate=r[4])
+        r[0]: _CountryRow(region=r[1], erp=r[2], tax_rate=r[3])
         for r in conn.execute(
-            "SELECT country, region, risk_free_rate, erp, tax_rate FROM damodaran_country "
+            "SELECT country, region, erp, tax_rate FROM damodaran_country "
             "WHERE country IN (SELECT unnest(?::VARCHAR[])) "
             "QUALIFY row_number() OVER (PARTITION BY country ORDER BY year DESC) = 1",
             [countries],
@@ -502,13 +501,13 @@ def _load_country(conn: duckdb.DuckDBPyConnection, country: str | None) -> _Coun
     if country is None:
         return None
     row = conn.execute(
-        "SELECT region, risk_free_rate, erp, tax_rate FROM damodaran_country "
+        "SELECT region, erp, tax_rate FROM damodaran_country "
         "WHERE country = ? ORDER BY year DESC LIMIT 1",
         [country],
     ).fetchone()
     if row is None:
         return None
-    return _CountryRow(region=row[0], risk_free_rate=row[1], erp=row[2], tax_rate=row[3])
+    return _CountryRow(region=row[0], erp=row[1], tax_rate=row[2])
 
 
 def _load_sector(

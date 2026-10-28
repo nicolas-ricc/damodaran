@@ -5,11 +5,10 @@ a future release, update ``DEFAULT_INDUSTRY_COLUMN_MAP`` and
 ``DEFAULT_COUNTRY_COLUMN_MAP`` to match the new strings; no other code change is
 required.
 
-Two country columns are not columns of the ``ERPs by country`` sheet: ``tax_rate``
-comes from the ``Country Tax Rates`` sheet of ``ctryprem.xls`` and
-``risk_free_rate`` from the pre-header cell ``Long Term Treasury bond rate =`` of
-``wacc.xls``. To verify a new release still carries both, run
-``BOT_LIVE_TESTS=1 uv run pytest -m live``.
+``tax_rate`` is not a column of the ``ERPs by country`` sheet: it comes from the
+``Country Tax Rates`` sheet of ``ctryprem.xls``. The risk-free rate is not imported;
+it comes per currency from ``config/currencies.yaml`` (#109). To verify a new
+release still carries the tax sheet, run ``BOT_LIVE_TESTS=1 uv run pytest -m live``.
 """
 
 from __future__ import annotations
@@ -453,11 +452,6 @@ def _to_normalized_rows(
 # Derived columns and out-of-table scalars
 # ---------------------------------------------------------------------------
 
-#: Label of the pre-header cell of wacc.xls carrying the long-term government bond
-#: rate. It is an input to Damodaran's sheet, not a column, so it needs its own
-#: extraction path.
-RISK_FREE_RATE_LABEL = "Long Term Treasury bond rate ="
-
 #: Sheet of ctryprem.xls carrying per-country corporate tax rates. The main
 #: "ERPs by country" sheet has no tax column.
 COUNTRY_TAX_SHEET = "Country Tax Rates"
@@ -524,27 +518,6 @@ def parse_country_tax_rates(path: Path) -> dict[str, float]:
             continue
         out[country.strip()] = value
     return out
-
-
-def parse_preheader_scalar(path: Path, sheet_name: str, label: str) -> float | None:
-    """Scalar input stored in a pre-header cell, found by its adjacent label.
-
-    Damodaran's sheets carry inputs (the risk-free rate, the mature-market ERP)
-    above the data header as ``label``/``value`` cell pairs rather than as columns.
-    Scans for a cell whose text starts with ``label`` and returns the first numeric
-    cell to its right on the same row. ``None`` when the label is absent.
-    """
-    rows, _sheet = _load_rows(path, sheet_name)
-    needle = label.strip().lower()
-    for raw in rows:
-        for index, cell in enumerate(raw):
-            if not isinstance(cell, str) or not cell.strip().lower().startswith(needle):
-                continue
-            for candidate in raw[index + 1 :]:
-                value = _coerce_value(candidate)
-                if isinstance(value, (int, float)):
-                    return float(value)
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -753,27 +726,17 @@ def _import_files_into_run(
     # Columns the published files only imply (D/(D+E) -> D/E, Hamada beta).
     industry_rows = [derive_industry_columns(row) for row in industry_rows]
 
-    # Two country columns live outside the main sheet: the tax rate on its own
-    # sheet, the risk-free rate in a pre-header input cell. Both degrade to a
-    # warning if a future release moves or drops them (spec §13.2).
+    # The tax rate lives on its own sheet, outside the main one. It degrades to a
+    # warning if a future release moves or drops it (spec §13.2).
     try:
         tax_rates = parse_country_tax_rates(country_path)
     except (KeyError, ValueError) as exc:
         log.warning("damodaran.country_tax_sheet.unavailable", error=str(exc))
         tax_rates = {}
-    try:
-        risk_free_rate = parse_preheader_scalar(
-            industry_path, "Industry Averages", RISK_FREE_RATE_LABEL
-        )
-    except (KeyError, ValueError) as exc:
-        log.warning("damodaran.risk_free_rate.unavailable", error=str(exc))
-        risk_free_rate = None
     for row in country_rows:
         country = row.get("country")
         if isinstance(country, str) and country in tax_rates:
             row["tax_rate"] = tax_rates[country]
-        if risk_free_rate is not None:
-            row["risk_free_rate"] = risk_free_rate
 
     # Detect empty-row situation before touching the DB.
     empty_sides: list[str] = []

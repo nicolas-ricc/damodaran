@@ -95,9 +95,9 @@ def _country(
     conn: duckdb.DuckDBPyConnection, country: str, year: int, region: str, rate: float
 ) -> None:
     conn.execute(
-        "INSERT INTO damodaran_country (country, year, region, risk_free_rate, erp, tax_rate) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        [country, year, region, rate, rate + 0.01, 0.21],
+        "INSERT INTO damodaran_country (country, year, region, erp, tax_rate) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [country, year, region, rate + 0.01, 0.21],
     )
 
 

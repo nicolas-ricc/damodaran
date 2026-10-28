@@ -16,7 +16,6 @@ import pytest
 from bot.ingest.damodaran import (
     derive_industry_columns,
     parse_country_tax_rates,
-    parse_preheader_scalar,
 )
 from bot.storage.db import apply_schema
 
@@ -92,19 +91,6 @@ def test_parse_country_tax_rates_from_the_real_workbook() -> None:
     assert rates["Argentina"] == pytest.approx(0.35)
     assert all(0.0 <= v <= 1.0 for v in rates.values())
     assert "Country" not in rates
-
-
-@pytest.mark.skipif(not _WACC_FIXTURE.exists(), reason="industry fixture absent")
-def test_parse_preheader_scalar_finds_the_risk_free_rate() -> None:
-    rfr = parse_preheader_scalar(
-        _WACC_FIXTURE, "Industry Averages", "Long Term Treasury bond rate ="
-    )
-    assert rfr == pytest.approx(0.0395)
-
-
-@pytest.mark.skipif(not _WACC_FIXTURE.exists(), reason="industry fixture absent")
-def test_parse_preheader_scalar_unknown_label_returns_none() -> None:
-    assert parse_preheader_scalar(_WACC_FIXTURE, "Industry Averages", "Nope =") is None
 
 
 @pytest.mark.skipif(not _ALL_FIXTURES_PRESENT, reason="fixtures absent")

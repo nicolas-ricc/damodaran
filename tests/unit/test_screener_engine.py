@@ -758,9 +758,9 @@ def _seed_valuable_sector(conn: duckdb.DuckDBPyConnection) -> None:
     """
     conn.execute(
         "INSERT INTO damodaran_country "
-        "(country, year, region, risk_free_rate, erp, tax_rate) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        ["United States", 2026, "US", 0.04, 0.045, 0.21],
+        "(country, year, region, erp, tax_rate) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ["United States", 2026, "US", 0.045, 0.21],
     )
     conn.execute(
         "INSERT INTO damodaran_industry "

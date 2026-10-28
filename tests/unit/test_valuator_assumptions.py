@@ -119,15 +119,14 @@ def _seed_country(
     country: str = "United States",
     region: str = "US",
     year: int = 2024,
-    risk_free_rate: float | None = 0.03,
     erp: float | None = 0.05,
     tax_rate: float | None = 0.21,
 ) -> None:
     conn.execute(
         "INSERT INTO damodaran_country "
-        "(country, year, risk_free_rate, erp, tax_rate, region) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        [country, year, risk_free_rate, erp, tax_rate, region],
+        "(country, year, erp, tax_rate, region) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [country, year, erp, tax_rate, region],
     )
 
 
