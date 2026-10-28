@@ -1,10 +1,10 @@
 # Stale-first price refresh Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: `.agents/skills/subagent-driven-development/SKILL.md` to implement this plan task-by-task; implementers write code with `.agents/skills/test-driven-development/SKILL.md`. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the daily price refresh advance through the whole universe under Tiingo's hourly cap instead of re-importing the same first 50 tickers every day.
 
-**Architecture:** `refresh_prices` in `src/bot/ingest/universe.py` reorders its ticker list stale-first (never priced, then oldest newest-stored-date, ties in CSV order) with one `GROUP BY` query before handing it to `_run_bulk_refresh`, so every rate-limited run spends its quota where it is most needed. `scripts/daily.sh` then re-runs `bot refresh --prices` with a pause between rounds while the bot reports deferred tickers, up to a bounded number of rounds, each round a separate process so the DuckDB file is not held between rounds (#108); FX and the portfolio sync run once after the loop.
+**Architecture:** `refresh_prices` in `src/bot/ingest/universe.py` reads every ticker's newest stored price date with one `GROUP BY` query, marks tickers already priced through the last completed weekday as `skipped` without a provider request, and orders the rest stale-first (never priced, then oldest first, ties in CSV order) before handing them to `_run_bulk_refresh`, so every rate-limited run spends its quota where it is most needed and a run over an up-to-date universe spends none and reports 0 deferred. `scripts/daily.sh` then re-runs `bot refresh --prices` with a pause between rounds while the bot reports deferred tickers, up to a bounded number of rounds, each round a separate process so the DuckDB file is not held between rounds (#108); FX and the portfolio sync run once after the loop.
 
 **Tech Stack:** Python 3, duckdb, typer, pytest, mypy --strict, ruff, bash 4+ (shellcheck in the suite).
 
@@ -13,11 +13,13 @@
 ## Global Constraints
 
 - Ordering: never-priced tickers first, then by newest stored `prices_daily.date` ascending (oldest first); ties keep the input (CSV) order. Ticker matching is case-insensitive (`prices_daily.ticker` is stored upper-case).
+- Up to date = newest stored date `>=` the last weekday strictly before `today` (Mon→Fri, Tue→Mon, Sun→Fri). Such a ticker gets a `TickerOutcome(status="skipped")` and no provider call. Without this, a 498-ticker universe at 50/hour reports deferred tickers in every round and the daily loop can never stop early (the issue's acceptance runs `bot refresh --prices` "until it reports 0 deferred").
 - One query for the newest dates of the whole list (`SELECT ticker, max(date) FROM prices_daily GROUP BY ticker`), not one query per ticker.
 - Place `_stale_first` *below* `refresh_prices` in `universe.py`: `docs/leccion/index.html` cites `refresh_prices` at `src/bot/ingest/universe.py:521`, and `docs/leccion/check.py` warns when a cited line moves. If the line still moves, update the citation.
 - `--only-missing` keeps its meaning (drops any ticker with a stored price); ordering applies to whatever survives it.
 - Do not change the monthly 500-symbol cap handling (ADR 0007) nor the universe CSV.
 - Deferred tickers are still not failures: a rate-limited run keeps exit code 0 when nothing failed.
+- Every test that seeds prices passes an explicit `today`, never the wall clock.
 - `daily.sh` round pause and round cap are env-overridable: `BOT_PRICE_RETRY_PAUSE` (seconds, default `3600`) and `BOT_PRICE_ROUNDS` (default `10`). 10 rounds × 50 requests covers 498 tickers in one day and stays under Tiingo's 1000 requests/day.
 - The loop's "more to do" signal is the CLI's existing deferred line, `NOTE — <n> tickers deferred (provider rate limit)`; the shell greps for `tickers deferred`.
 - Type hints everywhere; `uv run ruff check . && uv run mypy src && uv run pytest -q` green.
@@ -34,6 +36,10 @@
 ## Assumptions
 
 - Stale-first ordering lives in `refresh_prices`, not in `_run_bulk_refresh` (shared with fundamentals and FX, which the issue does not touch).
+- "Priced today" in the issue's acceptance 2 is honoured as "attempted after the stale ones" in the strongest form: it is not attempted at all. Rejected: requesting up-to-date tickers last, which makes every rate-limited round report them as deferred and the loop never stop.
+- Up to date is judged by weekday only, not an exchange holiday calendar. Rejected: a holiday calendar dependency. Cost: on the day after a market holiday nothing counts as up to date, so the loop runs its 10 rounds (≤ 500 requests, under the 1000/day cap).
+- Any `prices_daily` row counts toward freshness, whatever its `source` (`prices_daily` PK is `(ticker, date)`, `src/bot/storage/schema.sql:62-72`).
+- No `flock` in `daily.sh`: runtime is bounded by `BOT_PRICE_ROUNDS × BOT_PRICE_RETRY_PAUSE` (≈ 9–10 h) and the cron entries are 24 h apart (`scripts/install_cron.sh`), so two daily runs cannot overlap; `weekly.sh` runs Saturday 10:00, after Friday's run ends.
 - The daily loop lives in `scripts/daily.sh` (issue option 2a), not in a `--wait-for-quota` CLI flag (option 2b): a sleeping Python process would hold the DuckDB write lock for hours, which is exactly the #108 hazard; separate processes release it between rounds.
 - `scripts/price_fill.sh` and its `--only-missing` drip are left as they are; README is updated to say the plain daily run now advances by itself.
 - Live-DB acceptance (every ticker priced within 3 trading days; `min_market_cap` failures drop) cannot run in CI and is manual verification in the PR.
@@ -50,14 +56,18 @@
 **Interfaces:**
 - Produces: `FakeProvider(..., prices_rate_limit_after: int | None = None)` — `daily_prices` records the call, then raises `ProviderRateLimitError("fake quota exhausted")` once it has already served `prices_rate_limit_after` calls (own counter, independent of the fundamentals `rate_limit_after`).
 - Produces: `_stale_first(conn: duckdb.DuckDBPyConnection, tickers: list[str]) -> list[str]` — returns the same tickers (original spelling) reordered per Global Constraints.
-- `refresh_prices` applies `_stale_first` after the `only_missing` filter.
+- Produces: `_last_weekday_before(day: date) -> date`.
+- `refresh_prices` gains keyword `today: date | None = None` (defaults to `date.today()`; a test seam). After the `only_missing` filter it splits the list into up-to-date tickers (recorded as `skipped` outcomes, appended after the attempted ones) and the rest, ordered by `_stale_first`. The skipped outcomes must be counted in `result.skipped` and in the `refresh_log` summary like any other outcome (extend `_run_bulk_refresh` with keyword `current: list[str] | None = None`: tickers appended as `skipped` outcomes after the loop and counted, without changing its behaviour for other callers).
 
 - [ ] **Step 1: Write the failing tests** in `tests/unit/test_prices_refresh.py` (seed prices with a helper inserting `prices_daily(ticker, date, close, source)` rows):
-  - `test_two_rate_limited_runs_import_distinct_tickers`: tickers `T1..T6`, every one with a bar; run `refresh_prices` twice, each with a fresh `FakeProvider(prices=..., prices_rate_limit_after=2)`, bar date `date.today()`. Assert each result has `imported == 2`, `deferred == 4`, and the union of imported tickers across both runs has 4 distinct names (`{"T1","T2","T3","T4"}`).
-  - `test_never_priced_before_stale_before_fresh`: tickers `["FRESH", "STALE", "NEW"]`; FRESH seeded at `date.today()`, STALE at `date(2026, 9, 17)`, NEW unseeded. Assert `[t for _, t in provider.calls if _ == "daily_prices"] == ["NEW", "STALE", "FRESH"]`.
+  - `test_two_rate_limited_runs_import_distinct_tickers`: tickers `T1..T6`, every one with a bar; run `refresh_prices` twice, each with a fresh `FakeProvider(prices=..., prices_rate_limit_after=2)`, bar date `date(2026, 10, 27)`, `today=date(2026, 10, 28)`. Assert each result has `imported == 2`, `deferred == 4`, and the union of imported tickers across both runs has 4 distinct names (`{"T1","T2","T3","T4"}`).
+  - `test_never_priced_before_stale_before_fresh` (issue acceptance 2): `today=date(2026, 10, 28)`; tickers `["TODAY", "FRESHER", "STALE", "NEW"]`; TODAY seeded `2026-10-28`, FRESHER `2026-10-20`, STALE `2026-09-17`, NEW unseeded. Assert the `daily_prices` calls are `["NEW", "STALE", "FRESHER"]` (TODAY is never requested) and `[o.ticker for o in result.outcomes] == ["NEW", "STALE", "FRESHER", "TODAY"]` with TODAY's status `"skipped"`.
   - `test_stale_first_orders_oldest_first_and_keeps_csv_order_on_ties`: `["B", "A", "D", "C"]` with B and A both seeded `2026-09-17`, D `2026-10-01`, C `2026-08-01` → call order `["C", "B", "A", "D"]`; and two never-priced `["Y", "X"]` appended → they come first as `["Y", "X", ...]`.
-  - `test_stale_first_matches_tickers_case_insensitively`: input `["aapl", "MSFT"]`, AAPL seeded today, MSFT unseeded → call order `["MSFT", "AAPL"]`.
+  - `test_stale_first_matches_tickers_case_insensitively`: input `["aapl", "MSFT"]`, AAPL seeded `2026-10-01`, MSFT unseeded → call order `["MSFT", "AAPL"]`.
   - `test_unpriceable_ticker_does_not_starve_the_rest`: `["GONE", "A", "B", "C"]`, `GONE` has no bars in the fake, `prices_rate_limit_after=2`; two runs (fresh provider each) → second run's daily_prices calls start `["GONE", "B"]`… i.e. GONE is retried and still only one of the two budgeted calls; union of tickers with a stored price after both runs is `{"A", "B"}`.
+  - `test_up_to_date_tickers_are_skipped_without_a_request`: `today=date(2026, 10, 28)` (Wednesday); `["UP", "OLD"]`, UP seeded `2026-10-27`, OLD `2026-10-23` → only `("daily_prices", "OLD")` called; `result.skipped == 1`, `result.imported == 1`.
+  - `test_run_over_an_up_to_date_universe_defers_nothing`: every ticker seeded at the last weekday, `prices_rate_limit_after=0` → no `daily_prices` call, `result.deferred == 0`, `result.status == "success"`.
+  - `test_last_weekday_before`: Mon 2026-10-26 → Fri 2026-10-23; Wed 2026-10-28 → Tue 2026-10-27; Sun 2026-10-25 → Fri 2026-10-23.
   - `test_only_missing_still_drops_priced_tickers`: existing behaviour pinned with ordering — `["P", "N1", "N2"]`, P seeded, `only_missing=True` → calls `["N1", "N2"]`.
 
 - [ ] **Step 2: Run to verify they fail**
@@ -91,6 +101,7 @@ Expected: PASS.
   - `test_daily_repeats_price_refresh_while_tickers_are_deferred`: `FAKE_DEFERRED_ROUNDS=2` → calls are three `run bot refresh --prices` then `--fx` then `portfolio`; exit 0.
   - `test_daily_stops_after_max_rounds_and_still_runs_fx_and_portfolio`: `FAKE_DEFERRED_ROUNDS=99`, `BOT_PRICE_ROUNDS=3` → exactly three price calls, then fx and portfolio; exit 0.
   - `test_daily_failing_price_round_stops_everything`: `FAKE_DEFERRED_ROUNDS=1`, `FAKE_REFRESH_EXIT=3` → one price call only, exit 3 (covered by the generic failing-refresh test once indices are right; keep it explicit for daily).
+  - In `test_cli_refresh.py`, `test_all_deferred_prices_run_exits_zero`: patched `refresh_prices` returns `imported=0, failed=0` and three `deferred` outcomes, `status="success"` → `bot refresh --prices` exits 0 (the loop relies on it; `universe.py:432` excludes deferred from the failure rate).
   - In `test_cli_refresh.py`, `test_deferred_note_no_longer_requires_only_missing`: a prices refresh rate-limited by the fake prints a line containing `tickers deferred` and does not contain `--only-missing`. Follow `test_refresh_prices_invokes_price_orchestrator`: patch `bot.cli.refresh_prices` to return a `UniverseRefreshResult` whose `outcomes` hold two `TickerOutcome(status="deferred")`.
 
 - [ ] **Step 2: Run to verify they fail**
