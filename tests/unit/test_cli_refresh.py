@@ -5,7 +5,7 @@ from typer.testing import CliRunner
 
 from bot.cli import app
 from bot.ingest.base import IngestResult
-from bot.ingest.universe import UniverseRefreshResult
+from bot.ingest.universe import TickerOutcome, UniverseRefreshResult
 
 
 def test_refresh_damodaran_calls_importer(tmp_path, monkeypatch):
@@ -211,3 +211,42 @@ def test_refresh_damodaran_rejects_non_us_region(tmp_path, monkeypatch):
     result = runner.invoke(app, ["refresh", "--damodaran", "--region", "Europe"])
     assert result.exit_code == 2
     assert "US" in result.output
+
+
+def _all_deferred_prices() -> UniverseRefreshResult:
+    return UniverseRefreshResult(
+        run_id="p",
+        started_at=datetime(2026, 10, 28, 9, 0, 0),
+        finished_at=datetime(2026, 10, 28, 9, 0, 9),
+        status="success",
+        total=3,
+        imported=0,
+        skipped=0,
+        failed=0,
+        outcomes=[TickerOutcome(ticker=t, status="deferred") for t in ("A", "B", "C")],
+    )
+
+
+def test_all_deferred_prices_run_exits_zero(tmp_path, monkeypatch):
+    """A rate-limited price run is not an error: daily.sh's retry loop relies on it."""
+    monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "test.duckdb"))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(tmp_path / "reports"))
+
+    with patch("bot.cli.refresh_prices", return_value=_all_deferred_prices()):
+        result = CliRunner().invoke(app, ["refresh", "--prices"])
+
+    assert result.exit_code == 0
+
+
+def test_deferred_note_no_longer_requires_only_missing(tmp_path, monkeypatch):
+    """Stale-first ordering advances a plain re-run; daily.sh greps 'tickers deferred'."""
+    monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "test.duckdb"))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(tmp_path / "reports"))
+
+    with patch("bot.cli.refresh_prices", return_value=_all_deferred_prices()):
+        result = CliRunner().invoke(app, ["refresh", "--prices"])
+
+    assert "3 tickers deferred" in result.stdout
+    assert "--only-missing" not in result.stdout

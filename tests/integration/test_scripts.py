@@ -29,9 +29,18 @@ exec "{VENV_BIN}/$1" "${{@:2}}"
 
 # Logs argv, prints a line, exits with FAKE_<SUBCOMMAND>_EXIT (default 0),
 # where SUBCOMMAND is the bot subcommand: `uv run bot refresh ...` -> REFRESH.
+# The first FAKE_DEFERRED_ROUNDS `refresh --prices` calls also print the bot's
+# deferred NOTE, as a rate-limited price refresh does.
 _UV_RECORDER = """#!/usr/bin/env bash
 echo "$*" >> "{calls}"
 echo "fake uv: $*"
+if [ "$3 $4" = "refresh --prices" ]; then
+  n=$(( $(cat "{calls}.rounds" 2>/dev/null || echo 0) + 1 ))
+  echo "$n" > "{calls}.rounds"
+  if [ "$n" -le "${{FAKE_DEFERRED_ROUNDS:-0}}" ]; then
+    echo "NOTE — 5 tickers deferred (provider rate limit); re-run to continue."
+  fi
+fi
 var="FAKE_${{3^^}}_EXIT"
 exit "${{!var:-0}}"
 """
@@ -252,7 +261,7 @@ def test_install_cron_rejects_bad_arguments_before_reading_the_crontab(
 
 
 _WRAPPERS = {
-    "daily.sh": ["run bot refresh --prices --fx", "run bot portfolio"],
+    "daily.sh": ["run bot refresh --prices", "run bot refresh --fx", "run bot portfolio"],
     "weekly.sh": [
         "run bot refresh --all",
         "run bot screen --preset damodaran_value",
@@ -292,6 +301,41 @@ def test_daily_exits_with_portfolio_failure_and_logs_it(
     assert result.returncode == 1
     assert _calls(calls) == _WRAPPERS["daily.sh"]
     assert "fake uv: run bot portfolio" in (repo / ".cache" / "daily.log").read_text()
+
+
+_PRICES = "run bot refresh --prices"
+_NO_PAUSE = {"BOT_PRICE_RETRY_PAUSE": "0"}
+
+
+def test_daily_repeats_price_refresh_while_tickers_are_deferred(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    env = _env(recorder_bin, FAKE_DEFERRED_ROUNDS="2", **_NO_PAUSE)
+    result = _run(repo / "scripts" / "daily.sh", env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls) == [_PRICES] * 3 + _WRAPPERS["daily.sh"][1:]
+    assert "tickers deferred" in (repo / ".cache" / "daily.log").read_text()
+
+
+def test_daily_stops_after_max_rounds_and_still_runs_fx_and_portfolio(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    env = _env(recorder_bin, FAKE_DEFERRED_ROUNDS="99", BOT_PRICE_ROUNDS="3", **_NO_PAUSE)
+    result = _run(repo / "scripts" / "daily.sh", env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls) == [_PRICES] * 3 + _WRAPPERS["daily.sh"][1:]
+
+
+def test_daily_failing_price_round_stops_everything(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    env = _env(recorder_bin, FAKE_DEFERRED_ROUNDS="1", FAKE_REFRESH_EXIT="3", **_NO_PAUSE)
+    result = _run(repo / "scripts" / "daily.sh", env=env)
+
+    assert result.returncode == 3
+    assert _calls(calls) == [_PRICES]
 
 
 def test_weekly_exits_with_screen_failure(repo: Path, recorder_bin: Path, calls: Path) -> None:

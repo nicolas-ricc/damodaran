@@ -9,9 +9,10 @@ from __future__ import annotations
 from datetime import date
 
 import duckdb
+import pytest
 
 from bot.ingest.provider import PriceBar
-from bot.ingest.universe import refresh_prices
+from bot.ingest.universe import _last_weekday_before, refresh_prices
 from bot.storage.db import apply_schema, connect
 from tests.fake_provider import FakeProvider
 
@@ -245,3 +246,155 @@ def test_only_missing_skips_tickers_that_already_have_prices() -> None:
     assert provider.requested == ["MISS"]
     assert result.imported == 1
     assert result.total == 1
+
+
+# --- #136: stale-first ordering, up-to-date skip --------------------------------
+
+_TODAY = date(2026, 10, 28)  # a Wednesday
+_LAST_WEEKDAY = date(2026, 10, 27)
+
+
+def _seed_price(conn: duckdb.DuckDBPyConnection, ticker: str, day: date) -> None:
+    conn.execute(
+        "INSERT INTO prices_daily (ticker, date, close, source) VALUES (?, ?, 1.0, 'fake')",
+        [ticker, day.isoformat()],
+    )
+
+
+def _price_calls(provider: FakeProvider) -> list[str]:
+    return [ticker for kind, ticker in provider.calls if kind == "daily_prices"]
+
+
+def _priced(conn: duckdb.DuckDBPyConnection) -> set[str]:
+    return {r[0] for r in conn.execute("SELECT DISTINCT ticker FROM prices_daily").fetchall()}
+
+
+def test_two_rate_limited_runs_import_distinct_tickers() -> None:
+    conn = _db()
+    tickers = [f"T{i}" for i in range(1, 7)]
+    bars = {t: _bar(_LAST_WEEKDAY) for t in tickers}
+
+    first = refresh_prices(
+        conn,
+        provider=FakeProvider(prices=bars, prices_rate_limit_after=2),
+        tickers=tickers,
+        today=_TODAY,
+    )
+    second = refresh_prices(
+        conn,
+        provider=FakeProvider(prices=bars, prices_rate_limit_after=2),
+        tickers=tickers,
+        today=_TODAY,
+    )
+
+    assert (first.imported, first.deferred) == (2, 4)
+    assert (second.imported, second.skipped, second.deferred) == (2, 2, 2)
+    imported = {
+        o.ticker for r in (first, second) for o in r.outcomes if o.status == "imported"
+    }
+    assert imported == {"T1", "T2", "T3", "T4"}
+
+
+def test_never_priced_before_stale_before_fresh() -> None:
+    conn = _db()
+    _seed_price(conn, "TODAY", _TODAY)
+    _seed_price(conn, "FRESHER", date(2026, 10, 20))
+    _seed_price(conn, "STALE", date(2026, 9, 17))
+    provider = FakeProvider()
+
+    result = refresh_prices(
+        conn, provider=provider, tickers=["TODAY", "FRESHER", "STALE", "NEW"], today=_TODAY
+    )
+
+    assert _price_calls(provider) == ["NEW", "STALE", "FRESHER"]
+    assert [o.ticker for o in result.outcomes] == ["NEW", "STALE", "FRESHER", "TODAY"]
+    assert result.outcomes[-1].status == "skipped"
+
+
+def test_stale_first_orders_oldest_first_and_keeps_csv_order_on_ties() -> None:
+    conn = _db()
+    _seed_price(conn, "B", date(2026, 9, 17))
+    _seed_price(conn, "A", date(2026, 9, 17))
+    _seed_price(conn, "D", date(2026, 10, 1))
+    _seed_price(conn, "C", date(2026, 8, 1))
+    provider = FakeProvider()
+
+    refresh_prices(conn, provider=provider, tickers=["B", "A", "D", "C", "Y", "X"], today=_TODAY)
+
+    assert _price_calls(provider) == ["Y", "X", "C", "B", "A", "D"]
+
+
+def test_stale_first_matches_tickers_case_insensitively() -> None:
+    conn = _db()
+    _seed_price(conn, "AAPL", date(2026, 10, 1))
+    provider = FakeProvider()
+
+    refresh_prices(conn, provider=provider, tickers=["aapl", "MSFT"], today=_TODAY)
+
+    assert _price_calls(provider) == ["MSFT", "AAPL"]
+
+
+def test_unpriceable_ticker_does_not_starve_the_rest() -> None:
+    conn = _db()
+    tickers = ["GONE", "A", "B", "C"]
+    bars = {t: _bar(_LAST_WEEKDAY) for t in ("A", "B", "C")}
+
+    runs = []
+    for _ in range(2):
+        provider = FakeProvider(prices=bars, prices_rate_limit_after=2)
+        result = refresh_prices(conn, provider=provider, tickers=tickers, today=_TODAY)
+        runs.append((_price_calls(provider), result.status))
+
+    assert runs == [(["GONE", "A", "B"], "success"), (["GONE", "B", "C"], "success")]
+    assert _priced(conn) == {"A", "B"}
+
+
+def test_up_to_date_tickers_are_skipped_without_a_request() -> None:
+    conn = _db()
+    _seed_price(conn, "UP", _LAST_WEEKDAY)
+    _seed_price(conn, "OLD", date(2026, 10, 23))
+    provider = FakeProvider()
+
+    result = refresh_prices(conn, provider=provider, tickers=["UP", "OLD"], today=_TODAY)
+
+    assert _price_calls(provider) == ["OLD"]
+    assert (result.skipped, result.imported) == (1, 1)
+
+
+def test_run_over_an_up_to_date_universe_defers_nothing() -> None:
+    conn = _db()
+    for t in ("A", "B", "C"):
+        _seed_price(conn, t, _LAST_WEEKDAY)
+    provider = FakeProvider(prices_rate_limit_after=0)
+
+    result = refresh_prices(conn, provider=provider, tickers=["A", "B", "C"], today=_TODAY)
+
+    assert _price_calls(provider) == []
+    assert result.deferred == 0
+    assert result.skipped == 3
+    assert result.status == "success"
+
+
+@pytest.mark.parametrize(
+    ("day", "expected"),
+    [
+        (date(2026, 10, 26), date(2026, 10, 23)),  # Mon -> Fri
+        (date(2026, 10, 28), date(2026, 10, 27)),  # Wed -> Tue
+        (date(2026, 10, 25), date(2026, 10, 23)),  # Sun -> Fri
+        (date(2026, 10, 24), date(2026, 10, 23)),  # Sat -> Fri
+    ],
+)
+def test_last_weekday_before(day: date, expected: date) -> None:
+    assert _last_weekday_before(day) == expected
+
+
+def test_only_missing_still_drops_priced_tickers() -> None:
+    conn = _db()
+    _seed_price(conn, "P", date(2026, 9, 17))
+    provider = FakeProvider()
+
+    refresh_prices(
+        conn, provider=provider, tickers=["P", "N1", "N2"], only_missing=True, today=_TODAY
+    )
+
+    assert _price_calls(provider) == ["N1", "N2"]

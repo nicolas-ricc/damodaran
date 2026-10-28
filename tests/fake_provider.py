@@ -41,6 +41,7 @@ class FakeProvider:
         filing_dates: dict[str, date] | None = None,
         fail_with: dict[str, Exception] | None = None,
         rate_limit_after: int | None = None,
+        prices_rate_limit_after: int | None = None,
     ) -> None:
         self._companies = {k.upper(): v for k, v in (companies or {}).items()}
         self._bundles = {k.upper(): v for k, v in (bundles or {}).items()}
@@ -50,6 +51,8 @@ class FakeProvider:
         self._fail_with = {k.upper(): v for k, v in (fail_with or {}).items()}
         self._rate_limit_after = rate_limit_after
         self._fundamentals_calls = 0
+        self._prices_rate_limit_after = prices_rate_limit_after
+        self._prices_calls = 0
         self.calls: list[tuple[str, str]] = []
         self.closed = False
 
@@ -83,6 +86,12 @@ class FakeProvider:
 
     def daily_prices(self, ticker: str, since: date | None) -> list[PriceBar]:
         self.calls.append(("daily_prices", ticker.upper()))
+        if (
+            self._prices_rate_limit_after is not None
+            and self._prices_calls >= self._prices_rate_limit_after
+        ):
+            raise ProviderRateLimitError("fake quota exhausted")
+        self._prices_calls += 1
         return self._prices.get(ticker.upper(), [])
 
     def fx_rates(self, currency: str, since: date | None) -> list[FxRate]:
