@@ -3,7 +3,9 @@ from typing import Any
 
 import duckdb
 import pytest
+from bot.reference.currencies import load_currency_table
 
+from bot.ingest import damodaran
 from bot.ingest.damodaran import import_damodaran_from_files
 from bot.screener.engine import _resolve_tax_rate as screener_tax_rate
 from bot.storage.db import apply_schema, connect
@@ -16,6 +18,13 @@ _FIXTURES_PRESENT = (FIXTURES / "wacc_sample.xls").exists() and (
 ).exists()
 
 _SOFTWARE = "Software (System & Application)"
+
+REPO_CURRENCIES = Path(__file__).resolve().parents[2] / "config" / "currencies.yaml"
+
+
+def test_import_never_reads_the_preheader_scalar() -> None:
+    assert not hasattr(damodaran, "parse_preheader_scalar")
+    assert not hasattr(damodaran, "RISK_FREE_RATE_LABEL")
 
 
 def _imported_conn() -> duckdb.DuckDBPyConnection:
@@ -45,6 +54,10 @@ def _seed_us_software_company(conn: duckdb.DuckDBPyConnection) -> None:
         "INSERT INTO companies (ticker, name, country, industry_damodaran, source) "
         "VALUES ('ACME', 'ACME Inc', 'United States', ?, 'test')",
         [_SOFTWARE],
+    )
+    conn.execute(
+        "INSERT INTO financials_annual (ticker, fiscal_year, currency, source) "
+        "VALUES ('ACME', 2025, 'USD', 'test')"
     )
 
 
@@ -115,11 +128,20 @@ def test_import_damodaran_is_idempotent():
 
 @pytest.mark.integration
 @pytest.mark.skipif(not _FIXTURES_PRESENT, reason="Damodaran fixtures absent")
-def test_import_fills_country_tax_and_risk_free_rates() -> None:
+def test_import_fills_country_tax_rates_and_no_risk_free_column() -> None:
     conn = _imported_conn()
 
     assert _country_value(conn, "tax_rate", "United States") == pytest.approx(0.25)
-    assert _country_value(conn, "risk_free_rate", "United States") == pytest.approx(0.0395)
+    # #109: the US Treasury scalar is no longer broadcast into every country row;
+    # the risk-free rate is keyed by valuation currency in config/currencies.yaml.
+    columns = {
+        r[0]
+        for r in conn.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = 'damodaran_country'"
+        ).fetchall()
+    }
+    assert "risk_free_rate" not in columns
     assert _country_value(conn, "tax_rate", "Australia") == pytest.approx(0.30)
     assert _country_value(conn, "tax_rate", "Bahamas") == pytest.approx(0.0)
 
@@ -138,15 +160,20 @@ def test_import_fills_country_tax_and_risk_free_rates() -> None:
 
 @pytest.mark.integration
 @pytest.mark.skipif(not _FIXTURES_PRESENT, reason="Damodaran fixtures absent")
-def test_terminal_growth_is_capped_by_the_imported_risk_free_rate() -> None:
+def test_terminal_growth_uses_the_currency_file_usd_rate() -> None:
+    """The US pin moved from the importer (#51) to the currency file (#109).
+
+    The file's USD pair is (rfr 0.0395, GDP 0.04): the same 3.95% the importer
+    used to read from wacc.xls, so min() still picks the rate.
+    """
     conn = _imported_conn()
     _seed_us_software_company(conn)
-    gdp_nominal = 0.04  # above the imported 0.0395, so min() must pick the rate
 
-    growth = resolve_assumptions("ACME", conn, gdp_nominal=gdp_nominal).terminal_growth
+    growth = resolve_assumptions(
+        "ACME", conn, currencies=load_currency_table(REPO_CURRENCIES)
+    ).terminal_growth
 
-    assert growth.value == pytest.approx(min(0.0395, gdp_nominal))
-    assert growth.value != pytest.approx(gdp_nominal)
+    assert growth.value == pytest.approx(0.0395)
     assert growth.source is AssumptionSource.RULE_BASED
     conn.close()
 
