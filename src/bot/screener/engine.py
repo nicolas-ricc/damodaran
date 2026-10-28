@@ -22,11 +22,13 @@ from collections import defaultdict
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import date
+from enum import StrEnum
 from pathlib import Path
 
 import duckdb
+import structlog
 
-from bot.reference.currencies import CurrencyTable, load_currency_table
+from bot.reference.currencies import CurrencyTable, load_currency_table, normalize_currency
 from bot.reference.regions import dataset_region
 from bot.reference.sectors import is_financial_services as industry_is_financial_services
 from bot.screener.benchmarks import load_industry_benchmarks
@@ -45,6 +47,21 @@ from bot.utils.finance import cagr
 from bot.utils.fx import to_usd
 from bot.valuator.analysis import analyze, bulk_load_valuation_inputs
 from bot.valuator.assumptions import conventional_override_path
+
+log = structlog.get_logger(__name__)
+
+
+class CoverageReason(StrEnum):
+    """Why the ADR 0006 coverage gate excluded a company (one reason each).
+
+    Precedence when several apply: ``industry_unmapped`` > ``benchmark_missing``
+    > ``currency_uncovered``.
+    """
+
+    INDUSTRY_UNMAPPED = "industry_unmapped"
+    BENCHMARK_MISSING = "benchmark_missing"
+    CURRENCY_UNCOVERED = "currency_uncovered"
+
 
 #: Damodaran region used when a company's country has no ``damodaran_country``
 #: row (so a value indicator can still look its sector median up). The screener
@@ -168,8 +185,9 @@ class RejectedCompany:
     """A company that did not survive the screen, and why (spec §6, ADR 0006).
 
     Covers both eliminatory paths: a ``verdict.failed_gates`` from
-    :func:`evaluate_company`, or the single ``("coverage_gate",)`` marker for a
-    company the ADR 0006 coverage gate excluded before evaluation ever ran.
+    :func:`evaluate_company`, or the single named :class:`CoverageReason` value
+    (e.g. ``("currency_uncovered",)``) for a company the ADR 0006 coverage gate
+    excluded before evaluation ever ran.
     """
 
     ticker: str
@@ -189,14 +207,32 @@ class ScreenResult:
     shortlist: tuple[ScreenedCompany, ...]
     screened: int
     no_coverage: tuple[str, ...] = ()
-    """Tickers excluded from the universe for lack of a usable sector benchmark
-    (ADR 0006): no ``industry_damodaran``, no matching Damodaran industry row, or
-    a matched row whose ``wacc`` is NULL."""
+    """Tickers excluded from the universe by the ADR 0006 coverage gate, for any
+    of the three :class:`CoverageReason` values: no ``industry_damodaran``, no
+    usable sector benchmark (no matching row or a NULL ``wacc``), or a valuation
+    currency missing from the currency table."""
     rejected: tuple[RejectedCompany, ...] = ()
     """Every company that did not make the shortlist, with why: coverage-gate
-    exclusions carry ``("coverage_gate",)``; verdict failures carry the real
+    exclusions carry their :class:`CoverageReason` value; verdict failures carry the real
     ``failed_gates`` from :func:`evaluate_company` (spec §6, so
     ``screener_candidates.failed_gates`` can answer "why did X fall")."""
+
+    @property
+    def coverage_counts(self) -> dict[CoverageReason, int]:
+        """Coverage-gate exclusions per reason; every reason is always a key."""
+        counts = dict.fromkeys(CoverageReason, 0)
+        for r in self.rejected:
+            for reason in CoverageReason:
+                if r.failed_gates == (reason.value,):
+                    counts[reason] += 1
+        return counts
+
+
+def format_coverage_counts(result: ScreenResult) -> str:
+    """The coverage-gate breakdown line shared by the Markdown report and the CLI."""
+    counts = result.coverage_counts
+    detail = " · ".join(f"{reason.value} {counts[reason]}" for reason in CoverageReason)
+    return f"Excluded by coverage gate (ADR 0006): {len(result.no_coverage)} ({detail})"
 
 
 # --------------------------------------------------------------------------- #
@@ -274,6 +310,15 @@ def _load_all_annual(
     for r in rows:
         out[r[0]].append(_AnnualRow(*r[1:]))
     return out
+
+
+def _load_reporting_currencies(conn: duckdb.DuckDBPyConnection) -> dict[str, str | None]:
+    """Valuation currency per ticker: latest non-restated annual row's currency."""
+    rows = conn.execute(
+        "SELECT ticker, currency FROM financials_annual WHERE is_restated = FALSE "
+        "QUALIFY row_number() OVER (PARTITION BY ticker ORDER BY fiscal_year DESC) = 1"
+    ).fetchall()
+    return {r[0]: r[1] for r in rows}
 
 
 def _load_latest_prices(
@@ -736,6 +781,9 @@ def run_screen(
     # handful of queries per company inside the loop.
     all_annual = _load_all_annual(conn)
     all_prices = _load_latest_prices(conn)
+    table = currencies if currencies is not None else load_currency_table()
+    reporting_currencies = _load_reporting_currencies(conn)
+    uncovered_by_currency: dict[str | None, int] = defaultdict(int)
     benchmark_cache: dict[tuple[str | None, str], IndustryBenchmarks | None] = {}
 
     pending: list[_Pending] = []
@@ -764,12 +812,21 @@ def run_screen(
         else:
             benchmarks = load_industry_benchmarks(conn, industry=company.industry, region=region)
             benchmark_cache[cache_key] = benchmarks
-        # ADR 0006 coverage gate: no usable sector benchmark, no candidate. A
-        # company leaves the universe here, before evaluation, rather than being
-        # scored as if its unmeasured ROIC matched its sector's WACC.
-        if benchmarks is None or benchmarks.wacc is None:
+        # ADR 0006 coverage gate: a company we cannot measure leaves the universe
+        # before evaluation, with one named reason (precedence order).
+        reason: CoverageReason | None = None
+        if row.industry_damodaran is None:
+            reason = CoverageReason.INDUSTRY_UNMAPPED
+        elif benchmarks is None or benchmarks.wacc is None:
+            reason = CoverageReason.BENCHMARK_MISSING
+        else:
+            ccy = normalize_currency(reporting_currencies.get(row.ticker))
+            if ccy not in table:
+                reason = CoverageReason.CURRENCY_UNCOVERED
+                uncovered_by_currency[ccy] += 1
+        if reason is not None:
             no_coverage.append(row.ticker)
-            rejected.append(RejectedCompany(row.ticker, ("coverage_gate",)))
+            rejected.append(RejectedCompany(row.ticker, (reason.value,)))
             continue
         screened += 1
         verdict = evaluate_company(
@@ -792,6 +849,9 @@ def run_screen(
             )
         )
 
+    for ccy, count in sorted(uncovered_by_currency.items(), key=lambda kv: str(kv[0])):
+        log.warning("screener.currency_uncovered", currency=ccy, companies=count)
+
     # First pass: rank the FULL survivor universe so the value/quality/growth
     # percentiles mean "rank within the filtered universe", then truncate to the
     # shortlist the valuator runs on.
@@ -807,7 +867,6 @@ def run_screen(
     # injected per-ticker ``valuator`` keeps the legacy one-call-per-candidate seam.
     shortlist_tickers = tuple(s.ticker for s in first_pass)
     if valuator is _dcf_margin_of_safety:
-        table = currencies if currencies is not None else load_currency_table()
         raw_margins = _batch_dcf_margins(
             conn, shortlist_tickers, assumptions_dir, table, warned=set()
         )

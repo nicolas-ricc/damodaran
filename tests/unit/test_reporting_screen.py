@@ -59,7 +59,7 @@ def test_markdown_reports_no_coverage_exclusions() -> None:
         no_coverage=("AAA", "BBB"),
     )
     md = render_markdown(result, generated_on=date(2026, 5, 30))
-    assert "Excluded (no sector benchmark, ADR 0006): 2" in md
+    assert "Excluded by coverage gate (ADR 0006): 2 (" in md
 
 
 def test_markdown_empty_shortlist() -> None:

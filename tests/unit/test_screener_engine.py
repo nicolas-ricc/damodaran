@@ -631,7 +631,7 @@ def test_no_coverage_companies_appear_as_rejected_by_the_coverage_gate(
     )
     result = run_screen(conn, _adr0006_preset(), valuator=None)
     rejected = {r.ticker: r.failed_gates for r in result.rejected}
-    assert rejected["NOMAP"] == ("coverage_gate",)
+    assert rejected["NOMAP"] == ("industry_unmapped",)
 
 
 def test_run_screen_uses_valuator_mos(conn: duckdb.DuckDBPyConnection) -> None:
