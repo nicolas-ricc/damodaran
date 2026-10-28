@@ -30,7 +30,7 @@
 
 1. A ticker whose provider never returns bars (PSKY, WBD: absent from EDGAR/Tiingo) stays never-priced and is attempted first every run; it must cost one request per run, not block the others. Test in Task 1 (`test_unpriceable_ticker_does_not_starve_the_rest`).
 2. Mixed-case tickers in the input list (`"aapl"`) must match the upper-case `prices_daily` rows, otherwise a priced ticker is mistaken for never-priced. Test in Task 1.
-3. A refresh that fails (non-zero exit) inside the loop must stop the loop and skip FX/portfolio, like today's `&&` chain. Test in Task 2.
+3. A refresh that fails (non-zero exit) inside the loop must stop the loop and skip the portfolio sync; FX still runs, as it did when prices and FX were one `bot refresh --prices --fx` process (`cli.py:156-163`, worst exit code wins). Corrected at code review (stage 5); the plan first said FX was skipped too. Test in Task 2.
 4. A run that still has deferred tickers after the last round must not sleep again and must not fail the script: FX and portfolio still run. Test in Task 2.
 5. The CLI's deferred hint must no longer tell the operator `--only-missing` is needed to advance (it now advances on its own); the `tickers deferred` phrase the loop greps for must stay. Test in Task 2.
 
@@ -38,7 +38,7 @@
 
 - Stale-first ordering lives in `refresh_prices`, not in `_run_bulk_refresh` (shared with fundamentals and FX, which the issue does not touch).
 - "Priced today" in the issue's acceptance 2 is honoured as "attempted after the stale ones" in the strongest form: it is not attempted at all. Rejected: requesting up-to-date tickers last, which makes every rate-limited round report them as deferred and the loop never stop.
-- Up to date is judged by weekday only, not an exchange holiday calendar. Rejected: a holiday calendar dependency. Cost: on the day after a market holiday nothing counts as up to date, so the loop runs its 10 rounds (≤ 500 requests, under the 1000/day cap).
+- Up to date is judged by weekday only, not an exchange holiday calendar. Rejected: a holiday calendar dependency. Cost: on the day after a market holiday nothing counts as up to date and every pending ticker ties on the same newest date, so each of the 10 rounds re-requests the same first 50 (≤ 500 requests, under the 1000/day cap; harmless, since those tickers have no new bar, but noisy). Corrected at code review (stage 5); a stop-on-zero-rows round was not adopted.
 - Any `prices_daily` row counts toward freshness, whatever its `source` (`prices_daily` PK is `(ticker, date)`, `src/bot/storage/schema.sql:62-72`).
 - No `flock` in `daily.sh`: runtime is bounded by `BOT_PRICE_ROUNDS × BOT_PRICE_RETRY_PAUSE` (≈ 9–10 h) and the cron entries are 24 h apart (`scripts/install_cron.sh`), so two daily runs cannot overlap; `weekly.sh` runs Saturday 10:00, after Friday's run ends.
 - The daily loop lives in `scripts/daily.sh` (issue option 2a), not in a `--wait-for-quota` CLI flag (option 2b): a sleeping Python process would hold the DuckDB write lock for hours, which is exactly the #108 hazard; separate processes release it between rounds.

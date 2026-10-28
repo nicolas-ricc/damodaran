@@ -375,6 +375,19 @@ def test_run_over_an_up_to_date_universe_defers_nothing() -> None:
     assert result.status == "success"
 
 
+def test_fully_rate_limited_run_is_a_success() -> None:
+    conn = _db()
+    for t in ("A", "B"):
+        _seed_price(conn, t, date(2026, 9, 17))
+    provider = FakeProvider(prices_rate_limit_after=0)
+
+    result = refresh_prices(conn, provider=provider, tickers=["A", "B", "NEW"], today=_TODAY)
+
+    assert result.deferred == 3
+    assert result.failed == 0
+    assert result.status == "success"
+
+
 @pytest.mark.parametrize(
     ("day", "expected"),
     [

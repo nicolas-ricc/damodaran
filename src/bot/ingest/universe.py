@@ -584,8 +584,10 @@ def _newest_price_dates(conn: duckdb.DuckDBPyConnection) -> dict[str, date | Non
 def _stale_first(tickers: list[str], newest: dict[str, date | None]) -> list[str]:
     """Reorder ``tickers``: never priced first, then oldest newest-bar first.
 
-    ``newest`` is from ``_newest_price_dates``. Stable, so ties keep input order. Tickers keep their original spelling.
+    ``newest`` is from ``_newest_price_dates``. Stable, so ties keep input order.
+    Tickers keep their original spelling.
     """
+
     def key(ticker: str) -> tuple[bool, date]:
         d = newest.get(ticker.upper())
         return (d is not None, d or date.min)

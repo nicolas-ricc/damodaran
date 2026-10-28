@@ -30,12 +30,15 @@ ROUNDS="${BOT_PRICE_ROUNDS:-10}"
 # At least one round, whatever the value: non-numeric or < 1 means one.
 [[ "$ROUNDS" =~ ^[0-9]+$ ]] && ROUNDS=$((10#$ROUNDS)) || ROUNDS=1
 PAUSE="${BOT_PRICE_RETRY_PAUSE:-3600}"
+# A non-numeric pause would make `sleep` fail and the rounds run back to back.
+[[ "$PAUSE" =~ ^[0-9]+$ ]] || PAUSE=3600
 
 # Refresh prices until no tickers are deferred. Returns the failing round's
 # exit code; running out of rounds is not a failure.
 refresh_prices() {
   local round out status
   for ((round = 1; ; round++)); do
+    echo "--- prices round $round/$ROUNDS $(date -Is)"
     out="$(uv run bot refresh --prices 2>&1)"
     status=$?
     echo "$out"
@@ -46,7 +49,16 @@ refresh_prices() {
   done
 }
 
+# FX runs even when prices failed, as it did when both were one `bot refresh
+# --prices --fx`; the portfolio sync runs only when both succeeded, and the exit
+# code is the worst of the three.
 {
   echo "=== $(date -Is) run ==="
-  refresh_prices && uv run bot refresh --fx && uv run bot portfolio
+  refresh_prices
+  prices=$?
+  uv run bot refresh --fx
+  fx=$?
+  worst=$((prices > fx ? prices : fx))
+  ((worst == 0)) || exit "$worst"
+  uv run bot portfolio
 } >> "$LOG" 2>&1

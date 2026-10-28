@@ -30,7 +30,8 @@ exec "{VENV_BIN}/$1" "${{@:2}}"
 # Logs argv, prints a line, exits with FAKE_<SUBCOMMAND>_EXIT (default 0),
 # where SUBCOMMAND is the bot subcommand: `uv run bot refresh ...` -> REFRESH.
 # The first FAKE_DEFERRED_ROUNDS `refresh --prices` calls also print the bot's
-# deferred NOTE, as a rate-limited price refresh does.
+# deferred NOTE, as a rate-limited price refresh does; FAKE_PRICES_EXIT, when
+# set, is the exit code of `refresh --prices` alone.
 _UV_RECORDER = """#!/usr/bin/env bash
 echo "$*" >> "{calls}"
 echo "fake uv: $*"
@@ -40,6 +41,7 @@ if [ "$3 $4" = "refresh --prices" ]; then
   if [ "$n" -le "${{FAKE_DEFERRED_ROUNDS:-0}}" ]; then
     echo "NOTE — 5 tickers deferred (provider rate limit); re-run to continue."
   fi
+  [ -z "${{FAKE_PRICES_EXIT:-}}" ] || exit "$FAKE_PRICES_EXIT"
 fi
 var="FAKE_${{3^^}}_EXIT"
 exit "${{!var:-0}}"
@@ -283,6 +285,14 @@ def test_wrapper_runs_both_commands_and_logs_with_a_header(
     assert f"fake uv: {_WRAPPERS[name][1]}" in log
 
 
+# A failing refresh skips what follows it, except that daily.sh still refreshes
+# FX after failing prices, as `bot refresh --prices --fx` did in one process.
+_AFTER_FAILING_REFRESH = {
+    "daily.sh": _WRAPPERS["daily.sh"][:2],
+    "weekly.sh": _WRAPPERS["weekly.sh"][:1],
+}
+
+
 @pytest.mark.parametrize("name", list(_WRAPPERS))
 def test_wrapper_failing_refresh_skips_the_second_command(
     name: str, repo: Path, recorder_bin: Path, calls: Path
@@ -290,7 +300,7 @@ def test_wrapper_failing_refresh_skips_the_second_command(
     result = _run(repo / "scripts" / name, env=_env(recorder_bin, FAKE_REFRESH_EXIT="3"))
 
     assert result.returncode == 3
-    assert _calls(calls) == _WRAPPERS[name][:1]
+    assert _calls(calls) == _AFTER_FAILING_REFRESH[name]
 
 
 def test_daily_exits_with_portfolio_failure_and_logs_it(
@@ -339,14 +349,61 @@ def test_daily_runs_one_round_when_max_rounds_is_invalid(
     assert _calls(calls) == [_PRICES, *_WRAPPERS["daily.sh"][1:]]
 
 
-def test_daily_failing_price_round_stops_everything(
+def test_daily_failing_price_round_stops_the_loop_still_refreshes_fx_skips_portfolio(
     repo: Path, recorder_bin: Path, calls: Path
 ) -> None:
-    env = _env(recorder_bin, FAKE_DEFERRED_ROUNDS="1", FAKE_REFRESH_EXIT="3", **_NO_PAUSE)
+    env = _env(recorder_bin, FAKE_DEFERRED_ROUNDS="1", FAKE_PRICES_EXIT="2", **_NO_PAUSE)
     result = _run(repo / "scripts" / "daily.sh", env=env)
 
-    assert result.returncode == 3
-    assert _calls(calls) == [_PRICES]
+    assert result.returncode == 2
+    assert _calls(calls) == _WRAPPERS["daily.sh"][:2]
+
+
+def test_daily_exits_with_the_worst_of_prices_and_fx(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    env = _env(recorder_bin, FAKE_PRICES_EXIT="1", FAKE_REFRESH_EXIT="2", **_NO_PAUSE)
+    result = _run(repo / "scripts" / "daily.sh", env=env)
+
+    assert result.returncode == 2
+    assert _calls(calls) == _WRAPPERS["daily.sh"][:2]
+
+
+def _fake_sleep(bin_dir: Path, calls: Path) -> None:
+    _write_exe(bin_dir / "sleep", f'#!/usr/bin/env bash\necho "sleep $*" >> "{calls}"\n')
+
+
+def test_daily_pauses_between_rounds_but_not_after_the_last(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    _fake_sleep(recorder_bin, calls)
+    env = _env(recorder_bin, FAKE_DEFERRED_ROUNDS="99", BOT_PRICE_ROUNDS="3")
+    result = _run(repo / "scripts" / "daily.sh", env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls)[:5] == [_PRICES, "sleep 3600", _PRICES, "sleep 3600", _PRICES]
+    assert _calls(calls)[5:] == _WRAPPERS["daily.sh"][1:]
+
+
+@pytest.mark.parametrize(("pause", "expected"), [("5", "sleep 5"), ("soon", "sleep 3600")])
+def test_daily_pause_is_configurable_and_falls_back_when_invalid(
+    repo: Path, recorder_bin: Path, calls: Path, pause: str, expected: str
+) -> None:
+    _fake_sleep(recorder_bin, calls)
+    env = _env(recorder_bin, FAKE_DEFERRED_ROUNDS="1", BOT_PRICE_RETRY_PAUSE=pause)
+    result = _run(repo / "scripts" / "daily.sh", env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls)[:3] == [_PRICES, expected, _PRICES]
+
+
+def test_daily_log_marks_each_price_round(repo: Path, recorder_bin: Path) -> None:
+    env = _env(recorder_bin, FAKE_DEFERRED_ROUNDS="1", **_NO_PAUSE)
+    assert _run(repo / "scripts" / "daily.sh", env=env).returncode == 0
+
+    log = (repo / ".cache" / "daily.log").read_text()
+    assert "--- prices round 1/10 " in log
+    assert "--- prices round 2/10 " in log
 
 
 def test_weekly_exits_with_screen_failure(repo: Path, recorder_bin: Path, calls: Path) -> None:

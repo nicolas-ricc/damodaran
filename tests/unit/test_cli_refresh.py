@@ -228,7 +228,9 @@ def _all_deferred_prices() -> UniverseRefreshResult:
 
 
 def test_all_deferred_prices_run_exits_zero(tmp_path, monkeypatch):
-    """A rate-limited price run is not an error: daily.sh's retry loop relies on it."""
+    """The CLI maps an all-deferred ``success`` result to exit 0 (daily.sh's loop
+    relies on it; ``refresh_prices`` resolving such a run to ``success`` is pinned
+    in test_prices_refresh.py)."""
     monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "test.duckdb"))
     monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
     monkeypatch.setenv("BOT_REPORTS_DIR", str(tmp_path / "reports"))
