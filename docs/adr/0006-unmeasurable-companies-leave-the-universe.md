@@ -53,6 +53,11 @@ entire non-US universe.
 
 ## Consequences
 
+- The gate names why each company left, with one reason per company in
+  precedence order: `industry_unmapped`, `benchmark_missing` and, since #109,
+  `currency_uncovered` (the valuation currency has no row in
+  `config/currencies.yaml`, so terminal growth cannot be resolved). The report
+  and the CLI show the count per reason.
 - Until #60 lands, the screener is explicitly US-only and says so, rather than
   quietly applying a different philosophy abroad.
 - `industry_mapping.csv` coverage becomes load-bearing: an unmapped provider

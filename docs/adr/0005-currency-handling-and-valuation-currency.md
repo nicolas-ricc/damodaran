@@ -2,11 +2,16 @@
 
 ## Status
 
-Accepted (2026-08-11). Not implemented. Under the current US-only scope (S&P 500
-universe, listing currency = reporting currency = USD) its consequences do not
-manifest — there is no mismatch to resolve when every company trades and
-reports in the same currency. It becomes blocking again once M2 (the global
-universe) reopens.
+Accepted (2026-08-11). §4 Implemented (2026-10-28, #109): the per-currency
+table lives in `config/currencies.yaml` (loaded by `bot.reference.currencies`),
+the valuator resolves it by valuation currency in `valuator/assumptions.py`, and
+the coverage gate in `screener/engine.py` excludes companies whose currency it
+does not cover. §1–§3 are still not implemented: `companies.currency` remains one
+ambiguous column, and the price is not yet converted from listing currency into
+the valuation currency. Under the current US-only scope (S&P 500 universe,
+listing currency = reporting currency = USD) their consequences do not manifest —
+there is no mismatch to resolve when every company trades and reports in the same
+currency. They become blocking again once M2 (the global universe) reopens.
 
 ## Context
 
@@ -60,9 +65,16 @@ rule; the seam keeps the concern in one place.
 
 **4. A company is valued in its own reporting currency — the *valuation
 currency*.** Cash flows and discount rate must share a currency. The risk-free
-rate comes from Damodaran's per-currency risk-free-rate dataset (a new importer),
-and terminal growth becomes `min(risk_free_rate_of_that_currency, nominal GDP
-growth of that country)` instead of today's two US-sourced halves.
+rate comes from Damodaran's per-currency risk-free-rate table, and terminal growth
+becomes `min(risk_free_rate_of_that_currency, nominal GDP growth of that country)`
+instead of the two US-sourced halves.
+
+*As implemented (#109):* the table is not imported. It is curated by hand in
+`config/currencies.yaml` from Damodaran's January table ("Government Bond Rates
+and Riskfree Rates, by Currency", net of the rating default spread) plus IMF WEO
+nominal GDP growth, one row per ISO code with its sources and `as_of`. A currency
+with no row leaves terminal growth unresolved and the company leaves the universe
+(`currency_uncovered`, ADR 0006); there is no USD fallback.
 
 Rejected: deriving the per-currency rate from an inflation differential
 (`rfr_ccy = rfr_USD + (E[π_ccy] − E[π_USD])`) — Damodaran's own fallback, but it
@@ -84,5 +96,6 @@ surface.
   single reporting currency by construction, so FX movement is never read as
   business deterioration. A company that *changes* its reporting currency
   mid-series remains an open edge case.
-- The Damodaran importer gains a dataset (risk-free rates by currency) and loses
-  the single-scalar broadcast into `damodaran_country`.
+- The Damodaran importer loses the single-scalar broadcast into
+  `damodaran_country` (the column is dropped). Risk-free rates by currency come
+  from the hand-curated `config/currencies.yaml` instead of a new importer.
