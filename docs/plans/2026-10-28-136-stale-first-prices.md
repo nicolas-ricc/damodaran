@@ -19,6 +19,7 @@
 - `--only-missing` keeps its meaning (drops any ticker with a stored price); ordering applies to whatever survives it.
 - Do not change the monthly 500-symbol cap handling (ADR 0007) nor the universe CSV.
 - Deferred tickers are still not failures: a rate-limited run keeps exit code 0 when nothing failed.
+- `daily.sh` runs at least one round whatever `BOT_PRICE_ROUNDS` holds (a value `< 1` or non-numeric evaluates to 0 in bash arithmetic and ends the loop after round 1); it does not sleep after its last round.
 - Every test that seeds prices passes an explicit `today`, never the wall clock.
 - `daily.sh` round pause and round cap are env-overridable: `BOT_PRICE_RETRY_PAUSE` (seconds, default `3600`) and `BOT_PRICE_ROUNDS` (default `10`). 10 rounds × 50 requests covers 498 tickers in one day and stays under Tiingo's 1000 requests/day.
 - The loop's "more to do" signal is the CLI's existing deferred line, `NOTE — <n> tickers deferred (provider rate limit)`; the shell greps for `tickers deferred`.
@@ -42,6 +43,7 @@
 - No `flock` in `daily.sh`: runtime is bounded by `BOT_PRICE_ROUNDS × BOT_PRICE_RETRY_PAUSE` (≈ 9–10 h) and the cron entries are 24 h apart (`scripts/install_cron.sh`), so two daily runs cannot overlap; `weekly.sh` runs Saturday 10:00, after Friday's run ends.
 - The daily loop lives in `scripts/daily.sh` (issue option 2a), not in a `--wait-for-quota` CLI flag (option 2b): a sleeping Python process would hold the DuckDB write lock for hours, which is exactly the #108 hazard; separate processes release it between rounds.
 - `scripts/price_fill.sh` and its `--only-missing` drip are left as they are; README is updated to say the plain daily run now advances by itself.
+- The previous session's close is available from Tiingo by the 09:00 local cron (`scripts/install_cron.sh`). If it is not, nothing counts as up to date and the loop runs its 10 rounds: still stale-first and still covering the universe, only without early exit. Rejected: moving the cron hour, which no issue asks for.
 - Live-DB acceptance (every ticker priced within 3 trading days; `min_market_cap` failures drop) cannot run in CI and is manual verification in the PR.
 
 ---
@@ -57,14 +59,14 @@
 - Produces: `FakeProvider(..., prices_rate_limit_after: int | None = None)` — `daily_prices` records the call, then raises `ProviderRateLimitError("fake quota exhausted")` once it has already served `prices_rate_limit_after` calls (own counter, independent of the fundamentals `rate_limit_after`).
 - Produces: `_stale_first(conn: duckdb.DuckDBPyConnection, tickers: list[str]) -> list[str]` — returns the same tickers (original spelling) reordered per Global Constraints.
 - Produces: `_last_weekday_before(day: date) -> date`.
-- `refresh_prices` gains keyword `today: date | None = None` (defaults to `date.today()`; a test seam). After the `only_missing` filter it splits the list into up-to-date tickers (recorded as `skipped` outcomes, appended after the attempted ones) and the rest, ordered by `_stale_first`. The skipped outcomes must be counted in `result.skipped` and in the `refresh_log` summary like any other outcome (extend `_run_bulk_refresh` with keyword `current: list[str] | None = None`: tickers appended as `skipped` outcomes after the loop and counted, without changing its behaviour for other callers).
+- `refresh_prices` gains keyword `today: date | None = None` (defaults to `date.today()`; a test seam). After the `only_missing` filter it splits the list into up-to-date tickers (recorded as `skipped` outcomes, appended after the attempted ones) and the rest, ordered by `_stale_first`. The skipped outcomes count in `result.skipped` and in `total` (so in the failure-rate denominator, `universe.py:432`); the `refresh_log` summary format (`_log_bulk_refresh`, `universe.py:723`) is unchanged (extend `_run_bulk_refresh` with keyword `current: list[str] | None = None`: tickers appended as `skipped` outcomes after the loop and counted, without changing its behaviour for other callers).
 
 - [ ] **Step 1: Write the failing tests** in `tests/unit/test_prices_refresh.py` (seed prices with a helper inserting `prices_daily(ticker, date, close, source)` rows):
-  - `test_two_rate_limited_runs_import_distinct_tickers`: tickers `T1..T6`, every one with a bar; run `refresh_prices` twice, each with a fresh `FakeProvider(prices=..., prices_rate_limit_after=2)`, bar date `date(2026, 10, 27)`, `today=date(2026, 10, 28)`. Assert each result has `imported == 2`, `deferred == 4`, and the union of imported tickers across both runs has 4 distinct names (`{"T1","T2","T3","T4"}`).
+  - `test_two_rate_limited_runs_import_distinct_tickers` (issue acceptance 1): tickers `T1..T6`, every one with a bar dated `2026-10-27`; run `refresh_prices` twice with `today=date(2026, 10, 28)`, each with a fresh `FakeProvider(prices=..., prices_rate_limit_after=2)`. Run 1: `imported == 2`, `deferred == 4`. Run 2: `imported == 2`, `skipped == 2` (T1, T2 are up to date), `deferred == 2`. Union of imported tickers across both runs is `{"T1","T2","T3","T4"}`.
   - `test_never_priced_before_stale_before_fresh` (issue acceptance 2): `today=date(2026, 10, 28)`; tickers `["TODAY", "FRESHER", "STALE", "NEW"]`; TODAY seeded `2026-10-28`, FRESHER `2026-10-20`, STALE `2026-09-17`, NEW unseeded. Assert the `daily_prices` calls are `["NEW", "STALE", "FRESHER"]` (TODAY is never requested) and `[o.ticker for o in result.outcomes] == ["NEW", "STALE", "FRESHER", "TODAY"]` with TODAY's status `"skipped"`.
   - `test_stale_first_orders_oldest_first_and_keeps_csv_order_on_ties`: `["B", "A", "D", "C"]` with B and A both seeded `2026-09-17`, D `2026-10-01`, C `2026-08-01` → call order `["C", "B", "A", "D"]`; and two never-priced `["Y", "X"]` appended → they come first as `["Y", "X", ...]`.
   - `test_stale_first_matches_tickers_case_insensitively`: input `["aapl", "MSFT"]`, AAPL seeded `2026-10-01`, MSFT unseeded → call order `["MSFT", "AAPL"]`.
-  - `test_unpriceable_ticker_does_not_starve_the_rest`: `["GONE", "A", "B", "C"]`, `GONE` has no bars in the fake, `prices_rate_limit_after=2`; two runs (fresh provider each) → second run's daily_prices calls start `["GONE", "B"]`… i.e. GONE is retried and still only one of the two budgeted calls; union of tickers with a stored price after both runs is `{"A", "B"}`.
+  - `test_unpriceable_ticker_does_not_starve_the_rest`: `["GONE", "A", "B", "C"]`, GONE has no bars in the fake (Tiingo maps 404 to `[]`, `tiingo.py:88-89`, so it is `imported` with 0 rows, not `failed`), A/B/C have bars dated `2026-10-27`, `today=date(2026, 10, 28)`, `prices_rate_limit_after=2`, a fresh provider per run. The fake records a call before raising, so run 1's `daily_prices` calls are `["GONE", "A", "B"]` and run 2's are `["GONE", "B", "C"]`; tickers with a stored price after both runs are `{"A", "B"}`; both runs `status == "success"`.
   - `test_up_to_date_tickers_are_skipped_without_a_request`: `today=date(2026, 10, 28)` (Wednesday); `["UP", "OLD"]`, UP seeded `2026-10-27`, OLD `2026-10-23` → only `("daily_prices", "OLD")` called; `result.skipped == 1`, `result.imported == 1`.
   - `test_run_over_an_up_to_date_universe_defers_nothing`: every ticker seeded at the last weekday, `prices_rate_limit_after=0` → no `daily_prices` call, `result.deferred == 0`, `result.status == "success"`.
   - `test_last_weekday_before`: Mon 2026-10-26 → Fri 2026-10-23; Wed 2026-10-28 → Tue 2026-10-27; Sun 2026-10-25 → Fri 2026-10-23.
@@ -119,3 +121,25 @@ Expected: PASS.
 - [ ] **Step 5: Full suite and lint** — `uv run ruff check . && uv run mypy src && uv run pytest -q` green.
 
 - [ ] **Step 6: Commit** — `feat(#136): daily script loops price refresh until nothing is deferred`
+
+## Grilling
+
+Rounds: 2 (griller model: fable). Questions: 17 + 18 = 35.
+
+Sources: CODE 27, DOC 3 (README, ADR 0007, CONTEXT.md), ISSUE 3, NO SOURCE 2 (both technical assumptions).
+
+Round 1 found the plan's critical hole: stale-first alone requests every ticker every round, so a 498-ticker universe at 50/hour reports deferred tickers in every round and the daily loop could never stop (the issue's acceptance 3 runs the command "until it reports 0 deferred"). Fix: up-to-date tickers are skipped without a request (Task 1). Round 2 found a wrong expectation in two Task 1 tests (fixed above) and confirmed with the code:
+
+- `_run_bulk_refresh` stops calling the provider at the first rate limit and defers the rest: `universe.py:403-415`.
+- Tiingo 404 → `[]` → `imported` with 0 rows (PSKY/WBD do not fail the run): `tiingo.py:88-89`.
+- FX makes no Tiingo request under US-only: `edgar_base.py:169-172` returns `[]`. So the monthly distinct-symbol count stays at the 498 universe tickers (README "Tiingo's free tier", ADR 0007).
+- Deferred tickers are excluded from the failure rate, so an all-deferred run is `success`, exit 0: `universe.py:432-434`, `cli.py:282`.
+- NOTE printed only when `result.deferred` > 0, on stdout: `cli.py:308-312`.
+- `daily.sh` runs under `set -uo pipefail`, no `-e`: `scripts/daily.sh:9`.
+- Ticker is upper-cased before the provider call and the insert: `universe.py:567`; writes per ticker in one transaction, idempotent on `(ticker, date)`: `universe.py:589-592`, `479-505`.
+- `coerce_date`: `src/bot/ingest/base.py:36`; `prices_daily.date` is `NOT NULL`: `schema.sql:64`.
+- `docs/leccion/check.py` runs in the suite (`tests/unit/test_leccion.py:300`) and only warns on moved lines.
+
+Assumptions added: up-to-date skip and its weekday rule; "priced today" not attempted at all; freshness from any source; no `flock`; at-least-one-round; Tiingo prior close available at 09:00.
+
+Spec ambiguities: none. Follow-up issues opened: none.
