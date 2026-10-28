@@ -77,9 +77,6 @@ def _seed(
         )
 
 
-# --- Acceptance criterion: USD unchanged except the rate now comes from the file
-
-
 def test_usd_company_terminal_growth_comes_from_the_currency_file(
     conn: duckdb.DuckDBPyConnection,
 ) -> None:
@@ -105,9 +102,6 @@ def test_usd_company_without_history_anchors_revenue_growth_on_usd_gdp(
     result = resolve_assumptions("NEW", conn, currencies=TABLE)
     assert result.revenue_growth.value == pytest.approx((0.04,) * 5)
     assert result.revenue_growth.source is AssumptionSource.RULE_BASED
-
-
-# --- Acceptance criterion: a JPY company resolves the JPY pair
 
 
 def test_jpy_company_uses_the_jpy_rate(conn: duckdb.DuckDBPyConnection) -> None:
@@ -158,9 +152,6 @@ def test_bulk_and_single_loaders_agree_on_currency(conn: duckdb.DuckDBPyConnecti
         single = load_assumption_inputs(conn, ticker, currencies=TABLE)
         assert bulk[ticker].valuation_currency == single.valuation_currency
         assert bulk[ticker].currency_rates == single.currency_rates
-
-
-# --- Uncovered currency: unresolved, no USD fallback, one warning per currency
 
 
 def test_uncovered_currency_leaves_terminal_growth_unresolved(
