@@ -35,7 +35,7 @@ Seed values (rfr from Damodaran, GDP from IMF):
 | AUD | 0.0481 | 0.0465 |
 | CNY | 0.0126 | 0.0537 |
 | INR | 0.0474 | 0.1107 |
-| BRL | 0.1173 | 0.0557 |
+| BRL | 0.1173 | 0.0558 |
 
 ## Review Focus
 
