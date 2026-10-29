@@ -627,4 +627,6 @@ def test_estado_default_provider_gap_is_current() -> None:
 
 def test_pipeline_links_the_refresh_board() -> None:
     block = _block(_overview(), "refresh")
-    assert block is not None and re.search(r"(?m)^\s*link:\s*refresh\.svg\s*$", block)
+    # The ./ prefix is load-bearing: d2 v0.9.0 drops `link: refresh.svg` on a board
+    # that also has a node keyed `refresh`.
+    assert block is not None and re.search(r'(?m)^\s*link:\s*"\./refresh\.svg"\s*$', block)

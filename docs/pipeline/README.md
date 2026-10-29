@@ -31,3 +31,5 @@ line before it: `# @kind argument`. Never inside a `|md ... |` block; outside di
 | `@enum` | Enum whose member values appear on the board | `tests/unit/test_pipeline_diagram.py` |
 
 Convention: `class:` is a node's first attribute. Expand every acronym at first use.
+Write stage links as `link: "./refresh.svg"`: d2 v0.9.0 silently drops `link: refresh.svg`
+when the board also has a node keyed `refresh`.
