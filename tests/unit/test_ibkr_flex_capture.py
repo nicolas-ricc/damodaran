@@ -271,7 +271,7 @@ def _files(root: Path) -> set[Path]:
 
 
 @pytest.fixture
-def captured(sample: str, tmp_path: Path) -> object:
+def captured(sample: str, tmp_path: Path) -> FlexSummary:
     return ibkr_flex_capture.capture(_flex_settings(), root=tmp_path, transport=_transport(sample))
 
 
@@ -279,7 +279,7 @@ def test_fetch_flex_statement_returns_the_statement(sample: str) -> None:
     assert ibkr_flex.fetch_flex_statement(TOKEN, QUERY, transport=_transport(sample)) == sample
 
 
-def test_capture_writes_exactly_the_three_paths(captured: object, tmp_path: Path) -> None:
+def test_capture_writes_exactly_the_three_paths(captured: FlexSummary, tmp_path: Path) -> None:
     assert _files(tmp_path) == {
         ibkr_flex_capture.CASSETTE_PATH,
         ibkr_flex_capture.REDACTED_XML_PATH,
@@ -290,7 +290,7 @@ def test_capture_writes_exactly_the_three_paths(captured: object, tmp_path: Path
     assert Path("tests/fixtures/ibkr_flex/statement_real_summary.json") == ibkr_flex_capture.SUMMARY_PATH
 
 
-def test_capture_cassette_is_scrubbed_and_redacted(captured: object, tmp_path: Path) -> None:
+def test_capture_cassette_is_scrubbed_and_redacted(captured: FlexSummary, tmp_path: Path) -> None:
     text = (tmp_path / ibkr_flex_capture.CASSETTE_PATH).read_text(encoding="utf-8")
     assert text.startswith(
         "# Recorded by bot flex-capture (#110): the Flex token is scrubbed and the statement is redacted.\n"
@@ -305,18 +305,18 @@ def test_capture_cassette_is_scrubbed_and_redacted(captured: object, tmp_path: P
     assert len(cassette["interactions"]) == 3
 
 
-def test_capture_writes_redacted_xml_and_summary(sample: str, captured: object, tmp_path: Path) -> None:
+def test_capture_writes_redacted_xml_and_summary(sample: str, captured: FlexSummary, tmp_path: Path) -> None:
     redacted_text = (tmp_path / ibkr_flex_capture.REDACTED_XML_PATH).read_text(encoding="utf-8")
     summary_text = (tmp_path / ibkr_flex_capture.SUMMARY_PATH).read_text(encoding="utf-8")
     assert redacted_text == redact_statement(sample)
     assert summary_text == summarize_statement(sample).to_json()
 
 
-def test_capture_returns_the_summary(sample: str, captured: object) -> None:
+def test_capture_returns_the_summary(sample: str, captured: FlexSummary) -> None:
     assert captured == summarize_statement(sample)
 
 
-def test_capture_cassette_replays_through_vcr(sample: str, captured: object, tmp_path: Path) -> None:
+def test_capture_cassette_replays_through_vcr(sample: str, captured: FlexSummary, tmp_path: Path) -> None:
     path = tmp_path / ibkr_flex_capture.CASSETTE_PATH
     replayer = vcr.VCR(record_mode="none", filter_query_parameters=[("t", "SCRUBBED")])
     with replayer.use_cassette(str(path)):
@@ -409,7 +409,7 @@ def cli_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
 
 def _patch_capture(monkeypatch: pytest.MonkeyPatch, transport: httpx.BaseTransport) -> None:
     capture = functools.partial(ibkr_flex_capture.capture, transport=transport)
-    monkeypatch.setattr(cli, "capture", capture, raising=False)
+    monkeypatch.setattr(cli, "capture", capture)
 
 
 def test_cli_missing_settings_exits_2(cli_env: Path) -> None:
@@ -466,3 +466,9 @@ def test_flex_capture_is_hidden() -> None:
     result = _invoke(["--help"])
     assert result.exit_code == 0
     assert "flex-capture" not in result.output
+
+
+def test_render_cassette_without_a_token_has_nothing_to_refuse() -> None:
+    interactions = _record(lambda request: httpx.Response(200, text=SUCCESS))
+    text = ibkr_flex_capture.render_cassette(interactions, token="")
+    assert len(yaml.safe_load(text)["interactions"]) == 1

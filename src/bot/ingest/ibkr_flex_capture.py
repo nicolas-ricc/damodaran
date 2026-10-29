@@ -219,7 +219,7 @@ def _redact_if_statement(body: str) -> str:
 def render_cassette(interactions: Sequence[Interaction], *, token: str) -> str:
     """Render *interactions* as a VCR cassette with the token and statement scrubbed.
 
-    Raises :class:`FlexCaptureError` if the token survives in any form.
+    Raises :class:`FlexCaptureError` if a non-empty *token* survives in any form.
     """
     entries: list[dict[str, Any]] = [
         {
@@ -245,7 +245,7 @@ def render_cassette(interactions: Sequence[Interaction], *, token: str) -> str:
         width=float("inf"),
     )
     forms = (token, urllib.parse.quote(token, safe=""), urllib.parse.quote_plus(token, safe=""))
-    if any(form in text for form in forms):
+    if token and any(form in text for form in forms):
         raise FlexCaptureError("token found in the rendered cassette; nothing written")
     return text
 
