@@ -67,7 +67,7 @@ build: "3. bot site: build the static viewer" {  # @symbol bot.web.site.build
   cli: "bot site --out path [--reports-dir reports] [--base-url /]\nbase URL normalised to one leading and one trailing slash" {  # @symbol bot.cli.site
     class: step
   }
-  out_dir: "output directory safe to empty?\nrefused when it is the reports directory or contains it,\nexists and is not a directory,\nor is not empty and has no .bot-site marker file\nrefused: exit code 2\nelse emptied, marker written first" {  # @symbol bot.web.site._prepare_out_dir @const bot.web.site.MARKER
+  out_dir: "output directory safe to empty?\nrefused when it is the reports directory or contains it,\nexists and is not a directory,\nor is not empty and has no .bot-site marker file\nrefused: exit code 2\nelse emptied (or created), marker written before any page" {  # @symbol bot.web.site._prepare_out_dir @const bot.web.site.MARKER
     class: decision
   }
   scan: "scan reports/*/analysis/*.json\ndate = the folder name, ticker = the file stem\ngrouped by ticker, newest analysis first" {  # @symbol bot.web.index.scan
@@ -82,7 +82,7 @@ build: "3. bot site: build the static viewer" {  # @symbol bot.web.site.build
   rows: "one list row per company, from its newest analysis:\nticker, name, verdict, margin of safety, price, intrinsic value,\nstory type, red and yellow flags, date" {  # @symbol bot.web.views.row_view
     class: step
   }
-  verdict: "verdict, as a filter value\nmargin of safety (MoS) ≥ 1.3: undervalued; ≥ 1.0: fair; < 1.0: overvalued; none: na\nlist rows: the verdict text the sidecar carries, read back\nvalue line and grid cells: recomputed from their MoS" {  # @symbol bot.web.views.verdict_of @const bot.web.views.MOS_UNDERVALUED @const bot.web.views.MOS_FAIR @enum bot.web.views.Verdict
+  verdict: "verdict, as a filter value\nmargin of safety (MoS) ≥ 1.3: undervalued; ≥ 1.0: fair; < 1.0: overvalued; none: na\nlist rows and the detail's verdict sentence: the verdict text the sidecar carries, read back\nvalue line and grid cells: recomputed from their MoS" {  # @symbol bot.web.views.verdict_of @const bot.web.views.MOS_UNDERVALUED @const bot.web.views.MOS_FAIR @enum bot.web.views.Verdict
     class: decision
   }
   counts: "verdict counts: all = every company, then one count per verdict" {
@@ -161,5 +161,6 @@ build.render -> company_pages: "written"
 build.render -> detail_fragments: "written"
 build.render -> static: "copied"
 
+build.render -> ci.upload: "site directory"
 ci.deploy -> serve.pages: "site artifact"
 serve.pages -> serve.published_site: "served"
