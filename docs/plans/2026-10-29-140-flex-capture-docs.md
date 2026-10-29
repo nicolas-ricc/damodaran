@@ -30,7 +30,7 @@
 
 ## Review Focus
 
-1. A claim in the new README step that the code does not back (e.g. "two requests" when the client polls `GetStatement` more than once, or "nothing written" on a path that writes). Pinned by the reviewer reading each sentence against `ibkr_flex_capture.py`; the tests can only pin strings.
+1. A claim in the new README step that the code does not back (e.g. a request count, which the plan's text deliberately avoids because the client may poll `GetStatement`, or "nothing written" on a path that writes). Pinned by the task reviewer reading each sentence against `ibkr_flex_capture.py:253-281` and `cli.py:634-654`; the tests can only pin strings.
 2. The `ibkr_flex.py` docstring breaks "not yet verified" across a line, so a single-line grep misses it. Pinned by the Task 2 test, which normalises whitespace before asserting absence.
 3. Markdown nesting: step 4's bullet list and paragraphs must indent under the numbered item like step 3's code block, or GitHub renders a broken list. Checked by reading the rendered section.
 
@@ -110,6 +110,14 @@ def test_flex_sources_point_at_flex_capture(path: str) -> None:
     assert "#111" in text
 
 
+def test_sample_fixture_header_has_the_capture_sentence() -> None:
+    text = " ".join((ROOT / "tests/fixtures/ibkr_flex/statement_sample.xml").read_text(encoding="utf-8").split())
+    assert (
+        "A redacted real sample is captured with `bot flex-capture` into "
+        "statement_real_redacted.xml; parser corrections land in #111." in text
+    )
+
+
 def test_env_example_points_at_flex_capture() -> None:
     lines = (ROOT / ".env.example").read_text(encoding="utf-8").splitlines()
     (line,) = [entry for entry in lines if "BOT_IBKR_FLEX_QUERY_ID" in entry]
@@ -130,3 +138,17 @@ For `ibkr_flex.py` the test reads the module docstring via the file text, which 
 - [ ] **Step 5: Run** `uv run ruff check . && uv run mypy src && uv run pytest -q` — expected green.
 
 - [ ] **Step 6: Commit** `docs(#140): point the Flex docstring, fixture header and .env.example at flex-capture`.
+
+## Assumptions
+
+- **Scope of the "#110" sweep** is the three files of the acceptance grep. Other `#110` mentions stay: `docs/adr/0004-tws-api-via-ib-async.md:49` ("live validation is #110"), `docs/plano/estado.py` / `views.py` ("sin validar aún … (#110)"), `src/bot/cli.py:638` and the `ibkr_flex_capture.py` headers ("for #110"). They state facts that stay true until the human run in #141 happens, and the issue's list of files does not name them. Rejected: rewriting them now, which would claim a validation that has not happened.
+- **Failing evals are committed on purpose** (pipeline stage 3, `test(#140): evals`), before the docs commits; the suite is green from the last task's commit onward. Both tasks land in one squash-merged PR, so the half-done state between Task 1 and Task 2 never reaches `feature/110-flex-capture`.
+- **Markdown nesting** is checked by the task reviewer on the raw text (four-space/three-space indentation matching step 3). The repo has no markdown lint. Rejected: adding a renderer dependency for one section.
+- **The verbatim fixture sentence survives rewrapping** because the new `test_sample_fixture_header_has_the_capture_sentence` compares it after normalising whitespace.
+
+## Grilling
+
+- Rounds: 1 (only small revisions, so no second round). Questions: 18.
+- Sources: ISSUE 5, CODE 9, DOC 0, NO SOURCE 4. The 4 unsourced answers became technical assumptions (above). 0 spec ambiguities, 0 out of scope.
+- Plan revised: added the fixture verbatim-sentence test; Review Focus 1 now names the code lines to check against; added the Assumptions section.
+- Issues opened: none.
