@@ -2013,7 +2013,7 @@ def test_site_ci_steps_match_workflow() -> None:
 
 def test_site_publish_matches_script() -> None:
     script = (_ROOT / "scripts" / "publish_site.sh").read_text(encoding="utf-8")
-    for words in ('.cache/site-publish', 'checkout -q --detach "$REMOTE/$BRANCH"',
+    for words in (".cache/site-publish", 'checkout -q --detach "$REMOTE/$BRANCH"',
                   "diff --cached --quiet", "chore(site): publish analyses"):
         assert words in script, words
     weekly = (_ROOT / "scripts" / "weekly.sh").read_text(encoding="utf-8")
@@ -2041,8 +2041,6 @@ def test_pipeline_links_the_site_board() -> None:
     block = _block(_overview(), "site")
     assert block is not None and re.search(r'(?m)^\s*link:\s*"\./site\.svg"\s*$', block)
 
-
-# Consistency pass over every board (#150).
 
 _AVOIDED = ("local currency", "trading currency", "reported currency", "functional currency")
 
