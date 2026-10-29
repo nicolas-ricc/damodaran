@@ -287,3 +287,41 @@ def test_main_exit_codes(
     out = capsys.readouterr().out
     assert "error  pipeline.d2:1 unknown @table nope" in out
     assert "1 errors" in out
+
+
+# --------------------------------------------------------------------------- #
+# Review fixes: apostrophes, dangling and argument-less directives
+# --------------------------------------------------------------------------- #
+
+
+def test_apostrophe_in_unquoted_label_is_not_a_quote(check: ModuleType) -> None:
+    text = "a: the company's universe  # @table prices_daily\n"
+    assert check.directives(text) == [
+        check.Directive("table", "prices_daily", "a: the company's universe", 1)
+    ]
+    assert check.unknown_directives("a: it's x  # @tabel y\n") == [("@tabel", 1)]
+
+
+def test_escaped_quote_does_not_close_a_string(check: ModuleType) -> None:
+    text = r'a: "say \"#hi\" now"  # @file README.md' + "\n"
+    (d,) = check.directives(text)
+    assert d.text == r'a: "say \"#hi\" now"'
+
+
+def test_dangling_directive_is_an_error(
+    check: ModuleType, idx: dict, tables: set[str], tmp_path: Path
+) -> None:
+    folder = _board(tmp_path, "a: x\n# @table prices_daily\n")
+    errors, _ = check.revisar(folder, idx, tables)
+    assert errors == ["pipeline.d2:2 directive applies to no line"]
+
+
+def test_directive_without_argument_is_an_error(
+    check: ModuleType, idx: dict, tables: set[str], tmp_path: Path
+) -> None:
+    folder = _board(tmp_path, "a: x  # @symbol\nb: y  # @symbol @table prices_daily\n")
+    errors, _ = check.revisar(folder, idx, tables)
+    assert errors == [
+        "pipeline.d2:1 @symbol has no argument",
+        "pipeline.d2:2 @symbol has no argument",
+    ]

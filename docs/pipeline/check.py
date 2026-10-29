@@ -25,8 +25,8 @@ import codemap  # noqa: E402
 KINDS: tuple[str, ...] = ("symbol", "table", "file", "rule", "param", "const", "enum")
 
 _OPEN_RE = re.compile(r"(\|{1,3})(?:md|markdown)\b")
-_DIRECTIVE_RE = re.compile(r"@(\w+)\s+(\S+)")
-_WORD_RE = re.compile(r"@(\w+)")
+_TOKEN_RE = re.compile(r"@(\w+)(?:[ \t]+([^\s@]\S*))?")
+_QUOTE_START = ":{;([,"
 _LINK_RE = re.compile(r"(?:^|[\s.{;])link:\s*[\"']?([^\"'\s}]+)")
 _TABLE_RE = re.compile(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)", re.I)
 
@@ -65,9 +65,14 @@ def _scan(text: str) -> list[_Line]:
                 continue
             ch = raw[i]
             if quote:
-                if ch == quote:
+                if ch == "\\" and quote == '"':
+                    code.append(ch)
+                    vis.append(ch)
+                    i += 1
+                    ch = raw[i] if i < len(raw) else ""
+                elif ch == quote:
                     quote = ""
-            elif ch in "\"'":
+            elif ch in "\"'" and (i == 0 or raw[i - 1].isspace() or raw[i - 1] in _QUOTE_START):
                 quote = ch
             elif ch == "#" and (i == 0 or raw[i - 1].isspace()):
                 comment = raw[i + 1 :]
@@ -85,23 +90,35 @@ def _scan(text: str) -> list[_Line]:
     return out
 
 
-def directives(text: str) -> list[Directive]:
+def _walk(text: str) -> tuple[list[Directive], list[int], list[tuple[str, int]]]:
+    """Directives, lines of comments left pending at EOF, and (kind, line) lacking an argument."""
     found: list[Directive] = []
-    pending: list[tuple[str, str]] = []
+    pending: list[tuple[str, str, int]] = []
+    bare: list[tuple[str, int]] = []
     for ln in _scan(text):
-        pending += [(k, a) for k, a in _DIRECTIVE_RE.findall(ln.comment) if k in KINDS]
+        for kind, arg in _TOKEN_RE.findall(ln.comment):
+            if kind not in KINDS:
+                continue
+            if arg:
+                pending.append((kind, arg, ln.number))
+            else:
+                bare.append((kind, ln.number))
         shown_text = ln.visible.strip()
         if shown_text and pending:
-            found += [Directive(k, a, shown_text, ln.number) for k, a in pending]
+            found += [Directive(k, a, shown_text, ln.number) for k, a, _ in pending]
             pending = []
-    return found
+    return found, sorted({n for _, _, n in pending}), bare
+
+
+def directives(text: str) -> list[Directive]:
+    return _walk(text)[0]
 
 
 def unknown_directives(text: str) -> list[tuple[str, int]]:
     return [
         (f"@{w}", ln.number)
         for ln in _scan(text)
-        for w in _WORD_RE.findall(ln.comment)
+        for w, _ in _TOKEN_RE.findall(ln.comment)
         if w not in KINDS
     ]
 
@@ -176,7 +193,7 @@ def revisar(
     count = 0
     for board in boards(folder):
         text = board.read_text(encoding="utf-8")
-        found = directives(text)
+        found, dangling, bare = _walk(text)
         count += len(found)
         for d in found:
             where = f"{board.name}:{d.line}"
@@ -186,6 +203,8 @@ def revisar(
                 errors.append(f"{where} unknown @table {d.argument}")
             elif d.kind == "file" and not (codemap.REPO / d.argument).exists():
                 errors.append(f"{where} missing @file {d.argument}")
+        errors += [f"{board.name}:{n} directive applies to no line" for n in dangling]
+        errors += [f"{board.name}:{n} @{k} has no argument" for k, n in bare]
         for word, line in unknown_directives(text):
             errors.append(f"{board.name}:{line} unknown directive {word}")
         for target, line in links(text):
