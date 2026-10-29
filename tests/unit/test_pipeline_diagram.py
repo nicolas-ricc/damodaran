@@ -413,7 +413,7 @@ def test_readme_has_build_and_check_commands() -> None:
     readme = (_PIPELINE / "README.md").read_text(encoding="utf-8")
     assert len(readme.splitlines()) <= 40
     assert "docs/pipeline/build.sh" in readme
-    assert "python3 docs/pipeline/_check().py" in readme
+    assert "python3 docs/pipeline/check.py" in readme
     for kind in _check().KINDS:
         assert f"`@{kind}" in readme, kind
     assert "D2_VERSION" in readme
