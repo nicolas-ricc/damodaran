@@ -475,8 +475,6 @@ def test_context_source_of_truth_links_the_pipeline_docs() -> None:
     assert "docs/pipeline/" in section
 
 
-# --- refresh board (#146) ---------------------------------------------------
-
 _SUBFLOWS = ("damodaran", "fundamentals", "prices", "fx")
 _REFRESH_TABLES = sorted(_REQUIRED_TABLES["refresh"])
 
