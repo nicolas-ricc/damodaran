@@ -60,9 +60,49 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.web.site.build",
         "bot.notifier.notify_alerts",
     },
+    "refresh": {
+        "bot.cli.refresh",
+        "bot.ingest.damodaran.import_damodaran",
+        "bot.ingest.damodaran.merge_industry_datasets",
+        "bot.ingest.damodaran.derive_industry_columns",
+        "bot.ingest.damodaran.parse_country_tax_rates",
+        "bot.ingest.damodaran.parse_preheader_scalar",
+        "bot.ingest.universe.refresh_universe",
+        "bot.ingest.universe.refresh_prices",
+        "bot.ingest.universe.refresh_fx",
+        "bot.ingest.universe.import_company",
+        "bot.ingest.universe._should_skip",
+        "bot.ingest.universe._stale_first",
+        "bot.ingest.sec_edgar.parse_company_facts",
+        "bot.ingest.sec_edgar._collect_period_rows",
+        "bot.ingest.sec_edgar._fiscal_quarter_key",
+        "bot.ingest.sec_edgar._derive_financial_fields",
+        "bot.ingest.sec_edgar._rescale_shares_diluted",
+        "bot.ingest.sec_edgar.SecEdgarClient.shares_outstanding",
+        "bot.ingest.edgar_base.EdgarPricedProvider",
+        "bot.ingest.edgar_tiingo",
+        "bot.ingest.stooq",
+        "bot.ingest.fmp",
+        "bot.ingest.industry_mapping.load_industry_mapping",
+        "bot.reference.industries",
+        "bot.utils.fx.import_fx_rates",
+    },
 }
 # Derived from schema.sql, so a new table cannot go undrawn on the overview.
-_REQUIRED_TABLES: dict[str, set[str]] = {"pipeline": _schema_tables()}
+_REQUIRED_TABLES: dict[str, set[str]] = {
+    "pipeline": _schema_tables(),
+    "refresh": {
+        "damodaran_industry",
+        "damodaran_country",
+        "companies",
+        "financials_annual",
+        "financials_quarterly",
+        "filings_log",
+        "prices_daily",
+        "currencies",
+        "refresh_log",
+    },
+}
 _REQUIRED_FILES: dict[str, set[str]] = {
     "pipeline": {
         "src/bot/ingest/universe_default.csv",
@@ -73,11 +113,28 @@ _REQUIRED_FILES: dict[str, set[str]] = {
         "scripts/publish_site.sh",
         ".github/workflows/site.yml",
     },
+    "refresh": {
+        "src/bot/ingest/universe_default.csv",
+        "src/bot/ingest/industry_mapping.csv",
+        "scripts/daily.sh",
+        "scripts/weekly.sh",
+        "scripts/price_fill.sh",
+    },
 }
 _REQUIRED_RULES: dict[str, set[str]] = {}
 _REQUIRED_PARAMS: dict[str, set[str]] = {}
 _REQUIRED_CONSTS: dict[str, set[str]] = {
     "pipeline": {"bot.web.views.MOS_UNDERVALUED", "bot.web.views.MOS_FAIR"},
+    "refresh": {
+        "bot.ingest.sec_edgar.ANNUAL_SPAN_DAYS",
+        "bot.ingest.sec_edgar.QUARTERLY_SPAN_DAYS",
+        "bot.ingest.sec_edgar._SHARE_SCALE_FACTORS",
+        "bot.ingest.sec_edgar._MIN_SHARE_COMPARATORS",
+        "bot.ingest.sec_edgar._SHARE_SCALE_TOLERANCE",
+        "bot.ingest.edgar_base._FRESH_DAYS",
+        "bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE",
+        "bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE",
+    },
 }
 _REQUIRED_ENUMS: dict[str, set[str]] = {"pipeline": {"bot.web.views.Verdict"}}
 
@@ -106,6 +163,10 @@ _ACRONYMS: dict[str, str] = {
     "MoS": "margin of safety",
     "CI": "continuous integration",
     "FMP": "Financial Modeling Prep",
+    "EBIT": "earnings before interest and taxes",
+    "EBITDA": "earnings before interest, taxes, depreciation and amortization",
+    "SIC": "Standard Industrial Classification",
+    "ADR": "architecture decision record",
 }
 # File formats and words written in capitals that need no expansion.
 _ACRONYMS_EXEMPT: set[str] = {
@@ -361,11 +422,22 @@ def test_cron_edges_run_the_commands_in_order() -> None:
 
 def test_every_edge_is_labelled() -> None:
     unlabelled = [
-        line.strip()
-        for line in _check().visible(_overview()).splitlines()
+        f"{stem}: {line.strip()}"
+        for stem, board in _boards().items()
+        for line in _check().visible(board).splitlines()
         if re.search(r"->|<-", line) and not re.search(r"(->|<-)[^:]*:\s*\S", line)
     ]
     assert unlabelled == []
+
+
+def test_gap_notes_start_with_gap() -> None:
+    bad = [
+        f"{stem}: {line.strip()}"
+        for stem, board in _boards().items()
+        for line in _check().visible(board).splitlines()
+        if re.search(r"\bclass:\s*gap\b", line) and not re.search(r"\|md\s+Gap:", line)
+    ]
+    assert bad == []
 
 
 def test_verdict_note_states_the_thresholds() -> None:
@@ -401,3 +473,158 @@ def test_context_source_of_truth_links_the_pipeline_docs() -> None:
         context.index("## Source of truth") : context.index("## Working with the plans")
     ]
     assert "docs/pipeline/" in section
+
+
+# --- refresh board (#146) ---------------------------------------------------
+
+_SUBFLOWS = ("damodaran", "fundamentals", "prices", "fx")
+_REFRESH_TABLES = sorted(_REQUIRED_TABLES["refresh"])
+
+_REFRESH_NODES: list[tuple[str, str]] = (
+    [("weekly", "cron"), ("daily", "cron"), ("price_fill", "cron")]
+    + [("cli", "step"), ("region", "decision")]
+    + [(e, "external") for e in ("damodaran_data", "edgar", "tiingo", "stooq", "fmp")]
+    + [("universe_csv", "file"), ("industry_mapping_csv", "file")]
+    + [(f"duckdb.{t}", "store") for t in _REFRESH_TABLES]
+    + [
+        ("damodaran.download", "step"),
+        ("damodaran.files_ok", "decision"),
+        ("damodaran.merge", "step"),
+        ("damodaran.derive", "step"),
+        ("damodaran.country", "step"),
+        ("damodaran.country.risk_free", "gap"),
+        ("damodaran.empty_rows", "decision"),
+        ("damodaran.write", "step"),
+        ("damodaran.write.us_only", "gap"),
+        ("fundamentals.mapping", "step"),
+        ("fundamentals.mapping_valid", "decision"),
+        ("fundamentals.skip", "decision"),
+        ("fundamentals.import", "step"),
+        ("fundamentals.periods", "decision"),
+        ("fundamentals.fiscal", "step"),
+        ("fundamentals.precedence", "decision"),
+        ("fundamentals.derive", "step"),
+        ("fundamentals.shares", "decision"),
+        ("fundamentals.status", "decision"),
+        ("fundamentals.rate_limit", "decision"),
+        ("prices.only_missing", "decision"),
+        ("prices.up_to_date", "decision"),
+        ("prices.order", "step"),
+        ("prices.fetch", "step"),
+        ("prices.fetch.default_provider", "gap"),
+        ("prices.market_cap", "decision"),
+        ("prices.rate_limit", "decision"),
+        ("prices.status", "decision"),
+        ("fx.currencies", "step"),
+        ("fx.fetch", "step"),
+        ("fx.fetch.no_op", "gap"),
+    ]
+)
+
+# Node -> phrases its block must show (compared after check.normalize, so U+2212
+# minus signs in the board match the ASCII hyphens here).
+_TIMES = "\u00d7"  # the board's multiplication sign
+_REFRESH_TEXT: dict[str, list[str]] = {
+    "region": ["US", "exit code 2"],
+    "damodaran.files_ok": ["wacc.xls", "ctryprem.xls", "partial", "error"],
+    "damodaran.merge": ["outer join", "earlier file wins"],
+    "damodaran.derive": [
+        "D/E = w ÷ (1 - w)",
+        "w = D/(D+E)",
+        f"beta_unlevered = beta_levered ÷ (1 + (1 - tax) {_TIMES} D/E)",
+    ],
+    "fundamentals.derive": [
+        "EBITDA = EBIT + depreciation",
+        "free cash flow = operating cash flow - capex",
+        "working capital = current assets - current liabilities",
+    ],
+    "fundamentals.shares": ["median", "factor ÷ 2", f"factor {_TIMES} 2"],
+    "fundamentals.periods": ["10-K", "10-Q"],
+    "fundamentals.fiscal": ["calendar year of the period end"],
+    "fundamentals.skip": ["--force"],
+    "fundamentals.status": ["failed ÷ attempted"],
+    "fundamentals.rate_limit": ["deferred"],
+    "prices.only_missing": ["--only-missing"],
+    "prices.up_to_date": ["last weekday before today"],
+    "prices.order": ["never priced first"],
+    "prices.market_cap": [f"market cap = close {_TIMES} shares outstanding"],
+    "fx.fetch": [f"usd = amount {_TIMES} rate_to_usd", "nearest prior"],
+}
+
+
+def _refresh() -> str:
+    return _boards().get("refresh", "")
+
+
+def _refresh_block(key: str) -> str:
+    block = _block(_refresh(), key)
+    assert block is not None, f"refresh.d2 has no node {key}"
+    return block
+
+
+@pytest.mark.parametrize(("key", "cls"), _REFRESH_NODES)
+def test_refresh_nodes(key: str, cls: str) -> None:
+    assert _node_class(_refresh(), key) == cls
+
+
+@pytest.mark.parametrize("sub", _SUBFLOWS)
+def test_refresh_containers_hold_steps_and_decisions(sub: str) -> None:
+    block = _refresh_block(sub)
+    assert re.search(r"\bclass:\s*step\b", block), sub
+    if sub != "fx":
+        assert re.search(r"\bclass:\s*decision\b", block), sub
+
+
+@pytest.mark.parametrize("key", list(_REFRESH_TEXT))
+def test_refresh_text(key: str) -> None:
+    block = _check().normalize(_refresh_block(key))
+    missing = [w for w in _REFRESH_TEXT[key] if _check().normalize(w) not in block]
+    assert missing == []
+
+
+def test_refresh_gap_notes() -> None:
+    assert "ADR 0005" in _refresh_block("damodaran.write.us_only")
+    assert "risk-free" in _refresh_block("damodaran.country.risk_free")
+    assert "Financial Modeling Prep" in _refresh_block("fx.fetch.no_op")
+
+
+def _edge_line(board: str, src: str, dst: str) -> str | None:
+    pattern = re.compile(rf"^\s*{re.escape(src)}\s*->\s*{re.escape(dst)}\s*:")
+    return next((ln for ln in _check().visible(board).splitlines() if pattern.match(ln)), None)
+
+
+def test_refresh_cron_edges() -> None:
+    for cron in ("weekly", "daily", "price_fill"):
+        assert _edge_line(_refresh(), cron, "cli") is not None, cron
+    daily = _edge_line(_refresh(), "daily", "cli")
+    assert daily is not None and "tickers deferred" in daily
+
+
+def test_refresh_daily_defaults_match_script() -> None:
+    script = (_ROOT / "scripts" / "daily.sh").read_text(encoding="utf-8")
+    assert "BOT_PRICE_ROUNDS:-10}" in script
+    assert "BOT_PRICE_RETRY_PAUSE:-3600}" in script
+    daily = _edge_line(_refresh(), "daily", "cli")
+    assert daily is not None
+    assert re.search(r"\b10\b", daily) and re.search(r"\b3600\b", daily)
+
+
+def test_estado_default_provider_gap_is_current() -> None:
+    from bot.config import Settings
+
+    estado = (_ROOT / "docs" / "plano" / "estado.py").read_text(encoding="utf-8")
+    disagree = (
+        "BOT_DATA_PROVIDER=edgar-stooq)" in estado
+        and Settings.model_fields["data_provider"].default == "edgar-tiingo"
+    )
+    has_gap = _node_class(_refresh(), "prices.fetch.default_provider") == "gap"
+    assert has_gap == disagree, (
+        "estado.py and the code now agree on the default provider: remove the gap"
+        if has_gap
+        else "estado.py disagrees with the code default provider: draw the gap"
+    )
+
+
+def test_pipeline_links_the_refresh_board() -> None:
+    block = _block(_overview(), "refresh")
+    assert block is not None and re.search(r"(?m)^\s*link:\s*refresh\.svg\s*$", block)
