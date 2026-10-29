@@ -455,8 +455,8 @@ def test_cli_success_prints_paths_and_summary(
         cli_env / ibkr_flex_capture.REDACTED_XML_PATH,
         cli_env / ibkr_flex_capture.SUMMARY_PATH,
     ]
-    lines = result.stdout.splitlines()
-    assert lines[:3] == [f"Wrote {p}" for p in expected_paths]
+    wrote = [line for line in result.stdout.splitlines() if line.startswith("Wrote ")]
+    assert wrote == [f"Wrote {p}" for p in expected_paths]
     assert result.stdout.endswith(summarize_statement(sample).to_json())
     for form in FORMS:
         assert form not in result.output

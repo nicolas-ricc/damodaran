@@ -16,7 +16,14 @@ from bot.ingest.edgar_stooq import EdgarStooqProvider
 from bot.ingest.edgar_tiingo import EdgarTiingoProvider
 from bot.ingest.fmp import FmpProvider
 from bot.ingest.ibkr import IbkrClient
-from bot.ingest.ibkr_flex import import_corporate_actions
+from bot.ingest.ibkr_flex import FlexError, import_corporate_actions
+from bot.ingest.ibkr_flex_capture import (
+    CASSETTE_PATH,
+    REDACTED_XML_PATH,
+    SUMMARY_PATH,
+    FlexCaptureError,
+    capture,
+)
 from bot.ingest.provider import MarketDataProvider
 from bot.ingest.sec_edgar import import_company_from_sec
 from bot.ingest.universe import (
@@ -622,6 +629,28 @@ def portfolio(
         raise typer.Exit(code=1) from exc
     if sent:
         typer.echo(f"Sent alerts via {settings.notifier}")
+
+
+@app.command(name="flex-capture", hidden=True)
+def flex_capture() -> None:
+    """Record a real Flex statement as a redacted cassette, XML and summary.
+
+    The maintainer's validation step for the Flex importer (#110). Run it from
+    the repo root with BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID set.
+    """
+    settings = load_settings()
+    configure_logging(level=settings.log_level, json_output=False)
+    try:
+        summary = capture(settings, root=Path.cwd())
+    except FlexCaptureError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=exc.exit_code) from exc
+    except FlexError as exc:
+        typer.echo(f"Flex capture failed: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    for path in (CASSETTE_PATH, REDACTED_XML_PATH, SUMMARY_PATH):
+        typer.echo(f"Wrote {Path.cwd() / path}")
+    typer.echo(summary.to_json(), nl=False)
 
 
 @app.command()
