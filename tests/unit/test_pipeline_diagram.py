@@ -6,6 +6,7 @@ entries to the `_REQUIRED_*` dicts and to `_ACRONYMS`. Nothing here runs d2.
 
 from __future__ import annotations
 
+import html
 import importlib
 import importlib.util
 import inspect
@@ -200,6 +201,18 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.notifier.notify_alerts",
         "bot.screener.engine.load_holding_inputs",
     },
+    "site": {
+        "bot.cli.site",
+        "bot.web.site.build",
+        "bot.web.site._renderable",
+        "bot.web.index.scan",
+        "bot.web.index.read_sidecar",
+        "bot.web.views.row_view",
+        "bot.web.views.detail_view",
+        "bot.web.views.filter_sort",
+        "bot.web.views.verdict_of",
+        "bot.reporting.analysis_json.render_analysis_json",
+    },
 }
 # Derived from schema.sql, so a new table cannot go undrawn on the overview.
 _REQUIRED_TABLES: dict[str, set[str]] = {
@@ -273,6 +286,12 @@ _REQUIRED_FILES: dict[str, set[str]] = {
         "src/bot/reporting/templates/analysis.md.j2",
     },
     "portfolio": {"scripts/daily.sh", "config/presets/damodaran_value.yaml"},
+    "site": {
+        "scripts/publish_site.sh",
+        ".github/workflows/site.yml",
+        ".gitignore",
+        "scripts/weekly.sh",
+    },
 }
 # Derived from the rule registry and the preset, so a new rule or parameter
 # cannot go undrawn on the screen board.
@@ -328,6 +347,15 @@ _REQUIRED_CONSTS: dict[str, set[str]] = {
         "bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD",
         "bot.portfolio.events.DEFAULT_WACC_RECALIBRATION_BPS",
     },
+    "site": {
+        "bot.web.views.MOS_UNDERVALUED",
+        "bot.web.views.MOS_FAIR",
+        "bot.web.views.FILTERS",
+        "bot.web.views.SORTS",
+        "bot.web.views.DIRECTIONS",
+        "bot.web.site.MARKER",
+        "bot.reporting.analysis_json.SCHEMA_VERSION",
+    },
 }
 _REQUIRED_ENUMS: dict[str, set[str]] = {
     "pipeline": {"bot.web.views.Verdict"},
@@ -338,6 +366,7 @@ _REQUIRED_ENUMS: dict[str, set[str]] = {
         "bot.valuator.sensitivity.SensitivityAxis",
     },
     "portfolio": {"bot.portfolio.events.EventType"},
+    "site": {"bot.web.views.Verdict"},
 }
 
 _REQUIRED: dict[str, dict[str, set[str]]] = {
@@ -673,13 +702,17 @@ def test_verdict_thresholds_match_margin_verdict() -> None:
 
 def test_readme_has_build_and_check_commands() -> None:
     readme = (_PIPELINE / "README.md").read_text(encoding="utf-8")
-    assert len(readme.splitlines()) <= 40
+    assert len(readme.splitlines()) <= 60
     assert "docs/pipeline/build.sh" in readme
     assert "python3 docs/pipeline/check.py" in readme
     for kind in _check().KINDS:
         assert f"`@{kind}" in readme, kind
     assert "D2_VERSION" in readme
     assert "pipeline-diagram" in readme and "pipeline-render" in readme
+    for stem in ("pipeline", *_STAGES):
+        assert f"{stem}.svg" in readme, stem
+    for words in ("reading order", "TALA", "rendered.sha256", "add a step"):
+        assert words.lower() in readme.lower(), words
 
 
 def test_context_source_of_truth_links_the_pipeline_docs() -> None:
@@ -1838,3 +1871,412 @@ def test_portfolio_daily_runs_after_prices_and_fx() -> None:
 def test_pipeline_links_the_portfolio_board() -> None:
     block = _block(_overview(), "portfolio")
     assert block is not None and re.search(r'(?m)^\s*link:\s*"\./portfolio\.svg"\s*$', block)
+
+
+def _site() -> str:
+    return _boards().get("site", "")
+
+
+def _site_block(key: str) -> str:
+    block = _block(_site(), key)
+    assert block is not None, f"site.d2 has no node {key}"
+    return block
+
+
+_SITE_CI = ("checkout", "sync", "ruff", "mypy", "pytest", "site", "upload", "deploy")
+_SITE_PAGES = (
+    "index_page", "not_found", "robots", "list_pages", "row_fragments",
+    "company_pages", "detail_fragments", "static",
+)
+
+_SITE_NODES: list[tuple[str, str]] = (
+    [(f, "file") for f in ("sidecars", "publish_script", "gitignore", "site_yml", "design")]
+    + [("weekly", "cron"), ("master", "external")]
+    + [("publish.collect", "step"), ("publish.worktree", "step"),
+       ("publish.changed", "decision"), ("publish.push", "step")]
+    + [(f"ci.{k}", "step") for k in _SITE_CI]
+    + [("ci.concurrency", "note"), ("ci.stops", "note")]
+    + [
+        ("build.read_only", "note"),
+        ("build.cli", "step"),
+        ("build.out_dir", "decision"),
+        ("build.scan", "step"),
+        ("build.usable", "decision"),
+        ("build.renderable", "decision"),
+        ("build.rows", "step"),
+        ("build.verdict", "decision"),
+        ("build.counts", "step"),
+        ("build.lists", "step"),
+        ("build.detail", "step"),
+        ("build.render", "step"),
+        ("build.reader", "note"),
+    ]
+    + [(p, "output") for p in _SITE_PAGES]
+    + [("serve.pages", "external"), ("serve.published_site", "output")]
+)
+
+# Node -> phrases its block must show (compared after check.normalize).
+_SITE_TEXT: dict[str, list[str]] = {
+    "sidecars": ["reports/YYYY-MM-DD/analysis/TICKER.json", "bot analyze"],
+    "gitignore": ["reports/*/analysis/*.json"],
+    "weekly": ["Saturdays 10:00", "only when the previous one succeeded"],
+    "publish.collect": ["reports/*/analysis/*.json", "exit 0"],
+    "publish.worktree": [".cache/site-publish", "origin/master", "only the sidecars",
+                         "never committed"],
+    "publish.changed": ["no commit, exit 0"],
+    "publish.push": ["chore(site): publish analyses YYYY-MM-DD", "origin master", "exit 1"],
+    "ci": ["on every push to master"],
+    "ci.concurrency": ["cancels"],
+    "ci.stops": ["nothing is deployed"],
+    "build.read_only": ["ADR) 0008 (Implemented)", "read-only"],
+    "build.cli": ["--out", "--reports-dir", "--base-url", "one leading and one trailing slash"],
+    "build.out_dir": ["reports directory", "not a directory", ".bot-site", "exit code 2"],
+    "build.scan": ["date = the folder name", "ticker = the file stem", "newest analysis first"],
+    "build.usable": ["YYYY-MM-DD", "1 to 12", "schema_version 1", "analysis.ticker",
+                     "skipped with a warning"],
+    "build.renderable": ["skipped with a warning", "dropped"],
+    "build.rows": ["newest analysis", "red and yellow flags"],
+    "build.verdict": ["≥ 1.3: undervalued", "≥ 1.0: fair", "< 1.0: overvalued", "none: na",
+                      "verdict text the sidecar carries", "recomputed"],
+    "build.counts": ["all = every company"],
+    "build.lists": ["filter \u00d7 sort \u00d7 direction", "ties by ticker ascending",
+                    "without a margin of safety always last"],
+    "build.detail": ["sources in words", "tornado", "grid of verdicts",
+                     "pass, warning, fail or not evaluated"],
+    "build.render": ["base URL"],
+    "build.reader": ["verdict filter", "sources", "tornado", "grid", "flags"],
+    "not_found": ["404.html", "any missing path"],
+    "robots": ["robots.txt", "f/", "rows/"],
+    "list_pages": ["l/<filter>-<sort>-<direction>.html"],
+    "row_fragments": ["rows/<filter>-<sort>-<direction>.html"],
+    "company_pages": ["c/TICKER.html", "c/TICKER/YYYY-MM-DD.html"],
+    "detail_fragments": ["f/TICKER.html", "f/TICKER/YYYY-MM-DD.html"],
+    "serve.pages": ["GitHub Pages"],
+}
+
+
+@pytest.mark.parametrize(("key", "cls"), _SITE_NODES)
+def test_site_nodes(key: str, cls: str) -> None:
+    assert _node_class(_site(), key) == cls
+
+
+@pytest.mark.parametrize("key", list(_SITE_TEXT))
+def test_site_text(key: str) -> None:
+    block = _check().normalize(_site_block(key))
+    missing = [w for w in _SITE_TEXT[key] if _check().normalize(w) not in block]
+    assert missing == []
+
+
+@pytest.mark.parametrize(
+    ("src", "dst"),
+    [
+        ("weekly", "publish.collect"),
+        ("sidecars", "publish.collect"),
+        ("publish.push", "master"),
+        ("master", "ci.checkout"),
+        ("site_yml", "ci"),
+        ("ci.site", "build.cli"),
+        ("build.scan", "build.usable"),
+        ("build.usable", "build.renderable"),
+        ("build.render", "index_page"),
+        ("ci.deploy", "serve.pages"),
+    ],
+)
+def test_site_flow_edges(src: str, dst: str) -> None:
+    assert _edge_line(_site(), src, dst) is not None
+
+
+def _label(block: str) -> str:
+    """The quoted label of a node block's declaration line."""
+    m = re.match(r'[^:]*:\s*"((?:[^"\\]|\\.)*)"', block.splitlines()[0])
+    return m.group(1) if m else ""
+
+
+def test_site_ci_steps_match_workflow() -> None:
+    workflow = (_ROOT / ".github" / "workflows" / "site.yml").read_text(encoding="utf-8")
+    needles = [
+        ("actions/checkout", "check out"),
+        ("uv sync --frozen", "uv sync --frozen"),
+        ("ruff check", "ruff check"),
+        ("mypy src", "mypy src"),
+        ("pytest -q", "pytest -q"),
+        ("bot site --out site --base-url", "bot site --out site --base-url"),
+        ("upload-pages-artifact", "upload"),
+        ("deploy-pages", "deploy"),
+    ]
+    positions = [workflow.index(needle) for needle, _ in needles]
+    assert positions == sorted(positions)
+    for n, (key, (_, words)) in enumerate(zip(_SITE_CI, needles, strict=True), 1):
+        label = _label(_site_block(f"ci.{key}"))
+        assert label.startswith(f"{n}. ") and words in label, key
+
+
+def test_site_publish_matches_script() -> None:
+    script = (_ROOT / "scripts" / "publish_site.sh").read_text(encoding="utf-8")
+    for words in ('.cache/site-publish', 'checkout -q --detach "$REMOTE/$BRANCH"',
+                  "diff --cached --quiet", "chore(site): publish analyses"):
+        assert words in script, words
+    weekly = (_ROOT / "scripts" / "weekly.sh").read_text(encoding="utf-8")
+    assert weekly.index("bot analyze --from-screen") < weekly.index('"$SCRIPT_DIR/publish_site.sh"')
+
+
+def test_site_verdict_sources_match_code() -> None:
+    from bot.web import views
+
+    assert 'ref.data["verdict"]' in inspect.getsource(views.row_view)
+    assert "verdict_of(" in inspect.getsource(views.value_line)
+    assert "verdict_of(" in inspect.getsource(views.scenario_grid)
+    block = _site_block("build.verdict")
+    assert "list rows" in block and "value line and grid cells" in block
+
+
+def test_site_ticker_rule_matches_code() -> None:
+    from bot.web.index import TICKER_RE
+
+    assert TICKER_RE.pattern == r"^[A-Z0-9.\-]{1,12}$"
+    assert "1 to 12" in _site_block("build.usable")
+
+
+def test_pipeline_links_the_site_board() -> None:
+    block = _block(_overview(), "site")
+    assert block is not None and re.search(r'(?m)^\s*link:\s*"\./site\.svg"\s*$', block)
+
+
+# Consistency pass over every board (#150).
+
+_AVOIDED = ("local currency", "trading currency", "reported currency", "functional currency")
+
+
+def test_boards_use_context_vocabulary() -> None:
+    bad = []
+    for stem, board in _boards().items():
+        vis = _check().visible(board)
+        bad += [f"{stem}: {w}" for w in _AVOIDED if w in vis.lower()]
+        for m in re.finditer(r"(?<![\w])quality[ -]?gates?(?![\w])", vis, re.I):
+            if m.group(0) not in ("quality gate", "quality gates", "Quality gate", "Quality gates"):
+                bad.append(f"{stem}: {m.group(0)}")
+    assert bad == []
+
+
+_ADR_RE = re.compile(r"\bADR\)?\s+(\d{4})(?:\s*\((Accepted|Implemented|Not implemented|Superseded)\))?")
+
+
+def _adr_status_text(number: str) -> str:
+    path = next((_ROOT / "docs" / "adr").glob(f"{number}-*.md"), None)
+    assert path is not None, f"no docs/adr/{number}-*.md"
+    text = path.read_text(encoding="utf-8")
+    if "## Status" in text:
+        section = text[text.index("## Status") :].split("\n## ", 1)[0]
+    else:  # ADR 0001-0003 state it on one line
+        section = next(line for line in text.splitlines() if line.startswith("**Status:**"))
+    return _collapsed(section)
+
+
+def test_adr_mentions_carry_their_status() -> None:
+    bad = []
+    for stem, board in _boards().items():
+        for m in _ADR_RE.finditer(_check().visible(board)):
+            number, status = m.group(1), m.group(2)
+            if status is None:
+                bad.append(f"{stem}: ADR {number} without a status")
+            elif status not in _adr_status_text(number):
+                bad.append(f"{stem}: ADR {number} is not {status}")
+    assert bad == []
+
+
+_GOVERNING_ADRS = {
+    "0001": "pipeline", "0004": "portfolio", "0005": "refresh",
+    "0006": "screen", "0007": "refresh", "0008": "site",
+}
+
+
+def test_governing_adrs_are_named() -> None:
+    missing = [
+        f"ADR {n} on {stem}"
+        for n, stem in _GOVERNING_ADRS.items()
+        if n not in {m.group(1) for m in _ADR_RE.finditer(_check().visible(_boards().get(stem, "")))}
+    ]
+    assert missing == []
+
+
+_KEY_RE = re.compile(r"^(\s*)([\w.]+)\s*:")
+_ATTRIBUTES = {"class", "link", "label", "direction", "shape", "near", "style", "tooltip"}
+_EDGE_RE = re.compile(r"^\s*([\w.]+)\s*->\s*([\w.]+)\s*:\s*\S")
+
+
+def _nodes(text: str) -> dict[str, tuple[int, str | None]]:
+    """Dotted path -> (declaration line index, class), from indentation and braces."""
+    lines = _check()._scan(text)
+    stack: list[tuple[int, str]] = []
+    out: dict[str, tuple[int, str | None]] = {}
+    for i, ln in enumerate(lines):
+        m = _KEY_RE.match(ln.code)
+        if not m or "->" in ln.code or m.group(2).split(".")[0] in _ATTRIBUTES:
+            continue
+        indent = len(m.group(1))
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        path = ".".join([k for _, k in stack] + [m.group(2)])
+        nxt = lines[i + 1].code if i + 1 < len(lines) else ""
+        cls = re.search(r"\{\s*class:\s*(\w+)", ln.code) or re.match(r"\s*class:\s*(\w+)", nxt)
+        out[path] = (i, cls.group(1) if cls else None)
+        if ln.code.rstrip().endswith("{"):
+            stack.append((indent, m.group(2)))
+    return out
+
+
+# A number token read whole: sign, digits with thousands separators, decimals, unit.
+_NUMBER_RE = re.compile(
+    r"(?<![\w.\-\u2212/])([-\u2212]?\d[\d,]*(?:\.\d+)?)(\s?%|\s?bps\b|[KMB]\b)?(?![\w/.]|-\w)"
+)
+_ORDINAL_RE = re.compile(r"(?<![\d.])\d+[a-z]?\.(?=\s)")
+_UNITS = {"%": 0.01, "bps": 0.0001, "K": 1e3, "M": 1e6, "B": 1e9}
+
+
+def _cited_values(board: str) -> dict[int, list[float]]:
+    """Source line number -> numeric values of its @const / @param directives."""
+    def flat(v: Any) -> list[float]:
+        if isinstance(v, (list, tuple)):
+            return [x for y in v for x in flat(y)]
+        ok = isinstance(v, (int, float)) and not isinstance(v, bool)
+        return [float(v)] if ok else []
+
+    out: dict[int, list[float]] = {}
+    for d in _check().directives(board):
+        if d.kind == "const":
+            out.setdefault(d.line, []).extend(flat(_resolve(d.argument)))
+        elif d.kind == "param":
+            out.setdefault(d.line, []).extend(flat(_preset_params().get(d.argument)))
+    return out
+
+
+def _uncited_numbers(label: str, cited: list[float]) -> list[str]:
+    text = _ORDINAL_RE.sub("", label.replace("\\n", " "))
+    bad = []
+    for m in _NUMBER_RE.finditer(text):
+        value = float(m.group(1).replace(",", "").replace("\u2212", "-"))
+        value *= _UNITS.get((m.group(2) or "").strip(), 1.0)
+        if abs(value) in (0.0, 1.0, 100.0):
+            continue
+        if not any(math.isclose(abs(value), abs(c), rel_tol=1e-9) for c in cited):
+            bad.append(m.group(0).strip())
+    return bad
+
+
+def test_every_step_has_purpose_and_edges() -> None:
+    problems = []
+    for stem, board in _boards().items():
+        nodes = _nodes(board)
+        edges = [m.groups() for line in _check().visible(board).splitlines()
+                 if (m := _EDGE_RE.match(line))]
+        cited = _cited_values(board)
+
+        def touches(end: str, path: str) -> bool:
+            return end == path or end.startswith(path + ".") or path.startswith(end + ".")
+
+        for path, (i, cls) in nodes.items():
+            if cls != "step":
+                continue
+            block = _block(board, path) or ""
+            label = _label(block)
+            if len(label.replace("\\n", " ").split()) < 3:
+                problems.append(f"{stem} {path}: no purpose line")
+            if not any(touches(dst, path) for _, dst in edges) and "No incoming edge" not in block:
+                problems.append(f"{stem} {path}: no incoming edge")
+            if not any(touches(src, path) for src, _ in edges) and "No outgoing edge" not in block:
+                problems.append(f"{stem} {path}: no outgoing edge")
+            if bad := _uncited_numbers(label, cited.get(i + 1, [])):
+                problems.append(f"{stem} {path}: uncited numbers {bad}")
+    assert problems == []
+
+
+def test_step_audit_reads_numbers_whole() -> None:
+    assert _uncited_numbers("1. within 380 days, 91.3-day steps, 5-year path", [380.0]) == []
+    assert _uncited_numbers("fewer than 2 years", []) == ["2"]
+    assert _uncited_numbers("> \u22125% or 100M", [-0.05, 1e8]) == []
+    assert _uncited_numbers("score = 100 \u00d7 (0.40 \u00d7 value)", [0.4]) == []
+    assert _uncited_numbers("revenue_t\u22121 \u00d7 (1 + g)", []) == []
+
+
+_PLANO = "docs/plano/part-data.js"
+_LECCION = "docs/leccion/index.html"
+
+# (board, gap node) -> ({document: phrases still in it}, phrases the note shows).
+# When a document is fixed its phrase disappears and the test asks to remove the gap.
+_DOC_GAPS: dict[tuple[str, str], tuple[dict[str, list[str]], list[str]]] = {
+    ("pipeline", "duckdb.plano_tables"): (
+        {_PLANO: ["Las quince:"]}, ["plano duckdb", "16", "holding_marks"]),
+    ("refresh", "damodaran.download.plano_hash"): (
+        {_PLANO: ["El refresco es por hash", "hash mensual"]},
+        ["plano damodaran", "a-download", "hash"]),
+    ("refresh", "region.plano_label"): (
+        {_PLANO: ["el parámetro de región es solo la etiqueta"]}, ["plano damodaran", "refuse"]),
+    ("screen", "coverage_gate.gate.plano_caveat"): (
+        {_PLANO: ["el motor todavía resuelve los huecos capa por capa"]},
+        ["plano damodaran", "layer by layer", "coverage gate"]),
+    ("screen", "coverage_gate.gate.plano_wacc"): (
+        {_PLANO: ["Su único consumidor es el filtro de ROIC contra WACC"]},
+        ["plano a-wacc", "coverage gate", "sector_recalibrated"]),
+    ("screen", "snapshot.load.plano_restated"): (
+        {_PLANO: ["El screener usa siempre el último"]}, ["plano sec", "is_restated"]),
+    ("screen", "quality_gates.plano_bounds"): (
+        {_PLANO: ["Más de USD 100 millones", "menor a 4", "mayor a 2",
+                  "Menos del 50% del activo"]},
+        ["plano g-cap", "g-debt", "g-cover", "g-gw", "equality"]),
+    ("screen", "trap_detection.revenue_not_declining.docs_bound"): (
+        {_PLANO: ["No más de 5% anual promedio"], _LECCION: ["no caen en promedio más de"]},
+        ["plano t-rev", "leccion cap-4", "\u22125%"]),
+    ("analyze", "assumptions.plano_sources"): (
+        {_PLANO: ["rule_based · unresolved", "el default es el promedio histórico"]},
+        ["plano assumptions", "a-growth", "story_pattern"]),
+    ("analyze", "story_type.distressed.altman"): (
+        {_PLANO: ["El Altman Z decide la clasificación"]}, ["plano s-ds", "a-default"]),
+    ("analyze", "dcf.equity.adjustments"): (
+        {_PLANO: ["más ajustes por minoritarios"]}, ["plano dcf"]),
+    ("analyze", "reports.markdown.plano_header"): (
+        {_PLANO: ["las versiones de datos que usó"]}, ["plano reports", "generation date"]),
+    ("portfolio", "events.new_filing.no_auto_analyze"): (
+        {_PLANO: ["vuelve a correr el análisis de la Capa C solo"]}, ["plano monitor"]),
+    ("portfolio", "events.dividend.plano_unfed"): (
+        {_PLANO: ["nada los alimenta"]}, ["plano events", "Flex"]),
+    ("pipeline", "weekly.plano_cron"): (
+        {_PLANO: ["el script de instalación todavía no existe"]},
+        ["plano reports", "install_cron.sh", "analyzes and publishes"]),
+}
+
+
+@pytest.mark.parametrize("key", list(_DOC_GAPS), ids=[f"{b}-{n}" for b, n in _DOC_GAPS])
+def test_document_gaps_are_current(key: tuple[str, str]) -> None:
+    stem, node = key
+    documents, shown = _DOC_GAPS[key]
+    for doc, phrases in documents.items():
+        text = html.unescape((_ROOT / doc).read_text(encoding="utf-8"))
+        stale = [p for p in phrases if p not in text]
+        assert stale == [], f"{doc} no longer says {stale}: remove or update the gap"
+    board = _boards().get(stem, "")
+    assert _node_class(board, node) == "gap", f"{stem}.d2 has no gap {node}"
+    block = _check().normalize(_block(board, node) or "")
+    assert "Gap:" in block
+    assert [w for w in shown if _check().normalize(w) not in block] == []
+
+
+def test_svgs_show_their_step_labels() -> None:
+    missing = []
+    for stem, board in _boards().items():
+        svg_path = _PIPELINE / f"{stem}.svg"
+        svg = html.unescape(svg_path.read_text(encoding="utf-8")) if svg_path.exists() else ""
+        for path, (_, cls) in _nodes(board).items():
+            if cls != "step":
+                continue
+            first = _label(_block(board, path) or "").split("\\n")[0].replace('\\"', '"')
+            if first.strip() not in svg:
+                missing.append(f"{stem}.svg: {first.strip()}")
+    assert missing == []
+
+
+def test_pipeline_svg_links_the_five_stage_boards() -> None:
+    svg = (_PIPELINE / "pipeline.svg").read_text(encoding="utf-8")
+    hrefs = set(re.findall(r'href="([^"]+)"', svg))
+    assert hrefs == {f"./{stage}.svg" for stage in _STAGES}
+    for stage in _STAGES:
+        assert (_PIPELINE / f"{stage}.svg").exists(), stage
