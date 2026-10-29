@@ -1,0 +1,148 @@
+...@classes
+
+direction: down
+
+# The command
+cli: "bot screen --preset name (default damodaran_value) [--top N]" {  # @symbol bot.cli.screen @symbol bot.screener.config.load_screener_config
+  class: step
+  options: |md
+    - --config path overrides --preset; a missing file: exit code 2.
+    - The preset lists the rules of the three layers and the ranking weights.
+    - deep_value and qarp are the two other presets; they change thresholds and weights.
+    - This board shows damodaran_value.
+    | {class: note}
+}
+
+# Preset and override files
+damodaran_value: "config/presets/damodaran_value.yaml" {class: file}  # @file config/presets/damodaran_value.yaml
+deep_value: "config/presets/deep_value.yaml" {class: file}  # @file config/presets/deep_value.yaml
+qarp: "config/presets/qarp.yaml" {class: file}  # @file config/presets/qarp.yaml
+assumptions: "config/assumptions/TICKER.yaml, manual overrides" {class: file}  # @symbol bot.valuator.assumptions.conventional_override_path
+
+# Database
+duckdb: "DuckDB (bot.duckdb)" {
+  companies: {class: store}  # @table companies
+  financials_annual: {class: store}  # @table financials_annual
+  prices_daily: {class: store}  # @table prices_daily
+  currencies: {class: store}  # @table currencies
+  damodaran_industry: {class: store}  # @table damodaran_industry
+  damodaran_country: {class: store}  # @table damodaran_country
+  screener_candidates: {class: store}  # @table screener_candidates
+}
+
+# Next stage
+analyze_stage: "analyze stage valuation: intrinsic value by discounted cash flow (DCF),\nsee the analyze board" {  # @symbol bot.valuator.analysis.analyze
+  class: step
+}
+
+# Outputs
+report_md: "reports/YYYY-MM-DD/screen/<preset>.md" {class: output}
+report_csv: "reports/YYYY-MM-DD/screen/<preset>.csv" {class: output}
+
+# Layer 1: snapshot
+snapshot: "1. snapshot per company" {
+  load: "load every company of companies\nits non-restated financials_annual rows, oldest first\n(latest row = newest fiscal year)\nnewest prices_daily close and newest market cap,\neach from its own newest non-empty row" {  # @symbol bot.screener.engine.run_screen
+    class: step
+  }
+  region: "Damodaran dataset region of the company\ncountry → region by the newest damodaran_country row\nno country or no mapping: US" {  # @symbol bot.screener.engine._resolve_region @const bot.screener.engine.DEFAULT_REGION
+    class: decision
+  }
+  tax: "tax rate for return on invested capital (ROIC)\nnewest damodaran_country tax rate of the country, when within [0, 1)\nelse 21%" {  # @symbol bot.screener.engine._resolve_tax_rate @const bot.screener.engine.DEFAULT_TAX_RATE
+    class: decision
+    fallback: |md Gap: ROIC tax falls back to the US 21% whenever the country has no Damodaran tax rate (or one outside [0, 1)), not to a rate of that country. | {class: gap}
+  }
+  ratios: "company ratios from the latest rows and the histories" {  # @symbol bot.screener.engine.build_company_data
+    class: step
+    formulas: |md
+      - terms: return on equity (ROE), earnings per share (EPS), book value (BV),
+        enterprise value (EV), earnings before interest and taxes (EBIT),
+        earnings before interest, taxes, depreciation and amortization (EBITDA).
+      - net debt = total debt − cash
+      - ROE = net income ÷ total equity
+      - EPS = net income ÷ diluted shares
+      - P/E = close ÷ EPS, only when EPS > 0
+      - BV per share = total equity ÷ diluted shares
+      - P/BV = close ÷ BV per share, only when > 0
+      - EV ÷ EBITDA = (market cap + net debt) ÷ EBITDA
+      - ROIC = EBIT × (1 − tax) ÷ (total debt + total equity)
+      - free cash flow yield = free cash flow ÷ market cap
+      - operating margin = EBIT ÷ revenue, per year
+      - Histories (revenue, operating cash flow, diluted shares, operating margin)
+        drop empty years.
+      - A missing input leaves the ratio empty.
+      | {class: note}
+  }
+  usd: "market cap in USD\n= market cap × rate_to_usd of its currency,\nthe rate on or before the market-cap date (from currencies)\nno rate: empty, so min_market_cap fails\nno currency: taken as USD" {  # @symbol bot.screener.engine._market_cap_usd
+    class: decision
+  }
+  benchmark: "sector benchmark for the company\nnewest-year damodaran_industry row for (industry, region)\nindustry = industry_damodaran, else the provider industry\nlooked up once per pair" {  # @symbol bot.screener.benchmarks.load_industry_benchmarks
+    class: step
+  }
+}
+
+# Layer 2: coverage gate
+coverage_gate: "2. coverage gate" {
+  gate: "sector benchmark row for (industry, region)\nwith a weighted average cost of capital (WACC)?\nno: the company leaves the universe before any rule runs,\nrecorded as rejected with coverage_gate\n(architecture decision record (ADR) 0006)" {  # @symbol bot.screener.engine.run_screen @file docs/adr/0006-unmeasurable-companies-leave-the-universe.md
+    class: decision
+  }
+}
+
+# Layer 3: quality gates
+quality_gates: "3. quality gates: every gate must pass" {
+  min_market_cap: "market cap in USD ≥ 100M\nmissing: fails" {  # @rule min_market_cap @param min_market_cap.minimum_usd
+    class: decision
+  }
+  min_years_history: "annual rows ≥ 5" {  # @rule min_years_history @param min_years_history.minimum_years
+    class: decision
+  }
+  exclude_sectors: "fails when the Damodaran industry is a financial services label (exact match)\nor the industry contains bank or insurance (any case)" {  # @rule exclude_sectors @param exclude_sectors.excluded @const bot.screener.rules.DEFAULT_EXCLUDED_SECTORS @symbol bot.reference.sectors.is_financial_services
+    class: decision
+  }
+  max_net_debt_to_ebitda: "net debt ÷ EBITDA ≤ 4\nnet debt ≤ 0: passes\nEBITDA ≤ 0 with positive net debt: fails" {  # @rule max_net_debt_to_ebitda @param max_net_debt_to_ebitda.maximum
+    class: decision
+  }
+  min_interest_coverage: "EBIT ÷ interest expense ≥ 2\ninterest expense ≤ 0: passes" {  # @rule min_interest_coverage @param min_interest_coverage.minimum
+    class: decision
+  }
+  positive_operating_cashflow: "operating cash flow > 0 in ≥ 4 of the last 5 years\nfewer than 5 years: fails" {  # @rule positive_operating_cashflow @param positive_operating_cashflow.min_positive @param positive_operating_cashflow.window
+    class: decision
+  }
+  max_goodwill_to_assets: "goodwill ÷ total assets ≤ 0.5\ntotal assets ≤ 0: fails" {  # @rule max_goodwill_to_assets @param max_goodwill_to_assets.maximum
+    class: decision
+  }
+  all_pass: "every quality gate passed?\na missing datum fails the gate\nno: rejected" {  # @symbol bot.screener.engine.evaluate_company
+    class: decision
+    all_layers: |md Every layer still runs on a failing company, so its failed rules are all recorded. | {class: note}
+  }
+}
+
+# Edges: entry point
+damodaran_value -> cli: "default preset"
+deep_value -> cli: "alternative preset"
+qarp -> cli: "alternative preset"
+cli -> snapshot.load: "preset loaded"
+
+# Edges: snapshot
+duckdb.companies -> snapshot.load: "every company"
+duckdb.financials_annual -> snapshot.load: "annual rows"
+duckdb.prices_daily -> snapshot.load: "newest close"
+duckdb.damodaran_country -> snapshot.region: "country mapping"
+duckdb.damodaran_country -> snapshot.tax: "country tax rate"
+duckdb.currencies -> snapshot.usd: "rate_to_usd"
+duckdb.damodaran_industry -> snapshot.benchmark: "sector benchmark rows"
+snapshot.load -> snapshot.region: "company rows"
+snapshot.region -> snapshot.tax: "region and country"
+snapshot.tax -> snapshot.ratios: "tax rate"
+snapshot.ratios -> snapshot.usd: "ratios and market cap"
+snapshot.usd -> snapshot.benchmark: "market cap in USD"
+snapshot.benchmark -> coverage_gate.gate: "sector benchmark, or none"
+
+# Edges: coverage gate and quality gates
+coverage_gate.gate -> quality_gates: "yes: measured, every rule runs"
+quality_gates.min_market_cap -> quality_gates.all_pass: "pass or fail"
+quality_gates.min_years_history -> quality_gates.all_pass: "pass or fail"
+quality_gates.exclude_sectors -> quality_gates.all_pass: "pass or fail"
+quality_gates.max_net_debt_to_ebitda -> quality_gates.all_pass: "pass or fail"
+quality_gates.min_interest_coverage -> quality_gates.all_pass: "pass or fail"
+quality_gates.positive_operating_cashflow -> quality_gates.all_pass: "pass or fail"
+quality_gates.max_goodwill_to_assets -> quality_gates.all_pass: "pass or fail"
