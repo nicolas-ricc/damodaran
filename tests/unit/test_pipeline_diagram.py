@@ -1786,7 +1786,7 @@ def test_portfolio_cli_order_matches_code() -> None:
 
 
 _PORTFOLIO_GAPS: dict[str, list[str]] = {
-    "sync.value.adr_0005": ["ADR 0005", "not implemented"],
+    "sync.value.adr_0005": ["ADR 0005 (Not implemented)"],
     "sync.corporate_actions.unverified": ["not yet verified against a real pull", "issue 110"],
     "events.split.other_actions": ["mergers", "fire no event"],
     "events.new_filing.no_auto_analyze": [

@@ -81,14 +81,14 @@ damodaran: "1. Damodaran datasets" {
   }
   country: "country rows\nsheet 'ERPs by country', parsing stops at the second (unrated) table\ntax rate: sheet 'Country Tax Rates', kept only within [0, 1]\nrisk-free rate: wacc.xls cell 'Long Term Treasury bond rate ='" {  # @symbol bot.ingest.damodaran.parse_country_tax_rates @symbol bot.ingest.damodaran.parse_preheader_scalar
     class: step
-    risk_free: |md Gap: the US risk-free rate is written into every country row; the per-currency rate of the architecture decision record (ADR) 0005 is not implemented. | {class: gap}
+    risk_free: |md Gap: the US risk-free rate is written into every country row; architecture decision record (ADR) 0005 (Not implemented) asks for one rate per currency. | {class: gap}
   }
   empty_rows: "no industry rows\nor no country rows?\nyes: status partial; an empty side\nkeeps its old rows (upsert returns before it deletes)" {  # @symbol bot.ingest.damodaran._import_files_into_run
     class: decision
   }
   write: "write both tables in one transaction\nreplace the (region, year) rows of damodaran_industry\nreplace the year rows of damodaran_country\nregion = --region, year = --year or the current year" {  # @symbol bot.ingest.damodaran.upsert_industry_rows @symbol bot.ingest.damodaran.upsert_country_rows
     class: step
-    us_only: |md Gap: only the US Damodaran dataset is ingested (ADR 0005 not implemented); --region other than US is refused. | {class: gap}  # @file docs/adr/0005-currency-handling-and-valuation-currency.md
+    us_only: |md Gap: only the US Damodaran dataset is ingested (ADR 0005 (Not implemented)); --region other than US is refused. | {class: gap}  # @file docs/adr/0005-currency-handling-and-valuation-currency.md
   }
 }
 
@@ -172,7 +172,8 @@ prices: "3. prices" {
       - FMP is the optional provider (BOT_DATA_PROVIDER=fmp). Its market cap
         is the marketCap field of its prices, or the current market cap
         when the newest bar is at most 7 days old.
-      | {class: note}
+      - The free SEC EDGAR stack with Tiingo or Stooq prices: ADR 0007 (Implemented).
+      | {class: note}  # @file docs/adr/0007-free-data-stack-edgar-stooq.md
     default_provider: |md Gap: docs/plano/estado.py still calls edgar-stooq the default provider; the code default is edgar-tiingo. | {class: gap}  # @file docs/plano/estado.py
   }
   market_cap: "market cap = close × shares outstanding\nnewest bar only, and only when it is at most 7 days old\nshares: newest SEC EDGAR dei EntityCommonStockSharesOutstanding\nSEC EDGAR providers only; otherwise, or when the shares\nlookup fails, the bar is stored without market cap" {  # @const bot.ingest.edgar_base._FRESH_DAYS @symbol bot.ingest.sec_edgar.SecEdgarClient.shares_outstanding

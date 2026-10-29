@@ -84,7 +84,7 @@ snapshot: "1. snapshot per company" {
 
 # Layer 2: coverage gate
 coverage_gate: "2. coverage gate" {
-  gate: "sector benchmark row for (industry, region)\nwith a weighted average cost of capital (WACC)?\nno: the company leaves the universe before any rule runs,\nrecorded as rejected with coverage_gate\n(architecture decision record (ADR) 0006)" {  # @symbol bot.screener.engine.run_screen @file docs/adr/0006-unmeasurable-companies-leave-the-universe.md
+  gate: "sector benchmark row for (industry, region)\nwith a weighted average cost of capital (WACC)?\nno: the company leaves the universe before any rule runs,\nrecorded as rejected with coverage_gate\n(architecture decision record (ADR) 0006 (Implemented))" {  # @symbol bot.screener.engine.run_screen @file docs/adr/0006-unmeasurable-companies-leave-the-universe.md
     class: decision
   }
 }
@@ -161,7 +161,7 @@ trap_detection: "5. trap detection: every detector must pass" {
     class: decision
     mergers: |md Gap: spec §6.4 exempts dilution from justified mergers and acquisitions; the code caps growth unconditionally. | {class: gap}
   }
-  all_pass: "every trap detector passed?\na skipped detector is eliminatory (ADR 0006)\nno: rejected" {  # @symbol bot.screener.engine.evaluate_company
+  all_pass: "every trap detector passed?\na skipped detector is eliminatory, ADR 0006 (Implemented)\nno: rejected" {  # @symbol bot.screener.engine.evaluate_company
     class: decision
   }
   auditor: |md Gap: spec §6.4 also lists auditor changes and late filings; not implemented. | {class: gap}

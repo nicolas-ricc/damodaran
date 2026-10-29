@@ -55,7 +55,7 @@ notifier_message: "alert message by email or Telegram" {class: output}
 published_site: "published site (static viewer)" {class: output}
 
 # Database
-duckdb: "DuckDB (bot.duckdb)" {
+duckdb: "DuckDB (bot.duckdb), architecture decision record (ADR) 0001 (Accepted)" {  # @file docs/adr/0001-use-duckdb.md
   damodaran_industry: {class: store}  # @table damodaran_industry
   damodaran_country: {class: store}  # @table damodaran_country
   currencies: {class: store}  # @table currencies
