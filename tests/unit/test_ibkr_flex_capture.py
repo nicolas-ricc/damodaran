@@ -41,9 +41,6 @@ def _decimals(value: str) -> int:
     return len(value.split(".", 1)[1]) if "." in value else 0
 
 
-# --- _fake_number -------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
@@ -77,9 +74,6 @@ def test_fake_number(value: str, expected: str) -> None:
 @pytest.mark.parametrize("value", ["NaN", "Infinity", "-Infinity", "sNaN"])
 def test_fake_number_leaves_non_finite_unchanged(value: str) -> None:
     assert _fake_number(value) == value
-
-
-# --- redact_statement ---------------------------------------------------------
 
 
 def test_redaction_is_deterministic(sample: str, redacted: str) -> None:
@@ -140,9 +134,6 @@ def test_redaction_blanks_alias() -> None:
 def test_redact_rejects_other_root() -> None:
     with pytest.raises(ValueError, match="expected a FlexQueryResponse, got Foo"):
         redact_statement("<Foo/>")
-
-
-# --- summarize_statement ------------------------------------------------------
 
 
 SAMPLE_SUMMARY = FlexSummary(
