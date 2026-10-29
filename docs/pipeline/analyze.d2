@@ -165,6 +165,56 @@ sensitivity: "5. sensitivity" {
   }
 }
 
+# Section 6: narrative flags
+narrative_flags: "6. narrative flags: five checks for a human, not in any ranking" {  # @symbol bot.valuator.narrative_flags.narrative_flags @enum bot.valuator.narrative_flags.FlagColor
+  story_margin: "story margin\nstory type not high-growth: green\ncompany or sector margin missing: unknown\ncompany EBIT ÷ revenue (latest year) > sector op_margin: yellow\nelse green" {  # @symbol bot.valuator.narrative_flags.story_margin_flag
+    class: decision
+  }
+  growth_reinvestment: "growth funded by reinvestment\nany year with FCFF < 0, or reinvestment > 0 with NOPAT ≤ 0: red\nhighest reinvestment ÷ NOPAT over the years with NOPAT > 0\nis > 0.90: yellow\nelse green" {  # @symbol bot.valuator.narrative_flags.growth_reinvestment_flag @const bot.valuator.narrative_flags._STRETCHED_REINVESTMENT_RATE
+    class: decision
+  }
+  beta_business_risk: "beta vs business risk\nsector beta_levered < 1.0\nand operating leverage > 1.5\nand company debt weight > 40%: yellow\none of the three missing: unknown; else green\noperating leverage = %ΔEBIT ÷ %ΔRevenue, last two years\n(none when a base is 0, or revenue is unchanged)\ncompany debt weight = total debt ÷ (total debt + total equity)" {  # @symbol bot.valuator.narrative_flags.beta_business_risk_flag @symbol bot.valuator.analysis._operating_leverage @const bot.valuator.narrative_flags._DEFENSIVE_BETA @const bot.valuator.narrative_flags._HIGH_OPERATING_LEVERAGE @const bot.valuator.narrative_flags._HIGH_FINANCIAL_LEVERAGE
+    class: decision
+  }
+  terminal_value_share: "terminal value share > 80%: yellow\nelse green" {  # @symbol bot.valuator.narrative_flags.terminal_value_share_flag @const bot.valuator.narrative_flags._TERMINAL_VALUE_SHARE_CEILING
+    class: decision
+  }
+  country_exposure: "country exposure\nforeign revenue share > 50% and weighted equity risk premium (ERP)\n− listing-country ERP > 300 bps: red\nan input missing: unknown; else green" {  # @symbol bot.valuator.narrative_flags.country_exposure_flag @const bot.valuator.narrative_flags._FOREIGN_REVENUE_MAJORITY @const bot.valuator.narrative_flags._ERP_GAP_THRESHOLD
+    class: decision
+    always_unknown: |md Gap: analyze never supplies the foreign revenue share or the two ERPs (no ingest path has revenue by geography), so this flag is always unknown. | {class: gap}
+  }
+}
+
+# Section 7: margin of safety and verdict
+verdict: "7. margin of safety and verdict" {
+  mos: "margin of safety (MoS) = intrinsic value per share ÷ latest close\nno price, or price ≤ 0: none" {  # @symbol bot.valuator.analysis.analyze
+    class: step
+  }
+  words: "verdict\nMoS ≥ 1.3: potentially undervalued\nMoS ≥ 1.0: around fair value\nMoS < 1.0: potentially overvalued\nno MoS: n/a" {  # @symbol bot.reporting.analysis_report.margin_verdict @const bot.web.views.MOS_UNDERVALUED @const bot.web.views.MOS_FAIR
+    class: decision
+  }
+}
+
+# Section 8: sanity check
+sanity_check: "8. sanity check" {
+  multiples: "implied multiples next to the sector's; decides nothing\nimplied price-to-earnings (P/E) = price ÷ earnings per share (EPS),\nEPS = net income ÷ diluted shares;\nonly with a price, net income > 0, shares > 0 and EPS > 0; vs sector pe\nimplied EV ÷ sales = EV ÷ revenue, revenue > 0; vs sector ev_sales" {  # @symbol bot.valuator.analysis._sanity_check
+    class: step
+  }
+}
+
+# Section 9: reports
+reports: "9. reports, written to reports/YYYY-MM-DD/analysis/" {
+  markdown: "markdown report from analysis.md.j2, eight sections:\n1. executive summary, 2. story type + auto-assignment reasons,\n3. assumptions, 4. DCF detail, 5. sensitivity, 6. narrative flags,\n7. manual overrides, 8. sanity check vs sector multiples" {  # @symbol bot.reporting.analysis_report.render_analysis
+    class: step
+  }
+  html: "HTML report: the markdown report plus the tornado chart\nand the grid heatmap, inlined, no external assets" {  # @symbol bot.reporting.html.render_analysis_html
+    class: step
+  }
+  json: "JSON sidecar: schema_version 1, generated_on, verdict,\nthe whole analysis" {  # @symbol bot.reporting.analysis_json.render_analysis_json @const bot.reporting.analysis_json.SCHEMA_VERSION
+    class: step
+  }
+}
+
 # Edges: entry point
 duckdb.screener_candidates -> tickers: "passed candidates of the latest run, by rank"
 cli -> tickers: "tickers or --from-screen"
@@ -225,3 +275,23 @@ dcf.equity -> dcf.blend: "going-concern value per share"
 # Edges: sensitivity
 dcf -> sensitivity.tornado: "the DCF re-run per scenario"
 sensitivity.tornado -> sensitivity.grid: "two widest axes"
+
+# Edges: flags, verdict, sanity check
+dcf -> narrative_flags: "yearly figures, terminal value share"
+inputs.derived -> narrative_flags.beta_business_risk: "histories and balance sheet"
+dcf.blend -> verdict.mos: "intrinsic value per share"
+inputs.load -> verdict.mos: "newest close"
+verdict.mos -> verdict.words: "MoS"
+dcf.ev -> sanity_check.multiples: "EV"
+inputs.load -> sanity_check.multiples: "price, net income, sector multiples"
+
+# Edges: reports
+verdict.words -> reports: "verdict"
+sensitivity -> reports: "results"
+narrative_flags -> reports: "results"
+sanity_check -> reports: "results"
+template -> reports.markdown: "layout"
+reports.markdown -> reports.html: "markdown"
+reports.markdown -> report_md: "markdown file"
+reports.html -> report_html: "HTML file"
+reports.json -> report_json: "JSON file"
