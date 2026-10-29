@@ -51,7 +51,7 @@ sync: "1–3. sync the account" {  # @symbol bot.portfolio.command.run_portfolio
   snapshot: "1. snapshot: every managed account's open positions\nand cash by currency\nidempotent per (snapshot_date, account):\ndelete that day's rows of the account,\nthen insert into portfolio_snapshots and cash_balances;\nother accounts' rows of the day untouched" {  # @symbol bot.portfolio.sync.sync_portfolio
     class: step
   }
-  value: "market value = quantity × latest close, expressed in the position's currency\nlatest close = newest prices_daily close on or before the snapshot date,\nin its listing currency; when that differs from the position's currency:\nclose × rate_to_usd(listing currency) ÷ rate_to_usd(position currency),\nnearest prior rates from currencies (rate_to_usd is a column)\neither currency unknown: close used as is\nno close, close ≤ 0, or a missing or non-positive rate:\nmarket value empty (unpriced)" {  # @symbol bot.portfolio.sync.value_positions
+  value: "market value = quantity × latest close, expressed in the position's currency\nlatest close = newest prices_daily close on or before the snapshot date,\nin its listing currency; when that differs from the position's currency:\nclose × rate_to_usd(listing currency) ÷ rate_to_usd(position currency),\nnearest prior rates from currencies\neither currency unknown: close used as is\nno close, close ≤ 0, or a missing or non-positive rate:\nmarket value empty (unpriced)" {  # @symbol bot.portfolio.sync.value_positions
     class: step
     adr_0005: |md Gap: ADR 0005 (store money as reported, convert at the point of calculation) is not implemented; the universe is US-only and every holding trades in USD, so no real data exercises the cross-currency branch today. | {class: gap}  # @file docs/adr/0005-currency-handling-and-valuation-currency.md
   }
@@ -78,6 +78,56 @@ marks: "4a. mark every holding" {  # @symbol bot.portfolio.marks.mark_holdings
   persist: "holding_marks: one row per holding;\nthe snapshot date's rows deleted, then inserted\nunknown values stored empty" {
     class: step
     unknowns: |md An unknown current value never fires an event. An unknown previous red-flag set counts as empty, so standing red flags re-fire after a day without a valuation. Unknown previous gates or sector WACC fire nothing. | {class: note}
+  }
+}
+
+# Section 4b: events
+events: "4b. diff two snapshots into events" {  # @symbol bot.portfolio.events.compute_events @enum bot.portfolio.events.EventType
+  window: "previous snapshot = newest snapshot_date before today; none on the first run\npositions summed per ticker across accounts\nderived events diff the two persisted marks, never a recomputation" {
+    class: step
+  }
+  position_opened: "position_opened\nquantity ≠ 0 now, absent or 0 in the previous snapshot\nfirst run: every position" {  # @symbol bot.portfolio.events.detect_position_changes
+    class: decision
+  }
+  position_closed: "position_closed\nquantity ≠ 0 in the previous snapshot, absent or 0 now\n(an account that returns no positions closes all of its holdings)" {
+    class: decision
+  }
+  position_size_changed: "position_size_changed: held in both and\n|Δquantity ÷ |previous quantity|| > 10%\nexactly 10%: no event" {  # @const bot.portfolio.events.DEFAULT_SIZE_CHANGE_THRESHOLD
+    class: decision
+  }
+  currency_changed: "currency_changed\nthe position's listing currency differs from the previous snapshot's,\nboth known\nnot on the first run" {  # @symbol bot.portfolio.events.detect_currency_changes
+    class: decision
+  }
+  dividend: "dividend\na corporate_actions row of type dividend for a holding,\neffective after the previous snapshot, on or before this one" {  # @symbol bot.portfolio.events.detect_corporate_action_events
+    class: decision
+  }
+  split: "split\nthe same rule for type split" {
+    class: decision
+    other_actions: |md Gap: spec §8.3 lists dividend, split and corporate action; mergers, spin-offs and every other corporate action type are stored in corporate_actions but fire no event. | {class: gap}
+  }
+  new_filing: "new_filing\na filings_log row of a holding, filed on or before this snapshot,\nfiled after the previous snapshot or ingested on or after its date,\nnot reported before: (ticker, filing type, filing date)\nabsent from events_log\nfirst run: every unreported filing" {  # @symbol bot.portfolio.events.detect_new_filings
+    class: decision
+    no_auto_analyze: |md Gap: spec §8.3 says a new filing auto-runs bot analyze and leaves an updated report. Verified against run_portfolio and the portfolio command: nothing reacts to new_filing; every holding is re-valued on every run by mark_holdings, and no analysis report is written. | {class: gap}
+  }
+  intrinsic_value_crossed_price: "intrinsic_value_crossed_price\n(intrinsic value − price) < 0 before and > 0 now, or > 0 before and < 0 now\nequality is not a cross\nno previous mark, or any of the four values unknown: nothing" {  # @symbol bot.portfolio.events.detect_intrinsic_value_cross
+    class: decision
+  }
+  new_red_flag: "new_red_flag: one per narrative flag red now\nand not red in the previous mark\nno previous mark or unknown previous flags: counts as none red\nunknown flags now: nothing" {  # @symbol bot.portfolio.events.detect_new_red_flags
+    class: decision
+  }
+  below_quality_gate: "below_quality_gate: one per gate failing now and not failing before\nfailed gates unknown on either side, or no previous mark: nothing" {  # @symbol bot.portfolio.events.detect_below_quality_gate
+    class: decision
+  }
+  sector_recalibrated: "sector_recalibrated: |sector WACC now − sector WACC before| > 100 bps\nexactly 100 bps: no event; either unknown: nothing" {  # @symbol bot.portfolio.events.detect_sector_recalibration @const bot.portfolio.events.DEFAULT_WACC_RECALIBRATION_BPS
+    class: decision
+  }
+  concentration: "concentration: market value ÷ total market value > 15%, exactly 15%: no event\ntotal over positions with a market value > 0\nnot a diff: fires on every run while above" {  # @symbol bot.portfolio.events.detect_concentration @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
+    class: decision
+  }
+  not_events: |md Not events, by design (spec §8.3): price moves and news. | {class: note}
+  persist: "append every event to events_log:\nevent_type, ticker, previous and current snapshot dates, details" {  # @symbol bot.portfolio.events.persist_events
+    class: step
+    reruns: |md A second run on the same day diffs against the same previous snapshot, so it appends the same events again and sends them again; only new_filing is checked against events_log. | {class: note}
   }
 }
 
@@ -108,3 +158,31 @@ marks.held -> marks.gates: "each holding"
 marks.valuation -> marks.persist: "intrinsic value, price, red flags"
 marks.gates -> marks.persist: "failed gates, sector WACC"
 marks.persist -> duckdb.holding_marks: "marks of the day"
+
+marks -> events.window: "marks persisted"
+duckdb.portfolio_snapshots -> events.position_opened: "both snapshots"
+duckdb.portfolio_snapshots -> events.position_closed: "both snapshots"
+duckdb.portfolio_snapshots -> events.position_size_changed: "both snapshots"
+duckdb.portfolio_snapshots -> events.currency_changed: "both snapshots"
+duckdb.portfolio_snapshots -> events.concentration: "this snapshot"
+duckdb.corporate_actions -> events.dividend: "actions in the window"
+duckdb.corporate_actions -> events.split: "actions in the window"
+duckdb.filings_log -> events.new_filing: "filings of holdings"
+duckdb.events_log -> events.new_filing: "filings already reported"
+duckdb.holding_marks -> events.intrinsic_value_crossed_price: "previous and current marks"
+duckdb.holding_marks -> events.new_red_flag: "previous and current marks"
+duckdb.holding_marks -> events.below_quality_gate: "previous and current marks"
+duckdb.holding_marks -> events.sector_recalibrated: "previous and current marks"
+events.position_opened -> events.persist: "fires"
+events.position_closed -> events.persist: "fires"
+events.position_size_changed -> events.persist: "fires"
+events.currency_changed -> events.persist: "fires"
+events.dividend -> events.persist: "fires"
+events.split -> events.persist: "fires"
+events.new_filing -> events.persist: "fires"
+events.intrinsic_value_crossed_price -> events.persist: "fires"
+events.new_red_flag -> events.persist: "fires"
+events.below_quality_gate -> events.persist: "fires"
+events.sector_recalibrated -> events.persist: "fires"
+events.concentration -> events.persist: "fires"
+events.persist -> duckdb.events_log: "new events"
