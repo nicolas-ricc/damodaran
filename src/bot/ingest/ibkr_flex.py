@@ -295,6 +295,17 @@ class FlexClient:
         return text
 
 
+def fetch_flex_statement(
+    token: str,
+    query_id: str,
+    *,
+    transport: httpx.BaseTransport | None = None,
+) -> str:
+    """Return the latest Flex statement XML; raise :class:`FlexError` on any failure."""
+    with FlexClient(token, query_id, transport=transport) as client:
+        return client.fetch_statement()
+
+
 def import_corporate_actions(
     conn: duckdb.DuckDBPyConnection,
     settings: Settings,
@@ -312,8 +323,7 @@ def import_corporate_actions(
     if not token or not query_id:
         log.info("ibkr_flex_not_configured")
         return None
-    with FlexClient(token, query_id, transport=transport) as client:
-        statement = client.fetch_statement()
+    statement = fetch_flex_statement(token, query_id, transport=transport)
     records = parse_flex_statement(statement)
     inserted = upsert_corporate_actions(conn, records)
     log.info("ibkr_flex_imported", records=len(records), inserted=inserted)
