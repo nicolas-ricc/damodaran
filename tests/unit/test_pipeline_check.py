@@ -266,7 +266,7 @@ def test_source_hash_covers_every_d2_sorted_by_name(check: ModuleType, tmp_path:
     (tmp_path / "b.d2").write_text("B")
     (tmp_path / "a.d2").write_text("A")
     (tmp_path / "classes.d2").write_text("C")
-    assert check.source_hash(tmp_path) == hashlib.sha256(b"ACB").hexdigest()
+    assert check.source_hash(tmp_path) == hashlib.sha256(b"ABC").hexdigest()
     assert [p.name for p in check.boards(tmp_path)] == ["a.d2", "b.d2"]
 
 
