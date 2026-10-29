@@ -416,7 +416,7 @@ _ACRONYMS: dict[str, str] = {
 }
 # File formats and words written in capitals that need no expansion.
 _ACRONYMS_EXEMPT: set[str] = {
-    "JSON", "CSV", "YAML", "SVG", "URL", "HTML", "PNG",
+    "JSON", "CSV", "YAML", "SVG", "URL", "HTML", "PNG", "DESIGN",
     "US", "USD", "YYYY", "MM", "DD", "TICKER",
 }
 # Acronyms with a slash or an ampersand (P/E, P&L) are whole tokens, matched before their parts.
@@ -2072,6 +2072,16 @@ def _adr_status_text(number: str) -> str:
     return _collapsed(section)
 
 
+_STATUS_RE = re.compile(r"Accepted|Implemented|Not implemented|Superseded")
+
+
+def _current_status(number: str) -> str:
+    """The status word the ADR's status text states last: Implemented outranks Accepted."""
+    words = _STATUS_RE.findall(_adr_status_text(number))
+    assert words, f"ADR {number} states no status"
+    return words[-1]
+
+
 def test_adr_mentions_carry_their_status() -> None:
     bad = []
     for stem, board in _boards().items():
@@ -2079,8 +2089,8 @@ def test_adr_mentions_carry_their_status() -> None:
             number, status = m.group(1), m.group(2)
             if status is None:
                 bad.append(f"{stem}: ADR {number} without a status")
-            elif status not in _adr_status_text(number):
-                bad.append(f"{stem}: ADR {number} is not {status}")
+            elif status != _current_status(number):
+                bad.append(f"{stem}: ADR {number} is {_current_status(number)}, not {status}")
     assert bad == []
 
 

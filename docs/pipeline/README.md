@@ -28,7 +28,8 @@ by hand. PNGs are for looking only: git-ignored, never committed.
 
 A citation is a d2 line comment, trailing the line it describes or alone on the
 line before it: `# @kind argument`. Never inside a `|md ... |` block; outside
-directives, no `@` starts a word in a comment. `link:` targets must exist in this folder (`check.py`).
+directives, no `@` starts a word in a comment. `link:` targets must exist in
+this folder (`check.py`).
 
 | Directive | Cites | Checked by |
 | --- | --- | --- |
@@ -42,16 +43,18 @@ directives, no `@` starts a word in a comment. `link:` targets must exist in thi
 
 ## Conventions
 
-- `class:` is a node's first attribute.
-- Expand every acronym at first use.
+- `class:` is a node's first attribute; expand every acronym at first use.
 - Follow every ADR mention with its status: `ADR 0006 (Implemented)`.
-- A gap note starts `Gap:` and names the document: `plano <card>`, `leccion cap-N`, or a spec section.
-- Digits on a step label are cited by `@const`/`@param` on the same line (except 0, 1, 100, ordinals, digits inside words such as 10-K); write counts in words.
-- Stage links are `link: "./<stage>.svg"`: d2 v0.9.0 drops `link: <stage>.svg` when the board has a node keyed `<stage>`.
+- A gap note starts `Gap:` and names the document: `plano <card>`, `leccion cap-N`, spec §.
+- Cite every digit on a step label with `@const`/`@param` on that line, except 0, 1,
+  100, ordinals and digits inside words (10-K); write counts in words.
+- Stage links are `link: "./<stage>.svg"`: d2 v0.9.0 drops `link: <stage>.svg` on a
+  board that has a node keyed `<stage>`.
 
 ## How to add a step
 
 1. Add its directive comment first.
 2. Declare the node with its class and label.
 3. Declare its labelled edges at top level, after all nodes.
-4. Render with `docs/pipeline/build.sh`, or push and take the SVGs from `pipeline-render`; commit them with `rendered.sha256`.
+4. Render with `docs/pipeline/build.sh`, or push and take the SVGs from
+   `pipeline-render`; commit them with `rendered.sha256`.

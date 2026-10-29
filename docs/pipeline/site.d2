@@ -7,7 +7,7 @@ sidecars: "analysis sidecars reports/YYYY-MM-DD/analysis/TICKER.json\none per co
 publish_script: "scripts/publish_site.sh" {class: file}  # @file scripts/publish_site.sh
 gitignore: ".gitignore: of reports/, only reports/*/analysis/*.json is tracked" {class: file}  # @file .gitignore
 site_yml: ".github/workflows/site.yml, the site workflow" {class: file}  # @file .github/workflows/site.yml
-design: "the design document, the viewer's theme" {class: file}  # @file docs/DESIGN.md
+design: "docs/DESIGN.md, the viewer's theme" {class: file}  # @file docs/DESIGN.md
 
 # Schedule
 weekly: "scripts/weekly.sh, Saturdays 10:00\nrefresh, screen, analyze, then publish;\neach step only when the previous one succeeded" {class: cron}  # @file scripts/weekly.sh
@@ -37,7 +37,7 @@ ci: "2. site workflow, on every push to master" {
   checkout: "1. check out master" {
     class: step
   }
-  sync: "2. uv sync --frozen: dependencies from uv.lock" {
+  sync: "2. uv sync --frozen: dependencies from uv.lock\n(uv installed by the astral-sh/setup-uv step)" {
     class: step
   }
   ruff: "3. ruff check: lint" {
