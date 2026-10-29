@@ -92,6 +92,68 @@ damodaran: "1. Damodaran datasets" {
   }
 }
 
+# Sub-flow 2: fundamentals
+fundamentals: "2. fundamentals" {
+  mapping: "load the industry mapping once per run\nprovider industry label → companies.industry_damodaran\nEDGAR label: Standard Industrial Classification (SIC) description\ncase, spaces and dashes are ignored when matching" {  # @symbol bot.ingest.industry_mapping.load_industry_mapping
+    class: step
+    unmapped: |md
+      - A label without a row leaves industry_damodaran empty and logs a warning;
+        the sector rules skip that company later.
+      - A missing mapping file gives an empty mapping.
+      - A configured path that does not exist falls back to the packaged copy.
+      | {class: note}
+  }
+  mapping_valid: "every target on the Damodaran industry list,\nno duplicate (provider, label) row?\nno: the load fails and no ticker is imported" {  # @symbol bot.reference.industries
+    class: decision
+  }
+  skip: "latest filing already stored?\nprovider's newest 10-K, 10-Q or 20-F filing date (amendments too)\nis not after the newest filings_log date of this provider:\nyes: skipped, no import\n--force bypasses the check; a probe error imports anyway" {  # @symbol bot.ingest.universe._should_skip
+    class: decision
+  }
+  import: "import one ticker\nfetch company facts and submissions, parse them,\nthen write in one transaction:\ncompanies, financials_annual, financials_quarterly, filings_log" {  # @symbol bot.ingest.universe.refresh_universe @symbol bot.ingest.universe.import_company
+    class: step
+    run: |md
+      - Company row: name, exchange and industry from the submissions;
+        currency USD; industry_damodaran from the mapping.
+      - The source column is restamped as the provider name, not sec_edgar,
+        so the skip check above finds the stored filings.
+      - One refresh_log row per ticker, source = the provider name.
+      - A failed ticker is recorded and the run continues.
+      | {class: note}
+    base: |md EdgarPricedProvider is the EDGAR half shared by the Tiingo and Stooq providers. | {class: note}  # @symbol bot.ingest.edgar_base.EdgarPricedProvider
+  }
+  periods: "which facts become a row?\nannual: a duration of 350 to 380 days from a 10-K or 10-K/A\nquarterly: a duration of 80 to 100 days from a 10-Q or 10-Q/A\nan instant fact joins the row with the same period end\nany other fact is dropped" {  # @symbol bot.ingest.sec_edgar._collect_period_rows @const bot.ingest.sec_edgar.ANNUAL_SPAN_DAYS @const bot.ingest.sec_edgar.QUARTERLY_SPAN_DAYS
+    class: decision
+  }
+  precedence: "which concept fills a column?\nper column and period end, the first concept in the list\nwith an accepted fact wins; later concepts fill only empty ends" {  # @symbol bot.ingest.sec_edgar._collect_period_rows
+    class: decision
+    example: |md
+      - Revenue: Revenues, then RevenueFromContractWithCustomerExcludingAssessedTax,
+        then SalesRevenueNet, and so on.
+      - is_restated is true when a fact used for the period comes from an amendment.
+      | {class: note}
+  }
+  derive: "derive aggregates, only when not reported\nwith earnings before interest and taxes (EBIT) as input:\nso EBITDA = EBIT + depreciation\nfree cash flow = operating cash flow − capex\nworking capital = current assets − current liabilities\nan aggregate with a missing input stays empty" {  # @symbol bot.ingest.sec_edgar._derive_financial_fields
+    class: step
+  }
+  fiscal: "label each row with its fiscal year\nfiscal year = calendar year of the period end\nquarter number counted from the nearest annual end\ntwo rows with one label: the later period end is kept" {  # @symbol bot.ingest.sec_edgar.parse_company_facts @symbol bot.ingest.sec_edgar._fiscal_quarter_key
+    class: step
+    fallback: |md
+      - A quarter without an annual end within a year takes the label of the filing
+        that reported it first.
+      - A quarter number outside 1 to 4 drops the row.
+      | {class: note}
+  }
+  shares: "annual diluted share count a whole scale off its peers?\nratio = median of the other annual counts ÷ count\nfactors tried: 1,000,000, then 1,000\nyes if factor ÷ 2 ≤ ratio ≤ factor × 2 (tolerance 2)\nneeds at least 3 other counts\nyes: count × factor, counted as rescaled" {  # @symbol bot.ingest.sec_edgar._rescale_shares_diluted @const bot.ingest.sec_edgar._SHARE_SCALE_FACTORS @const bot.ingest.sec_edgar._MIN_SHARE_COMPARATORS @const bot.ingest.sec_edgar._SHARE_SCALE_TOLERANCE
+    class: decision
+  }
+  rate_limit: "provider rate limit hit (probe or import)?\nyes: this ticker and every remaining one are deferred, not failed\ndeferred tickers are not counted in the failure rate" {  # @symbol bot.ingest.universe._run_bulk_refresh
+    class: decision
+  }
+  status: "status of the run\nfailure rate = failed ÷ attempted\nat most 5%: success; at most 25%: partial; above 25%: error\nnot success: exit code 2" {  # @const bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE @const bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE
+    class: decision
+  }
+}
+
 # Entry points into the command
 weekly -> cli: "bot refresh --all"
 daily -> cli: "bot refresh --prices, repeated until no tickers deferred\n(BOT_PRICE_ROUNDS, default 10 rounds;\nBOT_PRICE_RETRY_PAUSE, default 3600 s apart)\na failing round stops the loop\nthen bot refresh --fx, which runs even when prices failed"
@@ -111,3 +173,29 @@ damodaran.empty_rows -> damodaran.write: "rows to write; an empty side makes the
 damodaran.write -> duckdb.damodaran_industry: "industry benchmarks"
 damodaran.write -> duckdb.damodaran_country: "country risk, tax rate, risk-free rate"
 damodaran.write -> duckdb.refresh_log: "one row, source damodaran, status success or partial"
+
+# Fundamentals flow
+cli -> fundamentals: "2. fundamentals (--fundamentals or --all)"
+industry_mapping_csv -> fundamentals.mapping: "provider, provider_industry, damodaran_industry rows"
+universe_csv -> fundamentals.skip: "tickers, one at a time"
+edgar -> fundamentals.skip: "submissions: newest filing date"
+duckdb.filings_log -> fundamentals.skip: "newest filing date"
+edgar -> fundamentals.import: "company facts, submissions"
+fmp -> fundamentals.import: "profile and statements (BOT_DATA_PROVIDER=fmp only)"
+fundamentals.mapping -> fundamentals.mapping_valid: "parsed rows"
+fundamentals.mapping_valid -> fundamentals.skip: "yes: mapping ready for every ticker"
+fundamentals.skip -> fundamentals.import: "no, or --force: fetch and write"
+fundamentals.skip -> fundamentals.status: "yes: counted as skipped"
+fundamentals.import -> fundamentals.periods: "company facts"
+fundamentals.periods -> fundamentals.precedence: "rows keyed by period end"
+fundamentals.precedence -> fundamentals.derive: "one value per column and period end"
+fundamentals.derive -> fundamentals.fiscal: "annual and quarterly rows"
+fundamentals.fiscal -> fundamentals.shares: "labelled annual rows"
+fundamentals.import -> fundamentals.rate_limit: "error raised by the provider"
+fundamentals.rate_limit -> fundamentals.status: "no: imported or failed; yes: the rest deferred"
+fundamentals.import -> duckdb.companies: "company row with industry_damodaran"
+fundamentals.fiscal -> duckdb.financials_quarterly: "quarterly rows"
+fundamentals.shares -> duckdb.financials_annual: "annual rows, share counts corrected"
+fundamentals.import -> duckdb.filings_log: "one row per form and filing date"
+fundamentals.import -> duckdb.refresh_log: "one row per ticker, source = provider name"
+fundamentals.status -> duckdb.refresh_log: "one summary row, source = provider name + _universe"
