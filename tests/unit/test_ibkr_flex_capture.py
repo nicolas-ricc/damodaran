@@ -11,6 +11,7 @@ import functools
 import json
 import re
 import xml.etree.ElementTree as ET
+from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import quote, quote_plus
 
@@ -220,8 +221,6 @@ def test_summarize_rejects_other_root() -> None:
         summarize_statement("<Foo/>")
 
 
-# --- bot flex-capture (#139): recording, cassette, capture() and the CLI -----------
-
 TOKEN = "1234567890/abc+def=4567"  # not purely alphanumeric: httpx percent-encodes it in URLs
 FORMS = (TOKEN, quote(TOKEN, safe=""), quote_plus(TOKEN, safe=""))
 QUERY = "987654"
@@ -360,8 +359,10 @@ def _refuse(request: httpx.Request) -> httpx.Response:
     raise AssertionError("no HTTP call expected")
 
 
-def _record(handler: object) -> list[object]:
-    recorder = ibkr_flex_capture.RecordingTransport(httpx.MockTransport(handler))  # type: ignore[arg-type]
+def _record(
+    handler: Callable[[httpx.Request], httpx.Response],
+) -> list[ibkr_flex_capture.Interaction]:
+    recorder = ibkr_flex_capture.RecordingTransport(httpx.MockTransport(handler))
     with httpx.Client(transport=recorder) as client:
         client.get(f"{GET_URL}?q=1&t={quote(TOKEN, safe='')}&v=3")
     return list(recorder.interactions)
@@ -429,11 +430,11 @@ def test_cli_missing_settings_exits_2(cli_env: Path) -> None:
     ids=["fail-1012", "http-500"],
 )
 def test_cli_flex_error_exits_1_without_the_token(
-    cli_env: Path, monkeypatch: pytest.MonkeyPatch, send: object
+    cli_env: Path, monkeypatch: pytest.MonkeyPatch, send: Callable[[httpx.Request], httpx.Response]
 ) -> None:
     monkeypatch.setenv("BOT_IBKR_FLEX_TOKEN", TOKEN)
     monkeypatch.setenv("BOT_IBKR_FLEX_QUERY_ID", QUERY)
-    _patch_capture(monkeypatch, httpx.MockTransport(send))  # type: ignore[arg-type]
+    _patch_capture(monkeypatch, httpx.MockTransport(send))
     result = _invoke(["flex-capture"])
     assert result.exit_code == 1
     assert "Flex capture failed:" in result.stderr
