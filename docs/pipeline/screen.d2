@@ -44,27 +44,29 @@ snapshot: "1. snapshot per company" {
   load: "load every company of companies\nits non-restated financials_annual rows, oldest first\n(latest row = newest fiscal year)\nnewest prices_daily close and newest market cap,\neach from its own newest non-empty row" {  # @symbol bot.screener.engine.run_screen
     class: step
   }
-  region: "Damodaran dataset region of the company\ncountry → region by the newest damodaran_country row\nno country or no mapping: US" {  # @symbol bot.screener.engine._resolve_region @const bot.screener.engine.DEFAULT_REGION
+  region: "Damodaran dataset region of the company\nChina, India, Japan: their own dataset\nelse the country's grouping in its newest damodaran_country row\nmapped to a dataset region (e.g. Western Europe → Europe)\nno country, or an unknown grouping: US" {  # @symbol bot.screener.engine._resolve_region @symbol bot.reference.regions.dataset_region @const bot.screener.engine.DEFAULT_REGION
     class: decision
   }
   tax: "tax rate for return on invested capital (ROIC)\nnewest damodaran_country tax rate of the country, when within [0, 1)\nelse 21%" {  # @symbol bot.screener.engine._resolve_tax_rate @const bot.screener.engine.DEFAULT_TAX_RATE
     class: decision
     fallback: |md Gap: ROIC tax falls back to the US 21% whenever the country has no Damodaran tax rate (or one outside [0, 1)), not to a rate of that country. | {class: gap}
   }
-  ratios: "company ratios from the latest rows and the histories" {  # @symbol bot.screener.engine.build_company_data
+  ratios: "company ratios from the latest row and the histories" {  # @symbol bot.screener.engine.build_company_data
     class: step
     formulas: |md
       - terms: return on equity (ROE), earnings per share (EPS), book value (BV),
         enterprise value (EV), earnings before interest and taxes (EBIT),
         earnings before interest, taxes, depreciation and amortization (EBITDA).
-      - net debt = total debt − cash; a missing term counts as 0; both missing: empty
+      - net debt = total debt − cash;
+        a missing term counts as 0; both missing: empty
       - ROE = net income ÷ total equity
       - EPS = net income ÷ diluted shares
       - P/E = close ÷ EPS, only when EPS > 0
       - BV per share = total equity ÷ diluted shares
       - P/BV = close ÷ BV per share, only when > 0
       - EV ÷ EBITDA = (market cap + net debt) ÷ EBITDA
-      - ROIC = EBIT × (1 − tax) ÷ (total debt + total equity); a missing term counts as 0; both missing: empty
+      - ROIC = EBIT × (1 − tax) ÷ (total debt + total equity);
+        a missing term counts as 0; both missing: empty
       - free cash flow yield = free cash flow ÷ market cap
       - operating margin = EBIT ÷ revenue, per year
       - Histories (revenue, operating cash flow, diluted shares, operating margin)
@@ -95,7 +97,7 @@ quality_gates: "3. quality gates: every gate must pass" {
   min_years_history: "annual rows ≥ 5" {  # @rule min_years_history @param min_years_history.minimum_years
     class: decision
   }
-  exclude_sectors: "fails when the Damodaran industry is a financial services label (exact match)\nor the industry contains bank or insurance (any case)" {  # @rule exclude_sectors @param exclude_sectors.excluded @const bot.screener.rules.DEFAULT_EXCLUDED_SECTORS @symbol bot.reference.sectors.is_financial_services
+  exclude_sectors: "fails when the Damodaran industry is a financial services label\n(exact match) or the industry contains bank or insurance (any case)" {  # @rule exclude_sectors @param exclude_sectors.excluded @const bot.screener.rules.DEFAULT_EXCLUDED_SECTORS @symbol bot.reference.sectors.is_financial_services
     class: decision
   }
   max_net_debt_to_ebitda: "net debt ÷ EBITDA ≤ 4\nnet debt ≤ 0: passes\nEBITDA ≤ 0 with positive net debt: fails" {  # @rule max_net_debt_to_ebitda @param max_net_debt_to_ebitda.maximum
@@ -133,7 +135,7 @@ value_indicators: "4. value indicators: at least one must pass" {
   score: "value indicator score\nscore = (threshold − value) ÷ threshold, clipped to [0, 1]\n(threshold = 0.7 × sector median)\nfree cash flow yield: score = min(1, yield ÷ minimum)\nvalue metric = highest score among passing indicators" {  # @symbol bot.screener.rules._value_score
     class: step
   }
-  at_least_one: "at least one value indicator passed?\na skipped indicator neither passes nor fails;\nall four skipped: rejected\nno: rejected" {  # @symbol bot.screener.engine.evaluate_company
+  at_least_one: "at least one value indicator passed?\na skipped indicator neither passes nor fails;\nall four skipped: rejected,\nand a skip records no failed rule\nno: rejected" {  # @symbol bot.screener.engine.evaluate_company
     class: decision
   }
 }
@@ -146,16 +148,16 @@ trap_detection: "5. trap detection: every detector must pass" {
   revenue_not_declining: "average revenue growth over the last 3 years > −5%\nuses the last 4 revenues; fewer, or undefined growth: fails" {  # @rule revenue_not_declining @param revenue_not_declining.max_decline @param revenue_not_declining.window
     class: decision
   }
-  operating_margin_not_contracting: "margin change = (last − first) × 10,000 bps over the last 3 years ≥ −200 bps\nfewer than 2 margins: fails" {  # @rule operating_margin_not_contracting @param operating_margin_not_contracting.max_contraction_bps @param operating_margin_not_contracting.window
+  operating_margin_not_contracting: "margin change = (last − first) × 10,000, in basis points,\nover up to the last 3 years (the last 4 margins) ≥ −200 bps\nfewer than 2 margins: fails" {  # @rule operating_margin_not_contracting @param operating_margin_not_contracting.max_contraction_bps @param operating_margin_not_contracting.window
     class: decision
   }
   roic_above_sector_wacc: "ROIC > sector WACC\nROIC missing: fails\nsector WACC missing: skipped (never after the coverage gate)" {  # @rule roic_above_sector_wacc
     class: decision
   }
-  sloan_accruals_below: "Sloan ratio = (net income − operating cash flow) ÷ total assets < 0.1\nmissing or total assets ≤ 0: fails" {  # @rule sloan_accruals_below @param sloan_accruals_below.maximum
+  sloan_accruals_below: "Sloan ratio\n= (net income − operating cash flow) ÷ total assets < 0.1\nmissing or total assets ≤ 0: fails" {  # @rule sloan_accruals_below @param sloan_accruals_below.maximum
     class: decision
   }
-  share_count_not_diluting: "average diluted share count growth ≤ 5% a year\nfewer than 2 counts or undefined growth: fails" {  # @rule share_count_not_diluting @param share_count_not_diluting.max_annual_growth
+  share_count_not_diluting: "average diluted share count growth ≤ 5% a year\nover the whole share history\nfewer than 2 counts or undefined growth: fails" {  # @rule share_count_not_diluting @param share_count_not_diluting.max_annual_growth
     class: decision
     mergers: |md Gap: spec §6.4 exempts dilution from justified mergers and acquisitions; the code caps growth unconditionally. | {class: gap}
   }
@@ -167,17 +169,18 @@ trap_detection: "5. trap detection: every detector must pass" {
 
 # Layer 6: ranking
 ranking: "6. ranking of the survivors" {
-  metrics: "survivor metrics\nvalue = highest passing value indicator score\nquality = (ROIC − sector WACC) + ROE; a missing ROE counts 0\ngrowth = revenue compound annual growth rate (CAGR) = (last ÷ first)^(1 ÷ (years − 1)) − 1\ngrowth = 0 when fewer than 2 years or first ≤ 0" {  # @symbol bot.screener.engine._quality_metric @symbol bot.screener.engine._growth_metric @symbol bot.utils.finance.cagr
+  metrics: "survivor metrics\nvalue = highest passing value indicator score\nquality = (ROIC − sector WACC) + ROE; a missing ROE counts 0\ngrowth = revenue compound annual growth rate (CAGR)\n= (last ÷ first)^(1 ÷ (years − 1)) − 1\ngrowth = 0 when fewer than 2 years or first ≤ 0" {  # @symbol bot.screener.engine._quality_metric @symbol bot.screener.engine._growth_metric @symbol bot.utils.finance.cagr
     class: step
     spec_scores: |md Gap: spec §6.5 puts margin stability in the quality score and free cash flow growth in the growth score; the code uses (ROIC − WACC) + ROE and revenue CAGR only. | {class: gap}
   }
-  percentiles: "percentile of each metric over all survivors\npercentile = rank among distinct values ÷ (distinct values − 1)\nties share a percentile\none survivor or all values equal: 1.0" {  # @symbol bot.screener.ranking._percentiles
+  percentiles: "percentile of each metric over all survivors\npercentile = 0-based rank among distinct values\n÷ (distinct values − 1)\nties share a percentile\none survivor or all values equal: 1.0" {  # @symbol bot.screener.ranking._percentiles
     class: step
   }
-  weights: "score = 100 × (0.40 × value + 0.30 × quality + 0.20 × growth + 0.10 × margin of safety)" {  # @symbol bot.screener.ranking.RankingWeights @param ranking.value @param ranking.quality @param ranking.growth @param ranking.margin_of_safety
+  weights: "score = 100 × (0.40 × value + 0.30 × quality + 0.20 × growth + 0.10 × margin of safety)\nvalue, quality, growth: the percentiles" {  # @symbol bot.screener.ranking.RankingWeights @param ranking.value @param ranking.quality @param ranking.growth @param ranking.margin_of_safety
     class: step
     bounds: |md
-      - Each weight is in [0, 1] and the four sum to 1; otherwise the preset fails to load.
+      - Each weight is in [0, 1] and the four sum to 1;
+        otherwise the preset fails to load.
       - The margin of safety is the raw intrinsic value ÷ price, not a percentile,
         so the score has no ceiling at 100.
       | {class: note}
@@ -205,7 +208,7 @@ persist_and_report: "7. persist and report" {
     class: step
     cut: |md Survivors cut by --top are not written. | {class: note}
   }
-  report: "shortlist report, markdown and CSV with the same columns\nrank, ticker, name, sector, score, the four sub-scores, market cap,\nP/E, EV/EBITDA, P/BV, ROE, ROIC, free cash flow yield\nheader: companies screened, shortlist size, coverage gate exclusions" {  # @symbol bot.reporting.screen_report.render_markdown @symbol bot.reporting.screen_report.render_csv
+  report: "shortlist report, markdown and CSV with the same columns\nrank, ticker, name, sector, score, the four sub-scores, market cap,\nP/E, EV/EBITDA, P/BV, ROE, ROIC, free cash flow yield\nmarkdown header: companies screened, shortlist size,\ncoverage gate exclusions" {  # @symbol bot.reporting.screen_report.render_markdown @symbol bot.reporting.screen_report.render_csv
     class: step
   }
 }
@@ -219,7 +222,7 @@ cli -> snapshot.load: "preset loaded"
 # Edges: snapshot
 duckdb.companies -> snapshot.load: "every company"
 duckdb.financials_annual -> snapshot.load: "annual rows"
-duckdb.prices_daily -> snapshot.load: "newest close"
+duckdb.prices_daily -> snapshot.load: "newest close and newest market cap"
 duckdb.damodaran_country -> snapshot.region: "country mapping"
 duckdb.damodaran_country -> snapshot.tax: "country tax rate"
 duckdb.currencies -> snapshot.usd: "rate_to_usd"
@@ -228,7 +231,7 @@ snapshot.load -> snapshot.region: "company rows"
 snapshot.region -> snapshot.tax: "region and country"
 snapshot.tax -> snapshot.ratios: "tax rate"
 snapshot.ratios -> snapshot.usd: "ratios and market cap"
-snapshot.usd -> snapshot.benchmark: "market cap in USD"
+snapshot.usd -> snapshot.benchmark: "industry and region"
 snapshot.benchmark -> coverage_gate.gate: "sector benchmark, or none"
 
 # Edges: coverage gate and quality gates
@@ -260,9 +263,9 @@ trap_detection.sloan_accruals_below -> trap_detection.all_pass: "pass or fail"
 trap_detection.share_count_not_diluting -> trap_detection.all_pass: "pass or fail"
 
 # Edges: verdicts, ranking and the DCF seam
-quality_gates.all_pass -> persist_and_report.persist: "no: rejected with its failed rules"
-value_indicators.at_least_one -> persist_and_report.persist: "no: rejected with its failed rules"
-trap_detection.all_pass -> persist_and_report.persist: "no: rejected with its failed rules"
+quality_gates.all_pass -> persist_and_report.persist: "no: one rejected row per company,\nfailed rules of every layer"
+value_indicators.at_least_one -> persist_and_report.persist: "no: one rejected row per company,\nfailed rules of every layer"
+trap_detection.all_pass -> persist_and_report.persist: "no: one rejected row per company,\nfailed rules of every layer"
 coverage_gate.gate -> persist_and_report.persist: "no: rejected with coverage_gate"
 trap_detection.all_pass -> ranking.metrics: "yes, with all three layer verdicts passed: survivors"
 ranking.metrics -> ranking.percentiles: "value, quality, growth"

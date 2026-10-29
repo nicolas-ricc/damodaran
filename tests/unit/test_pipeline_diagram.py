@@ -124,6 +124,7 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.reporting.screen_report.render_markdown",
         "bot.reporting.screen_report.render_csv",
         "bot.reference.sectors.is_financial_services",
+        "bot.reference.regions.dataset_region",
         "bot.utils.finance.cagr",
     },
 }
@@ -774,7 +775,7 @@ _SCREEN_TEXT: dict[str, list[str]] = {
         "operating margin = EBIT ÷ revenue",
     ],
     "snapshot.tax": ["21%", "[0, 1)"],
-    "snapshot.region": ["US"],
+    "snapshot.region": ["China, India, Japan", "grouping", "US"],
     "snapshot.usd": ["rate_to_usd", "on or before"],
     "snapshot.benchmark": ["newest", "(industry, region)"],
     "coverage_gate.gate": ["coverage_gate", "leaves the universe", "before any rule runs"],
@@ -786,16 +787,21 @@ _SCREEN_TEXT: dict[str, list[str]] = {
         "min(1, yield ÷ minimum)",
         "highest score",
     ],
-    "value_indicators.at_least_one": ["neither passes nor fails", "all four skipped: rejected"],
+    "value_indicators.at_least_one": [
+        "neither passes nor fails",
+        "all four skipped: rejected",
+        "a skip records no failed rule",
+    ],
     "trap_detection.growth_rate": ["mean of (current - previous) ÷ previous", "≤ 0"],
     "trap_detection.sloan_accruals_below": [
         "(net income - operating cash flow) ÷ total assets",
     ],
     "trap_detection.operating_margin_not_contracting": [f"(last - first) {_TIMES} 10,000"],
     "trap_detection.roic_above_sector_wacc": ["skipped"],
+    "trap_detection.share_count_not_diluting": ["whole share history"],
     "trap_detection.all_pass": ["skipped detector is eliminatory"],
     "ranking.metrics": ["(ROIC - sector WACC) + ROE", "CAGR", "(last ÷ first)"],
-    "ranking.percentiles": ["÷ (distinct values - 1)", "1.0", "ties share"],
+    "ranking.percentiles": ["0-based rank", "÷ (distinct values - 1)", "1.0", "ties share"],
     "ranking.weights": [
         f"100 {_TIMES} (0.40 {_TIMES} value + 0.30 {_TIMES} quality + 0.20 {_TIMES} growth"
         f" + 0.10 {_TIMES} margin of safety)",
@@ -877,6 +883,9 @@ _DIRECTIONS: list[tuple[str, str, str, dict[str, Any], CompanyData, IndustryBenc
      _company(ebit=2.0, interest_expense=1.0), _bench()),
     ("positive_operating_cashflow", "operating cash flow > 0 in ≥ 4 of the last 5 years", "≥",
      {}, _company(operating_cashflow_history=(1.0, 1.0, 1.0, 1.0, -1.0)), _bench()),
+    # a zero year is not positive: three positives out of five fail
+    ("positive_operating_cashflow", "operating cash flow > 0", ">", {},
+     _company(operating_cashflow_history=(1.0, 1.0, 1.0, 0.0, 0.0)), _bench()),
     ("max_goodwill_to_assets", "goodwill ÷ total assets ≤ 0.5", "≤", {},
      _company(goodwill=0.5, total_assets=1.0), _bench()),
     ("pe_below_industry_multiple", f"P/E < 0.7 {_TIMES} sector median P/E", "<", {"multiple": 0.5},
@@ -886,6 +895,9 @@ _DIRECTIONS: list[tuple[str, str, str, dict[str, Any], CompanyData, IndustryBenc
     ("pbv_below_industry_multiple_with_roe_above_median",
      f"P/BV < 0.7 {_TIMES} sector median P/BV and ROE > sector median ROE", "<", {"multiple": 0.5},
      _company(pbv=1.0, roe=0.5), _bench(pbv=2.0, roe=0.1)),
+    # the ROE leg at equality: P/BV clearly below, ROE equal to the median
+    ("pbv_below_industry_multiple_with_roe_above_median", "ROE > sector median ROE", ">",
+     {"multiple": 0.5}, _company(pbv=0.5, roe=0.25), _bench(pbv=2.0, roe=0.25)),
     ("fcf_yield_above", "free cash flow yield > 8%", ">", {}, _company(fcf_yield=0.08), _bench()),
     ("revenue_not_declining", "average revenue growth over the last 3 years > -5%", ">",
      {"max_decline": -0.5}, _company(revenue_history=(8.0, 4.0, 2.0, 1.0)), _bench()),
@@ -903,7 +915,7 @@ _DIRECTIONS: list[tuple[str, str, str, dict[str, Any], CompanyData, IndustryBenc
 @pytest.mark.parametrize(
     ("rule", "phrase", "op", "kwargs", "company", "bench"),
     _DIRECTIONS,
-    ids=[d[0] for d in _DIRECTIONS],
+    ids=[f"{d[0]}[{d[2]}]" for d in _DIRECTIONS],
 )
 def test_screen_rule_directions_match_code(
     rule: str,
