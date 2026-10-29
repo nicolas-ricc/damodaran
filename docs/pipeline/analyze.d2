@@ -6,7 +6,8 @@ direction: down
 cli: "bot analyze TICKER ... or --from-screen\nvalue each company by discounted cash flow (DCF), one report set per ticker" {  # @symbol bot.cli.analyze
   class: step
   errors: |md
-    - unknown ticker: exit code 2
+    - unknown ticker, or no annual financials: exit code 2
+    - bad arguments (tickers with --from-screen, neither, --override without exactly one ticker): exit code 2
     - cannot value: exit code 1
     - the batch goes on after a failure
     - the command exits with the worst code
@@ -43,14 +44,14 @@ report_json: "reports/YYYY-MM-DD/analysis/TICKER.json, read by the site" {class:
 
 # Section 1: inputs
 inputs: "1. inputs of one company" {
-  load: "load the company\ncompanies row (name, country, currency, industry_damodaran, ipo_date)\nthe newest non-restated financials_annual row\noldest-first revenue, net income and earnings before interest and taxes (EBIT) histories,\nempty years dropped\nnewest prices_daily close\nsector pe, ev_sales, op_margin, beta_levered from the newest damodaran_industry row\nof (industry, region)" {  # @symbol bot.valuator.analysis.load_valuation_input
+  load: "load the company\ncompanies row (name, country, currency, industry_damodaran, ipo_date)\nthe newest non-restated financials_annual row\noldest-first revenue, net income and\nearnings before interest and taxes (EBIT) histories,\nempty years dropped\nnewest prices_daily close\nsector pe, ev_sales, op_margin, beta_levered\nfrom the newest damodaran_industry row\nof (industry, region)" {  # @symbol bot.valuator.analysis.load_valuation_input
     class: step
     exact_region: |md The sector multiples here (sanity check, flags) take the company's own dataset region only; the assumptions use the cross-region fallback. | {class: note}
   }
-  region: "dataset region\nfrom the country's grouping in its newest damodaran_country row\nunknown: US" {  # @symbol bot.reference.regions.dataset_region
+  region: "dataset region\nChina, India, Japan: their own dataset region\nelse from the country's grouping in its newest damodaran_country row\nunknown: US" {  # @symbol bot.reference.regions.dataset_region
     class: decision
   }
-  derived: "derived signals\nnet debt = total debt − cash, a missing term counts as 0;\nboth missing: net debt taken as 0 in the DCF\ninterest coverage = EBIT ÷ interest expense;\nempty when interest expense is 0 or missing\nage = whole years since ipo_date\ncyclical sector = industry_damodaran in the cyclical list (exact match)" {  # @symbol bot.valuator.analysis.analyze @symbol bot.reference.sectors.is_cyclical
+  derived: "derived signals\nnet debt = total debt − cash, a missing term counts as 0;\nboth missing: net debt taken as 0 in the DCF\ninterest coverage = EBIT ÷ interest expense;\nempty when EBIT is missing, or interest expense is 0 or missing\nage = whole years since ipo_date\ncyclical sector = industry_damodaran in the cyclical list (exact match)" {  # @symbol bot.valuator.analysis.analyze @symbol bot.reference.sectors.is_cyclical
     class: step
     age: |md Gap: age comes from ipo_date, which only Financial Modeling Prep fills. Verified: the Securities and Exchange Commission (SEC) Electronic Data Gathering, Analysis, and Retrieval (EDGAR) parser parse_submissions_info always sets ipo_date to none, so under the default provider age is unknown and every company counts as young. | {class: gap}  # @symbol bot.ingest.sec_edgar.parse_submissions_info
   }
@@ -65,7 +66,7 @@ story_type: "2. story type: first rule that matches wins" {  # @symbol bot.valua
   cyclical: "cyclical: cyclical sector and coefficient of variation ≥ 0.50\ncoefficient of variation = standard deviation ÷ |mean| of net income\n(population standard deviation; fewer than 2 years or mean 0: not cyclical)" {  # @symbol bot.valuator.story_types._earnings_cv @const bot.valuator.story_types._CYCLICAL_EARNINGS_CV
     class: decision
   }
-  high_growth: "high-growth: revenue compound annual growth rate (CAGR) ≥ 15% and age ≤ 25 years\nCAGR = (last ÷ first)^(1 ÷ (years − 1)) − 1\nunknown age counts as young\nfewer than 2 years, or first or last ≤ 0: mature-stable" {  # @symbol bot.valuator.story_types._cagr @const bot.valuator.story_types._HIGH_GROWTH_CAGR @const bot.valuator.story_types._MATURE_AGE_YEARS
+  high_growth: "high-growth: revenue compound annual growth rate (CAGR) ≥ 15% and age ≤ 25 years\nwhere CAGR = (last ÷ first)^(1 ÷ (years − 1)) − 1\nunknown age counts as young\nfewer than 2 years, or first or last ≤ 0: mature-stable" {  # @symbol bot.valuator.story_types._cagr @const bot.valuator.story_types._HIGH_GROWTH_CAGR @const bot.valuator.story_types._MATURE_AGE_YEARS
     class: decision
   }
   mature_decline: "mature-decline: CAGR ≤ −1%" {  # @const bot.valuator.story_types._DECLINE_CAGR
