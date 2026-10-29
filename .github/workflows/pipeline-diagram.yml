@@ -1,0 +1,41 @@
+name: pipeline-diagram
+
+on: [push, workflow_dispatch]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pipeline-diagram-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: install d2
+        run: |
+          curl -fsSL https://d2lang.com/install.sh | sh -s -- --version "$(cat docs/pipeline/D2_VERSION)" --method standalone --prefix "$HOME/.local"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: tala layout is available
+        run: d2 version && d2 layout && d2 layout | grep -qw tala
+      - name: render boards
+        run: docs/pipeline/build.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pipeline-render
+          path: |
+            docs/pipeline/*.svg
+            docs/pipeline/*.png
+            docs/pipeline/rendered.sha256
+      - name: check boards
+        run: python3 docs/pipeline/check.py
+      - name: committed render is current
+        run: |
+          git diff --exit-code -- docs/pipeline/rendered.sha256
+          if [ -n "$(git ls-files --others --exclude-standard docs/pipeline/*.svg docs/pipeline/rendered.sha256)" ]; then
+            echo "the render (SVGs or rendered.sha256) is not committed" >&2
+            exit 1
+          fi

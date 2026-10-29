@@ -1,0 +1,291 @@
+...@classes
+
+direction: down
+
+# The command
+cli: "bot screen --preset name (default damodaran_value) [--top N]" {  # @symbol bot.cli.screen @symbol bot.screener.config.load_screener_config
+  class: step
+  options: |md
+    - --config path overrides --preset; a missing file: exit code 2.
+    - The preset lists the rules of the three layers and the ranking weights.
+    - deep_value and qarp are the two other presets; they change thresholds and weights.
+    - This board shows damodaran_value.
+    | {class: note}
+}
+
+# Preset and override files
+damodaran_value: "config/presets/damodaran_value.yaml" {class: file}  # @file config/presets/damodaran_value.yaml
+deep_value: "config/presets/deep_value.yaml" {class: file}  # @file config/presets/deep_value.yaml
+qarp: "config/presets/qarp.yaml" {class: file}  # @file config/presets/qarp.yaml
+assumptions: "config/assumptions/TICKER.yaml, manual overrides" {class: file}  # @symbol bot.valuator.assumptions.conventional_override_path
+
+# Database
+duckdb: "DuckDB (bot.duckdb)" {
+  companies: {class: store}  # @table companies
+  financials_annual: {class: store}  # @table financials_annual
+  prices_daily: {class: store}  # @table prices_daily
+  currencies: {class: store}  # @table currencies
+  damodaran_industry: {class: store}  # @table damodaran_industry
+  damodaran_country: {class: store}  # @table damodaran_country
+  screener_candidates: {class: store}  # @table screener_candidates
+}
+
+# Next stage
+analyze_stage: "analyze stage valuation: intrinsic value by discounted cash flow (DCF),\nsee the analyze board" {  # @symbol bot.valuator.analysis.analyze
+  class: step
+}
+
+# Outputs
+report_md: "reports/YYYY-MM-DD/screen/<preset>.md" {class: output}
+report_csv: "reports/YYYY-MM-DD/screen/<preset>.csv" {class: output}
+
+# Layer 1: snapshot
+snapshot: "1. snapshot per company" {
+  load: "load every company of companies\nits non-restated financials_annual rows, oldest first\n(latest row = newest fiscal year)\nnewest prices_daily close and newest market cap,\neach from its own newest non-empty row" {  # @symbol bot.screener.engine.run_screen
+    class: step
+    plano_restated: |md Gap: plano sec card says the screener always uses the latest (corrected) statement; screen and analyze read only rows with is_restated false. | {class: gap}
+  }
+  region: "Damodaran dataset region of the company\nChina, India, Japan: their own dataset\nelse the country's grouping in its newest damodaran_country row\nmapped to a dataset region (e.g. Western Europe → Europe)\nno country, or an unknown grouping: US" {  # @symbol bot.screener.engine._resolve_region @symbol bot.reference.regions.dataset_region @const bot.screener.engine.DEFAULT_REGION
+    class: decision
+  }
+  tax: "tax rate for return on invested capital (ROIC)\nnewest damodaran_country tax rate of the country, when within [0, 1)\nelse 21%" {  # @symbol bot.screener.engine._resolve_tax_rate @const bot.screener.engine.DEFAULT_TAX_RATE
+    class: decision
+    fallback: |md Gap: ROIC tax falls back to the US 21% whenever the country has no Damodaran tax rate (or one outside [0, 1)), not to a rate of that country. | {class: gap}
+  }
+  ratios: "company ratios from the latest row and the histories" {  # @symbol bot.screener.engine.build_company_data
+    class: step
+    formulas: |md
+      - terms: return on equity (ROE), earnings per share (EPS), book value (BV),
+        enterprise value (EV), earnings before interest and taxes (EBIT),
+        earnings before interest, taxes, depreciation and amortization (EBITDA).
+      - net debt = total debt − cash;
+        a missing term counts as 0; both missing: empty
+      - ROE = net income ÷ total equity
+      - EPS = net income ÷ diluted shares
+      - price-to-earnings P/E = close ÷ EPS, only when EPS > 0
+      - BV per share = total equity ÷ diluted shares
+      - price-to-book-value P/BV = close ÷ BV per share, only when > 0
+      - EV ÷ EBITDA = (market cap + net debt) ÷ EBITDA
+      - ROIC = EBIT × (1 − tax) ÷ (total debt + total equity);
+        a missing term counts as 0; both missing: empty
+      - free cash flow yield = free cash flow ÷ market cap
+      - operating margin = EBIT ÷ revenue, per year
+      - Histories (revenue, operating cash flow, diluted shares, operating margin)
+        drop empty years.
+      - Otherwise a missing input leaves the ratio empty.
+      | {class: note}
+  }
+  usd: "market cap in USD\n= market cap × rate_to_usd of its listing currency,\nthe rate on or before the market-cap date (from currencies)\nno rate: empty, so min_market_cap fails\nno listing currency: taken as USD" {  # @symbol bot.screener.engine._market_cap_usd
+    class: decision
+  }
+  benchmark: "sector benchmark for the company\nnewest-year damodaran_industry row for (industry, region)\nindustry = industry_damodaran, else the provider industry\nlooked up once per pair" {  # @symbol bot.screener.benchmarks.load_industry_benchmarks
+    class: step
+  }
+}
+
+# Layer 2: coverage gate
+coverage_gate: "2. coverage gate" {
+  gate: "sector benchmark row for (industry, region)\nwith a weighted average cost of capital (WACC)?\nno: the company leaves the universe before any rule runs,\nrecorded as rejected with coverage_gate\n(architecture decision record (ADR) 0006 (Implemented))" {  # @symbol bot.screener.engine.run_screen @file docs/adr/0006-unmeasurable-companies-leave-the-universe.md
+    class: decision
+    plano_caveat: |md Gap: plano damodaran card says the engine still resolves missing benchmarks layer by layer; the coverage gate removes the company before any rule runs (ADR 0006 (Implemented)). | {class: gap}
+    plano_wacc: |md Gap: plano a-wacc card says the sector WACC's only consumer is roic_above_sector_wacc; the coverage gate requires it too, and the portfolio's sector_recalibrated event diffs it. | {class: gap}
+  }
+}
+
+# Layer 3: quality gates
+quality_gates: "3. quality gates: every gate must pass" {
+  plano_bounds: |md Gap: plano g-cap, g-debt, g-cover and g-gw cards state strict bounds (more than USD 100M, below 4, above 2, under 50% of assets); the code passes at equality (market cap ≥ 100M, net debt ÷ EBITDA ≤ 4, interest coverage ≥ 2, goodwill ÷ total assets ≤ 0.5). | {class: gap}  # @param min_market_cap.minimum_usd @param max_net_debt_to_ebitda.maximum @param min_interest_coverage.minimum @param max_goodwill_to_assets.maximum
+  min_market_cap: "market cap in USD ≥ 100M\nmissing: fails" {  # @rule min_market_cap @param min_market_cap.minimum_usd
+    class: decision
+  }
+  min_years_history: "annual rows ≥ 5" {  # @rule min_years_history @param min_years_history.minimum_years
+    class: decision
+  }
+  exclude_sectors: "fails when the Damodaran industry is a financial services label\n(exact match) or the industry contains bank or insurance (any case)" {  # @rule exclude_sectors @param exclude_sectors.excluded @const bot.screener.rules.DEFAULT_EXCLUDED_SECTORS @symbol bot.reference.sectors.is_financial_services
+    class: decision
+  }
+  max_net_debt_to_ebitda: "net debt ÷ EBITDA ≤ 4\nnet debt ≤ 0: passes\nEBITDA ≤ 0 with positive net debt: fails" {  # @rule max_net_debt_to_ebitda @param max_net_debt_to_ebitda.maximum
+    class: decision
+  }
+  min_interest_coverage: "EBIT ÷ interest expense ≥ 2\ninterest expense ≤ 0: passes" {  # @rule min_interest_coverage @param min_interest_coverage.minimum
+    class: decision
+  }
+  positive_operating_cashflow: "operating cash flow > 0 in ≥ 4 of the last 5 years\nfewer than 5 years: fails" {  # @rule positive_operating_cashflow @param positive_operating_cashflow.min_positive @param positive_operating_cashflow.window
+    class: decision
+  }
+  max_goodwill_to_assets: "goodwill ÷ total assets ≤ 0.5\ntotal assets ≤ 0: fails" {  # @rule max_goodwill_to_assets @param max_goodwill_to_assets.maximum
+    class: decision
+  }
+  all_pass: "every quality gate passed?\na missing datum fails the gate\nno: rejected" {  # @symbol bot.screener.engine.evaluate_company
+    class: decision
+    all_layers: |md Every layer still runs on a failing company, so its failed rules are all recorded. | {class: note}
+  }
+}
+
+# Layer 4: value indicators
+value_indicators: "4. value indicators: at least one must pass" {
+  pe_below_industry_multiple: "P/E < 0.7 × sector median P/E\nskipped: median or company P/E missing or ≤ 0" {  # @rule pe_below_industry_multiple @param pe_below_industry_multiple.multiple
+    class: decision
+  }
+  ev_ebitda_below_industry_multiple: "EV/EBITDA < 0.7 × sector median EV/EBITDA\nskipped: median or company EV/EBITDA missing or ≤ 0" {  # @rule ev_ebitda_below_industry_multiple @param ev_ebitda_below_industry_multiple.multiple
+    class: decision
+  }
+  pbv_below_industry_multiple_with_roe_above_median: "P/BV < 0.7 × sector median P/BV and ROE > sector median ROE\nskipped: a median or company figure missing, or P/BV ≤ 0" {  # @rule pbv_below_industry_multiple_with_roe_above_median @param pbv_below_industry_multiple_with_roe_above_median.multiple
+    class: decision
+  }
+  fcf_yield_above: "free cash flow yield > 8%\nskipped when missing; no sector benchmark needed" {  # @rule fcf_yield_above @param fcf_yield_above.minimum
+    class: decision
+  }
+  score: "value indicator score\nscore = (threshold − value) ÷ threshold, clipped to [0, 1]\n(threshold = 0.7 × sector median)\nfree cash flow yield: score = min(1, yield ÷ minimum)\nvalue metric = highest score among passing indicators" {  # @symbol bot.screener.rules._value_score @param pe_below_industry_multiple.multiple
+    class: step
+  }
+  at_least_one: "at least one value indicator passed?\na skipped indicator neither passes nor fails;\nall four skipped: rejected,\nand a skip records no failed rule\nno: rejected" {  # @symbol bot.screener.engine.evaluate_company
+    class: decision
+  }
+}
+
+# Layer 5: trap detection
+trap_detection: "5. trap detection: every detector must pass" {
+  growth_rate: "average growth = mean of (current − previous) ÷ previous\nover consecutive years\nundefined through a base ≤ 0" {  # @symbol bot.screener.rules._avg_growth_rate
+    class: step
+  }
+  revenue_not_declining: "average revenue growth over the last 3 years > −5%\nuses the last 4 revenues; fewer, or undefined growth: fails" {  # @rule revenue_not_declining @param revenue_not_declining.max_decline @param revenue_not_declining.window
+    class: decision
+    docs_bound: |md Gap: plano t-rev card and leccion cap-4 say revenue may fall at most 5% a year on average; the code needs average growth > −5%, so exactly −5% fails. | {class: gap}  # @param revenue_not_declining.max_decline
+  }
+  operating_margin_not_contracting: "margin change = (last − first) × 10,000, in basis points,\nover up to the last 3 years (the last 4 margins) ≥ −200 bps\nfewer than 2 margins: fails" {  # @rule operating_margin_not_contracting @param operating_margin_not_contracting.max_contraction_bps @param operating_margin_not_contracting.window
+    class: decision
+  }
+  roic_above_sector_wacc: "ROIC > sector WACC\nROIC missing: fails\nsector WACC missing: skipped (never after the coverage gate)" {  # @rule roic_above_sector_wacc
+    class: decision
+  }
+  sloan_accruals_below: "Sloan ratio\n= (net income − operating cash flow) ÷ total assets < 0.1\nmissing or total assets ≤ 0: fails" {  # @rule sloan_accruals_below @param sloan_accruals_below.maximum
+    class: decision
+  }
+  share_count_not_diluting: "average diluted share count growth ≤ 5% a year\nover the whole share history\nfewer than 2 counts or undefined growth: fails" {  # @rule share_count_not_diluting @param share_count_not_diluting.max_annual_growth
+    class: decision
+    mergers: |md Gap: spec §6.4 exempts dilution from justified mergers and acquisitions; the code caps growth unconditionally. | {class: gap}
+  }
+  all_pass: "every trap detector passed?\na skipped detector is eliminatory, ADR 0006 (Implemented)\nno: rejected" {  # @symbol bot.screener.engine.evaluate_company
+    class: decision
+  }
+  auditor: |md Gap: spec §6.4 also lists auditor changes and late filings; not implemented. | {class: gap}
+}
+
+# Layer 6: ranking
+ranking: "6. ranking of the survivors" {
+  metrics: "survivor metrics\nvalue = highest passing value indicator score\nquality = (ROIC − sector WACC) + ROE; a missing ROE counts 0\ngrowth = revenue compound annual growth rate (CAGR)\n= (last ÷ first)^(1 ÷ (years − 1)) − 1\ngrowth = 0 when fewer than two years or first ≤ 0" {  # @symbol bot.screener.engine._quality_metric @symbol bot.screener.engine._growth_metric @symbol bot.utils.finance.cagr
+    class: step
+    spec_scores: |md Gap: spec §6.5 puts margin stability in the quality score and free cash flow growth in the growth score; the code uses (ROIC − WACC) + ROE and revenue CAGR only. | {class: gap}
+  }
+  percentiles: "percentile of each metric over all survivors\npercentile = 0-based rank among distinct values\n÷ (distinct values − 1)\nties share a percentile\none survivor or all values equal: 1" {  # @symbol bot.screener.ranking._percentiles
+    class: step
+  }
+  weights: "score = 100 × (0.40 × value + 0.30 × quality + 0.20 × growth + 0.10 × margin of safety)\nvalue, quality, growth: the percentiles" {  # @symbol bot.screener.ranking.RankingWeights @param ranking.value @param ranking.quality @param ranking.growth @param ranking.margin_of_safety
+    class: step
+    bounds: |md
+      - Each weight is in [0, 1] and the four sum to 1;
+        otherwise the preset fails to load.
+      - The margin of safety is the raw intrinsic value ÷ price, not a percentile,
+        so the score has no ceiling at 100.
+      | {class: note}
+  }
+  first_pass: "first pass: score every survivor with margin of safety 0.5\nbest first, ties by ticker" {  # @symbol bot.screener.ranking.rank @const bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY
+    class: step
+  }
+  top_n: "--top given?\nyes: keep the best N\nno: keep every survivor" {  # @symbol bot.screener.engine.run_screen
+    class: decision
+  }
+  second_pass: "second pass: value each kept ticker by DCF\nmargin of safety = intrinsic value ÷ price\nwith config/assumptions/TICKER.yaml when present" {  # @symbol bot.screener.engine._batch_dcf_margins
+    class: step
+  }
+  valued: "valued?\nno (unknown ticker, missing data, incomplete assumptions):\nkeeps margin of safety 0.5" {  # @const bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY
+    class: decision
+  }
+  rescore: "re-blend the score with the real margin of safety\npercentiles kept from the first pass over all survivors\nre-sorted best first" {  # @symbol bot.screener.ranking.rescore_with_margins
+    class: step
+  }
+}
+
+# Layer 7: persist and report
+persist_and_report: "7. persist and report" {
+  persist: "persist the run\none new run id\nkept survivors: rank, score, value, quality and growth scores,\nmargin of safety, passed and failed rules, passed = true\nrejected companies: passed = false with their failed rules" {  # @symbol bot.screener.persist.persist_candidates
+    class: step
+    cut: |md Survivors cut by --top are not written. | {class: note}
+  }
+  report: "shortlist report, markdown and CSV with the same columns\nrank, ticker, name, sector, score, the four sub-scores, market cap,\nP/E, EV/EBITDA, P/BV, ROE, ROIC, free cash flow yield\nmarkdown header: companies screened, shortlist size,\ncoverage gate exclusions" {  # @symbol bot.reporting.screen_report.render_markdown @symbol bot.reporting.screen_report.render_csv
+    class: step
+  }
+}
+
+# Edges: entry point
+damodaran_value -> cli: "default preset"
+deep_value -> cli: "alternative preset"
+qarp -> cli: "alternative preset"
+cli -> snapshot.load: "preset loaded"
+
+# Edges: snapshot
+duckdb.companies -> snapshot.load: "every company"
+duckdb.financials_annual -> snapshot.load: "annual rows"
+duckdb.prices_daily -> snapshot.load: "newest close and newest market cap"
+duckdb.damodaran_country -> snapshot.region: "country mapping"
+duckdb.damodaran_country -> snapshot.tax: "country tax rate"
+duckdb.currencies -> snapshot.usd: "rate_to_usd"
+duckdb.damodaran_industry -> snapshot.benchmark: "sector benchmark rows"
+snapshot.load -> snapshot.region: "company rows"
+snapshot.region -> snapshot.tax: "region and country"
+snapshot.tax -> snapshot.ratios: "tax rate"
+snapshot.ratios -> snapshot.usd: "ratios and market cap"
+snapshot.usd -> snapshot.benchmark: "industry and region"
+snapshot.benchmark -> coverage_gate.gate: "sector benchmark, or none"
+
+# Edges: coverage gate and quality gates
+coverage_gate.gate -> quality_gates: "yes: measured, every rule runs"
+quality_gates.min_market_cap -> quality_gates.all_pass: "pass or fail"
+quality_gates.min_years_history -> quality_gates.all_pass: "pass or fail"
+quality_gates.exclude_sectors -> quality_gates.all_pass: "pass or fail"
+quality_gates.max_net_debt_to_ebitda -> quality_gates.all_pass: "pass or fail"
+quality_gates.min_interest_coverage -> quality_gates.all_pass: "pass or fail"
+quality_gates.positive_operating_cashflow -> quality_gates.all_pass: "pass or fail"
+quality_gates.max_goodwill_to_assets -> quality_gates.all_pass: "pass or fail"
+
+# Edges: value indicators
+quality_gates -> value_indicators: "every measured company: all layers run"
+value_indicators.pe_below_industry_multiple -> value_indicators.score: "pass, fail or skipped"
+value_indicators.ev_ebitda_below_industry_multiple -> value_indicators.score: "pass, fail or skipped"
+value_indicators.pbv_below_industry_multiple_with_roe_above_median -> value_indicators.score: "pass, fail or skipped"
+value_indicators.fcf_yield_above -> value_indicators.score: "pass, fail or skipped"
+value_indicators.score -> value_indicators.at_least_one: "scores of passing indicators"
+
+# Edges: trap detection
+value_indicators -> trap_detection: "every measured company: all layers run"
+trap_detection.growth_rate -> trap_detection.revenue_not_declining: "average growth"
+trap_detection.growth_rate -> trap_detection.share_count_not_diluting: "average growth"
+trap_detection.revenue_not_declining -> trap_detection.all_pass: "pass or fail"
+trap_detection.operating_margin_not_contracting -> trap_detection.all_pass: "pass or fail"
+trap_detection.roic_above_sector_wacc -> trap_detection.all_pass: "pass, fail or skipped"
+trap_detection.sloan_accruals_below -> trap_detection.all_pass: "pass or fail"
+trap_detection.share_count_not_diluting -> trap_detection.all_pass: "pass or fail"
+
+# Edges: verdicts, ranking and the DCF seam
+quality_gates.all_pass -> persist_and_report.persist: "no: one rejected row per company,\nfailed rules of every layer"
+value_indicators.at_least_one -> persist_and_report.persist: "no: one rejected row per company,\nfailed rules of every layer"
+trap_detection.all_pass -> persist_and_report.persist: "no: one rejected row per company,\nfailed rules of every layer"
+coverage_gate.gate -> persist_and_report.persist: "no: rejected with coverage_gate"
+trap_detection.all_pass -> ranking.metrics: "yes, with all three layer verdicts passed: survivors"
+ranking.metrics -> ranking.percentiles: "value, quality, growth"
+ranking.percentiles -> ranking.weights: "percentiles"
+ranking.weights -> ranking.first_pass: "weights and percentiles"
+ranking.first_pass -> ranking.top_n: "ranked survivors"
+ranking.top_n -> ranking.second_pass: "kept tickers"
+assumptions -> ranking.second_pass: "manual overrides"
+ranking.second_pass -> analyze_stage: "ticker and override file"
+analyze_stage -> ranking.valued: "margin of safety, or an error"
+ranking.valued -> ranking.rescore: "real or placeholder margin of safety"
+ranking.rescore -> persist_and_report.persist: "kept survivors, ranked"
+ranking.rescore -> persist_and_report.report: "kept survivors, ranked"
+
+# Edges: outputs
+persist_and_report.persist -> duckdb.screener_candidates: "candidate rows of the run"
+persist_and_report.report -> report_md: "markdown report"
+persist_and_report.report -> report_csv: "CSV report"

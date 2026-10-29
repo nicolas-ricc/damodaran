@@ -8,3 +8,8 @@ set -euo pipefail
 # pinned by pyproject (>=3.12) on its own if the system one does not match.
 command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR=/usr/local/bin sh
 uv sync --frozen
+
+# d2 renders docs/pipeline. Best effort: without it the pipeline-diagram workflow renders.
+if ! curl -fsSL https://d2lang.com/install.sh | sh -s -- --version "$(cat docs/pipeline/D2_VERSION)" --method standalone --prefix /usr/local; then
+  echo "d2 not installed; the pipeline-diagram workflow renders instead"
+fi
