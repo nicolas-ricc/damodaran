@@ -185,7 +185,7 @@ ranking: "6. ranking of the survivors" {
   first_pass: "first pass: score every survivor with margin of safety 0.5\nbest first, ties by ticker" {  # @symbol bot.screener.ranking.rank @const bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY
     class: step
   }
-  top: "--top given?\nyes: keep the best N\nno: keep every survivor" {  # @symbol bot.screener.engine.run_screen
+  top_n: "--top given?\nyes: keep the best N\nno: keep every survivor" {  # @symbol bot.screener.engine.run_screen
     class: decision
   }
   second_pass: "second pass: value each kept ticker by DCF\nmargin of safety = intrinsic value ÷ price\nwith config/assumptions/TICKER.yaml when present" {  # @symbol bot.screener.engine._batch_dcf_margins
@@ -268,8 +268,8 @@ trap_detection.all_pass -> ranking.metrics: "yes, with all three layer verdicts 
 ranking.metrics -> ranking.percentiles: "value, quality, growth"
 ranking.percentiles -> ranking.weights: "percentiles"
 ranking.weights -> ranking.first_pass: "weights and percentiles"
-ranking.first_pass -> ranking.top: "ranked survivors"
-ranking.top -> ranking.second_pass: "kept tickers"
+ranking.first_pass -> ranking.top_n: "ranked survivors"
+ranking.top_n -> ranking.second_pass: "kept tickers"
 assumptions -> ranking.second_pass: "manual overrides"
 ranking.second_pass -> analyze_stage: "ticker and override file"
 analyze_stage -> ranking.valued: "margin of safety, or an error"
