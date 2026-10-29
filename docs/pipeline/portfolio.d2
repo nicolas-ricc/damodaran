@@ -89,19 +89,19 @@ events: "4b. diff two snapshots into events" {  # @symbol bot.portfolio.events.c
   position_opened: "position_opened\nquantity ≠ 0 now, absent or 0 in the previous snapshot\nfirst run: every position" {  # @symbol bot.portfolio.events.detect_position_changes
     class: decision
   }
-  position_closed: "position_closed\nquantity ≠ 0 in the previous snapshot, absent or 0 now\n(an account that returns no positions closes all of its holdings)" {
+  position_closed: "position_closed\nquantity ≠ 0 in the previous snapshot, absent or 0 now\n(an account that returns no positions closes each of its\nholdings no other account holds)" {
     class: decision
   }
   position_size_changed: "position_size_changed: held in both and\n|Δquantity ÷ |previous quantity|| > 10%\nexactly 10%: no event" {  # @const bot.portfolio.events.DEFAULT_SIZE_CHANGE_THRESHOLD
     class: decision
   }
-  currency_changed: "currency_changed\nthe position's listing currency differs from the previous snapshot's,\nboth known\nnot on the first run" {  # @symbol bot.portfolio.events.detect_currency_changes
+  currency_changed: "currency_changed\nthe ticker's portfolio_snapshots currency (the listing currency IBKR reports)\ndiffers from the previous snapshot's, both known;\nheld in several accounts: any one account's currency\nnot on the first run" {  # @symbol bot.portfolio.events.detect_currency_changes
     class: decision
   }
-  dividend: "dividend\na corporate_actions row of type dividend for a holding,\neffective after the previous snapshot, on or before this one" {  # @symbol bot.portfolio.events.detect_corporate_action_events
+  dividend: "dividend\na corporate_actions row of type dividend for a holding,\neffective after the previous snapshot, on or before this one\nfirst run: every action on or before this one" {  # @symbol bot.portfolio.events.detect_corporate_action_events
     class: decision
   }
-  split: "split\nthe same rule for type split" {
+  split: "split\nthe same rule for type split (first run included)" {
     class: decision
     other_actions: |md Gap: spec §8.3 lists dividend, split and corporate action; mergers, spin-offs and every other corporate action type are stored in corporate_actions but fire no event. | {class: gap}
   }
