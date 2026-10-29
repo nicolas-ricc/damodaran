@@ -100,6 +100,7 @@ events: "4b. diff two snapshots into events" {  # @symbol bot.portfolio.events.c
   }
   dividend: "dividend\na corporate_actions row of type dividend for a holding,\neffective after the previous snapshot, on or before this one\nfirst run: every action on or before this one" {  # @symbol bot.portfolio.events.detect_corporate_action_events
     class: decision
+    plano_unfed: |md Gap: plano events card says dividend and split cannot fire because nothing feeds them; the Flex importer fills corporate_actions. | {class: gap}
   }
   split: "split\nthe same rule for type split (first run included)" {
     class: decision
@@ -107,7 +108,7 @@ events: "4b. diff two snapshots into events" {  # @symbol bot.portfolio.events.c
   }
   new_filing: "new_filing\na filings_log row of a holding, filed on or before this snapshot,\nfiled after the previous snapshot or ingested on or after its date,\nnot reported before: (ticker, filing type, filing date)\nabsent from events_log\nfirst run: every unreported filing" {  # @symbol bot.portfolio.events.detect_new_filings
     class: decision
-    no_auto_analyze: |md Gap: spec §8.3 says a new filing auto-runs bot analyze. Verified in run_portfolio and the command: nothing reacts to new_filing; mark_holdings re-values every holding each run; no analysis report is written. | {class: gap}
+    no_auto_analyze: |md Gap: spec §8.3 and the plano monitor card say a new filing auto-runs bot analyze. Verified in run_portfolio and the command: nothing reacts to new_filing; mark_holdings re-values every holding each run; no analysis report is written. | {class: gap}
   }
   intrinsic_value_crossed_price: "intrinsic_value_crossed_price\n(intrinsic value − price) < 0 before and > 0 now, or > 0 before and < 0 now\nequality is not a cross\nno previous mark, or any of the four values unknown: nothing" {  # @symbol bot.portfolio.events.detect_intrinsic_value_cross
     class: decision

@@ -43,6 +43,7 @@ report_csv: "reports/YYYY-MM-DD/screen/<preset>.csv" {class: output}
 snapshot: "1. snapshot per company" {
   load: "load every company of companies\nits non-restated financials_annual rows, oldest first\n(latest row = newest fiscal year)\nnewest prices_daily close and newest market cap,\neach from its own newest non-empty row" {  # @symbol bot.screener.engine.run_screen
     class: step
+    plano_restated: |md Gap: plano sec card says the screener always uses the latest (corrected) statement; screen and analyze read only rows with is_restated false. | {class: gap}
   }
   region: "Damodaran dataset region of the company\nChina, India, Japan: their own dataset\nelse the country's grouping in its newest damodaran_country row\nmapped to a dataset region (e.g. Western Europe → Europe)\nno country, or an unknown grouping: US" {  # @symbol bot.screener.engine._resolve_region @symbol bot.reference.regions.dataset_region @const bot.screener.engine.DEFAULT_REGION
     class: decision
@@ -86,11 +87,14 @@ snapshot: "1. snapshot per company" {
 coverage_gate: "2. coverage gate" {
   gate: "sector benchmark row for (industry, region)\nwith a weighted average cost of capital (WACC)?\nno: the company leaves the universe before any rule runs,\nrecorded as rejected with coverage_gate\n(architecture decision record (ADR) 0006 (Implemented))" {  # @symbol bot.screener.engine.run_screen @file docs/adr/0006-unmeasurable-companies-leave-the-universe.md
     class: decision
+    plano_caveat: |md Gap: plano damodaran card says the engine still resolves missing benchmarks layer by layer; the coverage gate removes the company before any rule runs (ADR 0006 (Implemented)). | {class: gap}
+    plano_wacc: |md Gap: plano a-wacc card says the sector WACC's only consumer is roic_above_sector_wacc; the coverage gate requires it too, and the portfolio's sector_recalibrated event diffs it. | {class: gap}
   }
 }
 
 # Layer 3: quality gates
 quality_gates: "3. quality gates: every gate must pass" {
+  plano_bounds: |md Gap: plano g-cap, g-debt, g-cover and g-gw cards state strict bounds (more than USD 100M, below 4, above 2, under 50% of assets); the code passes at equality (market cap ≥ 100M, net debt ÷ EBITDA ≤ 4, interest coverage ≥ 2, goodwill ÷ total assets ≤ 0.5). | {class: gap}  # @param min_market_cap.minimum_usd @param max_net_debt_to_ebitda.maximum @param min_interest_coverage.minimum @param max_goodwill_to_assets.maximum
   min_market_cap: "market cap in USD ≥ 100M\nmissing: fails" {  # @rule min_market_cap @param min_market_cap.minimum_usd
     class: decision
   }
@@ -147,6 +151,7 @@ trap_detection: "5. trap detection: every detector must pass" {
   }
   revenue_not_declining: "average revenue growth over the last 3 years > −5%\nuses the last 4 revenues; fewer, or undefined growth: fails" {  # @rule revenue_not_declining @param revenue_not_declining.max_decline @param revenue_not_declining.window
     class: decision
+    docs_bound: |md Gap: plano t-rev card and leccion cap-4 say revenue may fall at most 5% a year on average; the code needs average growth > −5%, so exactly −5% fails. | {class: gap}  # @param revenue_not_declining.max_decline
   }
   operating_margin_not_contracting: "margin change = (last − first) × 10,000, in basis points,\nover up to the last 3 years (the last 4 margins) ≥ −200 bps\nfewer than 2 margins: fails" {  # @rule operating_margin_not_contracting @param operating_margin_not_contracting.max_contraction_bps @param operating_margin_not_contracting.window
     class: decision

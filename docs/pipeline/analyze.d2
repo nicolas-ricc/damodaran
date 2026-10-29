@@ -65,7 +65,7 @@ story_type: "2. story type: first rule that matches wins" {  # @symbol bot.valua
   distressed: "distressed: Altman Z < 1.81 or interest coverage ≤ 1.0" {  # @const bot.valuator.story_types._DISTRESS_ALTMAN_Z @const bot.valuator.story_types._DISTRESS_INTEREST_COVERAGE
     class: decision
     label.near: outside-top-center
-    altman: |md Gap: Altman Z is read by the classifier but computed nowhere, and analyze never passes it; only interest coverage can make a company distressed. | {class: gap}
+    altman: |md Gap: Altman Z is read by the classifier but computed nowhere, and analyze never passes it; only interest coverage can make a company distressed. The plano s-ds and a-default cards say Altman Z decides it. | {class: gap}
   }
   cyclical: "cyclical: cyclical sector and coefficient of variation ≥ 0.50\ncoefficient of variation = standard deviation ÷ |mean| of net income\n(population standard deviation; fewer than 2 years or mean 0: not cyclical)" {  # @symbol bot.valuator.story_types._earnings_cv @const bot.valuator.story_types._CYCLICAL_EARNINGS_CV
     class: decision
@@ -88,6 +88,7 @@ story_type: "2. story type: first rule that matches wins" {  # @symbol bot.valua
 
 # Section 3: assumptions
 assumptions: "3. assumptions: the first source that yields a value wins; paths over 5 years" {  # @symbol bot.valuator.assumptions.resolve_assumptions @const bot.valuator.assumptions._HORIZON @enum bot.valuator.assumptions.AssumptionSource
+  plano_sources: |md Gap: plano assumptions card lists six sources without story_pattern, and plano a-growth says the default is the historical average; a high-growth company with history gets the story_pattern path. | {class: gap}
   sector_row: "sector row: newest damodaran_industry row\nfor (industry, region)\nnone: the newest row of that industry in any region\nsector label = sector_default_damodaran,\nor sector_default_damodaran_cross_region\nwhen another region's row is used" {  # @symbol bot.valuator.assumptions._load_sector_with_fallback
     class: step
   }
@@ -153,7 +154,7 @@ dcf: "4. two-stage discounted cash flow" {  # @symbol bot.valuator.dcf.dcf
   }
   equity: "equity = EV − net debt + adjustments\ngoing-concern value per share = equity ÷ diluted shares" {
     class: step
-    adjustments: |md Gap: spec §7.2 adjusts equity for minority interests and cross-holdings; adjustments has no input path (not filled by the pipeline, not an override key), so it is always 0. | {class: gap}
+    adjustments: |md Gap: spec §7.2 and the plano dcf card adjust equity for minority interests and cross-holdings; adjustments has no input path (not filled by the pipeline, not an override key), so it is always 0. | {class: gap}
   }
   blend: "intrinsic value per share = (1 − p) × going-concern value per share\n+ p × distress value per share" {
     class: step
@@ -212,6 +213,7 @@ sanity_check: "8. sanity check" {
 reports: "9. reports, written to reports/YYYY-MM-DD/analysis/" {
   markdown: "markdown report from analysis.md.j2, eight sections:\n1. executive summary, 2. story type + auto-assignment reasons,\n3. assumptions, 4. DCF detail, 5. sensitivity, 6. narrative flags,\n7. manual overrides, 8. sanity check vs sector multiples" {  # @symbol bot.reporting.analysis_report.render_analysis
     class: step
+    plano_header: |md Gap: plano reports card says each report header carries the data versions it used; the header carries the generation date, currency and country only. | {class: gap}
   }
   html: "HTML report: the markdown report plus the tornado chart\nand the grid heatmap, inlined, no external assets" {  # @symbol bot.reporting.html.render_analysis_html
     class: step

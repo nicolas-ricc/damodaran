@@ -23,6 +23,7 @@ cli: "bot refresh\nruns the requested sources in dependency order:\nDamodaran, f
 }
 region: "Damodaran requested\nwith --region other than US?\nyes: whole command refused before any source runs, exit code 2" {  # @symbol bot.cli.refresh
   class: decision
+  plano_label: |md Gap: plano damodaran card says the region parameter is only the label written in the row; the command refuses any region other than US. | {class: gap}
 }
 
 # External services
@@ -53,6 +54,7 @@ duckdb: "DuckDB (bot.duckdb)" {
 damodaran: "1. Damodaran datasets" {
   download: "download the eight files into --download-dir\nwacc.xls, ctryprem.xls, then the six others" {  # @symbol bot.ingest.damodaran.import_damodaran
     class: step
+    plano_hash: |md Gap: plano damodaran and a-download cards refresh by a monthly hash and reimport only a changed file; the code downloads and reimports every file on each run, with no hash. | {class: gap}
     files: |md
       - wacc.xls: beta, cost of equity, cost of debt, tax rate,
         cost of capital, debt weight D/(D+E).

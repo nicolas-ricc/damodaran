@@ -4,7 +4,10 @@ direction: down
 
 # Schedules
 daily: "daily: weekdays 09:00, prices, foreign exchange rates, portfolio" {class: cron}  # @file scripts/daily.sh
-weekly: "weekly: Saturdays 10:00, refresh, screen, analyze, publish" {class: cron}  # @file scripts/weekly.sh
+weekly: "weekly: Saturdays 10:00, refresh, screen, analyze, publish" {  # @file scripts/weekly.sh
+  class: cron
+  plano_cron: |md Gap: plano reports card says no script installs the cron jobs yet and the Saturday run is refresh and screen; scripts/install_cron.sh installs both jobs and the Saturday run also analyzes and publishes. | {class: gap}  # @file scripts/install_cron.sh
+}
 
 # Stages
 refresh: "refresh: download data in order: Damodaran, fundamentals, end-of-day (EOD) prices, foreign exchange (FX) rates" {  # @symbol bot.cli.refresh
@@ -56,6 +59,7 @@ published_site: "published site (static viewer)" {class: output}
 
 # Database
 duckdb: "DuckDB (bot.duckdb), architecture decision record (ADR) 0001 (Accepted)" {  # @file docs/adr/0001-use-duckdb.md
+  plano_tables: |md Gap: plano duckdb card counts fifteen tables ("Las quince:"); schema.sql has 16, holding_marks is missing from its list. | {class: gap}
   damodaran_industry: {class: store}  # @table damodaran_industry
   damodaran_country: {class: store}  # @table damodaran_country
   currencies: {class: store}  # @table currencies
