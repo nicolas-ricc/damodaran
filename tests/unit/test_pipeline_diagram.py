@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import inspect
 import itertools
 import math
 import re
 import subprocess
 import sys
+from datetime import date
 from enum import Enum
 from functools import cache
 from pathlib import Path
@@ -22,6 +24,9 @@ from typing import Any
 import pytest
 import yaml
 
+from bot.portfolio import events as events_mod
+from bot.portfolio.events import EventType, Position
+from bot.portfolio.marks import HoldingMark
 from bot.reporting.analysis_report import margin_verdict
 from bot.screener.ranking import RankingWeights
 from bot.screener.rules import registered_rules
@@ -168,6 +173,33 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.reference.sectors.is_cyclical",
         "bot.reference.regions.dataset_region",
     },
+    "portfolio": {
+        "bot.cli.portfolio",
+        "bot.portfolio.command.run_portfolio",
+        "bot.portfolio.sync.sync_portfolio",
+        "bot.portfolio.sync.value_positions",
+        "bot.portfolio.trades.sync_trades",
+        "bot.portfolio.marks.mark_holdings",
+        "bot.portfolio.events.compute_events",
+        "bot.portfolio.events.persist_events",
+        "bot.portfolio.events.detect_position_changes",
+        "bot.portfolio.events.detect_currency_changes",
+        "bot.portfolio.events.detect_corporate_action_events",
+        "bot.portfolio.events.detect_new_filings",
+        "bot.portfolio.events.detect_intrinsic_value_cross",
+        "bot.portfolio.events.detect_new_red_flags",
+        "bot.portfolio.events.detect_concentration",
+        "bot.portfolio.events.detect_sector_recalibration",
+        "bot.portfolio.events.detect_below_quality_gate",
+        "bot.portfolio.report.build_report",
+        "bot.portfolio.report.render_portfolio",
+        "bot.portfolio.report.render_alerts",
+        "bot.ingest.ibkr.IbkrClient",
+        "bot.ingest.ibkr_flex.import_corporate_actions",
+        "bot.notifier.build_notifier",
+        "bot.notifier.notify_alerts",
+        "bot.screener.engine.load_holding_inputs",
+    },
 }
 # Derived from schema.sql, so a new table cannot go undrawn on the overview.
 _REQUIRED_TABLES: dict[str, set[str]] = {
@@ -200,6 +232,17 @@ _REQUIRED_TABLES: dict[str, set[str]] = {
         "damodaran_industry",
         "damodaran_country",
     },
+    "portfolio": {
+        "portfolio_snapshots",
+        "cash_balances",
+        "trades",
+        "corporate_actions",
+        "holding_marks",
+        "events_log",
+        "filings_log",
+        "prices_daily",
+        "currencies",
+    },
 }
 _REQUIRED_FILES: dict[str, set[str]] = {
     "pipeline": {
@@ -229,6 +272,7 @@ _REQUIRED_FILES: dict[str, set[str]] = {
         "config/assumptions/_EXAMPLE.yaml.example",
         "src/bot/reporting/templates/analysis.md.j2",
     },
+    "portfolio": {"scripts/daily.sh", "config/presets/damodaran_value.yaml"},
 }
 # Derived from the rule registry and the preset, so a new rule or parameter
 # cannot go undrawn on the screen board.
@@ -279,6 +323,11 @@ _REQUIRED_CONSTS: dict[str, set[str]] = {
         "bot.web.views.MOS_FAIR",
         "bot.reporting.analysis_json.SCHEMA_VERSION",
     },
+    "portfolio": {
+        "bot.portfolio.events.DEFAULT_SIZE_CHANGE_THRESHOLD",
+        "bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD",
+        "bot.portfolio.events.DEFAULT_WACC_RECALIBRATION_BPS",
+    },
 }
 _REQUIRED_ENUMS: dict[str, set[str]] = {
     "pipeline": {"bot.web.views.Verdict"},
@@ -288,6 +337,7 @@ _REQUIRED_ENUMS: dict[str, set[str]] = {
         "bot.valuator.narrative_flags.FlagColor",
         "bot.valuator.sensitivity.SensitivityAxis",
     },
+    "portfolio": {"bot.portfolio.events.EventType"},
 }
 
 _REQUIRED: dict[str, dict[str, set[str]]] = {
@@ -332,21 +382,25 @@ _ACRONYMS: dict[str, str] = {
     "P/E": "price to earnings",
     "P/BV": "price to book value",
     "D/E": "debt to equity",
+    "P&L": "profit and loss",
+    "UTC": "Coordinated Universal Time",
 }
 # File formats and words written in capitals that need no expansion.
 _ACRONYMS_EXEMPT: set[str] = {
     "JSON", "CSV", "YAML", "SVG", "URL", "HTML", "PNG",
     "US", "USD", "YYYY", "MM", "DD", "TICKER",
 }
-# Ratio acronyms with a slash (P/E, D/E) are whole tokens, matched before their parts.
-_SLASHED = sorted((k for k in _ACRONYMS if "/" in k), key=len, reverse=True)
+# Acronyms with a slash or an ampersand (P/E, P&L) are whole tokens, matched before their parts.
+_SYMBOLIC = sorted((k for k in _ACRONYMS if re.search(r"[/&]", k)), key=len, reverse=True)
 
 
 def _token_re(token: str) -> str:
-    return rf"(?<![\w/]){re.escape(token)}(?![\w/])" if "/" in token else rf"\b{re.escape(token)}\b"
+    if re.search(r"[/&]", token):
+        return rf"(?<![\w/&]){re.escape(token)}(?![\w/&])"
+    return rf"\b{re.escape(token)}\b"
 
 
-_ACRONYM_RE = re.compile("|".join([*map(_token_re, _SLASHED), r"\b[A-Z][A-Z0-9]+\b", r"\bMoS\b"]))
+_ACRONYM_RE = re.compile("|".join([*map(_token_re, _SYMBOLIC), r"\b[A-Z][A-Z0-9]+\b", r"\bMoS\b"]))
 
 
 # A minimal reading of d2 node blocks, enough to find a node's class and text.
@@ -1464,3 +1518,316 @@ def test_analyze_flow_edges(src: str, dst: str) -> None:
 def test_pipeline_links_the_analyze_board() -> None:
     block = _block(_overview(), "analyze")
     assert block is not None and re.search(r'(?m)^\s*link:\s*"\./analyze\.svg"\s*$', block)
+
+
+def _portfolio() -> str:
+    return _boards().get("portfolio", "")
+
+
+def _portfolio_block(key: str) -> str:
+    block = _block(_portfolio(), key)
+    assert block is not None, f"portfolio.d2 has no node {key}"
+    return block
+
+
+_PORTFOLIO_TABLES = sorted(_REQUIRED_TABLES["portfolio"])
+
+_PORTFOLIO_NODES: list[tuple[str, str]] = (
+    [("daily", "cron")]
+    + [(e, "external") for e in ("tws", "flex", "channels")]
+    + [(f, "file") for f in ("preset", "override_yaml", "portfolio_template", "alerts_template")]
+    + [(f"duckdb.{t}", "store") for t in _PORTFOLIO_TABLES]
+    + [(o, "output") for o in ("portfolio_md", "alerts_md", "message")]
+    + [
+        ("cli", "step"),
+        ("cli.exits", "note"),
+        ("cli.gates", "note"),
+        ("sync.snapshot", "step"),
+        ("sync.value", "step"),
+        ("sync.value.adr_0005", "gap"),
+        ("sync.corporate_actions", "step"),
+        ("sync.corporate_actions.unverified", "gap"),
+        ("sync.trades", "step"),
+        ("marks.held", "step"),
+        ("marks.valuation", "step"),
+        ("marks.gates", "step"),
+        ("marks.persist", "step"),
+        ("marks.persist.unknowns", "note"),
+        ("events.window", "step"),
+    ]
+    + [(f"events.{t.value}", "decision") for t in EventType]
+    + [
+        ("events.split.other_actions", "gap"),
+        ("events.new_filing.no_auto_analyze", "gap"),
+        ("events.not_events", "note"),
+        ("events.persist", "step"),
+        ("events.persist.reruns", "note"),
+        ("reports.portfolio", "step"),
+        ("reports.alerts", "step"),
+        ("notify.channel", "decision"),
+        ("notify.send", "decision"),
+    ]
+)
+
+# Node -> phrases its block must show (compared after check.normalize, so the
+# board's U+2212 minus signs match the ASCII hyphens here).
+_PORTFOLIO_TEXT: dict[str, list[str]] = {
+    "daily": ["09:00", "only when both succeeded"],
+    "cli.exits": ["exit code 2", "exit code 1"],
+    "sync.snapshot": ["(snapshot_date, account)", "delete", "then insert"],
+    "sync.value": [
+        f"market value = quantity {_TIMES} latest close",
+        "on or before the snapshot date",
+        f"close {_TIMES} rate_to_usd(listing currency) ÷ rate_to_usd(position currency)",
+        "close ≤ 0",
+        "unpriced",
+    ],
+    "sync.corporate_actions": [
+        "BOT_IBKR_FLEX_TOKEN",
+        "BOT_IBKR_FLEX_QUERY_ID",
+        "ct:<id>",
+        "ca:<id>",
+        "de-duplicated on action_id",
+        "warning",
+    ],
+    "sync.trades": [
+        "newest executed_at",
+        "de-duplicated on exec_id",
+        "naive Coordinated Universal Time (UTC)",
+    ],
+    "marks.held": ["≠ 0"],
+    "marks.valuation": ["config/assumptions/TICKER.yaml", "red narrative flags", "unknown"],
+    "marks.gates": ["skipped rule does not count", "sector WACC"],
+    "marks.persist.unknowns": ["never fires", "counts as empty"],
+    "events.window": ["per ticker across accounts", "never a recomputation"],
+    "events.position_opened": ["≠ 0", "first run"],
+    "events.position_closed": ["absent or 0 now", "returns no positions"],
+    "events.position_size_changed": ["> 10%", "exactly 10%: no event"],
+    "events.currency_changed": ["listing currency", "not on the first run"],
+    "events.dividend": ["after the previous snapshot, on or before this one"],
+    "events.split": ["split"],
+    "events.new_filing": ["absent from events_log", "ingested"],
+    "events.intrinsic_value_crossed_price": ["equality is not a cross"],
+    "events.new_red_flag": ["not red in the previous mark"],
+    "events.below_quality_gate": ["failing now and not failing before"],
+    "events.sector_recalibrated": ["> 100 bps", "exactly 100 bps: no event"],
+    "events.concentration": ["> 15%", "exactly 15%: no event", "fires on every run while above"],
+    "events.not_events": ["price moves", "news"],
+    "events.persist.reruns": ["same events again"],
+    "reports.portfolio": [
+        f"P&L = market value - quantity {_TIMES} average cost",
+        "suggested review",
+        "--history",
+        "--concentration",
+    ],
+    "reports.alerts": ["always written", "empty"],
+    "notify.channel": ["BOT_NOTIFIER", "exit code 2"],
+    "notify.send": ["blank", "exit code 1"],
+}
+
+
+@pytest.mark.parametrize(("key", "cls"), _PORTFOLIO_NODES)
+def test_portfolio_nodes(key: str, cls: str) -> None:
+    assert _node_class(_portfolio(), key) == cls
+
+
+@pytest.mark.parametrize("key", list(_PORTFOLIO_TEXT))
+def test_portfolio_text(key: str) -> None:
+    block = _check().normalize(_portfolio_block(key))
+    missing = [w for w in _PORTFOLIO_TEXT[key] if _check().normalize(w) not in block]
+    assert missing == []
+
+
+def test_portfolio_every_event_type_is_a_decision() -> None:
+    for event in EventType:
+        block = _portfolio_block(f"events.{event.value}")
+        assert _node_class(_portfolio(), f"events.{event.value}") == "decision", event
+        assert event.value in block.splitlines()[0], event
+    events = _portfolio_block("events")
+    decisions = re.findall(r"(?m)^  (\w+):.*\n\s*class:\s*decision\b", events)
+    assert sorted(decisions) == sorted(e.value for e in EventType)
+
+
+_DAY = date(2026, 1, 2)
+_PREV = date(2026, 1, 1)
+
+
+def _pos(ticker: str, qty: float, mv: float | None = None) -> Position:
+    return Position(ticker=ticker, qty=qty, market_value=mv, currency="USD")
+
+
+def _mark(iv: float, price: float) -> HoldingMark:
+    return HoldingMark(ticker="T", intrinsic_value=iv, price=price)
+
+
+# Each detector evaluated exactly at its threshold: a strict operator on the
+# board means no event at equality. Thresholds are passed as exact binary
+# fractions; test_portfolio_threshold_defaults pins the defaults to the constants.
+_PORTFOLIO_DIRECTIONS: list[tuple[str, str, str, Any]] = [
+    ("events.position_size_changed", "> 10%", ">",
+     lambda: any(e.event_type is EventType.POSITION_SIZE_CHANGED
+                 for e in events_mod.detect_position_changes(
+                     [_pos("T", 2.0)], [_pos("T", 3.0)], snapshot_date=_DAY, prev_date=_PREV,
+                     size_change_threshold=0.5))),
+    ("events.concentration", "> 15%", ">",
+     lambda: any(e.ticker == "A"
+                 for e in events_mod.detect_concentration(
+                     [_pos("A", 1.0, 1.0), _pos("B", 1.0, 3.0)], snapshot_date=_DAY,
+                     prev_date=_PREV, threshold=0.25))),
+    ("events.sector_recalibrated", "> 100 bps", ">",
+     lambda: events_mod.detect_sector_recalibration(
+         0.5, 0.75, "T", snapshot_date=_DAY, prev_date=_PREV, threshold=0.25) is not None),
+]
+
+
+@pytest.mark.parametrize(
+    ("node", "phrase", "op", "fires"),
+    _PORTFOLIO_DIRECTIONS,
+    ids=[f"{d[0]}[{d[1]}]" for d in _PORTFOLIO_DIRECTIONS],
+)
+def test_portfolio_directions_match_code(node: str, phrase: str, op: str, fires: Any) -> None:
+    assert op in phrase
+    assert _check().normalize(phrase) in _check().normalize(_portfolio_block(node))
+    assert fires() == (op in "≤≥")
+
+
+def test_portfolio_threshold_defaults() -> None:
+    def default(fn: Any, name: str) -> Any:
+        return inspect.signature(fn).parameters[name].default
+
+    assert (default(events_mod.detect_position_changes, "size_change_threshold")
+            == events_mod.DEFAULT_SIZE_CHANGE_THRESHOLD)
+    assert (default(events_mod.detect_concentration, "threshold")
+            == events_mod.DEFAULT_CONCENTRATION_THRESHOLD)
+    assert (default(events_mod.detect_sector_recalibration, "threshold")
+            == events_mod.DEFAULT_WACC_RECALIBRATION_BPS)
+    # just above each threshold fires, so the explicit-threshold cases above are not vacuous
+    assert events_mod.detect_sector_recalibration(
+        0.5, 0.76, "T", snapshot_date=_DAY, prev_date=_PREV, threshold=0.25) is not None
+
+
+def test_portfolio_equality_is_not_a_cross() -> None:
+    assert "equality is not a cross" in _portfolio_block("events.intrinsic_value_crossed_price")
+
+    def cross(before: HoldingMark, now: HoldingMark) -> bool:
+        return events_mod.detect_intrinsic_value_cross(
+            before, now, snapshot_date=_DAY, prev_date=_PREV) is not None
+
+    assert not cross(_mark(9.0, 10.0), _mark(10.0, 10.0))  # below, then equal
+    assert not cross(_mark(10.0, 10.0), _mark(11.0, 10.0))  # equal, then above
+    assert cross(_mark(9.0, 10.0), _mark(11.0, 10.0))
+    assert cross(_mark(11.0, 10.0), _mark(9.0, 10.0))
+
+
+def test_portfolio_run_steps_match_code() -> None:
+    from bot.portfolio.command import run_portfolio
+
+    source = inspect.getsource(run_portfolio)
+    calls = ["sync_portfolio(", "corporate_actions_fn(conn)", "sync_trades(", "mark_holdings(",
+             "compute_events(", "persist_events(", "build_report("]
+    positions = [source.index(c) for c in calls]
+    assert positions == sorted(positions)
+    for key, number in (("sync.snapshot", "1."), ("sync.corporate_actions", "2."),
+                        ("sync.trades", "3.")):
+        label = _portfolio_block(key).splitlines()[0].split(":", 1)[1].strip().strip('"')
+        assert label.startswith(number), key
+    for key, number in (("marks", "4a."), ("events", "4b."), ("reports", "5."), ("notify", "6.")):
+        label = _portfolio_block(key).splitlines()[0].split(":", 1)[1].strip().strip('"')
+        assert label.startswith(number), key
+
+
+def test_portfolio_cli_order_matches_code() -> None:
+    from bot.cli import portfolio
+
+    source = inspect.getsource(portfolio)
+    calls = ["build_notifier(", "preset_path.exists()", "run_portfolio(", "notify_alerts("]
+    positions = [source.index(c) for c in calls]
+    assert positions == sorted(positions)
+    assert "typer.Exit(code=2)" in source and "typer.Exit(code=1)" in source
+
+
+_PORTFOLIO_GAPS: dict[str, list[str]] = {
+    "sync.value.adr_0005": ["ADR 0005", "not implemented"],
+    "sync.corporate_actions.unverified": ["not yet verified against a real pull", "issue 110"],
+    "events.split.other_actions": ["mergers", "fire no event"],
+    "events.new_filing.no_auto_analyze": [
+        "Verified", "run_portfolio", "mark_holdings", "no analysis report",
+    ],
+}
+
+
+@pytest.mark.parametrize("key", list(_PORTFOLIO_GAPS))
+def test_portfolio_gap_notes(key: str) -> None:
+    block = _portfolio_block(key)
+    assert "Gap:" in block
+    missing = [w for w in _PORTFOLIO_GAPS[key] if w not in block]
+    assert missing == []
+
+
+def _has_gap(key: str) -> bool:
+    return _node_class(_portfolio(), key) == "gap"
+
+
+def _collapsed(text: str) -> str:
+    return " ".join(text.split())
+
+
+def test_portfolio_adr_0005_gap_is_current() -> None:
+    adr = next((_ROOT / "docs" / "adr").glob("0005-*.md")).read_text(encoding="utf-8")
+    status = adr[adr.index("## Status") :].split("\n## ", 1)[0]
+    unimplemented = "Not implemented" in _collapsed(status)
+    assert _has_gap("sync.value.adr_0005") == unimplemented
+
+
+def test_portfolio_flex_gap_is_current() -> None:
+    from bot.ingest import ibkr_flex
+
+    unverified = "not yet verified against a real pull" in _collapsed(ibkr_flex.__doc__ or "")
+    assert _has_gap("sync.corporate_actions.unverified") == unverified
+
+
+def test_portfolio_other_actions_gap_is_current() -> None:
+    def fired(action: str) -> list[Any]:
+        return events_mod.detect_corporate_action_events(
+            [("T", action, {})], snapshot_date=_DAY, prev_date=None)
+
+    assert [e.event_type for e in fired("dividend")] == [EventType.DIVIDEND]  # positive control
+    assert _has_gap("events.split.other_actions") == (fired("merger") == [])
+
+
+def test_portfolio_filing_auto_analyze_gap_is_current() -> None:
+    from bot.cli import portfolio
+    from bot.portfolio.command import run_portfolio
+
+    sources = inspect.getsource(portfolio) + inspect.getsource(run_portfolio)
+    reacts = "NEW_FILING" in sources or "new_filing" in sources
+    assert _has_gap("events.new_filing.no_auto_analyze") != reacts
+
+
+@pytest.mark.parametrize(
+    ("src", "dst"),
+    [
+        ("daily", "cli"),
+        ("tws", "sync.snapshot"),
+        ("flex", "sync.corporate_actions"),
+        ("sync.value", "duckdb.portfolio_snapshots"),
+        ("marks.persist", "duckdb.holding_marks"),
+        ("duckdb.holding_marks", "events.intrinsic_value_crossed_price"),
+        ("events.persist", "duckdb.events_log"),
+        ("reports.portfolio", "portfolio_md"),
+        ("reports.alerts", "alerts_md"),
+        ("notify.send", "channels"),
+    ],
+)
+def test_portfolio_flow_edges(src: str, dst: str) -> None:
+    assert _edge_line(_portfolio(), src, dst) is not None
+
+
+def test_portfolio_daily_runs_after_prices_and_fx() -> None:
+    script = (_ROOT / "scripts" / "daily.sh").read_text(encoding="utf-8")
+    assert script.index('((worst == 0)) || exit "$worst"') < script.index("uv run bot portfolio")
+
+
+def test_pipeline_links_the_portfolio_board() -> None:
+    block = _block(_overview(), "portfolio")
+    assert block is not None and re.search(r'(?m)^\s*link:\s*"\./portfolio\.svg"\s*$', block)
