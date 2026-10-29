@@ -1,0 +1,305 @@
+...@classes
+
+direction: down
+
+# The command
+cli: "bot analyze TICKER ... or --from-screen\nvalue each company by discounted cash flow (DCF), one report set per ticker" {  # @symbol bot.cli.analyze
+  class: step
+  errors: |md
+    - unknown ticker, or no annual financials: exit code 2
+    - bad arguments (tickers with --from-screen, neither, --override without exactly one ticker): exit code 2
+    - cannot value: exit code 1
+    - the batch goes on after a failure
+    - the command exits with the worst code
+    | {class: note}
+}
+
+tickers: "which tickers?\ntickers given: those\n--from-screen: passed candidates of the latest screener_candidates run\n(newest created_at), by rank\nno run, or no passed candidate: exit code 2" {  # @symbol bot.cli.analyze
+  class: decision
+}
+
+override: "which override file?\n--override path (only with exactly one ticker)\nelse config/assumptions/TICKER.yaml when it exists, else none\nan unknown key, or not a mapping: cannot value, exit code 1" {  # @symbol bot.valuator.assumptions.conventional_override_path
+  class: decision
+}
+
+# Files
+override_yaml: "config/assumptions/TICKER.yaml, manual overrides" {class: file}  # @file config/assumptions @symbol bot.valuator.assumptions.conventional_override_path
+example_yaml: "config/assumptions/_EXAMPLE.yaml.example, every override key" {class: file}  # @file config/assumptions/_EXAMPLE.yaml.example
+template: "src/bot/reporting/templates/analysis.md.j2" {class: file}  # @file src/bot/reporting/templates/analysis.md.j2
+
+# Database
+duckdb: "DuckDB (bot.duckdb)" {
+  screener_candidates: {class: store}  # @table screener_candidates
+  companies: {class: store}  # @table companies
+  financials_annual: {class: store}  # @table financials_annual
+  prices_daily: {class: store}  # @table prices_daily
+  damodaran_industry: {class: store}  # @table damodaran_industry
+  damodaran_country: {class: store}  # @table damodaran_country
+}
+
+# Outputs
+report_md: "reports/YYYY-MM-DD/analysis/TICKER.md" {class: output}
+report_html: "reports/YYYY-MM-DD/analysis/TICKER.html" {class: output}
+report_json: "reports/YYYY-MM-DD/analysis/TICKER.json, read by the site" {class: output}
+
+# Section 1: inputs
+inputs: "1. inputs of one company" {
+  load: "load the company\ncompanies row (name, country, currency, industry_damodaran, ipo_date)\nthe newest non-restated financials_annual row\noldest-first revenue, net income and\nearnings before interest and taxes (EBIT) histories,\nempty years dropped\nnewest prices_daily close\nsector pe, ev_sales, op_margin, beta_levered\nfrom the newest damodaran_industry row\nof (industry, region)" {  # @symbol bot.valuator.analysis.load_valuation_input
+    class: step
+    exact_region: |md The sector multiples here (sanity check, flags) take the company's own dataset region only; the assumptions use the cross-region fallback. | {class: note}
+  }
+  region: "dataset region\nChina, India, Japan: their own dataset region\nelse from the country's grouping in its newest damodaran_country row\nunknown: US" {  # @symbol bot.reference.regions.dataset_region
+    class: decision
+  }
+  derived: "derived signals\nnet debt = total debt − cash, a missing term counts as 0;\nboth missing: net debt taken as 0 in the DCF\ninterest coverage = EBIT ÷ interest expense;\nempty when EBIT is missing, or interest expense is 0 or missing\nage = whole years since ipo_date\ncyclical sector = industry_damodaran in the cyclical list (exact match)" {  # @symbol bot.valuator.analysis.analyze @symbol bot.reference.sectors.is_cyclical
+    class: step
+    age: |md Gap: age comes from ipo_date, which only Financial Modeling Prep fills. Verified: the Securities and Exchange Commission (SEC) Electronic Data Gathering, Analysis, and Retrieval (EDGAR) parser parse_submissions_info always sets ipo_date to none, so under the default provider age is unknown and every company counts as young. | {class: gap}  # @symbol bot.ingest.sec_edgar.parse_submissions_info
+  }
+}
+
+# Section 2: story type
+story_type: "2. story type: first rule that matches wins" {  # @symbol bot.valuator.story_types.classify @enum bot.valuator.story_types.StoryType
+  distressed: "distressed: Altman Z < 1.81 or interest coverage ≤ 1.0" {  # @const bot.valuator.story_types._DISTRESS_ALTMAN_Z @const bot.valuator.story_types._DISTRESS_INTEREST_COVERAGE
+    class: decision
+    label.near: outside-top-center
+    altman: |md Gap: Altman Z is read by the classifier but computed nowhere, and analyze never passes it; only interest coverage can make a company distressed. | {class: gap}
+  }
+  cyclical: "cyclical: cyclical sector and coefficient of variation ≥ 0.50\ncoefficient of variation = standard deviation ÷ |mean| of net income\n(population standard deviation; fewer than 2 years or mean 0: not cyclical)" {  # @symbol bot.valuator.story_types._earnings_cv @const bot.valuator.story_types._CYCLICAL_EARNINGS_CV
+    class: decision
+  }
+  high_growth: "high-growth: revenue compound annual growth rate (CAGR) ≥ 15% and age ≤ 25 years\nwhere CAGR = (last ÷ first)^(1 ÷ (years − 1)) − 1\nunknown age counts as young\nfewer than 2 years, or first or last ≤ 0: mature-stable" {  # @symbol bot.valuator.story_types._cagr @const bot.valuator.story_types._HIGH_GROWTH_CAGR @const bot.valuator.story_types._MATURE_AGE_YEARS
+    class: decision
+  }
+  mature_decline: "mature-decline: CAGR ≤ −1%" {  # @const bot.valuator.story_types._DECLINE_CAGR
+    class: decision
+  }
+  mature_stable: "mature-stable: every other company" {
+    class: decision
+  }
+  manual: "story_type in the override file?\nyes: it replaces the classifier's story type\nan unknown label: logged, and no story branch applies to the assumptions" {  # @symbol bot.valuator.assumptions.resolve_assumptions
+    class: decision
+    label.near: outside-top-center
+    reasons: |md The report gives the reasons: revenue CAGR over the years, the age, the classifier's story type; with an override, a line naming what the classifier would have said. | {class: note}
+  }
+}
+
+# Section 3: assumptions
+assumptions: "3. assumptions: the first source that yields a value wins; paths over 5 years" {  # @symbol bot.valuator.assumptions.resolve_assumptions @const bot.valuator.assumptions._HORIZON @enum bot.valuator.assumptions.AssumptionSource
+  sector_row: "sector row: newest damodaran_industry row\nfor (industry, region)\nnone: the newest row of that industry in any region\nsector label = sector_default_damodaran,\nor sector_default_damodaran_cross_region\nwhen another region's row is used" {  # @symbol bot.valuator.assumptions._load_sector_with_fallback
+    class: step
+  }
+  growth: "revenue growth g_t, a 5-year path\n1. manual: list, or one value repeated → manual\n2. high-growth with history: straight line from the mean historical growth\nto nominal gross domestic product (GDP) growth 4% → story_pattern\n3. mean historical growth, repeated → historical_average\n4. nominal GDP growth 4% each year → rule_based\nhistorical growth = mean of (revenue_t − revenue_t−1) ÷ revenue_t−1,\nzero bases skipped, ≥ 2 years" {  # @symbol bot.valuator.assumptions._resolve_revenue_growth @const bot.valuator.assumptions._DEFAULT_GDP_NOMINAL
+    class: step
+    consensus: |md Gap: spec §7.3 starts revenue growth from analyst consensus converging to nominal GDP by year 10; there is no consensus layer (AssumptionSource has no analyst_consensus) and the horizon is 5 years. | {class: gap}
+  }
+  margin: "operating margin, a 5-year path\n1. manual → manual\n2. high-growth with a latest EBIT ÷ revenue: straight line from it\nto the sector op_margin → story_pattern\n3. cyclical with ≥ 4 years: mean of the yearly\nEBIT ÷ revenue → historical_average\n4. sector op_margin each year → sector label\nno sector op_margin: unresolved" {  # @symbol bot.valuator.assumptions._resolve_operating_margin @const bot.valuator.assumptions._MIN_CYCLE_YEARS
+    class: step
+  }
+  sales_to_capital: "sales-to-capital: manual → manual;\nsector sales_to_capital → sector label; else unresolved" {  # @symbol bot.valuator.assumptions.resolve_assumptions
+    class: step
+    story: |md Gap: spec §7.1 varies reinvestment by story type (high early for high-growth, minimal for mature-decline); sales-to-capital and terminal growth follow the same rule for every story type. | {class: gap}
+  }
+  discount_rates: "cost of equity and pre-tax cost of debt, each:\nmanual → manual; sector cost_of_equity / cost_of_debt\n→ sector label; else unresolved" {  # @symbol bot.valuator.assumptions.resolve_assumptions
+    class: step
+  }
+  weights: "equity and debt weights\n1. manual: one given, the other = 1 − it;\nboth given must sum to 1, else cannot value → manual\n2. sector debt-to-equity (D/E): debt weight = D/E ÷ (1 + D/E),\nequity weight = 1 − debt weight → sector label\n3. else unresolved" {  # @symbol bot.valuator.assumptions._resolve_weights
+    class: step
+    company: |md Gap: spec §7.3 builds the discount rate from the company's capital structure and the country equity risk premium; the code uses the sector's D/E and the sector cost of equity. | {class: gap}
+  }
+  terminal_growth: "terminal growth g_terminal\n1. manual → manual\n2. country risk-free rate known:\nmin(risk-free rate, nominal GDP growth 4%) → rule_based\n3. else nominal GDP growth 4% → rule_based" {  # @symbol bot.valuator.assumptions._resolve_terminal_growth
+    class: step
+  }
+  tax: "tax rate\n1. manual → manual\n2. sector tax_rate → sector label\n3. country tax_rate (newest damodaran_country row)\n→ sector_default_damodaran\n4. else 25% → rule_based" {  # @symbol bot.valuator.assumptions._resolve_tax_rate @const bot.valuator.assumptions._DEFAULT_TAX_RATE
+    class: step
+  }
+  bankruptcy: "probability of bankruptcy p and distress value per share\nmanual → manual; else 0 → rule_based" {  # @symbol bot.valuator.assumptions.resolve_assumptions
+    class: step
+    manual_only: |md Gap: spec §7.3 derives the probability of bankruptcy of a distressed company from its rating or Altman Z; p and the distress value only come from a manual override, otherwise both are 0. | {class: gap}
+  }
+  sources: |md
+    The source label of each value:
+    - manual: the override file
+    - story_pattern: a path built for the story type
+    - historical_average: the company's own history
+    - sector_default_damodaran: the sector or country row of the company's region
+    - sector_default_damodaran_cross_region: the sector row of another region
+    - rule_based: a fixed rule or default
+    - unresolved: no source, so the company cannot be valued
+    | {class: note}
+}
+
+# Section 4: DCF
+dcf: "4. two-stage discounted cash flow" {  # @symbol bot.valuator.dcf.dcf
+  guard: "can it be valued?\nlatest revenue present,\n1,000,000 ≤ diluted shares ≤ 100,000,000,000,\nno assumption unresolved, sales-to-capital > 0\nno: cannot value, exit code 1" {  # @const bot.valuator.analysis.MIN_PLAUSIBLE_SHARES @const bot.valuator.analysis.MAX_PLAUSIBLE_SHARES
+    class: decision
+  }
+  wacc: "weighted average cost of capital (WACC)\n= equity weight × cost of equity + debt weight × pre-tax cost of debt × (1 − tax)" {  # @symbol bot.valuator.dcf._wacc
+    class: step
+  }
+  converges: "g_terminal < WACC?\nno: cannot value, exit code 1" {
+    class: decision
+  }
+  years: "for t = 1 … N (N = length of the growth path, 5 unless a manual list differs;\nthe margin path is cut, or extended with its last value, to N)\nrevenue_t = revenue_t−1 × (1 + g_t), revenue_0 = latest revenue\nEBIT_t = revenue_t × margin_t\nnet operating profit after tax (NOPAT)_t = EBIT_t × (1 − tax)\nreinvestment_t = (revenue_t − revenue_t−1) ÷ sales-to-capital\nfree cash flow to the firm (FCFF)_t = NOPAT_t − reinvestment_t\npresent value_t = FCFF_t ÷ (1 + WACC)^t" {
+    class: step
+  }
+  terminal: "terminal year N + 1: revenue = revenue_N × (1 + g_terminal), margin_N\nFCFF_N+1 by the same formulas\nterminal value = FCFF_N+1 ÷ (WACC − g_terminal)\npresent value of terminal value = terminal value ÷ (1 + WACC)^N" {
+    class: step
+  }
+  ev: "enterprise value (EV) = Σ present value_t + present value of terminal value\nterminal value share = present value of terminal value ÷ EV\n(0 when EV = 0)" {
+    class: step
+  }
+  equity: "equity = EV − net debt + adjustments\ngoing-concern value per share = equity ÷ diluted shares" {
+    class: step
+    adjustments: |md Gap: spec §7.2 adjusts equity for minority interests and cross-holdings; adjustments has no input path (not filled by the pipeline, not an override key), so it is always 0. | {class: gap}
+  }
+  blend: "intrinsic value per share = (1 − p) × going-concern value per share\n+ p × distress value per share" {
+    class: step
+  }
+}
+
+# Section 5: sensitivity
+sensitivity: "5. sensitivity" {
+  tornado: "tornado: each axis × 0.8 and × 1.2, one at a time\naxes: revenue_growth, operating_margin (every year scaled), tax_rate,\nsales_to_capital, terminal_growth, cost_of_equity, pretax_cost_of_debt\nswing = |intrinsic value at × 1.2 − intrinsic value at × 0.8|, widest first\nan end with g_terminal ≥ WACC: no value, ranked last" {  # @symbol bot.valuator.sensitivity.tornado @const bot.valuator.sensitivity._TORNADO_LOW @const bot.valuator.sensitivity._TORNADO_HIGH @enum bot.valuator.sensitivity.SensitivityAxis
+    class: step
+  }
+  grid: "5 × 5 grid on the two widest tornado axes\nmultipliers 0.8, 0.9, 1.0, 1.1, 1.2 on each\ncell = intrinsic value ÷ price (margin of safety); no price, or price ≤ 0: intrinsic value\na cell with g_terminal ≥ WACC: empty" {  # @symbol bot.valuator.sensitivity.grid_2d @const bot.valuator.sensitivity._GRID_MULTIPLIERS
+    class: step
+  }
+}
+
+# Section 6: narrative flags
+narrative_flags: "6. narrative flags: five checks for a human, not in any ranking" {  # @symbol bot.valuator.narrative_flags.narrative_flags @enum bot.valuator.narrative_flags.FlagColor
+  story_margin: "story margin\nstory type not high-growth: green\ncompany or sector margin missing: unknown\ncompany EBIT ÷ revenue (latest year) > sector op_margin: yellow\nelse green" {  # @symbol bot.valuator.narrative_flags.story_margin_flag
+    class: decision
+  }
+  growth_reinvestment: "growth funded by reinvestment\nany year with FCFF < 0, or reinvestment > 0 with NOPAT ≤ 0: red\nhighest reinvestment ÷ NOPAT over the years with NOPAT > 0\nis > 0.90: yellow\nelse green" {  # @symbol bot.valuator.narrative_flags.growth_reinvestment_flag @const bot.valuator.narrative_flags._STRETCHED_REINVESTMENT_RATE
+    class: decision
+  }
+  beta_business_risk: "beta vs business risk\nsector beta_levered < 1.0\nand operating leverage > 1.5\nand company debt weight > 40%: yellow\none of the three missing: unknown; else green\noperating leverage = %ΔEBIT ÷ %ΔRevenue, last two years\n(none when a base is 0, or revenue is unchanged)\ncompany debt weight = total debt ÷ (total debt + total equity)" {  # @symbol bot.valuator.narrative_flags.beta_business_risk_flag @symbol bot.valuator.analysis._operating_leverage @const bot.valuator.narrative_flags._DEFENSIVE_BETA @const bot.valuator.narrative_flags._HIGH_OPERATING_LEVERAGE @const bot.valuator.narrative_flags._HIGH_FINANCIAL_LEVERAGE
+    class: decision
+  }
+  terminal_value_share: "terminal value share > 80%: yellow\nelse green" {  # @symbol bot.valuator.narrative_flags.terminal_value_share_flag @const bot.valuator.narrative_flags._TERMINAL_VALUE_SHARE_CEILING
+    class: decision
+  }
+  country_exposure: "country exposure\nforeign revenue share > 50% and weighted equity risk premium (ERP)\n− listing-country ERP > 300 bps: red\nan input missing: unknown; else green" {  # @symbol bot.valuator.narrative_flags.country_exposure_flag @const bot.valuator.narrative_flags._FOREIGN_REVENUE_MAJORITY @const bot.valuator.narrative_flags._ERP_GAP_THRESHOLD
+    class: decision
+    label.near: outside-top-center
+    always_unknown: |md Gap: analyze never supplies the foreign revenue share or the two ERPs (no ingest path has revenue by geography), so this flag is always unknown. | {class: gap}
+  }
+}
+
+# Section 7: margin of safety and verdict
+verdict: "7. margin of safety and verdict" {
+  mos: "margin of safety (MoS) = intrinsic value per share ÷ latest close\nno price, or price ≤ 0: none" {  # @symbol bot.valuator.analysis.analyze
+    class: step
+  }
+  words: "verdict\nMoS ≥ 1.3: potentially undervalued\nMoS ≥ 1.0: around fair value\nMoS < 1.0: potentially overvalued\nno MoS: n/a" {  # @symbol bot.reporting.analysis_report.margin_verdict @const bot.web.views.MOS_UNDERVALUED @const bot.web.views.MOS_FAIR
+    class: decision
+  }
+}
+
+# Section 8: sanity check
+sanity_check: "8. sanity check" {
+  multiples: "implied multiples next to the sector's; decides nothing\nimplied price-to-earnings (P/E) = price ÷ earnings per share (EPS),\nwith EPS = net income ÷ diluted shares;\nonly with a price, net income > 0, shares > 0 and EPS > 0; vs sector pe\nimplied EV ÷ sales = EV ÷ revenue, revenue > 0; vs sector ev_sales" {  # @symbol bot.valuator.analysis._sanity_check
+    class: step
+  }
+}
+
+# Section 9: reports
+reports: "9. reports, written to reports/YYYY-MM-DD/analysis/" {
+  markdown: "markdown report from analysis.md.j2, eight sections:\n1. executive summary, 2. story type + auto-assignment reasons,\n3. assumptions, 4. DCF detail, 5. sensitivity, 6. narrative flags,\n7. manual overrides, 8. sanity check vs sector multiples" {  # @symbol bot.reporting.analysis_report.render_analysis
+    class: step
+  }
+  html: "HTML report: the markdown report plus the tornado chart\nand the grid heatmap, inlined, no external assets" {  # @symbol bot.reporting.html.render_analysis_html
+    class: step
+  }
+  json: "JSON sidecar: schema_version 1, generated_on, verdict,\nthe whole analysis" {  # @symbol bot.reporting.analysis_json.render_analysis_json @const bot.reporting.analysis_json.SCHEMA_VERSION
+    class: step
+  }
+}
+
+# Edges: entry point
+duckdb.screener_candidates -> tickers: "passed candidates of the latest run, by rank"
+cli -> tickers: "tickers or --from-screen"
+tickers -> override: "each ticker"
+override_yaml -> override: "file of the ticker, if present"
+example_yaml -> override_yaml: "copy and fill in"
+override -> inputs.load: "ticker and override file"
+
+# Edges: inputs
+duckdb.companies -> inputs.load: "company row"
+duckdb.financials_annual -> inputs.load: "annual rows"
+duckdb.prices_daily -> inputs.load: "newest close"
+duckdb.damodaran_industry -> inputs.load: "sector multiples"
+duckdb.damodaran_country -> inputs.region: "country grouping"
+inputs.load -> inputs.region: "country"
+inputs.region -> inputs.derived: "dataset region"
+
+# Edges: story type
+inputs.derived -> story_type.distressed: "signals"
+story_type.distressed -> story_type.cyclical: "no"
+story_type.cyclical -> story_type.high_growth: "no"
+story_type.high_growth -> story_type.mature_decline: "no"
+story_type.mature_decline -> story_type.mature_stable: "no"
+story_type.distressed -> story_type.manual: "yes"
+story_type.cyclical -> story_type.manual: "yes"
+story_type.high_growth -> story_type.manual: "yes"
+story_type.mature_decline -> story_type.manual: "yes"
+story_type.mature_stable -> story_type.manual: "classifier's story type"
+override_yaml -> story_type.manual: "story_type key"
+
+# Edges: assumptions
+story_type.manual -> assumptions: "story type"
+override_yaml -> assumptions: "manual values"
+duckdb.damodaran_industry -> assumptions.sector_row: "sector rows"
+duckdb.damodaran_country -> assumptions.terminal_growth: "risk-free rate"
+duckdb.damodaran_country -> assumptions.tax: "country tax rate"
+duckdb.financials_annual -> assumptions.growth: "revenue history"
+duckdb.financials_annual -> assumptions.margin: "EBIT and revenue history"
+inputs.region -> assumptions.sector_row: "dataset region"
+assumptions.sector_row -> assumptions.margin: "sector row and label"
+assumptions.sector_row -> assumptions.sales_to_capital: "sector row and label"
+assumptions.sector_row -> assumptions.discount_rates: "sector row and label"
+assumptions.sector_row -> assumptions.weights: "sector row and label"
+assumptions.sector_row -> assumptions.tax: "sector row and label"
+
+# Edges: dcf
+assumptions -> dcf.guard: "resolved assumptions"
+inputs.derived -> dcf.guard: "latest revenue, diluted shares, net debt"
+dcf.guard -> dcf.wacc: "yes"
+dcf.wacc -> dcf.converges: "WACC"
+dcf.converges -> dcf.years: "yes"
+dcf.years -> dcf.terminal: "revenue_N, margin_N"
+dcf.terminal -> dcf.ev: "present value of terminal value"
+dcf.years -> dcf.ev: "present value_t"
+dcf.ev -> dcf.equity: "EV"
+dcf.equity -> dcf.blend: "going-concern value per share"
+
+# Edges: sensitivity
+dcf -> sensitivity.tornado: "the DCF re-run per scenario"
+inputs.load -> sensitivity.grid: "newest close"
+sensitivity.tornado -> sensitivity.grid: "two widest axes"
+
+# Edges: flags, verdict, sanity check
+dcf -> narrative_flags: "yearly figures, terminal value share"
+story_type.manual -> narrative_flags.story_margin: "story type"
+inputs.load -> narrative_flags: "sector op_margin and beta_levered, latest EBIT and revenue"
+inputs.derived -> narrative_flags.beta_business_risk: "histories and balance sheet"
+dcf.blend -> verdict.mos: "intrinsic value per share"
+inputs.load -> verdict.mos: "newest close"
+verdict.mos -> verdict.words: "MoS"
+dcf.ev -> sanity_check.multiples: "EV"
+inputs.load -> sanity_check.multiples: "price, net income, sector multiples"
+
+# Edges: reports
+verdict.words -> reports: "verdict"
+sensitivity -> reports: "results"
+narrative_flags -> reports: "results"
+sanity_check -> reports: "results"
+template -> reports.markdown: "layout"
+assumptions -> reports: "assumption values and sources"
+dcf -> reports: "year table, EV, equity, intrinsic value"
+reports.markdown -> reports.html: "markdown"
+reports.markdown -> report_md: "markdown file"
+reports.html -> report_html: "HTML file"
+reports.json -> report_json: "JSON file"

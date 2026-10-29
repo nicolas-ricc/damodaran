@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import itertools
 import math
 import re
 import subprocess
@@ -25,6 +26,12 @@ from bot.reporting.analysis_report import margin_verdict
 from bot.screener.ranking import RankingWeights
 from bot.screener.rules import registered_rules
 from bot.screener.types import CompanyData, IndustryBenchmarks
+from bot.valuator import narrative_flags as flags_mod
+from bot.valuator import story_types as story_mod
+from bot.valuator.assumptions import AssumptionSource
+from bot.valuator.dcf import Assumptions, DCFResult, Financials, YearProjection, dcf
+from bot.valuator.narrative_flags import NarrativeContext
+from bot.valuator.story_types import ClassificationFinancials, SectorContext, StoryType, classify
 from bot.web.views import MOS_FAIR, MOS_UNDERVALUED
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -127,6 +134,40 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.reference.regions.dataset_region",
         "bot.utils.finance.cagr",
     },
+    "analyze": {
+        "bot.cli.analyze",
+        "bot.valuator.analysis.analyze",
+        "bot.valuator.analysis.load_valuation_input",
+        "bot.valuator.analysis._sanity_check",
+        "bot.valuator.analysis._operating_leverage",
+        "bot.valuator.story_types.classify",
+        "bot.valuator.story_types._cagr",
+        "bot.valuator.story_types._earnings_cv",
+        "bot.valuator.assumptions.resolve_assumptions",
+        "bot.valuator.assumptions._resolve_revenue_growth",
+        "bot.valuator.assumptions._resolve_operating_margin",
+        "bot.valuator.assumptions._resolve_weights",
+        "bot.valuator.assumptions._resolve_terminal_growth",
+        "bot.valuator.assumptions._resolve_tax_rate",
+        "bot.valuator.assumptions._load_sector_with_fallback",
+        "bot.valuator.assumptions.conventional_override_path",
+        "bot.valuator.dcf.dcf",
+        "bot.valuator.dcf._wacc",
+        "bot.valuator.sensitivity.tornado",
+        "bot.valuator.sensitivity.grid_2d",
+        "bot.valuator.narrative_flags.narrative_flags",
+        "bot.valuator.narrative_flags.story_margin_flag",
+        "bot.valuator.narrative_flags.growth_reinvestment_flag",
+        "bot.valuator.narrative_flags.beta_business_risk_flag",
+        "bot.valuator.narrative_flags.terminal_value_share_flag",
+        "bot.valuator.narrative_flags.country_exposure_flag",
+        "bot.reporting.analysis_report.margin_verdict",
+        "bot.reporting.analysis_report.render_analysis",
+        "bot.reporting.html.render_analysis_html",
+        "bot.reporting.analysis_json.render_analysis_json",
+        "bot.reference.sectors.is_cyclical",
+        "bot.reference.regions.dataset_region",
+    },
 }
 # Derived from schema.sql, so a new table cannot go undrawn on the overview.
 _REQUIRED_TABLES: dict[str, set[str]] = {
@@ -151,6 +192,14 @@ _REQUIRED_TABLES: dict[str, set[str]] = {
         "damodaran_country",
         "screener_candidates",
     },
+    "analyze": {
+        "screener_candidates",
+        "companies",
+        "financials_annual",
+        "prices_daily",
+        "damodaran_industry",
+        "damodaran_country",
+    },
 }
 _REQUIRED_FILES: dict[str, set[str]] = {
     "pipeline": {
@@ -173,6 +222,12 @@ _REQUIRED_FILES: dict[str, set[str]] = {
         "config/presets/damodaran_value.yaml",
         "config/presets/deep_value.yaml",
         "config/presets/qarp.yaml",
+    },
+    # config/assumptions/<TICKER>.yaml is a pattern: its directory is cited.
+    "analyze": {
+        "config/assumptions",
+        "config/assumptions/_EXAMPLE.yaml.example",
+        "src/bot/reporting/templates/analysis.md.j2",
     },
 }
 # Derived from the rule registry and the preset, so a new rule or parameter
@@ -197,8 +252,43 @@ _REQUIRED_CONSTS: dict[str, set[str]] = {
         "bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY",
         "bot.screener.rules.DEFAULT_EXCLUDED_SECTORS",
     },
+    "analyze": {
+        "bot.valuator.story_types._DISTRESS_ALTMAN_Z",
+        "bot.valuator.story_types._DISTRESS_INTEREST_COVERAGE",
+        "bot.valuator.story_types._CYCLICAL_EARNINGS_CV",
+        "bot.valuator.story_types._HIGH_GROWTH_CAGR",
+        "bot.valuator.story_types._MATURE_AGE_YEARS",
+        "bot.valuator.story_types._DECLINE_CAGR",
+        "bot.valuator.assumptions._HORIZON",
+        "bot.valuator.assumptions._MIN_CYCLE_YEARS",
+        "bot.valuator.assumptions._DEFAULT_GDP_NOMINAL",
+        "bot.valuator.assumptions._DEFAULT_TAX_RATE",
+        "bot.valuator.analysis.MIN_PLAUSIBLE_SHARES",
+        "bot.valuator.analysis.MAX_PLAUSIBLE_SHARES",
+        "bot.valuator.sensitivity._TORNADO_LOW",
+        "bot.valuator.sensitivity._TORNADO_HIGH",
+        "bot.valuator.sensitivity._GRID_MULTIPLIERS",
+        "bot.valuator.narrative_flags._TERMINAL_VALUE_SHARE_CEILING",
+        "bot.valuator.narrative_flags._FOREIGN_REVENUE_MAJORITY",
+        "bot.valuator.narrative_flags._ERP_GAP_THRESHOLD",
+        "bot.valuator.narrative_flags._DEFENSIVE_BETA",
+        "bot.valuator.narrative_flags._HIGH_OPERATING_LEVERAGE",
+        "bot.valuator.narrative_flags._HIGH_FINANCIAL_LEVERAGE",
+        "bot.valuator.narrative_flags._STRETCHED_REINVESTMENT_RATE",
+        "bot.web.views.MOS_UNDERVALUED",
+        "bot.web.views.MOS_FAIR",
+        "bot.reporting.analysis_json.SCHEMA_VERSION",
+    },
 }
-_REQUIRED_ENUMS: dict[str, set[str]] = {"pipeline": {"bot.web.views.Verdict"}}
+_REQUIRED_ENUMS: dict[str, set[str]] = {
+    "pipeline": {"bot.web.views.Verdict"},
+    "analyze": {
+        "bot.valuator.story_types.StoryType",
+        "bot.valuator.assumptions.AssumptionSource",
+        "bot.valuator.narrative_flags.FlagColor",
+        "bot.valuator.sensitivity.SensitivityAxis",
+    },
+}
 
 _REQUIRED: dict[str, dict[str, set[str]]] = {
     "symbol": _REQUIRED_SYMBOLS,
@@ -235,13 +325,28 @@ _ACRONYMS: dict[str, str] = {
     "EV": "enterprise value",
     "BV": "book value",
     "CAGR": "compound annual growth rate",
+    "NOPAT": "net operating profit after tax",
+    "FCFF": "free cash flow to the firm",
+    "ERP": "equity risk premium",
+    "GDP": "gross domestic product",
+    "P/E": "price to earnings",
+    "P/BV": "price to book value",
+    "D/E": "debt to equity",
 }
 # File formats and words written in capitals that need no expansion.
 _ACRONYMS_EXEMPT: set[str] = {
     "JSON", "CSV", "YAML", "SVG", "URL", "HTML", "PNG",
     "US", "USD", "YYYY", "MM", "DD", "TICKER",
 }
-_ACRONYM_RE = re.compile(r"\b[A-Z][A-Z0-9]+\b|\bMoS\b")
+# Ratio acronyms with a slash (P/E, D/E) are whole tokens, matched before their parts.
+_SLASHED = sorted((k for k in _ACRONYMS if "/" in k), key=len, reverse=True)
+
+
+def _token_re(token: str) -> str:
+    return rf"(?<![\w/]){re.escape(token)}(?![\w/])" if "/" in token else rf"\b{re.escape(token)}\b"
+
+
+_ACRONYM_RE = re.compile("|".join([*map(_token_re, _SLASHED), r"\b[A-Z][A-Z0-9]+\b", r"\bMoS\b"]))
 
 
 # A minimal reading of d2 node blocks, enough to find a node's class and text.
@@ -359,7 +464,7 @@ def test_acronyms_are_expanded() -> None:
             if token not in _ACRONYMS:
                 problems.append(f"{stem}.d2: {token} is not in _ACRONYMS")
                 continue
-            first = re.search(rf"\b{re.escape(token)}\b", vis)
+            first = re.search(_token_re(token), vis)
             assert first is not None
             end = vis.find("\n", first.start())
             upto = vis[: end if end != -1 else len(vis)]
@@ -950,3 +1055,412 @@ def test_screen_dcf_seam_and_rejections() -> None:
 def test_pipeline_links_the_screen_board() -> None:
     block = _block(_overview(), "screen")
     assert block is not None and re.search(r'(?m)^\s*link:\s*"\./screen\.svg"\s*$', block)
+
+
+def _analyze() -> str:
+    return _boards().get("analyze", "")
+
+
+def _analyze_block(key: str) -> str:
+    block = _block(_analyze(), key)
+    assert block is not None, f"analyze.d2 has no node {key}"
+    return block
+
+
+_STORY_ORDER = ("distressed", "cyclical", "high_growth", "mature_decline", "mature_stable")
+_FLAGS = (
+    "story_margin",
+    "growth_reinvestment",
+    "beta_business_risk",
+    "terminal_value_share",
+    "country_exposure",
+)
+
+_ANALYZE_NODES: list[tuple[str, str]] = (
+    [("cli", "step"), ("cli.errors", "note"), ("tickers", "decision"), ("override", "decision")]
+    + [(f, "file") for f in ("override_yaml", "example_yaml", "template")]
+    + [(f"duckdb.{t}", "store") for t in sorted(_REQUIRED_TABLES["analyze"])]
+    + [(o, "output") for o in ("report_md", "report_html", "report_json")]
+    + [
+        ("inputs.load", "step"),
+        ("inputs.load.exact_region", "note"),
+        ("inputs.region", "decision"),
+        ("inputs.derived", "step"),
+        ("inputs.derived.age", "gap"),
+    ]
+    + [(f"story_type.{k}", "decision") for k in (*_STORY_ORDER, "manual")]
+    + [("story_type.distressed.altman", "gap"), ("story_type.manual.reasons", "note")]
+    + [
+        (f"assumptions.{k}", "step")
+        for k in (
+            "sector_row",
+            "growth",
+            "margin",
+            "sales_to_capital",
+            "discount_rates",
+            "weights",
+            "terminal_growth",
+            "tax",
+            "bankruptcy",
+        )
+    ]
+    + [
+        ("assumptions.growth.consensus", "gap"),
+        ("assumptions.sales_to_capital.story", "gap"),
+        ("assumptions.weights.company", "gap"),
+        ("assumptions.bankruptcy.manual_only", "gap"),
+        ("assumptions.sources", "note"),
+        ("dcf.guard", "decision"),
+        ("dcf.wacc", "step"),
+        ("dcf.converges", "decision"),
+        ("dcf.years", "step"),
+        ("dcf.terminal", "step"),
+        ("dcf.ev", "step"),
+        ("dcf.equity", "step"),
+        ("dcf.equity.adjustments", "gap"),
+        ("dcf.blend", "step"),
+        ("sensitivity.tornado", "step"),
+        ("sensitivity.grid", "step"),
+    ]
+    + [(f"narrative_flags.{f}", "decision") for f in _FLAGS]
+    + [
+        ("narrative_flags.country_exposure.always_unknown", "gap"),
+        ("verdict.mos", "step"),
+        ("verdict.words", "decision"),
+        ("sanity_check.multiples", "step"),
+        ("reports.markdown", "step"),
+        ("reports.html", "step"),
+        ("reports.json", "step"),
+    ]
+)
+
+# Node -> phrases its block must show (compared after check.normalize, so the
+# board's U+2212 minus signs match the ASCII hyphens here).
+_ANALYZE_TEXT: dict[str, list[str]] = {
+    "tickers": ["--from-screen", "latest", "by rank", "exit code 2"],
+    "override": ["--override", "exactly one ticker", "config/assumptions/TICKER.yaml"],
+    "cli.errors": ["exit code 2", "exit code 1", "worst"],
+    "inputs.load": ["non-restated", "oldest-first", "pe, ev_sales, op_margin, beta_levered"],
+    "inputs.derived": [
+        "net debt = total debt - cash",
+        "EBIT ÷ interest expense",
+        "ipo_date",
+        "cyclical",
+    ],
+    "story_type.distressed": ["Altman Z < 1.81", "interest coverage ≤ 1.0"],
+    "story_type.cyclical": [
+        "coefficient of variation ≥ 0.50",
+        "standard deviation ÷ |mean|",
+        "net income",
+    ],
+    "story_type.high_growth": [
+        "CAGR) ≥ 15%",
+        "age ≤ 25",
+        "(last ÷ first)^(1 ÷ (years - 1)) - 1",
+        "unknown age counts as young",
+    ],
+    "story_type.mature_decline": ["CAGR ≤ -1%"],
+    "story_type.manual": ["story_type", "unknown label"],
+    "assumptions.sector_row": ["any region", "sector_default_damodaran_cross_region"],
+    "assumptions.growth": [
+        "manual",
+        "story_pattern",
+        "historical_average",
+        "rule_based",
+        "4%",
+        "(revenue_t - revenue_t-1) ÷ revenue_t-1",
+    ],
+    "assumptions.margin": [
+        "story_pattern",
+        "historical_average",
+        "≥ 4 years",
+        "sector label",
+        "unresolved",
+    ],
+    "assumptions.sales_to_capital": ["manual", "sector label", "unresolved"],
+    "assumptions.discount_rates": ["cost of equity", "pre-tax cost of debt", "unresolved"],
+    "assumptions.weights": ["D/E ÷ (1 + D/E)", "1 - it", "sum to 1", "1 - debt weight"],
+    "assumptions.terminal_growth": ["min(risk-free rate, nominal GDP growth 4%)", "rule_based"],
+    "assumptions.tax": ["sector label", "country tax_rate", "sector_default_damodaran", "25%"],
+    "assumptions.bankruptcy": ["manual", "else 0 → rule_based"],
+    "dcf.guard": ["1,000,000 ≤ diluted shares ≤ 100,000,000,000", "exit code 1"],
+    "dcf.wacc": [
+        f"equity weight {_TIMES} cost of equity + debt weight {_TIMES} pre-tax cost of debt"
+        f" {_TIMES} (1 - tax)",
+    ],
+    "dcf.converges": ["g_terminal < WACC"],
+    "dcf.years": [
+        f"revenue_t = revenue_t-1 {_TIMES} (1 + g_t)",
+        f"EBIT_t = revenue_t {_TIMES} margin_t",
+        f"EBIT_t {_TIMES} (1 - tax)",
+        "(revenue_t - revenue_t-1) ÷ sales-to-capital",
+        "NOPAT_t - reinvestment_t",
+        "FCFF_t ÷ (1 + WACC)^t",
+    ],
+    "dcf.terminal": [
+        f"revenue_N {_TIMES} (1 + g_terminal)",
+        "FCFF_N+1 ÷ (WACC - g_terminal)",
+        "terminal value ÷ (1 + WACC)^N",
+    ],
+    "dcf.ev": [
+        "Σ present value_t + present value of terminal value",
+        "present value of terminal value ÷ EV",
+    ],
+    "dcf.equity": ["EV - net debt + adjustments", "equity ÷ diluted shares"],
+    "dcf.blend": [
+        f"(1 - p) {_TIMES} going-concern value per share",
+        f"p {_TIMES} distress value per share",
+    ],
+    "sensitivity.tornado": [f"{_TIMES} 0.8", f"{_TIMES} 1.2", "one at a time", "widest first"],
+    "sensitivity.grid": [
+        f"5 {_TIMES} 5", "two widest", "0.8, 0.9, 1.0, 1.1, 1.2", "intrinsic value ÷ price",
+    ],
+    "narrative_flags.story_margin": ["high-growth", "> sector op_margin", "yellow", "unknown"],
+    "narrative_flags.growth_reinvestment": ["FCFF < 0", "NOPAT ≤ 0", "red", "> 0.90", "yellow"],
+    "narrative_flags.beta_business_risk": [
+        "beta_levered < 1.0",
+        "operating leverage > 1.5",
+        "debt weight > 40%",
+        "%ΔEBIT ÷ %ΔRevenue",
+        "total debt ÷ (total debt + total equity)",
+    ],
+    "narrative_flags.terminal_value_share": ["terminal value share > 80%", "yellow"],
+    "narrative_flags.country_exposure": ["> 50%", "> 300 bps", "red", "unknown"],
+    "verdict.mos": ["intrinsic value per share ÷ latest close", "none"],
+    "verdict.words": [
+        "MoS ≥ 1.3: potentially undervalued",
+        "MoS ≥ 1.0: around fair value",
+        "MoS < 1.0: potentially overvalued",
+        "n/a",
+    ],
+    "sanity_check.multiples": [
+        "price ÷ earnings per share (EPS)",
+        "net income ÷ diluted shares",
+        "EV ÷ revenue",
+        "decides nothing",
+    ],
+    "reports.json": ["schema_version 1", "verdict"],
+}
+
+
+@pytest.mark.parametrize(("key", "cls"), _ANALYZE_NODES)
+def test_analyze_nodes(key: str, cls: str) -> None:
+    assert _node_class(_analyze(), key) == cls
+
+
+@pytest.mark.parametrize("key", list(_ANALYZE_TEXT))
+def test_analyze_text(key: str) -> None:
+    block = _check().normalize(_analyze_block(key))
+    missing = [w for w in _ANALYZE_TEXT[key] if _check().normalize(w) not in block]
+    assert missing == []
+
+
+def _story(**fields: Any) -> StoryType:
+    signals: dict[str, Any] = {"revenue_history": (1.0, 1.0), "earnings_history": (1.0, 1.0)}
+    cyclical = fields.pop("cyclical", False)
+    return classify(ClassificationFinancials(**(signals | fields)), SectorContext(cyclical))
+
+
+_YEAR = YearProjection(1, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0)
+
+
+def _flag(name: str, *, share: float = 0.5, year: YearProjection = _YEAR, **ctx: Any) -> str:
+    fn = getattr(flags_mod, f"{name}_flag")
+    fin = Financials(revenue=1.0, net_debt=0.0, shares_diluted=1.0)
+    ass = Assumptions((0.0,), (0.1,), 0.2, 1.0, 0.02, 0.1, 0.05, 1.0, 0.0)
+    res = DCFResult(1.0, 1.0, 1.0, (year,), 1.0, share, 0.1, 1.0)
+    return str(fn(fin, ass, res, NarrativeContext(**ctx)).color)
+
+
+_RISKY = {"sector_beta": 0.5, "operating_leverage": 2.0, "company_debt_weight": 0.5}
+
+# Each comparison evaluated in the code exactly at its threshold: an inclusive
+# operator on the board (≤, ≥) must mean the code fires at equality, a strict
+# one (<, >) that it does not. Thresholds not exact in binary are patched to exact ones.
+_ANALYZE_DIRECTIONS: list[tuple[str, str, str, dict[str, float], Any]] = [
+    ("story_type.distressed", "Altman Z < 1.81", "<", {},
+     lambda: _story(altman_z=1.81) is StoryType.DISTRESSED),
+    ("story_type.distressed", "interest coverage ≤ 1.0", "≤", {},
+     lambda: _story(interest_coverage=1.0) is StoryType.DISTRESSED),
+    ("story_type.cyclical", "coefficient of variation ≥", "≥", {},
+     lambda: _story(earnings_history=(1.0, 3.0), cyclical=True) is StoryType.CYCLICAL),
+    ("story_type.high_growth", "CAGR) ≥", "≥", {"_HIGH_GROWTH_CAGR": 0.5},
+     lambda: _story(revenue_history=(1.0, 1.5)) is StoryType.HIGH_GROWTH),
+    ("story_type.high_growth", "age ≤ 25", "≤", {},
+     lambda: _story(revenue_history=(1.0, 2.0), age_years=25) is StoryType.HIGH_GROWTH),
+    ("story_type.mature_decline", "CAGR ≤", "≤", {"_DECLINE_CAGR": -0.5},
+     lambda: _story(revenue_history=(2.0, 1.0)) is StoryType.MATURE_DECLINE),
+    ("narrative_flags.terminal_value_share", "terminal value share > 80%", ">", {},
+     lambda: _flag("terminal_value_share", share=0.8) == "yellow"),
+    ("narrative_flags.growth_reinvestment", "> 0.90", ">", {},
+     lambda: _flag("growth_reinvestment", year=YearProjection(1, 1, 1, 1.0, 0.9, 0.1, 1, 1))
+     == "yellow"),
+    ("narrative_flags.beta_business_risk", "beta_levered < 1.0", "<", {},
+     lambda: _flag("beta_business_risk", **(_RISKY | {"sector_beta": 1.0})) == "yellow"),
+    ("narrative_flags.beta_business_risk", "operating leverage > 1.5", ">", {},
+     lambda: _flag("beta_business_risk", **(_RISKY | {"operating_leverage": 1.5})) == "yellow"),
+    ("narrative_flags.beta_business_risk", "debt weight > 40%", ">", {},
+     lambda: _flag("beta_business_risk", **(_RISKY | {"company_debt_weight": 0.4})) == "yellow"),
+    ("narrative_flags.story_margin", "> sector op_margin", ">", {},
+     lambda: _flag("story_margin", story_type="high-growth", company_operating_margin=0.25,
+                   sector_operating_margin=0.25) == "yellow"),
+    ("narrative_flags.country_exposure", "> 50%", ">", {},
+     lambda: _flag("country_exposure", foreign_revenue_share=0.5, erp_weighted=1.0,
+                   erp_listing=0.0) == "red"),
+    ("narrative_flags.country_exposure", "> 300 bps", ">", {"_ERP_GAP_THRESHOLD": 0.25},
+     lambda: _flag("country_exposure", foreign_revenue_share=1.0, erp_weighted=0.5,
+                   erp_listing=0.25) == "red"),
+]
+
+
+@pytest.mark.parametrize(
+    ("node", "phrase", "op", "patches", "fires"),
+    _ANALYZE_DIRECTIONS,
+    ids=[f"{d[0]}[{d[1]}]" for d in _ANALYZE_DIRECTIONS],
+)
+def test_analyze_directions_match_code(
+    monkeypatch: pytest.MonkeyPatch,
+    node: str,
+    phrase: str,
+    op: str,
+    patches: dict[str, float],
+    fires: Any,
+) -> None:
+    assert op in phrase
+    assert _check().normalize(phrase) in _check().normalize(_analyze_block(node))
+    for name, value in patches.items():
+        monkeypatch.setattr(story_mod if hasattr(story_mod, name) else flags_mod, name, value)
+    assert fires() == (op in "≤≥")
+
+
+def test_analyze_story_type_order() -> None:
+    board = _analyze()
+    lines = [_analyze_block(f"story_type.{k}").splitlines()[0] for k in _STORY_ORDER]
+    positions = [board.index(line) for line in lines]
+    assert positions == sorted(positions)
+    for a, b in itertools.pairwise(_STORY_ORDER):
+        edge = _edge_line(board, f"story_type.{a}", f"story_type.{b}")
+        assert edge is not None and '"no"' in edge, (a, b)
+
+
+def test_analyze_story_priority_matches_classify() -> None:
+    both = {"revenue_history": (1.0, 2.0), "earnings_history": (1.0, 3.0), "cyclical": True}
+    assert _story(interest_coverage=0.5, **both) is StoryType.DISTRESSED
+    assert _story(**both) is StoryType.CYCLICAL
+    assert _story(**(both | {"cyclical": False})) is StoryType.HIGH_GROWTH
+    assert _story(revenue_history=(2.0, 1.0)) is StoryType.MATURE_DECLINE
+    assert _story(revenue_history=(1.0,)) is StoryType.MATURE_STABLE
+
+
+def _valuation_input(shares: float) -> Any:
+    from bot.valuator import analysis
+    from bot.valuator import assumptions as resolve
+
+    return analysis.ValuationInput(
+        ticker="T",
+        company=analysis._CompanyRow("T", "US", "USD", None, None),
+        latest=analysis._LatestFinancials(100.0, 10.0, 8.0, 1.0, 0.0, shares, 0.0, 50.0),
+        revenue_history=(90.0, 100.0),
+        income_history=(7.0, 8.0),
+        ebit_history=(9.0, 10.0),
+        sector=analysis._SectorMultiples("US", None, None, None, None, None),
+        current_price=10.0,
+        assumption_inputs=resolve.AssumptionInputs(
+            company=resolve._Company("US", None),
+            country=None,
+            sector=resolve._SectorRow(0.08, 0.09, 0.05, 0.1, 2.0, 0.25, 0.5),
+            historical_growth_path=None,
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("shares", "valued"),
+    [(1_000_000.0, True), (999_999.0, False), (100_000_000_000.0, True), (100_000_000_001.0, False)],
+)
+def test_analyze_share_bounds_are_inclusive(shares: float, valued: bool) -> None:
+    from bot.valuator.analysis import analyze
+
+    # The board's `1,000,000 ≤ diluted shares ≤ 100,000,000,000`: both ends are valued.
+    conn: Any = None  # every row comes pre-loaded, so analyze issues no query
+    if valued:
+        assert analyze("T", conn, company=_valuation_input(shares)).dcf_result is not None
+    else:
+        with pytest.raises(ValueError, match="implausible diluted share count"):
+            analyze("T", conn, company=_valuation_input(shares))
+
+
+def test_analyze_terminal_growth_must_stay_below_wacc() -> None:
+    # terminal growth equal to WACC does not converge: the board's `<` is strict
+    at_wacc = Assumptions((0.0,), (0.1,), 0.0, 1.0, 0.5, 0.5, 0.0, 1.0, 0.0)
+    with pytest.raises(ValueError, match="terminal_growth"):
+        dcf(Financials(revenue=1.0, net_debt=0.0, shares_diluted=1.0), at_wacc)
+
+
+def test_analyze_assumption_sources() -> None:
+    block = _analyze_block("assumptions")
+    missing = [s.value for s in AssumptionSource if s.value not in block]
+    assert missing == []
+
+
+def test_analyze_report_sections_match_template() -> None:
+    template = (_ROOT / "src" / "bot" / "reporting" / "templates" / "analysis.md.j2").read_text()
+    titles = re.findall(r"(?m)^## (\d+\. .+)$", template)
+    assert len(titles) == 8
+    block = _check().normalize(_analyze_block("reports.markdown")).lower()
+    missing = [t for t in titles if _check().normalize(t).lower() not in block]
+    assert missing == []
+
+
+_ANALYZE_GAPS: dict[str, list[str]] = {
+    "story_type.distressed.altman": ["Altman Z", "computed nowhere"],
+    "assumptions.bankruptcy.manual_only": ["manual override"],
+    "narrative_flags.country_exposure.always_unknown": ["always unknown"],
+    "assumptions.growth.consensus": ["analyst consensus", "analyst_consensus"],
+    "assumptions.sales_to_capital.story": ["sales-to-capital and terminal growth"],
+    "dcf.equity.adjustments": ["minority interests", "cross-holdings", "no input path"],
+    "inputs.derived.age": ["ipo_date", "Verified", "parse_submissions_info"],
+    "assumptions.weights.company": ["capital structure"],
+}
+
+
+@pytest.mark.parametrize("key", list(_ANALYZE_GAPS))
+def test_analyze_gap_notes(key: str) -> None:
+    block = _analyze_block(key)
+    assert "Gap:" in block
+    missing = [w for w in _ANALYZE_GAPS[key] if w not in block]
+    assert missing == []
+
+
+def test_analyze_ipo_date_gap_is_current() -> None:
+    from bot.ingest.sec_edgar import parse_submissions_info
+
+    edgar_fills_it = parse_submissions_info("T", {}).ipo_date is not None
+    has_gap = _node_class(_analyze(), "inputs.derived.age") == "gap"
+    assert has_gap != edgar_fills_it, (
+        "EDGAR now fills ipo_date: remove the gap" if has_gap else "draw the ipo_date gap"
+    )
+
+
+@pytest.mark.parametrize(
+    ("src", "dst"),
+    [
+        ("duckdb.screener_candidates", "tickers"),
+        ("override", "inputs.load"),
+        ("inputs.derived", "story_type.distressed"),
+        ("story_type.manual", "assumptions"),
+        ("assumptions", "dcf.guard"),
+        ("dcf.blend", "verdict.mos"),
+        ("verdict.mos", "verdict.words"),
+        ("reports.markdown", "report_md"),
+        ("reports.html", "report_html"),
+        ("reports.json", "report_json"),
+    ],
+)
+def test_analyze_flow_edges(src: str, dst: str) -> None:
+    assert _edge_line(_analyze(), src, dst) is not None
+
+
+def test_pipeline_links_the_analyze_board() -> None:
+    block = _block(_overview(), "analyze")
+    assert block is not None and re.search(r'(?m)^\s*link:\s*"\./analyze\.svg"\s*$', block)
