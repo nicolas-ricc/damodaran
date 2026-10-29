@@ -135,12 +135,13 @@ fundamentals: "2. fundamentals" {
   derive: "derive aggregates, only when not reported\nwith earnings before interest and taxes (EBIT) as input:\nso EBITDA = EBIT + depreciation\nfree cash flow = operating cash flow − capex\nworking capital = current assets − current liabilities\nan aggregate with a missing input stays empty" {  # @symbol bot.ingest.sec_edgar._derive_financial_fields
     class: step
   }
-  fiscal: "label each row with its fiscal year\nfiscal year = calendar year of the period end\nquarter number counted from the nearest annual end\ntwo rows with one label: the later period end is kept" {  # @symbol bot.ingest.sec_edgar.parse_company_facts @symbol bot.ingest.sec_edgar._fiscal_quarter_key
+  fiscal: "label each row with its fiscal year\nannual: fiscal year = calendar year of the period end\nquarter: year of the next annual end within 380 days,\nelse previous annual end + 1;\nnumbered back or forward in 91.3-day steps\ntwo rows with one label: the later period end is kept" {  # @symbol bot.ingest.sec_edgar.parse_company_facts @symbol bot.ingest.sec_edgar._fiscal_quarter_key
     class: step
     fallback: |md
       - A quarter without an annual end within a year takes the label of the filing
         that reported it first.
-      - A quarter number outside 1 to 4 drops the row.
+      - A quarter number outside 1 to 4 also takes that label.
+      - No such filing label: the row is dropped.
       | {class: note}
   }
   shares: "annual diluted share count a whole scale off its peers?\nratio = median of the other annual counts ÷ count\nfactors tried: 1,000,000, then 1,000\nyes if factor ÷ 2 ≤ ratio ≤ factor × 2 (tolerance 2)\nneeds at least 3 other counts\nyes: count × factor, counted as rescaled" {  # @symbol bot.ingest.sec_edgar._rescale_shares_diluted @const bot.ingest.sec_edgar._SHARE_SCALE_FACTORS @const bot.ingest.sec_edgar._MIN_SHARE_COMPARATORS @const bot.ingest.sec_edgar._SHARE_SCALE_TOLERANCE
