@@ -197,7 +197,7 @@ verdict: "7. margin of safety and verdict" {
 
 # Section 8: sanity check
 sanity_check: "8. sanity check" {
-  multiples: "implied multiples next to the sector's; decides nothing\nimplied price-to-earnings (P/E) = price ÷ earnings per share (EPS),\nEPS = net income ÷ diluted shares;\nonly with a price, net income > 0, shares > 0 and EPS > 0; vs sector pe\nimplied EV ÷ sales = EV ÷ revenue, revenue > 0; vs sector ev_sales" {  # @symbol bot.valuator.analysis._sanity_check
+  multiples: "implied multiples next to the sector's; decides nothing\nimplied price-to-earnings (P/E) = price ÷ earnings per share (EPS),\nwith EPS = net income ÷ diluted shares;\nonly with a price, net income > 0, shares > 0 and EPS > 0; vs sector pe\nimplied EV ÷ sales = EV ÷ revenue, revenue > 0; vs sector ev_sales" {  # @symbol bot.valuator.analysis._sanity_check
     class: step
   }
 }
@@ -278,6 +278,8 @@ sensitivity.tornado -> sensitivity.grid: "two widest axes"
 
 # Edges: flags, verdict, sanity check
 dcf -> narrative_flags: "yearly figures, terminal value share"
+story_type.manual -> narrative_flags.story_margin: "story type"
+inputs.load -> narrative_flags: "sector op_margin and beta_levered, latest EBIT and revenue"
 inputs.derived -> narrative_flags.beta_business_risk: "histories and balance sheet"
 dcf.blend -> verdict.mos: "intrinsic value per share"
 inputs.load -> verdict.mos: "newest close"
