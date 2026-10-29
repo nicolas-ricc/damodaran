@@ -75,7 +75,7 @@ damodaran: "1. Damodaran datasets" {
   merge: "merge the industry files\nouter join on industry name\nearlier file wins a shared column;\na later file fills only empty columns" {  # @symbol bot.ingest.damodaran.merge_industry_datasets
     class: step
   }
-  derive: "derive industry columns\nD/E = w ÷ (1 − w), with w = D/(D+E); left empty unless 0 ≤ w < 1\nbeta_unlevered = beta_levered ÷ (1 + (1 − tax) × D/E)" {  # @symbol bot.ingest.damodaran.derive_industry_columns
+  derive: "derive industry columns\ndebt-to-equity D/E = w ÷ (1 − w), with w = D/(D+E); left empty unless 0 ≤ w < 1\nbeta_unlevered = beta_levered ÷ (1 + (1 − tax) × D/E)" {  # @symbol bot.ingest.damodaran.derive_industry_columns
     class: step
     tax: |md A missing tax rate counts as 0. beta_unlevered is empty when D/E is empty. | {class: note}
   }

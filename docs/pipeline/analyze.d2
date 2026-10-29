@@ -1,0 +1,111 @@
+...@classes
+
+direction: down
+
+# The command
+cli: "bot analyze TICKER ... or --from-screen\nvalue each company by discounted cash flow (DCF), one report set per ticker" {  # @symbol bot.cli.analyze
+  class: step
+  errors: |md
+    - unknown ticker: exit code 2
+    - cannot value: exit code 1
+    - the batch goes on after a failure
+    - the command exits with the worst code
+    | {class: note}
+}
+
+tickers: "which tickers?\ntickers given: those\n--from-screen: passed candidates of the latest screener_candidates run\n(newest created_at), by rank\nno run, or no passed candidate: exit code 2" {  # @symbol bot.cli.analyze
+  class: decision
+}
+
+override: "which override file?\n--override path (only with exactly one ticker)\nelse config/assumptions/TICKER.yaml when it exists, else none" {  # @symbol bot.valuator.assumptions.conventional_override_path
+  class: decision
+}
+
+# Files
+override_yaml: "config/assumptions/TICKER.yaml, manual overrides" {class: file}  # @file config/assumptions @symbol bot.valuator.assumptions.conventional_override_path
+example_yaml: "config/assumptions/_EXAMPLE.yaml.example, every override key" {class: file}  # @file config/assumptions/_EXAMPLE.yaml.example
+template: "src/bot/reporting/templates/analysis.md.j2" {class: file}  # @file src/bot/reporting/templates/analysis.md.j2
+
+# Database
+duckdb: "DuckDB (bot.duckdb)" {
+  screener_candidates: {class: store}  # @table screener_candidates
+  companies: {class: store}  # @table companies
+  financials_annual: {class: store}  # @table financials_annual
+  prices_daily: {class: store}  # @table prices_daily
+  damodaran_industry: {class: store}  # @table damodaran_industry
+  damodaran_country: {class: store}  # @table damodaran_country
+}
+
+# Outputs
+report_md: "reports/YYYY-MM-DD/analysis/TICKER.md" {class: output}
+report_html: "reports/YYYY-MM-DD/analysis/TICKER.html" {class: output}
+report_json: "reports/YYYY-MM-DD/analysis/TICKER.json, read by the site" {class: output}
+
+# Section 1: inputs
+inputs: "1. inputs of one company" {
+  load: "load the company\ncompanies row (name, country, currency, industry_damodaran, ipo_date)\nthe newest non-restated financials_annual row\noldest-first revenue, net income and earnings before interest and taxes (EBIT) histories,\nempty years dropped\nnewest prices_daily close\nsector pe, ev_sales, op_margin, beta_levered from the newest damodaran_industry row\nof (industry, region)" {  # @symbol bot.valuator.analysis.load_valuation_input
+    class: step
+    exact_region: |md The sector multiples here (sanity check, flags) take the company's own dataset region only; the assumptions use the cross-region fallback. | {class: note}
+  }
+  region: "dataset region\nfrom the country's grouping in its newest damodaran_country row\nunknown: US" {  # @symbol bot.reference.regions.dataset_region
+    class: decision
+  }
+  derived: "derived signals\nnet debt = total debt − cash, a missing term counts as 0;\nboth missing: net debt taken as 0 in the DCF\ninterest coverage = EBIT ÷ interest expense;\nempty when interest expense is 0 or missing\nage = whole years since ipo_date\ncyclical sector = industry_damodaran in the cyclical list (exact match)" {  # @symbol bot.valuator.analysis.analyze @symbol bot.reference.sectors.is_cyclical
+    class: step
+    age: |md Gap: age comes from ipo_date, which only Financial Modeling Prep fills. Verified: the Securities and Exchange Commission (SEC) Electronic Data Gathering, Analysis, and Retrieval (EDGAR) parser parse_submissions_info always sets ipo_date to none, so under the default provider age is unknown and every company counts as young. | {class: gap}  # @symbol bot.ingest.sec_edgar.parse_submissions_info
+  }
+}
+
+# Section 2: story type
+story_type: "2. story type: first rule that matches wins" {  # @symbol bot.valuator.story_types.classify @enum bot.valuator.story_types.StoryType
+  distressed: "distressed: Altman Z < 1.81 or interest coverage ≤ 1.0" {  # @const bot.valuator.story_types._DISTRESS_ALTMAN_Z @const bot.valuator.story_types._DISTRESS_INTEREST_COVERAGE
+    class: decision
+    altman: |md Gap: Altman Z is read by the classifier but computed nowhere, and analyze never passes it; only interest coverage can make a company distressed. | {class: gap}
+  }
+  cyclical: "cyclical: cyclical sector and coefficient of variation ≥ 0.50\ncoefficient of variation = standard deviation ÷ |mean| of net income\n(population standard deviation; fewer than 2 years or mean 0: not cyclical)" {  # @symbol bot.valuator.story_types._earnings_cv @const bot.valuator.story_types._CYCLICAL_EARNINGS_CV
+    class: decision
+  }
+  high_growth: "high-growth: revenue compound annual growth rate (CAGR) ≥ 15% and age ≤ 25 years\nCAGR = (last ÷ first)^(1 ÷ (years − 1)) − 1\nunknown age counts as young\nfewer than 2 years, or first or last ≤ 0: mature-stable" {  # @symbol bot.valuator.story_types._cagr @const bot.valuator.story_types._HIGH_GROWTH_CAGR @const bot.valuator.story_types._MATURE_AGE_YEARS
+    class: decision
+  }
+  mature_decline: "mature-decline: CAGR ≤ −1%" {  # @const bot.valuator.story_types._DECLINE_CAGR
+    class: decision
+  }
+  mature_stable: "mature-stable: every other company" {
+    class: decision
+  }
+  manual: "story_type in the override file?\nyes: it replaces the classifier's story type\nan unknown label: logged, and no story branch applies to the assumptions" {  # @symbol bot.valuator.assumptions.resolve_assumptions
+    class: decision
+    reasons: |md The report gives the reasons: revenue CAGR over the years, the age, the classifier's story type; with an override, a line naming what the classifier would have said. | {class: note}
+  }
+}
+
+# Edges: entry point
+duckdb.screener_candidates -> tickers: "passed candidates of the latest run, by rank"
+cli -> tickers: "tickers or --from-screen"
+tickers -> override: "each ticker"
+override_yaml -> override: "file of the ticker, if present"
+example_yaml -> override_yaml: "copy and fill in"
+override -> inputs.load: "ticker and override file"
+
+# Edges: inputs
+duckdb.companies -> inputs.load: "company row"
+duckdb.financials_annual -> inputs.load: "annual rows"
+duckdb.prices_daily -> inputs.load: "newest close"
+duckdb.damodaran_industry -> inputs.load: "sector multiples"
+duckdb.damodaran_country -> inputs.region: "country grouping"
+inputs.load -> inputs.region: "country"
+inputs.region -> inputs.derived: "dataset region"
+
+# Edges: story type
+inputs.derived -> story_type.distressed: "signals"
+story_type.distressed -> story_type.cyclical: "no"
+story_type.cyclical -> story_type.high_growth: "no"
+story_type.high_growth -> story_type.mature_decline: "no"
+story_type.mature_decline -> story_type.mature_stable: "no"
+story_type.distressed -> story_type.manual: "yes"
+story_type.cyclical -> story_type.manual: "yes"
+story_type.high_growth -> story_type.manual: "yes"
+story_type.mature_decline -> story_type.manual: "yes"
+story_type.mature_stable -> story_type.manual: "classifier's story type"
+override_yaml -> story_type.manual: "story_type key"
