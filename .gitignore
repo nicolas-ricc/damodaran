@@ -30,3 +30,4 @@ tests/fixtures/cassettes/**/*.yaml.tmp
 docs/plano/plano.html
 docs/plano/codemap.json
 docs/plano/estado.html
+docs/pipeline/*.png
