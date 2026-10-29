@@ -26,6 +26,7 @@ portfolio: "portfolio: sync holdings, detect events, write alerts" {  # @symbol 
 }
 site: "site: build the static viewer from the analysis sidecars" {  # @symbol bot.cli.site
   class: step
+  link: "./site.svg"
   verdicts: |md Verdict by margin of safety (MoS = intrinsic value ÷ current price): 1.3 or more is potentially undervalued, 1.0 or more is around fair value, below 1.0 is potentially overvalued, n/a without a price. Viewer filters: undervalued, fair, overvalued, na. | {class: note}  # @const bot.web.views.MOS_UNDERVALUED @const bot.web.views.MOS_FAIR @enum bot.web.views.Verdict
 }
 
