@@ -165,6 +165,51 @@ trap_detection: "5. trap detection: every detector must pass" {
   auditor: |md Gap: spec §6.4 also lists auditor changes and late filings; not implemented. | {class: gap}
 }
 
+# Layer 6: ranking
+ranking: "6. ranking of the survivors" {
+  metrics: "survivor metrics\nvalue = highest passing value indicator score\nquality = (ROIC − sector WACC) + ROE; a missing ROE counts 0\ngrowth = revenue compound annual growth rate (CAGR) = (last ÷ first)^(1 ÷ (years − 1)) − 1\ngrowth = 0 when fewer than 2 years or first ≤ 0" {  # @symbol bot.screener.engine._quality_metric @symbol bot.screener.engine._growth_metric @symbol bot.utils.finance.cagr
+    class: step
+    spec_scores: |md Gap: spec §6.5 puts margin stability in the quality score and free cash flow growth in the growth score; the code uses (ROIC − WACC) + ROE and revenue CAGR only. | {class: gap}
+  }
+  percentiles: "percentile of each metric over all survivors\npercentile = rank among distinct values ÷ (distinct values − 1)\nties share a percentile\none survivor or all values equal: 1.0" {  # @symbol bot.screener.ranking._percentiles
+    class: step
+  }
+  weights: "score = 100 × (0.40 × value + 0.30 × quality + 0.20 × growth + 0.10 × margin of safety)" {  # @symbol bot.screener.ranking.RankingWeights @param ranking.value @param ranking.quality @param ranking.growth @param ranking.margin_of_safety
+    class: step
+    bounds: |md
+      - Each weight is in [0, 1] and the four sum to 1; otherwise the preset fails to load.
+      - The margin of safety is the raw intrinsic value ÷ price, not a percentile,
+        so the score has no ceiling at 100.
+      | {class: note}
+  }
+  first_pass: "first pass: score every survivor with margin of safety 0.5\nbest first, ties by ticker" {  # @symbol bot.screener.ranking.rank @const bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY
+    class: step
+  }
+  top: "--top given?\nyes: keep the best N\nno: keep every survivor" {  # @symbol bot.screener.engine.run_screen
+    class: decision
+  }
+  second_pass: "second pass: value each kept ticker by DCF\nmargin of safety = intrinsic value ÷ price\nwith config/assumptions/TICKER.yaml when present" {  # @symbol bot.screener.engine._batch_dcf_margins
+    class: step
+  }
+  valued: "valued?\nno (unknown ticker, missing data, incomplete assumptions):\nkeeps margin of safety 0.5" {  # @const bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY
+    class: decision
+  }
+  rescore: "re-blend the score with the real margin of safety\npercentiles kept from the first pass over all survivors\nre-sorted best first" {  # @symbol bot.screener.ranking.rescore_with_margins
+    class: step
+  }
+}
+
+# Layer 7: persist and report
+persist_and_report: "7. persist and report" {
+  persist: "persist the run\none new run id\nkept survivors: rank, score, value, quality and growth scores,\nmargin of safety, passed and failed rules, passed = true\nrejected companies: passed = false with their failed rules" {  # @symbol bot.screener.persist.persist_candidates
+    class: step
+    cut: |md Survivors cut by --top are not written. | {class: note}
+  }
+  report: "shortlist report, markdown and CSV with the same columns\nrank, ticker, name, sector, score, the four sub-scores, market cap,\nP/E, EV/EBITDA, P/BV, ROE, ROIC, free cash flow yield\nheader: companies screened, shortlist size, coverage gate exclusions" {  # @symbol bot.reporting.screen_report.render_markdown @symbol bot.reporting.screen_report.render_csv
+    class: step
+  }
+}
+
 # Edges: entry point
 damodaran_value -> cli: "default preset"
 deep_value -> cli: "alternative preset"
@@ -213,3 +258,26 @@ trap_detection.operating_margin_not_contracting -> trap_detection.all_pass: "pas
 trap_detection.roic_above_sector_wacc -> trap_detection.all_pass: "pass, fail or skipped"
 trap_detection.sloan_accruals_below -> trap_detection.all_pass: "pass or fail"
 trap_detection.share_count_not_diluting -> trap_detection.all_pass: "pass or fail"
+
+# Edges: verdicts, ranking and the DCF seam
+quality_gates.all_pass -> persist_and_report.persist: "no: rejected with its failed rules"
+value_indicators.at_least_one -> persist_and_report.persist: "no: rejected with its failed rules"
+trap_detection.all_pass -> persist_and_report.persist: "no: rejected with its failed rules"
+coverage_gate.gate -> persist_and_report.persist: "no: rejected with coverage_gate"
+trap_detection.all_pass -> ranking.metrics: "yes, with all three layer verdicts passed: survivors"
+ranking.metrics -> ranking.percentiles: "value, quality, growth"
+ranking.percentiles -> ranking.weights: "percentiles"
+ranking.weights -> ranking.first_pass: "weights and percentiles"
+ranking.first_pass -> ranking.top: "ranked survivors"
+ranking.top -> ranking.second_pass: "kept tickers"
+assumptions -> ranking.second_pass: "manual overrides"
+ranking.second_pass -> analyze_stage: "ticker and override file"
+analyze_stage -> ranking.valued: "margin of safety, or an error"
+ranking.valued -> ranking.rescore: "real or placeholder margin of safety"
+ranking.rescore -> persist_and_report.persist: "kept survivors, ranked"
+ranking.rescore -> persist_and_report.report: "kept survivors, ranked"
+
+# Edges: outputs
+persist_and_report.persist -> duckdb.screener_candidates: "candidate rows of the run"
+persist_and_report.report -> report_md: "markdown report"
+persist_and_report.report -> report_csv: "CSV report"
