@@ -132,7 +132,7 @@ value_indicators: "4. value indicators: at least one must pass" {
   fcf_yield_above: "free cash flow yield > 8%\nskipped when missing; no sector benchmark needed" {  # @rule fcf_yield_above @param fcf_yield_above.minimum
     class: decision
   }
-  score: "value indicator score\nscore = (threshold − value) ÷ threshold, clipped to [0, 1]\n(threshold = 0.7 × sector median)\nfree cash flow yield: score = min(1, yield ÷ minimum)\nvalue metric = highest score among passing indicators" {  # @symbol bot.screener.rules._value_score
+  score: "value indicator score\nscore = (threshold − value) ÷ threshold, clipped to [0, 1]\n(threshold = 0.7 × sector median)\nfree cash flow yield: score = min(1, yield ÷ minimum)\nvalue metric = highest score among passing indicators" {  # @symbol bot.screener.rules._value_score @param pe_below_industry_multiple.multiple
     class: step
   }
   at_least_one: "at least one value indicator passed?\na skipped indicator neither passes nor fails;\nall four skipped: rejected,\nand a skip records no failed rule\nno: rejected" {  # @symbol bot.screener.engine.evaluate_company
@@ -169,11 +169,11 @@ trap_detection: "5. trap detection: every detector must pass" {
 
 # Layer 6: ranking
 ranking: "6. ranking of the survivors" {
-  metrics: "survivor metrics\nvalue = highest passing value indicator score\nquality = (ROIC − sector WACC) + ROE; a missing ROE counts 0\ngrowth = revenue compound annual growth rate (CAGR)\n= (last ÷ first)^(1 ÷ (years − 1)) − 1\ngrowth = 0 when fewer than 2 years or first ≤ 0" {  # @symbol bot.screener.engine._quality_metric @symbol bot.screener.engine._growth_metric @symbol bot.utils.finance.cagr
+  metrics: "survivor metrics\nvalue = highest passing value indicator score\nquality = (ROIC − sector WACC) + ROE; a missing ROE counts 0\ngrowth = revenue compound annual growth rate (CAGR)\n= (last ÷ first)^(1 ÷ (years − 1)) − 1\ngrowth = 0 when fewer than two years or first ≤ 0" {  # @symbol bot.screener.engine._quality_metric @symbol bot.screener.engine._growth_metric @symbol bot.utils.finance.cagr
     class: step
     spec_scores: |md Gap: spec §6.5 puts margin stability in the quality score and free cash flow growth in the growth score; the code uses (ROIC − WACC) + ROE and revenue CAGR only. | {class: gap}
   }
-  percentiles: "percentile of each metric over all survivors\npercentile = 0-based rank among distinct values\n÷ (distinct values − 1)\nties share a percentile\none survivor or all values equal: 1.0" {  # @symbol bot.screener.ranking._percentiles
+  percentiles: "percentile of each metric over all survivors\npercentile = 0-based rank among distinct values\n÷ (distinct values − 1)\nties share a percentile\none survivor or all values equal: 1" {  # @symbol bot.screener.ranking._percentiles
     class: step
   }
   weights: "score = 100 × (0.40 × value + 0.30 × quality + 0.20 × growth + 0.10 × margin of safety)\nvalue, quality, growth: the percentiles" {  # @symbol bot.screener.ranking.RankingWeights @param ranking.value @param ranking.quality @param ranking.growth @param ranking.margin_of_safety

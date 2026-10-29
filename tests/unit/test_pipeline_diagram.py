@@ -989,7 +989,7 @@ _SCREEN_TEXT: dict[str, list[str]] = {
     "trap_detection.share_count_not_diluting": ["whole share history"],
     "trap_detection.all_pass": ["skipped detector is eliminatory"],
     "ranking.metrics": ["(ROIC - sector WACC) + ROE", "CAGR", "(last ÷ first)"],
-    "ranking.percentiles": ["0-based rank", "÷ (distinct values - 1)", "1.0", "ties share"],
+    "ranking.percentiles": ["0-based rank", "÷ (distinct values - 1)", "all values equal: 1", "ties share"],
     "ranking.weights": [
         f"100 {_TIMES} (0.40 {_TIMES} value + 0.30 {_TIMES} quality + 0.20 {_TIMES} growth"
         f" + 0.10 {_TIMES} margin of safety)",
@@ -1300,7 +1300,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
     ],
     "sensitivity.tornado": [f"{_TIMES} 0.8", f"{_TIMES} 1.2", "one at a time", "widest first"],
     "sensitivity.grid": [
-        f"5 {_TIMES} 5", "two widest", "0.8, 0.9, 1.0, 1.1, 1.2", "intrinsic value ÷ price",
+        "five by five", "two widest", "0.8, 0.9, 1.0, 1.1, 1.2", "intrinsic value ÷ price",
     ],
     "narrative_flags.story_margin": ["high-growth", "> sector op_margin", "yellow", "unknown"],
     "narrative_flags.growth_reinvestment": ["FCFF < 0", "NOPAT ≤ 0", "red", "> 0.90", "yellow"],

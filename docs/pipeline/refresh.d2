@@ -132,7 +132,7 @@ fundamentals: "2. fundamentals" {
   derive: "derive aggregates, only when not reported, from\nearnings before interest and taxes (EBIT): EBITDA = EBIT + depreciation\nfree cash flow = operating cash flow − capex\nworking capital = current assets − current liabilities\nan aggregate with a missing input stays empty" {  # @symbol bot.ingest.sec_edgar._derive_financial_fields
     class: step
   }
-  fiscal: "label each row with its fiscal year\nannual: fiscal year = calendar year of the period end\nquarter: year of the next annual end within 380 days,\nelse previous annual end + 1;\nnumbered back or forward in 91.3-day steps\ntwo rows with one label: the later period end is kept" {  # @symbol bot.ingest.sec_edgar.parse_company_facts @symbol bot.ingest.sec_edgar._fiscal_quarter_key
+  fiscal: "label each row with its fiscal year\nannual: fiscal year = calendar year of the period end\nquarter: year of the next annual end within 380 days (the top of the 350 to 380 day annual span),\nelse previous annual end + 1;\nnumbered back or forward in 91.3-day steps\ntwo rows with one label: the later period end is kept" {  # @symbol bot.ingest.sec_edgar.parse_company_facts @symbol bot.ingest.sec_edgar._fiscal_quarter_key @const bot.ingest.sec_edgar.ANNUAL_SPAN_DAYS @const bot.ingest.sec_edgar._QUARTER_DAYS
     class: step
     fallback: |md
       - A quarter without an annual end within a year takes the label of the filing
