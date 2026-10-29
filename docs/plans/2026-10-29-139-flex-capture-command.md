@@ -40,6 +40,31 @@
 - Tests for this issue go in the existing `tests/unit/test_ibkr_flex_capture.py` (the file the issue's "How to test" lists), appended after the #138 tests.
 - The CLI tests inject a transport by monkeypatching `bot.cli.capture` with `functools.partial(capture, transport=<MockTransport>)`; the command itself always passes no transport.
 - `RecordingTransport` stores interactions in a plain `list[Interaction]` attribute `interactions`.
+- Sequential playback of the two identical `GetStatement` requests relies on vcrpy's defaults (`allow_playback_repeats=False`: each recorded interaction is served once, in order) and on vcrpy patching the httpx client when no transport is injected. Not a repo rule; the replay test pins both.
+- A failure on the second or third write (disk full, permissions) leaves a partial set on disk; a re-run overwrites all three. Rejected: temp files plus atomic rename, which nothing asks for in a one-shot maintainer tool.
+- Paths are resolved under the current directory (the issue's `capture(settings, root=Path.cwd())`); the maintainer runs it from the repo root. The CLI prints `Path.cwd() / constant`, which is exactly what `capture` wrote.
+- `response.text` uses httpx's charset handling (UTF-8 when `Content-Type` has no charset); the cassette is written UTF-8 and vcrpy re-encodes `body.string` as UTF-8 on replay. Pinned by the replay test.
+- Exact cassette header line is chosen here (the issue fixes only its meaning): `# Recorded by bot flex-capture (#110): the Flex token is scrubbed and the statement is redacted.` A test asserts the cassette text starts with it.
+- A token with non-printable characters, which YAML would escape into a form none of the three checks match, is not considered: IBKR tokens are printable ASCII digits.
+
+## Stage-3 tests (written before any task, commit `test(#139): evals`)
+
+All appended to `tests/unit/test_ibkr_flex_capture.py`, sharing `TOKEN = "1234567890/abc+def=4567"`, `QUERY = "987654"`, an autouse fixture patching `ibkr_flex.POLL_DELAY_SECONDS` to `0`, and a MockTransport answering SendRequest success, GetStatement `1019`, then the sample:
+
+- `test_fetch_flex_statement_returns_the_statement`
+- `test_capture_writes_exactly_the_three_paths`
+- `test_capture_cassette_is_scrubbed_and_redacted` (`t=SCRUBBED`, no token form, no `U1234567`/`U7654321`, 3 interactions, header line)
+- `test_capture_writes_redacted_xml_and_summary`, `test_capture_returns_the_summary`
+- `test_capture_cassette_replays_through_vcr` (cassette in `tmp_path`, `vcr.VCR(record_mode="none", filter_query_parameters=[("t", "SCRUBBED")])` used directly; no pytest-vcr fixture)
+- `test_capture_refuses_a_cassette_carrying_the_token` (`tmp_path` empty)
+- `test_capture_propagates_flex_error_and_writes_nothing` (SendRequest `Fail`/`1012`)
+- `test_capture_missing_settings_writes_nothing`
+- `test_render_cassette_keeps_only_content_type`, `test_render_cassette_leaves_non_statement_bodies_unchanged`
+- `test_cli_missing_settings_exits_2`
+- `test_cli_flex_error_exits_1_without_the_token`, parametrized over SendRequest `Fail`/`1012` and an HTTP 500 (whose httpx error text embeds the URL with the token, scrubbed by the client)
+- `test_cli_success_prints_paths_and_summary`, `test_flex_capture_is_hidden`
+
+Task steps below that say "stage-3 test ... failing" refer to these.
 
 ---
 
@@ -96,3 +121,12 @@
 - [ ] **Step 2:** Implement the command: docstring saying it is the maintainer's validation step for the Flex importer (#110); `load_settings()`, `configure_logging(level=settings.log_level, json_output=False)`, `capture(settings, root=Path.cwd())`; `FlexCaptureError` → stderr message, `typer.Exit(code=exc.exit_code)`; `FlexError` → stderr `Flex capture failed: {exc}`, exit 1; success → `Wrote {Path.cwd() / constant}` for the three constants, in the order cassette, redacted XML, summary, then `summary.to_json()` (use `nl=False`, it already ends in a newline).
 - [ ] **Step 3:** Run `uv run pytest -q tests/unit/test_ibkr_flex_capture.py tests/unit/test_seam_enforcement.py && uv run ruff check . && uv run mypy src` → PASS.
 - [ ] **Step 4:** Full suite `uv run pytest -q` → PASS. Commit `feat(#139): bot flex-capture command`.
+
+## Grilling
+
+One round, 18 questions; griller model `fable`. Revisions were clarifications (test names listed, assumptions added, header line and HTTP-500 cases pinned); no step added or removed and no seam changed, so no second round.
+
+- ISSUE (4): #5 replay uses a `tmp_path` cassette through `vcr.VCR` directly; #12 only `FlexQueryResponse` bodies are redacted ("else the body unchanged"); #15 fixed path constants (issue §2 and #110 decision 7: "fixed constants so #111 can rely on them"); #17 "Nothing else in the suite depends on a `t` parameter" (also no `t=` in `tests/fixtures/cassettes/`).
+- CODE (7): #2 `src/bot/utils/logging.py:30` sets the `httpx` logger to WARNING; #3 `src/bot/config.py:67-74` both settings are plain `str`; #6 and #7 `ibkr_flex.py` `FlexClient._get` passes `params=` and scrubs the three token forms from httpx error text; #13 `fetch_statement` returns only a `FlexQueryResponse` root, and redaction/summary walk elements generically; #14 `import_corporate_actions` uses only `fetch_statement()` inside the context manager; #18 `tests/unit/test_ibkr_flex_capture.py:174` asserts `to_json()` ends in `\n`.
+- NO SOURCE → technical assumptions (7): #1 stage-3 tests listed; #4 vcrpy sequential playback; #8 redacted bodies come from `ET.tostring` (no `\r`), others may fall back to quoted style harmlessly; #9 partial writes on disk failure; #10 cwd as root; #11 httpx charset and re-read; #16 exact header line.
+- Spec ambiguities: none. Out of scope: none; no issue opened.
