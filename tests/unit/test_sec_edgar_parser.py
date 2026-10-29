@@ -967,3 +967,46 @@ def test_none_and_zero_shares_are_ignored() -> None:
     shares, rescaled = _shares_by_year(values)
     assert shares == values
     assert rescaled == 0
+
+
+# ---------- interest_expense: FASB 2024 deprecated InterestExpense ----------
+# Filers moved to InterestExpenseNonoperating / InterestExpenseDebt / ...; the
+# older comparatives in the same 10-K may still carry the deprecated concept.
+
+
+def test_interest_expense_falls_back_to_post_2024_concepts() -> None:
+    facts = _facts(
+        {
+            "InterestExpense": [_fact("2023-12-31", 1_000_000_000, start="2023-01-01")],
+            "InterestExpenseNonoperating": [
+                _fact("2024-12-31", 1_100_000_000, start="2024-01-01"),
+                _fact("2025-12-31", 1_200_000_000, start="2025-01-01"),
+            ],
+        }
+    )
+    annual = _annual(facts)
+    assert [annual[y]["interest_expense"] for y in (2023, 2024, 2025)] == [
+        1_000_000_000,
+        1_100_000_000,
+        1_200_000_000,
+    ]
+
+
+def test_interest_expense_last_resort_is_cash_interest_paid() -> None:
+    # No income-statement interest concept at all: fall back to the cash-flow figure.
+    facts = _facts(
+        {
+            "InterestPaidNet": [_fact("2025-12-31", 300_000_000, start="2025-01-01")],
+        }
+    )
+    assert _annual(facts)[2025]["interest_expense"] == 300_000_000
+
+
+def test_interest_expense_income_statement_concept_beats_cash_paid() -> None:
+    facts = _facts(
+        {
+            "InterestPaidNet": [_fact("2025-12-31", 300_000_000, start="2025-01-01")],
+            "InterestExpenseDebt": [_fact("2025-12-31", 350_000_000, start="2025-01-01")],
+        }
+    )
+    assert _annual(facts)[2025]["interest_expense"] == 350_000_000
