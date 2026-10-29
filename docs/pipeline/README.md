@@ -2,9 +2,10 @@
 
 d2 diagrams of the whole investment-bot pipeline. `pipeline.d2` is the overview
 (cron schedules, the five stages, external services, DuckDB tables, outputs);
-each stage gets its own board later (`refresh.d2`, `screen.d2`, `analyze.d2`,
-`portfolio.d2`, `site.d2`). `classes.d2` holds the nine node classes and is not a
-board. Every board starts with `...@classes` and imports nothing else.
+each stage has its own board (`refresh.d2`; `screen.d2`, `analyze.d2`,
+`portfolio.d2`, `site.d2` as their issues land). `classes.d2` holds the nine node
+classes and is not a board. Every board starts with `...@classes` and imports
+nothing else.
 
 ## Commands
 
@@ -31,3 +32,5 @@ line before it: `# @kind argument`. Never inside a `|md ... |` block; outside di
 | `@enum` | Enum whose member values appear on the board | `tests/unit/test_pipeline_diagram.py` |
 
 Convention: `class:` is a node's first attribute. Expand every acronym at first use.
+Write stage links as `link: "./<stage>.svg"`: d2 v0.9.0 silently drops `link: <stage>.svg`
+when the board also has a node keyed `<stage>`.

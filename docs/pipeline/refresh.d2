@@ -1,0 +1,281 @@
+...@classes
+
+direction: down
+
+# Scheduled entry points
+weekly: "weekly.sh\nSaturdays 10:00" {class: cron}  # @file scripts/weekly.sh
+daily: "daily.sh\nweekdays 09:00" {class: cron}  # @file scripts/daily.sh
+price_fill: "price_fill.sh\nhourly, until every company has a price" {class: cron}  # @file scripts/price_fill.sh
+
+# The command
+cli: "bot refresh\nruns the requested sources in dependency order:\nDamodaran, fundamentals, prices, foreign exchange (FX) rates" {  # @symbol bot.cli.refresh
+  class: step
+  options: |md
+    - Sources: --damodaran, --fundamentals (alias --fmp), --prices, --fx,
+      or --all for all four.
+    - Damodaran dataset: --region (default US) and --year (default the current year).
+    - Tickers: --universe names the tickers CSV; --limit N takes the first N tickers.
+    - Modes: --only-missing for prices, --force for fundamentals.
+    - No source flag: exit code 2.
+    - Exit code: the worst of the requested sources;
+      Damodaran failure 1, other sources 2.
+    | {class: note}
+}
+region: "Damodaran requested\nwith --region other than US?\nyes: whole command refused before any source runs, exit code 2" {  # @symbol bot.cli.refresh
+  class: decision
+}
+
+# External services
+damodaran_data: "Damodaran datasets\npages.stern.nyu.edu/~adamodar/pc/datasets/" {class: external}
+edgar: "Securities and Exchange Commission (SEC)\nElectronic Data Gathering, Analysis, and Retrieval (EDGAR)" {class: external}
+tiingo: "Tiingo\nend-of-day (EOD) prices, default source" {class: external}  # @symbol bot.ingest.edgar_tiingo
+stooq: "Stooq\nCSV files in BOT_STOOQ_DIR, else stooq.com\nend-of-day prices, alternative source" {class: external}  # @symbol bot.ingest.stooq @symbol bot.ingest.edgar_stooq
+fmp: "Financial Modeling Prep (FMP)\noptional provider (BOT_DATA_PROVIDER=fmp)" {class: external}  # @symbol bot.ingest.fmp
+
+# Files in the repository
+universe_csv: "universe tickers (CSV)" {class: file}  # @file src/bot/ingest/universe_default.csv
+industry_mapping_csv: "industry mapping (CSV)" {class: file}  # @file src/bot/ingest/industry_mapping.csv
+
+# Database
+duckdb: "DuckDB (bot.duckdb)" {
+  damodaran_industry: {class: store}  # @table damodaran_industry
+  damodaran_country: {class: store}  # @table damodaran_country
+  companies: {class: store}  # @table companies
+  financials_annual: {class: store}  # @table financials_annual
+  financials_quarterly: {class: store}  # @table financials_quarterly
+  filings_log: {class: store}  # @table filings_log
+  prices_daily: {class: store}  # @table prices_daily
+  currencies: {class: store}  # @table currencies
+  refresh_log: {class: store}  # @table refresh_log
+}
+
+# Sub-flow 1: Damodaran datasets
+damodaran: "1. Damodaran datasets" {
+  download: "download the eight files into --download-dir\nwacc.xls, ctryprem.xls, then the six others" {  # @symbol bot.ingest.damodaran.import_damodaran
+    class: step
+    files: |md
+      - wacc.xls: beta, cost of equity, cost of debt, tax rate,
+        cost of capital, debt weight D/(D+E).
+      - ctryprem.xls, sheet 'ERPs by country': country, region, rating,
+        total equity risk premium, country risk premium.
+        A failure stops the remaining downloads.
+      - margin.xls: operating margin, net margin.
+      - capex.xls: sales to invested capital.
+      - pedata.xls: price to earnings multiple.
+      - pbvdata.xls: price to book multiple, return on equity,
+        return on invested capital.
+      - vebitda.xls: enterprise value to earnings before interest, taxes,
+        depreciation and amortization (EBITDA) multiple.
+      - psdata.xls: enterprise value to sales multiple.
+      | {class: note}
+  }
+  files_ok: "wacc.xls or ctryprem.xls failed\nto download or parse?\nyes: error run, nothing written\nno, another file failed: partial, without its columns" {  # @symbol bot.ingest.damodaran.import_damodaran
+    class: decision
+  }
+  merge: "merge the industry files\nouter join on industry name\nearlier file wins a shared column;\na later file fills only empty columns" {  # @symbol bot.ingest.damodaran.merge_industry_datasets
+    class: step
+  }
+  derive: "derive industry columns\nD/E = w ÷ (1 − w), with w = D/(D+E); left empty unless 0 ≤ w < 1\nbeta_unlevered = beta_levered ÷ (1 + (1 − tax) × D/E)" {  # @symbol bot.ingest.damodaran.derive_industry_columns
+    class: step
+    tax: |md A missing tax rate counts as 0. beta_unlevered is empty when D/E is empty. | {class: note}
+  }
+  country: "country rows\nsheet 'ERPs by country', parsing stops at the second (unrated) table\ntax rate: sheet 'Country Tax Rates', kept only within [0, 1]\nrisk-free rate: wacc.xls cell 'Long Term Treasury bond rate ='" {  # @symbol bot.ingest.damodaran.parse_country_tax_rates @symbol bot.ingest.damodaran.parse_preheader_scalar
+    class: step
+    risk_free: |md Gap: the US risk-free rate is written into every country row; the per-currency rate of the architecture decision record (ADR) 0005 is not implemented. | {class: gap}
+  }
+  empty_rows: "no industry rows\nor no country rows?\nyes: status partial; an empty side\nkeeps its old rows (upsert returns before it deletes)" {  # @symbol bot.ingest.damodaran._import_files_into_run
+    class: decision
+  }
+  write: "write both tables in one transaction\nreplace the (region, year) rows of damodaran_industry\nreplace the year rows of damodaran_country\nregion = --region, year = --year or the current year" {  # @symbol bot.ingest.damodaran.upsert_industry_rows @symbol bot.ingest.damodaran.upsert_country_rows
+    class: step
+    us_only: |md Gap: only the US Damodaran dataset is ingested (ADR 0005 not implemented); --region other than US is refused. | {class: gap}  # @file docs/adr/0005-currency-handling-and-valuation-currency.md
+  }
+}
+
+# Sub-flow 2: fundamentals
+fundamentals: "2. fundamentals" {
+  mapping: "load the industry mapping once per run\nprovider industry label → companies.industry_damodaran\nEDGAR label: Standard Industrial Classification (SIC) description\nmatching folds case, collapses spaces\nand treats dash variants alike" {  # @symbol bot.ingest.industry_mapping.load_industry_mapping
+    class: step
+    unmapped: |md
+      - A label without a row leaves industry_damodaran empty and logs a warning;
+        the sector rules skip that company later.
+      - A missing mapping file gives an empty mapping.
+      - A configured path that does not exist falls back to the packaged copy.
+      | {class: note}
+  }
+  mapping_valid: "every target on the Damodaran industry list,\nno duplicate (provider, label) row?\nno: the load fails and no ticker is imported" {  # @symbol bot.reference.industries
+    class: decision
+  }
+  skip: "latest filing already stored?\nprovider's newest 10-K, 10-Q or 20-F filing date (amendments too)\nis not after the newest filings_log date of this provider:\nyes: skipped, no import\n--force bypasses the check; a probe error imports anyway" {  # @symbol bot.ingest.universe._should_skip
+    class: decision
+  }
+  import: "import one ticker\nfetch company facts and submissions, parse them,\nthen write in one transaction:\ncompanies, financials_annual, financials_quarterly, filings_log" {  # @symbol bot.ingest.universe.refresh_universe @symbol bot.ingest.universe.import_company
+    class: step
+    run: |md
+      - Company row: name, exchange and industry from the submissions;
+        currency USD; industry_damodaran from the mapping.
+      - The source column is restamped as the provider name, not sec_edgar,
+        so the skip check above finds the stored filings.
+      - One refresh_log row per ticker, source = the provider name.
+      - A failed ticker is recorded and the run continues.
+      - FMP statements come already parsed; the period, concept,
+        fiscal, derive and share rules below apply to SEC EDGAR only.
+      | {class: note}
+    base: |md EdgarPricedProvider is the EDGAR half shared by the Tiingo and Stooq providers. | {class: note}  # @symbol bot.ingest.edgar_base.EdgarPricedProvider
+  }
+  periods: "which facts become a row?\nannual: a duration of 350 to 380 days from a 10-K or 10-K/A\nquarterly: a duration of 80 to 100 days from a 10-Q or 10-Q/A,\nfor a column stored quarterly\nan instant fact joins the row with the same period end\nany other fact is dropped" {  # @symbol bot.ingest.sec_edgar._collect_period_rows @const bot.ingest.sec_edgar.ANNUAL_SPAN_DAYS @const bot.ingest.sec_edgar.QUARTERLY_SPAN_DAYS
+    class: decision
+  }
+  precedence: "which concept fills a column?\nper column and period end, the first concept in the list\nwith an accepted fact wins; later concepts fill only empty ends\ne.g. revenue: Revenues, then\nRevenueFromContractWithCustomerExcludingAssessedTax, ...\nis_restated: a fact used for the period comes from an amendment" {  # @symbol bot.ingest.sec_edgar._collect_period_rows
+    class: decision
+  }
+  derive: "derive aggregates, only when not reported, from\nearnings before interest and taxes (EBIT): EBITDA = EBIT + depreciation\nfree cash flow = operating cash flow − capex\nworking capital = current assets − current liabilities\nan aggregate with a missing input stays empty" {  # @symbol bot.ingest.sec_edgar._derive_financial_fields
+    class: step
+  }
+  fiscal: "label each row with its fiscal year\nannual: fiscal year = calendar year of the period end\nquarter: year of the next annual end within 380 days,\nelse previous annual end + 1;\nnumbered back or forward in 91.3-day steps\ntwo rows with one label: the later period end is kept" {  # @symbol bot.ingest.sec_edgar.parse_company_facts @symbol bot.ingest.sec_edgar._fiscal_quarter_key
+    class: step
+    fallback: |md
+      - A quarter without an annual end within a year takes the label of the filing
+        that reported it first.
+      - A quarter number outside 1 to 4 also takes that label.
+      - No such filing label: the row is dropped.
+      | {class: note}
+  }
+  shares: "annual diluted share count a whole scale off its peers?\nratio = median of the other positive annual counts ÷ count\nfactors tried: 1,000,000, then 1,000\nyes if factor ÷ 2 ≤ ratio ≤ factor × 2 (tolerance 2)\nneeds at least 3 other counts\nyes: count × factor, counted as rescaled" {  # @symbol bot.ingest.sec_edgar._rescale_shares_diluted @const bot.ingest.sec_edgar._SHARE_SCALE_FACTORS @const bot.ingest.sec_edgar._MIN_SHARE_COMPARATORS @const bot.ingest.sec_edgar._SHARE_SCALE_TOLERANCE
+    class: decision
+  }
+  rate_limit: "provider rate limit hit (probe or import)?\nyes: this ticker and every remaining one are deferred, not failed\ndeferred tickers are not counted in the failure rate" {  # @symbol bot.ingest.universe._run_bulk_refresh
+    class: decision
+  }
+  status: "status of the run\nfailure rate = failed ÷ attempted\nat most 5%: success; at most 25%: partial; above 25%: error\nnot success: exit code 2" {  # @symbol bot.ingest.universe._resolve_status @const bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE @const bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE
+    class: decision
+  }
+}
+
+# Sub-flow 3: end-of-day prices
+prices: "3. prices" {
+  only_missing: "--only-missing?\nyes: only tickers with no stored price are requested,\nso no quota is spent on priced ones" {  # @symbol bot.ingest.universe.refresh_prices
+    class: decision
+  }
+  up_to_date: "newest stored bar on or after the last weekday before today?\nyes: ticker skipped, no request" {  # @symbol bot.ingest.universe._last_weekday_before
+    class: decision
+  }
+  order: "order the remaining tickers, stalest first\nnever priced first, then oldest newest bar first;\nties keep the input order" {  # @symbol bot.ingest.universe.refresh_prices @symbol bot.ingest.universe._stale_first
+    class: step
+  }
+  fetch: "fetch the bars of one ticker\nonly bars after max(date) stored for the ticker (incremental)\nprices_daily.currency = companies.currency" {  # @symbol bot.ingest.universe._refresh_one_price @symbol bot.ingest.tiingo.TiingoClient.daily_prices
+    class: step
+    provider: |md
+      - Tiingo is the default source: status 429 is a rate limit.
+      - Stooq is the alternative (BOT_DATA_PROVIDER=edgar-stooq):
+        CSV files from BOT_STOOQ_DIR, else stooq.com.
+      - FMP is the optional provider (BOT_DATA_PROVIDER=fmp). Its market cap
+        is the marketCap field of its prices, or the current market cap
+        when the newest bar is at most 7 days old.
+      | {class: note}
+    default_provider: |md Gap: docs/plano/estado.py still calls edgar-stooq the default provider; the code default is edgar-tiingo. | {class: gap}  # @file docs/plano/estado.py
+  }
+  market_cap: "market cap = close × shares outstanding\nnewest bar only, and only when it is at most 7 days old\nshares: newest SEC EDGAR dei EntityCommonStockSharesOutstanding\nSEC EDGAR providers only; otherwise, or when the shares\nlookup fails, the bar is stored without market cap" {  # @const bot.ingest.edgar_base._FRESH_DAYS @symbol bot.ingest.sec_edgar.SecEdgarClient.shares_outstanding
+    class: decision
+  }
+  rate_limit: "provider rate limit hit?\nyes: this ticker and every remaining one are deferred, not failed;\nthe run prints tickers deferred and daily.sh runs another round" {  # @symbol bot.ingest.universe._run_bulk_refresh
+    class: decision
+  }
+  status: "status of the run\nfailure rate = failed ÷ attempted\nat most 5%: success; at most 25%: partial; above 25%: error\nnot success: exit code 2" {  # @symbol bot.ingest.universe._resolve_status @const bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE @const bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE
+    class: decision
+  }
+}
+
+# Sub-flow 4: foreign exchange rates
+fx: "4. foreign exchange rates" {
+  currencies: "list the currencies to refresh\ndistinct non-USD listing currencies in companies;\nnone: no provider call, status success" {  # @symbol bot.ingest.universe.refresh_fx
+    class: step
+  }
+  fetch: "fetch the daily rates of one currency\nstored in currencies, one row per currency and date" {  # @symbol bot.utils.fx.import_fx_rates
+    class: step
+    read: |md
+      - Later reads: usd = amount × rate_to_usd.
+      - The rate of the nearest prior date is used, never a later one.
+      | {class: note}
+    no_op: |md Gap: under the SEC EDGAR providers (edgar-tiingo, the default, and edgar-stooq) the FX refresh stores no rates for non-USD currencies; only Financial Modeling Prep supplies them. | {class: gap}  # @symbol bot.ingest.edgar_base.EdgarPricedProvider.fx_rates
+  }
+  status: "status of the run, as for prices\nrate limit: the remaining currencies are deferred\nat most 5%: success; at most 25%: partial; above 25%: error\nnot success: exit code 2" {  # @symbol bot.ingest.universe._resolve_status @const bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE @const bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE
+    class: decision
+  }
+}
+
+# Entry points into the command
+weekly -> cli: "bot refresh --all"
+daily -> cli: "bot refresh --prices, repeated until no tickers deferred\n(BOT_PRICE_ROUNDS, default 10 rounds;\nBOT_PRICE_RETRY_PAUSE, default 3600 s apart)\na failing round stops the loop\nthen bot refresh --fx, which runs even when prices failed"
+price_fill -> cli: "hourly bot refresh --prices --only-missing\nuntil every company has a price"
+cli -> region: "1. Damodaran datasets (--damodaran or --all)"
+region -> damodaran.download: "no, region is US"
+
+# Damodaran flow
+damodaran_data -> damodaran.download: "eight .xls files, one request each"
+damodaran.download -> damodaran.files_ok: "downloaded files"
+damodaran.files_ok -> damodaran.merge: "continue with the files that arrived"
+damodaran.files_ok -> duckdb.refresh_log: "error run: one row, status error, with the message"
+damodaran.merge -> damodaran.derive: "one row per industry"
+damodaran.derive -> damodaran.country: "industry rows with D/E and beta_unlevered"
+damodaran.country -> damodaran.empty_rows: "industry rows and country rows"
+damodaran.empty_rows -> damodaran.write: "rows to write; an empty side makes the run partial"
+damodaran.write -> duckdb.damodaran_industry: "industry benchmarks"
+damodaran.write -> duckdb.damodaran_country: "country risk, tax rate, risk-free rate"
+damodaran.write -> duckdb.refresh_log: "one row, source damodaran, status success or partial"
+
+# Fundamentals flow
+cli -> fundamentals: "2. fundamentals (--fundamentals or --all)"
+industry_mapping_csv -> fundamentals.mapping: "provider, provider_industry, damodaran_industry rows"
+universe_csv -> fundamentals.skip: "tickers, one at a time"
+edgar -> fundamentals.skip: "submissions: newest filing date"
+duckdb.filings_log -> fundamentals.skip: "newest filing date"
+edgar -> fundamentals.import: "company facts, submissions"
+fmp -> fundamentals.import: "profile and statements (BOT_DATA_PROVIDER=fmp only)"
+fundamentals.mapping -> fundamentals.mapping_valid: "parsed rows"
+fundamentals.mapping_valid -> fundamentals.skip: "yes: mapping ready for every ticker"
+fundamentals.skip -> fundamentals.import: "no, or --force: fetch and write"
+fundamentals.skip -> fundamentals.status: "yes: counted as skipped"
+fundamentals.import -> fundamentals.periods: "company facts"
+fundamentals.periods -> fundamentals.precedence: "rows keyed by period end"
+fundamentals.precedence -> fundamentals.derive: "one value per column and period end"
+fundamentals.derive -> fundamentals.fiscal: "annual and quarterly rows"
+fundamentals.fiscal -> fundamentals.shares: "labelled annual rows"
+fundamentals.import -> fundamentals.rate_limit: "error raised by the provider"
+fundamentals.rate_limit -> fundamentals.status: "no: imported or failed; yes: the rest deferred"
+fundamentals.import -> duckdb.companies: "company row with industry_damodaran"
+fundamentals.fiscal -> duckdb.financials_quarterly: "quarterly rows"
+fundamentals.shares -> duckdb.financials_annual: "annual rows, share counts corrected"
+fundamentals.import -> duckdb.filings_log: "one row per form and filing date"
+fundamentals.import -> duckdb.refresh_log: "one row per ticker, source = provider name"
+fundamentals.status -> duckdb.refresh_log: "one summary row, source = provider name + _universe"
+
+# Prices flow
+cli -> prices: "3. prices (--prices or --all)"
+universe_csv -> prices.only_missing: "tickers (--limit takes the first N)"
+tiingo -> prices.fetch: "daily bars, default source"
+stooq -> prices.fetch: "daily bars from CSV files"
+fmp -> prices.fetch: "daily bars (BOT_DATA_PROVIDER=fmp only)"
+edgar -> prices.market_cap: "shares outstanding"
+duckdb.companies -> prices.fetch: "listing currency"
+duckdb.prices_daily -> prices.up_to_date: "newest bar per ticker"
+prices.only_missing -> prices.up_to_date: "tickers still to consider"
+prices.up_to_date -> prices.order: "no: pending tickers"
+prices.up_to_date -> prices.status: "yes: counted as skipped"
+prices.order -> prices.fetch: "one ticker at a time"
+prices.fetch -> prices.market_cap: "bars of the ticker"
+prices.fetch -> prices.rate_limit: "error raised by the provider"
+prices.rate_limit -> prices.status: "no: imported or failed; yes: the rest deferred"
+prices.market_cap -> duckdb.prices_daily: "bars with close, volume, market cap"
+prices.status -> duckdb.refresh_log: "one summary row, source = provider name + _prices_universe"
+prices.fetch -> duckdb.refresh_log: "one row per ticker, source = provider name + _prices"
+
+# FX flow
+cli -> fx: "4. foreign exchange rates (--fx or --all)"
+duckdb.companies -> fx.currencies: "listing currencies"
+fmp -> fx.fetch: "daily rates (BOT_DATA_PROVIDER=fmp only)"
+fx.currencies -> fx.fetch: "one currency at a time"
+fx.fetch -> duckdb.currencies: "rate_to_usd per currency and date"
+fx.fetch -> duckdb.refresh_log: "one row per currency, source = provider name + _fx"
+fx.fetch -> fx.status: "imported, failed or deferred per currency"
+fx.status -> duckdb.refresh_log: "one summary row per run, source = provider name + _fx_universe"
