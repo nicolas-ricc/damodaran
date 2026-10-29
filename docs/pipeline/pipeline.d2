@@ -7,8 +7,9 @@ daily: "daily: weekdays 09:00, prices, foreign exchange rates, portfolio" {class
 weekly: "weekly: Saturdays 10:00, refresh, screen, analyze, publish" {class: cron}  # @file scripts/weekly.sh
 
 # Stages
-refresh: "refresh: download Damodaran datasets, fundamentals, end-of-day (EOD) prices and foreign exchange (FX) rates" {  # @symbol bot.cli.refresh
+refresh: "refresh: download data in order: Damodaran, fundamentals, end-of-day (EOD) prices, foreign exchange (FX) rates" {  # @symbol bot.cli.refresh
   class: step
+  fx_gap: |md Gap: with the default providers the FX refresh stores no rates for non-USD currencies; only Financial Modeling Prep supplies them. | {class: gap}  # @symbol bot.ingest.edgar_base.EdgarPricedProvider.fx_rates
 }
 screen: "screen: rank the universe with the quality gates and value indicators into a shortlist" {  # @symbol bot.cli.screen
   class: step
@@ -21,15 +22,15 @@ portfolio: "portfolio: sync holdings, detect events, write alerts" {  # @symbol 
 }
 site: "site: build the static viewer from the analysis sidecars" {  # @symbol bot.cli.site
   class: step
-  verdicts: |md Verdict by margin of safety (MoS): 1.3 or more is potentially undervalued, 1.0 or more is around fair value, below 1.0 is potentially overvalued, n/a without a price. Viewer filters: undervalued, fair, overvalued, na. | {class: note}  # @const bot.web.views.MOS_UNDERVALUED @const bot.web.views.MOS_FAIR @enum bot.web.views.Verdict
+  verdicts: |md Verdict by margin of safety (MoS = intrinsic value ÷ current price): 1.3 or more is potentially undervalued, 1.0 or more is around fair value, below 1.0 is potentially overvalued, n/a without a price. Viewer filters: undervalued, fair, overvalued, na. | {class: note}  # @const bot.web.views.MOS_UNDERVALUED @const bot.web.views.MOS_FAIR @enum bot.web.views.Verdict
 }
 
 # External services
 damodaran_data: "Damodaran datasets (industry and country benchmarks)" {class: external}
 edgar: "Securities and Exchange Commission (SEC) Electronic Data Gathering, Analysis, and Retrieval (EDGAR)" {class: external}
-tiingo: "Tiingo, end-of-day (EOD) prices, default" {class: external}
-stooq: "Stooq, alternative prices" {class: external}
-fmp: "Financial Modeling Prep (FMP), optional: foreign exchange (FX) and non-US" {class: external}
+tiingo: "Tiingo, end-of-day (EOD) prices, default provider, with EDGAR fundamentals" {class: external}
+stooq: "Stooq, alternative prices source, with EDGAR fundamentals" {class: external}
+fmp: "Financial Modeling Prep (FMP), alternative provider for fundamentals, prices and foreign exchange (FX)" {class: external}
 tws: "Interactive Brokers (IBKR) Trader Workstation (TWS)" {class: external}
 flex: "IBKR Flex, corporate actions" {class: external}
 pages: "GitHub Pages" {class: external}
@@ -42,8 +43,8 @@ assumptions: "assumption overrides per ticker (YAML)" {class: file}
 sidecars: "analysis sidecars reports/YYYY-MM-DD/analysis/TICKER.json" {class: file}
 
 # Outputs
-screen_report: "screen report reports/YYYY-MM-DD/screen/preset.md and .csv" {class: output}
-analysis_reports: "analysis reports TICKER.md and TICKER.html" {class: output}
+screen_report: "screen report reports/YYYY-MM-DD/screen/damodaran_value.md and .csv" {class: output}
+analysis_reports: "analysis reports reports/YYYY-MM-DD/analysis/TICKER.md and .html" {class: output}
 portfolio_md: "portfolio.md and alerts.md" {class: output}
 notifier_message: "alert message by email or Telegram" {class: output}
 published_site: "published site (static viewer)" {class: output}
@@ -77,19 +78,19 @@ daily -> refresh: "1. bot refresh --prices, in rounds until nothing is deferred"
 daily -> refresh: "2. bot refresh --fx"
 daily -> portfolio: "3. bot portfolio"
 
-# refresh: order inside is Damodaran, fundamentals, prices, foreign exchange
+# refresh (one price and fundamentals provider, chosen by configuration)
 damodaran_data -> refresh: "industry and country datasets"
 edgar -> refresh: "fundamentals and filings"
 universe_csv -> refresh: "tickers to refresh"
 industry_mapping_csv -> refresh: "industry mapping"
-tiingo -> refresh: "end-of-day prices, default"
-stooq -> refresh: "prices, alternative"
-fmp -> refresh: "exchange rates and non-US data, optional"
+tiingo -> refresh: "end-of-day prices, default provider"
+stooq -> refresh: "prices, alternative provider"
+fmp -> refresh: "fundamentals, prices and exchange rates, alternative provider"
 refresh -> duckdb.damodaran_industry: "industry benchmarks"
 refresh -> duckdb.damodaran_country: "country risk"
 refresh -> duckdb.companies: "company profiles"
 refresh -> duckdb.financials_annual: "annual statements"
-refresh -> duckdb.financials_quarterly: "quarterly statements"
+refresh -> duckdb.financials_quarterly: "quarterly statements (EDGAR only)"
 refresh -> duckdb.filings_log: "filing dates"
 refresh -> duckdb.prices_daily: "close prices"
 refresh -> duckdb.currencies: "exchange rates to USD"
@@ -103,6 +104,7 @@ duckdb.financials_annual -> screen: "fundamentals"
 duckdb.prices_daily -> screen: "prices"
 duckdb.damodaran_industry -> screen: "sector benchmark"
 duckdb.damodaran_country -> screen: "country risk"
+duckdb.currencies -> screen: "exchange rates to USD (market cap)"
 screen -> duckdb.screener_candidates: "ranked shortlist with run id"
 screen -> screen_report: "shortlist report"
 
@@ -119,12 +121,17 @@ analyze -> sidecars: "machine-readable results"
 
 # site
 sidecars -> site: "committed to master by the publish script"
-site -> published_site: "bot.web.site.build writes the viewer"  # @symbol bot.web.site.build
-site -> pages: "deployed by the workflow .github/workflows/site.yml"  # @file .github/workflows/site.yml
+site -> published_site: "bot site builds the viewer"  # @symbol bot.web.site.build
+published_site -> pages: "deployed by .github/workflows/site.yml"  # @file .github/workflows/site.yml
 
 # portfolio
 tws -> portfolio: "positions, cash and executions"
 flex -> portfolio: "corporate actions"
+presets -> portfolio: "quality gates and trap detection for holdings"
+assumptions -> portfolio: "overrides when revaluing holdings"
+duckdb.companies -> portfolio: "holding inputs"
+duckdb.damodaran_industry -> portfolio: "sector benchmark"
+duckdb.currencies -> portfolio: "exchange rates to USD"
 portfolio -> duckdb.portfolio_snapshots: "daily snapshot"
 portfolio -> duckdb.cash_balances: "cash by currency"
 portfolio -> duckdb.trades: "new executions"
