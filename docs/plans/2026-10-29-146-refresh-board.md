@@ -28,9 +28,11 @@
 ## Layout rules (from the overview render)
 
 The overview rendered 15,502 px wide because d2 does not wrap a single-line label. On this board:
-- A node label is at most ~70 characters. A decision label states its rule in that budget.
+- A node or edge label line is at most ~70 characters. A longer label is broken with `\n` inside its double quotes (d2 renders it as a line break); never put an acronym directly after `\n` (the acronym test needs a word boundary): write a lower-case word first or rephrase.
 - Longer content goes into a `note` child as a markdown list (`- item` per line): each item renders on its own line.
-- A `@const` directive sits on a label line (a decision or a step label), not on a multi-line note.
+- A `@const` directive sits on a label line (a decision or a step label), not on a multi-line note. Directive arguments are always fully qualified (`bot.ingest.sec_edgar._SHARE_SCALE_FACTORS`, never a bare name).
+- `gap` notes are single-line `|md Gap: ... |` blocks, as in `pipeline.d2`; multi-line markdown lists are for `note` class only.
+- Every `step` and `decision` cites, with `@symbol`, the function that implements its rule (module constants are not symbols: cite them with `@const`).
 
 ## Review Focus
 
@@ -46,19 +48,19 @@ The overview rendered 15,502 px wide because d2 does not wrap a single-line labe
 
 Top level:
 - `weekly` (cron) `# @file scripts/weekly.sh`, `daily` (cron) `# @file scripts/daily.sh`, `price_fill` (cron) `# @file scripts/price_fill.sh`.
-- `cli` (step, label starts `bot refresh`) `# @symbol bot.cli.refresh`; `region` (decision: `--region` other than US is refused, exit code 2).
+- `cli` (step, label starts `bot refresh`) `# @symbol bot.cli.refresh`; `region` (decision `@symbol bot.cli.refresh`: Damodaran requested with `--region` other than US → whole command refused before any source runs, exit code 2).
 - Externals: `damodaran_data`, `edgar`, `tiingo`, `stooq`, `fmp` (class `external`). `stooq` cites `@symbol bot.ingest.stooq`, `tiingo` cites `@symbol bot.ingest.edgar_tiingo`, `fmp` cites `@symbol bot.ingest.fmp`.
 - Files: `universe_csv` `# @file src/bot/ingest/universe_default.csv`, `industry_mapping_csv` `# @file src/bot/ingest/industry_mapping.csv` (class `file`).
 - `duckdb` container with one `store` child per table, each on its own line with `# @table <name>`: `damodaran_industry`, `damodaran_country`, `companies`, `financials_annual`, `financials_quarterly`, `filings_log`, `prices_daily`, `currencies`, `refresh_log`.
 
 `damodaran` container:
 - `download` (step) `@symbol bot.ingest.damodaran.import_damodaran`; note `download.files` listing the 8 files (wacc.xls first, margin, capex, pedata, pbvdata, vebitda, psdata, ctryprem.xls) and their columns.
-- `files_ok` (decision): wacc.xls or ctryprem.xls fails → error run, nothing written; any other file fails → run continues as `partial` without its columns.
+- `files_ok` (decision `@symbol bot.ingest.damodaran.import_damodaran`): wacc.xls or ctryprem.xls fails → error run, nothing written; any other file fails → run continues as `partial` without its columns.
 - `merge` (step) `@symbol bot.ingest.damodaran.merge_industry_datasets`: outer join on industry name; an earlier file wins a shared column.
 - `derive` (step) `@symbol bot.ingest.damodaran.derive_industry_columns`: `D/E = w ÷ (1 − w)` with `w = D/(D+E)` (left empty when w = 1); `beta_unlevered = beta_levered ÷ (1 + (1 − tax) × D/E)`.
 - `country` (step) `@symbol bot.ingest.damodaran.parse_country_tax_rates` and `@symbol bot.ingest.damodaran.parse_preheader_scalar`: sheet "ERPs by country", parsing stops at the second (unrated) table; tax rate from sheet "Country Tax Rates", kept only within [0, 1]; risk-free rate from the wacc.xls cell "Long Term Treasury bond rate =".
-- `empty_rows` (decision): no industry rows or no country rows → `partial`.
-- `write` (step): replace the `(region, year)` rows of `damodaran_industry` and the `year` rows of `damodaran_country`; region = `--region`, year = `--year` or the current year; one `refresh_log` row (source damodaran).
+- `empty_rows` (decision `@symbol bot.ingest.damodaran._import_files_into_run`): no industry rows or no country rows → `partial`.
+- `write` (step `@symbol bot.ingest.damodaran.upsert_industry_rows`, `@symbol bot.ingest.damodaran.upsert_country_rows`): replace the `(region, year)` rows of `damodaran_industry` and the `year` rows of `damodaran_country`; region = `--region`, year = `--year` or the current year; one `refresh_log` row (source damodaran).
 - Gap `write.us_only`: `Gap: only the US Damodaran dataset is ingested ...` citing ADR 0005 not implemented (`# @file docs/adr/0005-currency-handling-and-valuation-currency.md` on the line).
 - Gap `country.risk_free`: `Gap: the US risk-free rate is written into every country row ...` (ADR 0005's per-currency rate not implemented).
 
@@ -69,22 +71,22 @@ Top level:
 - `import` (step) `@symbol bot.ingest.universe.refresh_universe` and `@symbol bot.ingest.universe.import_company`: one transaction per ticker writing `companies`, `financials_annual`, `financials_quarterly`, `filings_log`; note names `EdgarPricedProvider` (`@symbol bot.ingest.edgar_base.EdgarPricedProvider` on its line) and that source is restamped as the provider name so the skip watermark matches.
 - `periods` (decision) `@symbol bot.ingest.sec_edgar._collect_period_rows`, `@const bot.ingest.sec_edgar.ANNUAL_SPAN_DAYS`, `@const bot.ingest.sec_edgar.QUARTERLY_SPAN_DAYS`: annual row only for a duration fact of 350–380 days from a 10-K or 10-K/A; quarterly 80–100 days from a 10-Q or 10-Q/A.
 - `fiscal` (step) `@symbol bot.ingest.sec_edgar.parse_company_facts`, `@symbol bot.ingest.sec_edgar._fiscal_quarter_key`: fiscal year = calendar year of the period end (never the filing's `fy`/`fp`); quarter numbered from the nearest annual end; two rows on one label → the later end kept.
-- `precedence` (decision): per column and period end, the first concept in the list with an accepted fact wins; note gives one example (revenue: Revenues, then RevenueFromContractWithCustomerExcludingAssessedTax, ...).
+- `precedence` (decision `@symbol bot.ingest.sec_edgar._collect_period_rows`): per column and period end, the first concept in the list with an accepted fact wins; note gives one example (revenue: Revenues, then RevenueFromContractWithCustomerExcludingAssessedTax, ...).
 - `derive` (step) `@symbol bot.ingest.sec_edgar._derive_financial_fields`: `EBITDA = EBIT + depreciation`, `free cash flow = operating cash flow − capex`, `working capital = current assets − current liabilities`, only when not reported. EBIT and EBITDA expanded at first use.
-- `shares` (decision) `@symbol bot.ingest.sec_edgar._rescale_shares_diluted` with `@const _SHARE_SCALE_FACTORS`, `_MIN_SHARE_COMPARATORS`, `_SHARE_SCALE_TOLERANCE`: diluted share count × 1,000,000 or × 1,000 when median(other annual counts) ÷ count lies within factor ÷ 2 … factor × 2; needs at least 3 other counts.
+- `shares` (decision) `@symbol bot.ingest.sec_edgar._rescale_shares_diluted` with `@const bot.ingest.sec_edgar._SHARE_SCALE_FACTORS`, `@const bot.ingest.sec_edgar._MIN_SHARE_COMPARATORS`, `@const bot.ingest.sec_edgar._SHARE_SCALE_TOLERANCE` (label broken with `\n`): diluted share count × 1,000,000 or × 1,000 when median(other annual counts) ÷ count lies within factor ÷ 2 … factor × 2; needs at least 3 other counts.
 - `status` (decision) `@const bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE`, `@const bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE`: failure rate = failed ÷ attempted; at most 5% → success, at most 25% → partial, else error; not success → exit code 2.
-- `rate_limit` (decision): provider rate limit → this and every remaining ticker deferred, not failed.
+- `rate_limit` (decision `@symbol bot.ingest.universe._run_bulk_refresh`): provider rate limit → this and every remaining ticker deferred, not failed; failure rate counts attempted tickers only.
 - `edgar -> fundamentals.import` carries "company facts, submissions"; `SecEdgarClient.shares_outstanding` is cited on the prices board part (see below).
 
 `prices` container:
-- `only_missing` (decision): `--only-missing` → only tickers with no stored price.
-- `up_to_date` (decision): newest bar on or after the last weekday before today → skipped, no request.
+- `only_missing` (decision `@symbol bot.ingest.universe.refresh_prices`): `--only-missing` → only tickers with no stored price.
+- `up_to_date` (decision `@symbol bot.ingest.universe._last_weekday_before`): newest bar on or after the last weekday before today → skipped, no request.
 - `order` (step) `@symbol bot.ingest.universe.refresh_prices`, `@symbol bot.ingest.universe._stale_first`: never priced first, then oldest newest bar first.
-- `fetch` (step): bars after `max(date)` stored for the ticker (incremental); currency from `companies.currency`; note: Tiingo is the default source (status 429 → rate limit), Stooq the alternative read from `BOT_STOOQ_DIR` CSVs, FMP the optional provider (`BOT_DATA_PROVIDER=fmp`).
+- `fetch` (step `@symbol bot.ingest.universe._refresh_one_price`, note line `@symbol bot.ingest.tiingo.TiingoClient.daily_prices`): bars after `max(date)` stored for the ticker (incremental); currency from `companies.currency`; note: Tiingo is the default source (status 429 → rate limit), Stooq the alternative read from `BOT_STOOQ_DIR` CSVs, FMP the optional provider (`BOT_DATA_PROVIDER=fmp`).
 - Gap `fetch.default_provider`: `Gap: docs/plano/estado.py still calls edgar-stooq the default provider; the code default is edgar-tiingo` (`# @file docs/plano/estado.py`).
 - `market_cap` (decision) `@const bot.ingest.edgar_base._FRESH_DAYS`, `@symbol bot.ingest.sec_edgar.SecEdgarClient.shares_outstanding` (separate line allowed): `market cap = close × shares outstanding`, newest bar only, only when at most 7 days old; shares = newest SEC EDGAR dei EntityCommonStockSharesOutstanding.
-- `rate_limit` (decision): rate limit → remaining tickers deferred; the run prints "tickers deferred" and `daily.sh` runs another round.
-- `status` (decision): same thresholds as fundamentals (text only, no second `@const` needed).
+- `rate_limit` (decision `@symbol bot.ingest.universe._run_bulk_refresh`): rate limit → remaining tickers deferred; the run prints "tickers deferred" and `daily.sh` runs another round.
+- `status` (decision): same thresholds as fundamentals, cited again with both `@const` directives so the numbers on this label are pinned too.
 
 `fx` container:
 - `currencies` (step) `@symbol bot.ingest.universe.refresh_fx`: distinct non-USD currencies in `companies`.
@@ -115,6 +117,8 @@ Edges (all labelled): cron → `cli` with the command each runs (`weekly`: `bot 
   - `test_gap_notes_start_with_gap` (every board): every node line containing `class: gap` has visible text matching `\|md\s+Gap:`.
   - Change `test_every_edge_is_labelled` to loop over every board in `_boards()` (report `stem: line`).
   - `test_pipeline_links_the_refresh_board`: `_block(_overview(), "refresh")` contains `link: refresh.svg`.
+  - `test_refresh_daily_defaults_match_script`: `scripts/daily.sh` contains `BOT_PRICE_ROUNDS:-10` and `BOT_PRICE_RETRY_PAUSE:-3600`, and the board's `daily -> cli` edge line shows `10` and `3600`.
+  - `test_estado_default_provider_gap_is_current`: the gap `prices.fetch.default_provider` exists exactly while `docs/plano/estado.py` contains `BOT_DATA_PROVIDER=edgar-stooq)` and `bot.config.Settings.model_fields["data_provider"].default == "edgar-tiingo"`; when estado is fixed the test fails and says to remove the gap.
   - `test_refresh_cron_edges`: `weekly -> cli`, `daily -> cli`, `price_fill -> cli` edges exist; the `daily` one's visible line contains `tickers deferred`.
 
 - [ ] **Step 2: Run** `uv run pytest -q tests/unit/test_pipeline_diagram.py` — Expected: the new tests FAIL (no `refresh.d2`).
@@ -123,7 +127,7 @@ Edges (all labelled): cron → `cli` with the command each runs (`weekly`: `bot 
 
 - [ ] **Step 4: Run** `python3 docs/pipeline/check.py` — Expected: only `refresh.d2 has no refresh.svg` and `rendered.sha256 is stale` (both fixed by Task 4). `uv run pytest -q tests/unit/test_pipeline_diagram.py -k "refresh and (damodaran or region or cron) or acronyms or every_directive or gap_notes or edge"` — Expected: PASS.
 
-- [ ] **Step 5: Commit** `docs(#144): refresh board — entry points and Damodaran flow`.
+- [ ] **Step 5: Commit** the board only: `docs(#144): refresh board — entry points and Damodaran flow` (the tests were already committed by stage 3 as `test(#146): evals`).
 
 ### Task 2: Fundamentals flow
 
@@ -156,3 +160,19 @@ Edges (all labelled): cron → `cli` with the command each runs (`weekly`: `bot 
 
 - Open `refresh.svg`; pick three thresholds at random and confirm them against the code lines (the `@const` tests already pin the eight cited constants).
 - A reader can answer the four questions for each step (purpose, inputs/outputs, math, decisions) from the board alone.
+
+## Assumptions
+
+- **Stores in one top-level `duckdb` container**, not one copy per sub-flow container: `refresh_log` and `companies` are touched by several flows and the overview test pins "each table on its own node". Rejected: duplicating store nodes per container.
+- **Long labels break with `\n`** inside double quotes. Rejected: markdown notes for every long label (directives cannot sit inside `|md` blocks, so cited values must be on label lines).
+- **Every step/decision cites its implementing function** with `@symbol`, beyond the issue's required list, so the code reviewer has a pointer for each claim. Rejected: citations only where the issue requires them.
+- **Two extra tests** pin values not reachable by `@const`: the `daily.sh` defaults (10 rounds, 3600 s) and the staleness of the `estado.py` gap note. Rejected: leaving them unchecked.
+- **Commit prefixes:** board work `docs(#144)` (issue: "Commits: Conventional Commits, `docs(#144): ...`"), pipeline-stage commits `test(#146)` / `fix(#146)` / `chore(#146)` (pipeline instructions).
+
+## Grilling
+
+- Rounds: 1 (the revisions add citations, two tests and a label-wrapping rule; no task or seam changed, so no second round).
+- Questions: 18. Sources: ISSUE 4 (Q1 required `@file` list has 5 entries, extra citations allowed; Q11 "The staleness step is expected to fail on a push whose SVGs are not yet committed"; Q12 copy `*.svg` and `rendered.sha256` from the same artifact; Q13 `docs(#144)` commits), CODE 10 (Q2 `check.py` `renderings`/`shown`: 0.05 → `5%`, tuples need every element; Q3 `test_pipeline_diagram.py` `_resolve` needs the dotted module path; Q4 `check.py` `normalize` maps U+2212 to `-` only; Q5 `_block` searches each part inside the previous block; Q6 `_ACRONYMS` holds SEC, EDGAR, FX, FMP, WACC, EOD and `_ACRONYMS_EXEMPT` holds US, USD, CSV; `_ACRONYM_RE` needs two capitals with word boundaries, so `10-K`, `D/E`, `ERPs` never match; Q9 per-function citations added; Q10 `cli.py:174-195`; Q14 `pipeline.d2` `refresh` node has `class: step` first, the import test only reads `@word` in visible text; Q17 `pipeline.d2` `fx_gap` is a single-line md gap; Q18 `check.py` `_scan` keeps quoted text and md content, drops only the comment), NO SOURCE 3 (Q7, Q8, Q16: technical assumptions above), out of scope 1 (Q15 → #154).
+- Corrections made: bare `@const` names fully qualified; `region` decision text (the whole command is refused, `cli.py:174-181`); `prices.status` cites both thresholds; label-wrapping rule for edges and long decisions.
+- Issues opened: #154 (concurrent DuckDB writers between `daily.sh` and `price_fill.sh`).
+- Result: ok.
