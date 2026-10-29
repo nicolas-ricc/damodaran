@@ -1,0 +1,166 @@
+...@classes
+
+direction: down
+
+# Files
+sidecars: "analysis sidecars reports/YYYY-MM-DD/analysis/TICKER.json\none per company and analysis day, written by bot analyze" {class: file}  # @symbol bot.reporting.analysis_json.render_analysis_json
+publish_script: "scripts/publish_site.sh" {class: file}  # @file scripts/publish_site.sh
+gitignore: ".gitignore: of reports/, only reports/*/analysis/*.json is tracked" {class: file}  # @file .gitignore
+site_yml: ".github/workflows/site.yml, the site workflow" {class: file}  # @file .github/workflows/site.yml
+design: "docs/DESIGN.md, the viewer's theme" {class: file}  # @file docs/DESIGN.md
+
+# Schedule
+weekly: "scripts/weekly.sh, Saturdays 10:00\nrefresh, screen, analyze, then publish;\neach step only when the previous one succeeded" {class: cron}  # @file scripts/weekly.sh
+
+# Source of truth
+master: "GitHub repository, branch master" {class: external}
+
+# Section 1: publish
+publish: "1. publish the sidecars" {
+  collect: "collect every reports/*/analysis/*.json\nnone: nothing to publish, exit 0" {  # @file scripts/publish_site.sh
+    class: step
+  }
+  worktree: "detached worktree .cache/site-publish\nreset to origin/master on every run, then cleaned;\nonly the sidecars are copied in\nthe checkout the script runs from is never committed" {
+    class: step
+  }
+  changed: "anything new to commit?\nno: no commit, exit 0" {
+    class: decision
+  }
+  push: "commit chore(site): publish analyses YYYY-MM-DD\npush to origin master\npush fails: exit 1" {
+    class: step
+  }
+}
+
+# Section 2: continuous integration
+ci: "2. site workflow, on every push to master" {
+  concurrency: |md One deploy at a time: a newer push cancels the running one. | {class: note}
+  checkout: "1. check out master" {
+    class: step
+  }
+  sync: "2. uv sync --frozen: dependencies from uv.lock\n(uv installed by the astral-sh/setup-uv step)" {
+    class: step
+  }
+  ruff: "3. ruff check: lint" {
+    class: step
+  }
+  mypy: "4. mypy src: types" {
+    class: step
+  }
+  pytest: "5. pytest -q: the whole suite" {
+    class: step
+  }
+  site: "6. bot site --out site --base-url /<repo>/" {
+    class: step
+  }
+  upload: "7. upload the site directory as the Pages artifact" {
+    class: step
+  }
+  deploy: "8. deploy job, after the build job: publish the artifact to GitHub Pages" {
+    class: step
+  }
+  stops: |md Any failing step stops the workflow; nothing is deployed. | {class: note}
+}
+
+# Section 3: build
+build: "3. bot site: build the static viewer" {  # @symbol bot.web.site.build
+  read_only: |md Architecture decision record (ADR) 0008 (Implemented): the viewer is read-only; it values nothing and runs no bot command. | {class: note}  # @file docs/adr/0008-read-only-web-viewer.md
+  cli: "bot site --out path [--reports-dir reports] [--base-url /]\nbase URL normalised to one leading and one trailing slash" {  # @symbol bot.cli.site
+    class: step
+  }
+  out_dir: "output directory safe to empty?\nrefused when it is the reports directory or contains it,\nexists and is not a directory,\nor is not empty and has no .bot-site marker file\nrefused: exit code 2\nelse emptied (or created), marker written before any page" {  # @symbol bot.web.site._prepare_out_dir @const bot.web.site.MARKER
+    class: decision
+  }
+  scan: "scan reports/*/analysis/*.json\ndate = the folder name, ticker = the file stem\ngrouped by ticker, newest analysis first" {  # @symbol bot.web.index.scan
+    class: step
+  }
+  usable: "usable sidecar?\nfolder name a YYYY-MM-DD date, stem a ticker of 1 to 12 characters\nfrom A–Z, 0–9, '.' and '-'\na JSON object with schema_version 1, analysis.ticker = the stem\nno: skipped with a warning" {  # @symbol bot.web.index.read_sidecar @const bot.reporting.analysis_json.SCHEMA_VERSION
+    class: decision
+  }
+  renderable: "does each analysis have every field the views read?\nno: that analysis is skipped with a warning;\na company with none left is dropped" {  # @symbol bot.web.site._renderable
+    class: decision
+  }
+  rows: "one list row per company, from its newest analysis:\nticker, name, verdict, margin of safety, price, intrinsic value,\nstory type, red and yellow flags, date" {  # @symbol bot.web.views.row_view
+    class: step
+  }
+  verdict: "verdict, as a filter value\nmargin of safety (MoS) ≥ 1.3: undervalued; ≥ 1.0: fair; < 1.0: overvalued; none: na\nlist rows and the detail's verdict sentence: the verdict text the sidecar carries, read back\nvalue line and grid cells: recomputed from their MoS" {  # @symbol bot.web.views.verdict_of @const bot.web.views.MOS_UNDERVALUED @const bot.web.views.MOS_FAIR @enum bot.web.views.Verdict
+    class: decision
+  }
+  counts: "verdict counts: all = every company, then one count per verdict" {
+    class: step
+  }
+  lists: "for every filter × sort × direction\nfilters all, undervalued, fair, overvalued, na; sorts ticker, mos, date; directions asc, desc\nkeep the rows of the filter's verdict, then sort; ties by ticker ascending;\nby mos: rows without a margin of safety always last" {  # @symbol bot.web.views.filter_sort @const bot.web.views.FILTERS @const bot.web.views.SORTS @const bot.web.views.DIRECTIONS
+    class: step
+  }
+  detail: "detail of one analysis: verdict sentence, price against intrinsic value,\nassumptions with their sources in words, tornado, grid of verdicts,\nnarrative flags as pass, warning, fail or not evaluated,\ndiscounted cash flow (DCF) table, sanity check, earlier analyses" {  # @symbol bot.web.views.detail_view
+    class: step
+  }
+  render: "render every page from the templates;\nevery link starts with the base URL; static assets copied" {
+    class: step
+  }
+  reader: |md What a reader sees: a list of companies with a verdict filter (with counts) and sorts by ticker, margin of safety or date; picking a company opens its detail beside the list (assumptions with their sources, tornado, grid, flags); earlier analyses stay reachable by date. | {class: note}
+}
+
+# Page outputs
+index_page: "index.html: all companies by margin of safety, descending, with the first one's detail" {class: output}
+not_found: "404.html: served by GitHub Pages for any missing path" {class: output}
+robots: "robots.txt: keeps crawlers out of f/ and rows/" {class: output}
+list_pages: "l/<filter>-<sort>-<direction>.html, one per combination" {class: output}
+row_fragments: "rows/<filter>-<sort>-<direction>.html, the list body alone" {class: output}
+company_pages: "c/TICKER.html (newest) and c/TICKER/YYYY-MM-DD.html: list with detail" {class: output}
+detail_fragments: "f/TICKER.html and f/TICKER/YYYY-MM-DD.html, the detail alone" {class: output}
+static: "static/: style sheet, scripts, fonts" {class: output}
+
+# Section 4: serve
+serve: "4. serve" {
+  pages: "GitHub Pages, https://<owner>.github.io/<repo>/" {class: external}
+  published_site: "published site (static viewer)" {class: output}
+}
+
+# Edges
+weekly -> publish.collect: "scripts/publish_site.sh, after bot analyze --from-screen"
+publish_script -> publish.collect: "the script"
+sidecars -> publish.collect: "sidecar files"
+publish.collect -> publish.worktree: "sidecar paths"
+gitignore -> publish.worktree: "which report files git tracks"
+publish.worktree -> publish.changed: "staged sidecars"
+publish.changed -> publish.push: "yes"
+publish.push -> master: "commit of the new sidecars"
+
+master -> ci.checkout: "push to master"
+site_yml -> ci: "the workflow steps"
+ci.checkout -> ci.sync: "then"
+ci.sync -> ci.ruff: "then"
+ci.ruff -> ci.mypy: "then"
+ci.mypy -> ci.pytest: "then"
+ci.pytest -> ci.site: "then"
+ci.site -> ci.upload: "then"
+ci.upload -> ci.deploy: "then"
+
+ci.site -> build.cli: "runs"
+master -> build.scan: "reports/ of the checked-out commit"
+build.cli -> build.out_dir: "--out"
+build.out_dir -> build.scan: "emptied"
+build.scan -> build.usable: "each sidecar"
+build.usable -> build.renderable: "yes: companies"
+build.renderable -> build.rows: "analyses kept"
+build.renderable -> build.detail: "each analysis"
+build.rows -> build.verdict: "verdict text"
+build.verdict -> build.counts: "verdict per row"
+build.verdict -> build.lists: "filter value"
+build.counts -> build.render: "counts"
+build.lists -> build.render: "rows per combination"
+build.detail -> build.render: "detail views"
+design -> build.render: "theme"
+
+build.render -> index_page: "written"
+build.render -> not_found: "written"
+build.render -> robots: "written"
+build.render -> list_pages: "written"
+build.render -> row_fragments: "written"
+build.render -> company_pages: "written"
+build.render -> detail_fragments: "written"
+build.render -> static: "copied"
+
+build.render -> ci.upload: "site directory"
+ci.deploy -> serve.pages: "site artifact"
+serve.pages -> serve.published_site: "served"

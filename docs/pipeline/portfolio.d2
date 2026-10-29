@@ -6,7 +6,7 @@ direction: down
 daily: "scripts/daily.sh, weekdays 09:00 (installed by scripts/install_cron.sh)\nprice rounds, then the foreign exchange (FX) refresh,\nthen bot portfolio only when both succeeded" {class: cron}  # @file scripts/daily.sh @file scripts/install_cron.sh
 
 # External services
-tws: "Interactive Brokers (IBKR) Trader Workstation (TWS)\nor the Interactive Brokers Gateway, read-only socket through ib_async\nBOT_IBKR_HOST, BOT_IBKR_PORT, BOT_IBKR_CLIENT_ID\n(architecture decision record (ADR) 0004)" {class: external}  # @symbol bot.ingest.ibkr.IbkrClient
+tws: "Interactive Brokers (IBKR) Trader Workstation (TWS)\nor the Interactive Brokers Gateway, read-only socket through ib_async\nBOT_IBKR_HOST, BOT_IBKR_PORT, BOT_IBKR_CLIENT_ID\n(architecture decision record (ADR) 0004 (Implemented))" {class: external}  # @symbol bot.ingest.ibkr.IbkrClient
 flex: "IBKR Flex Web Service: an Activity Flex Query,\na send request, then polls until the statement is ready" {class: external}  # @symbol bot.ingest.ibkr_flex.import_corporate_actions
 channels: "email or Telegram" {class: external}
 
@@ -53,7 +53,7 @@ sync: "1–3. sync the account" {  # @symbol bot.portfolio.command.run_portfolio
   }
   value: "market value = quantity × latest close, expressed in the position's currency\nlatest close = newest prices_daily close on or before the snapshot date,\nin its listing currency; when that differs from the position's currency:\nclose × rate_to_usd of the listing currency ÷ rate_to_usd of the position's currency,\nnearest prior rates from currencies\neither currency unknown: close used as is\nno close, close ≤ 0, or a missing or non-positive rate:\nmarket value empty (unpriced)" {  # @symbol bot.portfolio.sync.value_positions
     class: step
-    adr_0005: |md Gap: ADR 0005 (store money as reported, convert at the point of calculation) is not implemented; the universe is US-only, so every close in prices_daily is in USD and no real data exercises the cross-currency branch today. | {class: gap}  # @file docs/adr/0005-currency-handling-and-valuation-currency.md
+    adr_0005: |md Gap: ADR 0005 (Not implemented) stores money as reported and converts at the point of calculation; the universe is US-only, so every close in prices_daily is in USD and no real data exercises the cross-currency branch today. | {class: gap}  # @file docs/adr/0005-currency-handling-and-valuation-currency.md
   }
   corporate_actions: "2. corporate actions, best effort\nonly when BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID are set\ndividend cash transactions → dividend, action_id ct:<id>\nforward and reverse splits → split; any other type kept lower-cased,\naction_id ca:<id>\ninserted de-duplicated on action_id\nany failure: a warning, the run goes on" {  # @symbol bot.ingest.ibkr_flex.import_corporate_actions
     class: step
@@ -100,6 +100,7 @@ events: "4b. diff two snapshots into events" {  # @symbol bot.portfolio.events.c
   }
   dividend: "dividend\na corporate_actions row of type dividend for a holding,\neffective after the previous snapshot, on or before this one\nfirst run: every action on or before this one" {  # @symbol bot.portfolio.events.detect_corporate_action_events
     class: decision
+    plano_unfed: |md Gap: plano events card says dividend and split cannot fire because nothing feeds them; the Flex importer fills corporate_actions. | {class: gap}
   }
   split: "split\nthe same rule for type split (first run included)" {
     class: decision
@@ -107,7 +108,7 @@ events: "4b. diff two snapshots into events" {  # @symbol bot.portfolio.events.c
   }
   new_filing: "new_filing\na filings_log row of a holding, filed on or before this snapshot,\nfiled after the previous snapshot or ingested on or after its date,\nnot reported before: (ticker, filing type, filing date)\nabsent from events_log\nfirst run: every unreported filing" {  # @symbol bot.portfolio.events.detect_new_filings
     class: decision
-    no_auto_analyze: |md Gap: spec §8.3 says a new filing auto-runs bot analyze. Verified in run_portfolio and the command: nothing reacts to new_filing; mark_holdings re-values every holding each run; no analysis report is written. | {class: gap}
+    no_auto_analyze: |md Gap: spec §8.3 and the plano monitor card say a new filing auto-runs bot analyze. Verified in run_portfolio and the command: nothing reacts to new_filing; mark_holdings re-values every holding each run; no analysis report is written. | {class: gap}
   }
   intrinsic_value_crossed_price: "intrinsic_value_crossed_price\n(intrinsic value − price) < 0 before and > 0 now, or > 0 before and < 0 now\nequality is not a cross\nno previous mark, or any of the four values unknown: nothing" {  # @symbol bot.portfolio.events.detect_intrinsic_value_cross
     class: decision

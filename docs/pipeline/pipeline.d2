@@ -4,7 +4,10 @@ direction: down
 
 # Schedules
 daily: "daily: weekdays 09:00, prices, foreign exchange rates, portfolio" {class: cron}  # @file scripts/daily.sh
-weekly: "weekly: Saturdays 10:00, refresh, screen, analyze, publish" {class: cron}  # @file scripts/weekly.sh
+weekly: "weekly: Saturdays 10:00, refresh, screen, analyze, publish" {  # @file scripts/weekly.sh
+  class: cron
+  plano_cron: |md Gap: plano reports card says no script installs the cron jobs and spec §9.3's proposed Saturday run is refresh and screen; scripts/install_cron.sh installs both, and the Saturday run also analyzes and publishes. | {class: gap}  # @file scripts/install_cron.sh
+}
 
 # Stages
 refresh: "refresh: download data in order: Damodaran, fundamentals, end-of-day (EOD) prices, foreign exchange (FX) rates" {  # @symbol bot.cli.refresh
@@ -26,6 +29,7 @@ portfolio: "portfolio: sync holdings, detect events, write alerts" {  # @symbol 
 }
 site: "site: build the static viewer from the analysis sidecars" {  # @symbol bot.cli.site
   class: step
+  link: "./site.svg"
   verdicts: |md Verdict by margin of safety (MoS = intrinsic value ÷ current price): 1.3 or more is potentially undervalued, 1.0 or more is around fair value, below 1.0 is potentially overvalued, n/a without a price. Viewer filters: undervalued, fair, overvalued, na. | {class: note}  # @const bot.web.views.MOS_UNDERVALUED @const bot.web.views.MOS_FAIR @enum bot.web.views.Verdict
 }
 
@@ -54,7 +58,8 @@ notifier_message: "alert message by email or Telegram" {class: output}
 published_site: "published site (static viewer)" {class: output}
 
 # Database
-duckdb: "DuckDB (bot.duckdb)" {
+duckdb: "DuckDB (bot.duckdb), architecture decision record (ADR) 0001 (Accepted)" {  # @file docs/adr/0001-use-duckdb.md
+  plano_tables: |md Gap: plano duckdb card lists fifteen tables; schema.sql has 16, holding_marks is missing from its list. | {class: gap}
   damodaran_industry: {class: store}  # @table damodaran_industry
   damodaran_country: {class: store}  # @table damodaran_country
   currencies: {class: store}  # @table currencies

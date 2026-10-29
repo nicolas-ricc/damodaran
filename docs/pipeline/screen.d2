@@ -43,6 +43,7 @@ report_csv: "reports/YYYY-MM-DD/screen/<preset>.csv" {class: output}
 snapshot: "1. snapshot per company" {
   load: "load every company of companies\nits non-restated financials_annual rows, oldest first\n(latest row = newest fiscal year)\nnewest prices_daily close and newest market cap,\neach from its own newest non-empty row" {  # @symbol bot.screener.engine.run_screen
     class: step
+    plano_restated: |md Gap: plano sec card says the screener always uses the latest (corrected) statement; screen and analyze read only rows with is_restated false. | {class: gap}
   }
   region: "Damodaran dataset region of the company\nChina, India, Japan: their own dataset\nelse the country's grouping in its newest damodaran_country row\nmapped to a dataset region (e.g. Western Europe → Europe)\nno country, or an unknown grouping: US" {  # @symbol bot.screener.engine._resolve_region @symbol bot.reference.regions.dataset_region @const bot.screener.engine.DEFAULT_REGION
     class: decision
@@ -74,7 +75,7 @@ snapshot: "1. snapshot per company" {
       - Otherwise a missing input leaves the ratio empty.
       | {class: note}
   }
-  usd: "market cap in USD\n= market cap × rate_to_usd of its currency,\nthe rate on or before the market-cap date (from currencies)\nno rate: empty, so min_market_cap fails\nno currency: taken as USD" {  # @symbol bot.screener.engine._market_cap_usd
+  usd: "market cap in USD\n= market cap × rate_to_usd of its listing currency,\nthe rate on or before the market-cap date (from currencies)\nno rate: empty, so min_market_cap fails\nno listing currency: taken as USD" {  # @symbol bot.screener.engine._market_cap_usd
     class: decision
   }
   benchmark: "sector benchmark for the company\nnewest-year damodaran_industry row for (industry, region)\nindustry = industry_damodaran, else the provider industry\nlooked up once per pair" {  # @symbol bot.screener.benchmarks.load_industry_benchmarks
@@ -84,13 +85,16 @@ snapshot: "1. snapshot per company" {
 
 # Layer 2: coverage gate
 coverage_gate: "2. coverage gate" {
-  gate: "sector benchmark row for (industry, region)\nwith a weighted average cost of capital (WACC)?\nno: the company leaves the universe before any rule runs,\nrecorded as rejected with coverage_gate\n(architecture decision record (ADR) 0006)" {  # @symbol bot.screener.engine.run_screen @file docs/adr/0006-unmeasurable-companies-leave-the-universe.md
+  gate: "sector benchmark row for (industry, region)\nwith a weighted average cost of capital (WACC)?\nno: the company leaves the universe before any rule runs,\nrecorded as rejected with coverage_gate\n(architecture decision record (ADR) 0006 (Implemented))" {  # @symbol bot.screener.engine.run_screen @file docs/adr/0006-unmeasurable-companies-leave-the-universe.md
     class: decision
+    plano_caveat: |md Gap: plano damodaran card says the engine still resolves missing benchmarks layer by layer; the coverage gate removes the company before any rule runs (ADR 0006 (Implemented)). | {class: gap}
+    plano_wacc: |md Gap: plano a-wacc card says the sector WACC's only consumer is roic_above_sector_wacc; the coverage gate requires it too, and the portfolio's sector_recalibrated event diffs it. | {class: gap}
   }
 }
 
 # Layer 3: quality gates
 quality_gates: "3. quality gates: every gate must pass" {
+  plano_bounds: |md Gap: plano g-cap, g-debt, g-cover and g-gw cards state strict bounds (more than USD 100M, below 4, above 2, under 50% of assets); the code passes at equality (market cap ≥ 100M, net debt ÷ EBITDA ≤ 4, interest coverage ≥ 2, goodwill ÷ total assets ≤ 0.5). | {class: gap}  # @param min_market_cap.minimum_usd @param max_net_debt_to_ebitda.maximum @param min_interest_coverage.minimum @param max_goodwill_to_assets.maximum
   min_market_cap: "market cap in USD ≥ 100M\nmissing: fails" {  # @rule min_market_cap @param min_market_cap.minimum_usd
     class: decision
   }
@@ -132,7 +136,7 @@ value_indicators: "4. value indicators: at least one must pass" {
   fcf_yield_above: "free cash flow yield > 8%\nskipped when missing; no sector benchmark needed" {  # @rule fcf_yield_above @param fcf_yield_above.minimum
     class: decision
   }
-  score: "value indicator score\nscore = (threshold − value) ÷ threshold, clipped to [0, 1]\n(threshold = 0.7 × sector median)\nfree cash flow yield: score = min(1, yield ÷ minimum)\nvalue metric = highest score among passing indicators" {  # @symbol bot.screener.rules._value_score
+  score: "value indicator score\nscore = (threshold − value) ÷ threshold, clipped to [0, 1]\n(threshold = 0.7 × sector median)\nfree cash flow yield: score = min(1, yield ÷ minimum)\nvalue metric = highest score among passing indicators" {  # @symbol bot.screener.rules._value_score @param pe_below_industry_multiple.multiple
     class: step
   }
   at_least_one: "at least one value indicator passed?\na skipped indicator neither passes nor fails;\nall four skipped: rejected,\nand a skip records no failed rule\nno: rejected" {  # @symbol bot.screener.engine.evaluate_company
@@ -147,6 +151,7 @@ trap_detection: "5. trap detection: every detector must pass" {
   }
   revenue_not_declining: "average revenue growth over the last 3 years > −5%\nuses the last 4 revenues; fewer, or undefined growth: fails" {  # @rule revenue_not_declining @param revenue_not_declining.max_decline @param revenue_not_declining.window
     class: decision
+    docs_bound: |md Gap: plano t-rev card and leccion cap-4 say revenue may fall at most 5% a year on average; the code needs average growth > −5%, so exactly −5% fails. | {class: gap}  # @param revenue_not_declining.max_decline
   }
   operating_margin_not_contracting: "margin change = (last − first) × 10,000, in basis points,\nover up to the last 3 years (the last 4 margins) ≥ −200 bps\nfewer than 2 margins: fails" {  # @rule operating_margin_not_contracting @param operating_margin_not_contracting.max_contraction_bps @param operating_margin_not_contracting.window
     class: decision
@@ -161,7 +166,7 @@ trap_detection: "5. trap detection: every detector must pass" {
     class: decision
     mergers: |md Gap: spec §6.4 exempts dilution from justified mergers and acquisitions; the code caps growth unconditionally. | {class: gap}
   }
-  all_pass: "every trap detector passed?\na skipped detector is eliminatory (ADR 0006)\nno: rejected" {  # @symbol bot.screener.engine.evaluate_company
+  all_pass: "every trap detector passed?\na skipped detector is eliminatory, ADR 0006 (Implemented)\nno: rejected" {  # @symbol bot.screener.engine.evaluate_company
     class: decision
   }
   auditor: |md Gap: spec §6.4 also lists auditor changes and late filings; not implemented. | {class: gap}
@@ -169,11 +174,11 @@ trap_detection: "5. trap detection: every detector must pass" {
 
 # Layer 6: ranking
 ranking: "6. ranking of the survivors" {
-  metrics: "survivor metrics\nvalue = highest passing value indicator score\nquality = (ROIC − sector WACC) + ROE; a missing ROE counts 0\ngrowth = revenue compound annual growth rate (CAGR)\n= (last ÷ first)^(1 ÷ (years − 1)) − 1\ngrowth = 0 when fewer than 2 years or first ≤ 0" {  # @symbol bot.screener.engine._quality_metric @symbol bot.screener.engine._growth_metric @symbol bot.utils.finance.cagr
+  metrics: "survivor metrics\nvalue = highest passing value indicator score\nquality = (ROIC − sector WACC) + ROE; a missing ROE counts 0\ngrowth = revenue compound annual growth rate (CAGR)\n= (last ÷ first)^(1 ÷ (years − 1)) − 1\ngrowth = 0 when fewer than two years or first ≤ 0" {  # @symbol bot.screener.engine._quality_metric @symbol bot.screener.engine._growth_metric @symbol bot.utils.finance.cagr
     class: step
     spec_scores: |md Gap: spec §6.5 puts margin stability in the quality score and free cash flow growth in the growth score; the code uses (ROIC − WACC) + ROE and revenue CAGR only. | {class: gap}
   }
-  percentiles: "percentile of each metric over all survivors\npercentile = 0-based rank among distinct values\n÷ (distinct values − 1)\nties share a percentile\none survivor or all values equal: 1.0" {  # @symbol bot.screener.ranking._percentiles
+  percentiles: "percentile of each metric over all survivors\npercentile = 0-based rank among distinct values\n÷ (distinct values − 1)\nties share a percentile\none survivor or all values equal: 1" {  # @symbol bot.screener.ranking._percentiles
     class: step
   }
   weights: "score = 100 × (0.40 × value + 0.30 × quality + 0.20 × growth + 0.10 × margin of safety)\nvalue, quality, growth: the percentiles" {  # @symbol bot.screener.ranking.RankingWeights @param ranking.value @param ranking.quality @param ranking.growth @param ranking.margin_of_safety
