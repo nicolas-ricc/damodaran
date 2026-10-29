@@ -2,7 +2,7 @@
 
 d2 diagrams of the whole investment-bot pipeline. `pipeline.d2` is the overview
 (cron schedules, the five stages, external services, DuckDB tables, outputs);
-each stage has its own board (`refresh.d2`; `screen.d2`, `analyze.d2`,
+each stage has its own board (`refresh.d2`, `screen.d2`, `analyze.d2`;
 `portfolio.d2`, `site.d2` as their issues land). `classes.d2` holds the nine node
 classes and is not a board. Every board starts with `...@classes` and imports
 nothing else.

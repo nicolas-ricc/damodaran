@@ -18,7 +18,7 @@ tickers: "which tickers?\ntickers given: those\n--from-screen: passed candidates
   class: decision
 }
 
-override: "which override file?\n--override path (only with exactly one ticker)\nelse config/assumptions/TICKER.yaml when it exists, else none" {  # @symbol bot.valuator.assumptions.conventional_override_path
+override: "which override file?\n--override path (only with exactly one ticker)\nelse config/assumptions/TICKER.yaml when it exists, else none\nan unknown key, or not a mapping: cannot value, exit code 1" {  # @symbol bot.valuator.assumptions.conventional_override_path
   class: decision
 }
 
@@ -92,7 +92,7 @@ assumptions: "3. assumptions: the first source that yields a value wins; paths o
     class: step
     consensus: |md Gap: spec §7.3 starts revenue growth from analyst consensus converging to nominal GDP by year 10; there is no consensus layer (AssumptionSource has no analyst_consensus) and the horizon is 5 years. | {class: gap}
   }
-  margin: "operating margin, a 5-year path\n1. manual → manual\n2. high-growth: straight line from the latest EBIT ÷ revenue\nto the sector op_margin → story_pattern\n3. cyclical with ≥ 4 years: mean of the yearly\nEBIT ÷ revenue → historical_average\n4. sector op_margin each year → sector label\nno sector op_margin: unresolved" {  # @symbol bot.valuator.assumptions._resolve_operating_margin @const bot.valuator.assumptions._MIN_CYCLE_YEARS
+  margin: "operating margin, a 5-year path\n1. manual → manual\n2. high-growth with a latest EBIT ÷ revenue: straight line from it\nto the sector op_margin → story_pattern\n3. cyclical with ≥ 4 years: mean of the yearly\nEBIT ÷ revenue → historical_average\n4. sector op_margin each year → sector label\nno sector op_margin: unresolved" {  # @symbol bot.valuator.assumptions._resolve_operating_margin @const bot.valuator.assumptions._MIN_CYCLE_YEARS
     class: step
   }
   sales_to_capital: "sales-to-capital: manual → manual;\nsector sales_to_capital → sector label; else unresolved" {  # @symbol bot.valuator.assumptions.resolve_assumptions
@@ -277,6 +277,7 @@ dcf.equity -> dcf.blend: "going-concern value per share"
 
 # Edges: sensitivity
 dcf -> sensitivity.tornado: "the DCF re-run per scenario"
+inputs.load -> sensitivity.grid: "newest close"
 sensitivity.tornado -> sensitivity.grid: "two widest axes"
 
 # Edges: flags, verdict, sanity check
@@ -296,6 +297,8 @@ sensitivity -> reports: "results"
 narrative_flags -> reports: "results"
 sanity_check -> reports: "results"
 template -> reports.markdown: "layout"
+assumptions -> reports: "assumption values and sources"
+dcf -> reports: "year table, EV, equity, intrinsic value"
 reports.markdown -> reports.html: "markdown"
 reports.markdown -> report_md: "markdown file"
 reports.html -> report_html: "HTML file"

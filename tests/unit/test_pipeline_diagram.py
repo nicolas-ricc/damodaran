@@ -1182,7 +1182,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
     "assumptions.weights": ["D/E ÷ (1 + D/E)", "1 - it", "sum to 1", "1 - debt weight"],
     "assumptions.terminal_growth": ["min(risk-free rate, nominal GDP growth 4%)", "rule_based"],
     "assumptions.tax": ["sector label", "country tax_rate", "sector_default_damodaran", "25%"],
-    "assumptions.bankruptcy": ["manual", "0", "rule_based"],
+    "assumptions.bankruptcy": ["manual", "else 0 → rule_based"],
     "dcf.guard": ["1,000,000 ≤ diluted shares ≤ 100,000,000,000", "exit code 1"],
     "dcf.wacc": [
         f"equity weight {_TIMES} cost of equity + debt weight {_TIMES} pre-tax cost of debt"
@@ -1276,13 +1276,13 @@ _RISKY = {"sector_beta": 0.5, "operating_leverage": 2.0, "company_debt_weight": 
 
 # Each comparison evaluated in the code exactly at its threshold: an inclusive
 # operator on the board (≤, ≥) must mean the code fires at equality, a strict
-# one (<, >) that it does not. Non-dyadic thresholds are patched to exact ones.
+# one (<, >) that it does not. Thresholds not exact in binary are patched to exact ones.
 _ANALYZE_DIRECTIONS: list[tuple[str, str, str, dict[str, float], Any]] = [
     ("story_type.distressed", "Altman Z < 1.81", "<", {},
      lambda: _story(altman_z=1.81) is StoryType.DISTRESSED),
     ("story_type.distressed", "interest coverage ≤ 1.0", "≤", {},
      lambda: _story(interest_coverage=1.0) is StoryType.DISTRESSED),
-    ("story_type.cyclical", "coefficient of variation ≥", "≥", {"_CYCLICAL_EARNINGS_CV": 0.5},
+    ("story_type.cyclical", "coefficient of variation ≥", "≥", {},
      lambda: _story(earnings_history=(1.0, 3.0), cyclical=True) is StoryType.CYCLICAL),
     ("story_type.high_growth", "CAGR) ≥", "≥", {"_HIGH_GROWTH_CAGR": 0.5},
      lambda: _story(revenue_history=(1.0, 1.5)) is StoryType.HIGH_GROWTH),
@@ -1352,12 +1352,45 @@ def test_analyze_story_priority_matches_classify() -> None:
     assert _story(revenue_history=(1.0,)) is StoryType.MATURE_STABLE
 
 
-def test_analyze_inclusive_bounds() -> None:
-    from bot.valuator.analysis import MAX_PLAUSIBLE_SHARES, MIN_PLAUSIBLE_SHARES
+def _valuation_input(shares: float) -> Any:
+    from bot.valuator import analysis
+    from bot.valuator import assumptions as resolve
 
-    source = Path(importlib.import_module("bot.valuator.analysis").__file__ or "").read_text()
-    assert "MIN_PLAUSIBLE_SHARES <= shares <= MAX_PLAUSIBLE_SHARES" in source
-    assert (MIN_PLAUSIBLE_SHARES, MAX_PLAUSIBLE_SHARES) == (1_000_000, 100_000_000_000)
+    return analysis.ValuationInput(
+        ticker="T",
+        company=analysis._CompanyRow("T", "US", "USD", None, None),
+        latest=analysis._LatestFinancials(100.0, 10.0, 8.0, 1.0, 0.0, shares, 0.0, 50.0),
+        revenue_history=(90.0, 100.0),
+        income_history=(7.0, 8.0),
+        ebit_history=(9.0, 10.0),
+        sector=analysis._SectorMultiples("US", None, None, None, None, None),
+        current_price=10.0,
+        assumption_inputs=resolve.AssumptionInputs(
+            company=resolve._Company("US", None),
+            country=None,
+            sector=resolve._SectorRow(0.08, 0.09, 0.05, 0.1, 2.0, 0.25, 0.5),
+            historical_growth_path=None,
+        ),
+    )
+
+
+@pytest.mark.parametrize(
+    ("shares", "valued"),
+    [(1_000_000.0, True), (999_999.0, False), (100_000_000_000.0, True), (100_000_000_001.0, False)],
+)
+def test_analyze_share_bounds_are_inclusive(shares: float, valued: bool) -> None:
+    from bot.valuator.analysis import analyze
+
+    # The board's `1,000,000 ≤ diluted shares ≤ 100,000,000,000`: both ends are valued.
+    conn: Any = None  # every row comes pre-loaded, so analyze issues no query
+    if valued:
+        assert analyze("T", conn, company=_valuation_input(shares)).dcf_result is not None
+    else:
+        with pytest.raises(ValueError, match="implausible diluted share count"):
+            analyze("T", conn, company=_valuation_input(shares))
+
+
+def test_analyze_terminal_growth_must_stay_below_wacc() -> None:
     # terminal growth equal to WACC does not converge: the board's `<` is strict
     at_wacc = Assumptions((0.0,), (0.1,), 0.0, 1.0, 0.5, 0.5, 0.0, 1.0, 0.0)
     with pytest.raises(ValueError, match="terminal_growth"):
