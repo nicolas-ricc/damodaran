@@ -61,6 +61,7 @@ inputs: "1. inputs of one company" {
 story_type: "2. story type: first rule that matches wins" {  # @symbol bot.valuator.story_types.classify @enum bot.valuator.story_types.StoryType
   distressed: "distressed: Altman Z < 1.81 or interest coverage ≤ 1.0" {  # @const bot.valuator.story_types._DISTRESS_ALTMAN_Z @const bot.valuator.story_types._DISTRESS_INTEREST_COVERAGE
     class: decision
+    label.near: outside-top-center
     altman: |md Gap: Altman Z is read by the classifier but computed nowhere, and analyze never passes it; only interest coverage can make a company distressed. | {class: gap}
   }
   cyclical: "cyclical: cyclical sector and coefficient of variation ≥ 0.50\ncoefficient of variation = standard deviation ÷ |mean| of net income\n(population standard deviation; fewer than 2 years or mean 0: not cyclical)" {  # @symbol bot.valuator.story_types._earnings_cv @const bot.valuator.story_types._CYCLICAL_EARNINGS_CV
@@ -77,6 +78,7 @@ story_type: "2. story type: first rule that matches wins" {  # @symbol bot.valua
   }
   manual: "story_type in the override file?\nyes: it replaces the classifier's story type\nan unknown label: logged, and no story branch applies to the assumptions" {  # @symbol bot.valuator.assumptions.resolve_assumptions
     class: decision
+    label.near: outside-top-center
     reasons: |md The report gives the reasons: revenue CAGR over the years, the age, the classifier's story type; with an override, a line naming what the classifier would have said. | {class: note}
   }
 }
@@ -181,6 +183,7 @@ narrative_flags: "6. narrative flags: five checks for a human, not in any rankin
   }
   country_exposure: "country exposure\nforeign revenue share > 50% and weighted equity risk premium (ERP)\n− listing-country ERP > 300 bps: red\nan input missing: unknown; else green" {  # @symbol bot.valuator.narrative_flags.country_exposure_flag @const bot.valuator.narrative_flags._FOREIGN_REVENUE_MAJORITY @const bot.valuator.narrative_flags._ERP_GAP_THRESHOLD
     class: decision
+    label.near: outside-top-center
     always_unknown: |md Gap: analyze never supplies the foreign revenue share or the two ERPs (no ingest path has revenue by geography), so this flag is always unknown. | {class: gap}
   }
 }
