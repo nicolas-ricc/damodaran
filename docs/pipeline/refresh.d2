@@ -155,6 +155,53 @@ fundamentals: "2. fundamentals" {
   }
 }
 
+# Sub-flow 3: end-of-day prices
+prices: "3. prices" {
+  only_missing: "--only-missing?\nyes: only tickers with no stored price are requested,\nso no quota is spent on priced ones" {  # @symbol bot.ingest.universe.refresh_prices
+    class: decision
+  }
+  up_to_date: "newest stored bar on or after the last weekday before today?\nyes: ticker skipped, no request" {  # @symbol bot.ingest.universe._last_weekday_before
+    class: decision
+  }
+  order: "order the remaining tickers, stalest first\nnever priced first, then oldest newest bar first;\nties keep the input order" {  # @symbol bot.ingest.universe.refresh_prices @symbol bot.ingest.universe._stale_first
+    class: step
+  }
+  fetch: "fetch the bars of one ticker\nonly bars after max(date) stored for the ticker (incremental)\nprices_daily.currency = companies.currency" {  # @symbol bot.ingest.universe._refresh_one_price @symbol bot.ingest.tiingo.TiingoClient.daily_prices
+    class: step
+    provider: |md
+      - Tiingo is the default source: status 429 is a rate limit.
+      - Stooq is the alternative: CSV files read from BOT_STOOQ_DIR.
+      - FMP is the optional provider (BOT_DATA_PROVIDER=fmp).
+      | {class: note}
+    default_provider: |md Gap: docs/plano/estado.py still calls edgar-stooq the default provider; the code default is edgar-tiingo. | {class: gap}  # @file docs/plano/estado.py
+  }
+  market_cap: "market cap = close × shares outstanding\nnewest bar only, and only when it is at most 7 days old\nshares: newest SEC EDGAR dei EntityCommonStockSharesOutstanding" {  # @const bot.ingest.edgar_base._FRESH_DAYS @symbol bot.ingest.sec_edgar.SecEdgarClient.shares_outstanding
+    class: decision
+    fmp: |md This rule belongs to the EDGAR providers (Tiingo and Stooq). The FMP provider takes the marketCap field of its prices, or the current market cap when the newest bar is at most 7 days old. | {class: note}
+  }
+  rate_limit: "provider rate limit hit?\nyes: this ticker and every remaining one are deferred, not failed;\nthe run prints tickers deferred and daily.sh runs another round" {  # @symbol bot.ingest.universe._run_bulk_refresh
+    class: decision
+  }
+  status: "status of the run\nfailure rate = failed ÷ attempted\nat most 5%: success; at most 25%: partial; above 25%: error\nnot success: exit code 2" {  # @const bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE @const bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE
+    class: decision
+  }
+}
+
+# Sub-flow 4: foreign exchange rates
+fx: "4. foreign exchange rates" {
+  currencies: "list the currencies to refresh\ndistinct non-USD listing currencies in companies;\nnone: no provider call, status success" {  # @symbol bot.ingest.universe.refresh_fx
+    class: step
+  }
+  fetch: "fetch the daily rates of one currency\nstored in currencies, one row per currency and date" {  # @symbol bot.utils.fx.import_fx_rates
+    class: step
+    read: |md
+      - Later reads: usd = amount × rate_to_usd.
+      - The rate of the nearest prior date is used, never a later one.
+      | {class: note}
+    no_op: |md Gap: under the default provider (SEC EDGAR with Tiingo or Stooq) the FX refresh stores no rates for non-USD currencies; only Financial Modeling Prep supplies them. | {class: gap}
+  }
+}
+
 # Entry points into the command
 weekly -> cli: "bot refresh --all"
 daily -> cli: "bot refresh --prices, repeated until no tickers deferred\n(BOT_PRICE_ROUNDS, default 10 rounds;\nBOT_PRICE_RETRY_PAUSE, default 3600 s apart)\na failing round stops the loop\nthen bot refresh --fx, which runs even when prices failed"
@@ -200,3 +247,31 @@ fundamentals.shares -> duckdb.financials_annual: "annual rows, share counts corr
 fundamentals.import -> duckdb.filings_log: "one row per form and filing date"
 fundamentals.import -> duckdb.refresh_log: "one row per ticker, source = provider name"
 fundamentals.status -> duckdb.refresh_log: "one summary row, source = provider name + _universe"
+
+# Prices flow
+cli -> prices: "3. prices (--prices or --all)"
+universe_csv -> prices.only_missing: "tickers (--limit takes the first N)"
+tiingo -> prices.fetch: "daily bars, default source"
+stooq -> prices.fetch: "daily bars from CSV files"
+fmp -> prices.fetch: "daily bars (BOT_DATA_PROVIDER=fmp only)"
+edgar -> prices.market_cap: "shares outstanding"
+duckdb.companies -> prices.fetch: "listing currency"
+duckdb.prices_daily -> prices.up_to_date: "newest bar per ticker"
+prices.only_missing -> prices.up_to_date: "tickers still to consider"
+prices.up_to_date -> prices.order: "no: pending tickers"
+prices.up_to_date -> prices.status: "yes: counted as skipped"
+prices.order -> prices.fetch: "one ticker at a time"
+prices.fetch -> prices.market_cap: "bars of the ticker"
+prices.fetch -> prices.rate_limit: "error raised by the provider"
+prices.rate_limit -> prices.status: "no: imported or failed; yes: the rest deferred"
+prices.market_cap -> duckdb.prices_daily: "bars with close, volume, market cap"
+prices.status -> duckdb.refresh_log: "one summary row, source = provider name + _prices_universe"
+prices.fetch -> duckdb.refresh_log: "one row per ticker, source = provider name + _prices"
+
+# FX flow
+cli -> fx: "4. foreign exchange rates (--fx or --all)"
+duckdb.companies -> fx.currencies: "listing currencies"
+fmp -> fx.fetch: "daily rates (BOT_DATA_PROVIDER=fmp only)"
+fx.currencies -> fx.fetch: "one currency at a time"
+fx.fetch -> duckdb.currencies: "rate_to_usd per currency and date"
+fx.fetch -> duckdb.refresh_log: "one summary row, source = provider name + _fx_universe"
