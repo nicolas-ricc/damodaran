@@ -1,4 +1,4 @@
-"""The docs that used to say corporate_actions has no writer now point at the importer (#56)."""
+"""The Flex docs point at the importer (#56) and at bot flex-capture as its validation step (#140)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ def _flex_section(readme: str) -> str:
 
 
 def test_readme_has_the_flex_section() -> None:
-    section = _flex_section((ROOT / "README.md").read_text(encoding="utf-8"))
+    section = " ".join(_flex_section((ROOT / "README.md").read_text(encoding="utf-8")).split())
     assert (
         "Written from IBKR's documentation; the parser is validated against a real statement "
         "captured with the command below. Known corrections are tracked in #111." in section

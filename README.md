@@ -173,7 +173,8 @@ BOT_IBKR_CLIENT_ID=1      # default; each concurrent client needs a distinct id
 
 ### Corporate actions via Flex Web Service
 
-Written from IBKR's documentation; the parser is validated against a real statement captured with the command below. Known corrections are tracked in #111.
+Written from IBKR's documentation; the parser is validated against a real statement
+captured with the command below. Known corrections are tracked in #111.
 
 The TWS socket does not report dividends or splits, so `bot portfolio` pulls them
 from IBKR's **Flex Web Service** (`bot.ingest.ibkr_flex`) before computing the day's
@@ -207,13 +208,15 @@ any failure during it is logged as a WARNING and the run carries on.
    - `tests/fixtures/cassettes/ibkr_flex/statement_real.yaml`: the recorded HTTP
      exchanges with the Flex token scrubbed and the statement redacted.
    - `tests/fixtures/ibkr_flex/statement_real_redacted.xml`: the statement with
-     account ids replaced and amounts faked.
+     account ids replaced and amounts and quantities faked; symbols, conids, isins,
+     ids, dates, types and descriptions stay real.
    - `tests/fixtures/ibkr_flex/statement_real_summary.json`: counts of accounts, date
      range, rows, corporate-action and cash-transaction types, and what the parser
      parsed or skipped.
 
    The cassette and the redacted XML are safe to commit: the token is scrubbed and
-   account ids and amounts are redacted. The JSON summary is also printed; paste it
+   account ids and amounts are redacted. They still show which symbols you held and
+   their corporate actions over the window. The JSON summary is also printed; paste it
    into the #111 findings. The raw statement is never written. The command exits 2
    when `BOT_IBKR_FLEX_TOKEN` or `BOT_IBKR_FLEX_QUERY_ID` is missing, and 1 when the
    Flex service fails or the token would leak into the cassette. In both cases
