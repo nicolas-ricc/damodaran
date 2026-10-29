@@ -30,17 +30,13 @@ _SCHEMA = _ROOT / "src" / "bot" / "storage" / "schema.sql"
 _PRESET = _ROOT / "config" / "presets" / "damodaran_value.yaml"
 
 
-def _load_check() -> ModuleType:
+@cache
+def _check() -> ModuleType:
     spec = importlib.util.spec_from_file_location("pipeline_check", _PIPELINE / "check.py")
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
-
-
-@cache
-def _check() -> ModuleType:
-    return _load_check()
 
 
 @cache
@@ -53,10 +49,7 @@ def _schema_tables() -> set[str]:
     return set(re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", sql))
 
 
-# --------------------------------------------------------------------------- #
 # Required citations, per board stem. Stage issues append their own entries.
-# --------------------------------------------------------------------------- #
-
 _REQUIRED_SYMBOLS: dict[str, set[str]] = {
     "pipeline": {
         "bot.cli.refresh",
@@ -122,12 +115,8 @@ _ACRONYMS_EXEMPT: set[str] = {
 _ACRONYM_RE = re.compile(r"\b[A-Z][A-Z0-9]+\b|\bMoS\b")
 
 
-# --------------------------------------------------------------------------- #
 # A minimal reading of d2 node blocks, enough to find a node's class and text.
 # Convention (docs/pipeline/README.md): `class:` is a node's first attribute.
-# --------------------------------------------------------------------------- #
-
-
 def _indent(line: str) -> int:
     return len(line) - len(line.lstrip())
 
@@ -161,11 +150,6 @@ def _node_class(text: str, dotted: str) -> str | None:
 
 def _shown_in_board(value: str, board: str) -> bool:
     return _check().normalize(value) in _check().normalize(_check().visible(board))
-
-
-# --------------------------------------------------------------------------- #
-# Machinery shared by every board
-# --------------------------------------------------------------------------- #
 
 
 def test_there_are_boards() -> None:
@@ -225,7 +209,7 @@ def _directive_problem(d: Any, board: str) -> str | None:
             return "not an Enum"
         missing = [m.value for m in enum if not _shown_in_board(str(m.value), board)]
         return f"members not shown: {missing}" if missing else None
-    return None  # symbol / table / file: _check().py owns them (test_check_py_exits_zero)
+    return None  # symbol / table / file: check.py owns them (test_check_py_exits_zero)
 
 
 def test_every_directive_is_valid() -> None:
@@ -311,10 +295,6 @@ def test_every_board_imports_the_classes_and_no_other_board() -> None:
         imports = set(re.findall(r"@(\w+)", _check().visible(board)))
         assert imports <= {"classes"}, f"{stem}.d2 imports {imports - {'classes'}}"
 
-
-# --------------------------------------------------------------------------- #
-# pipeline.d2 — the whole pipeline on one page (#145)
-# --------------------------------------------------------------------------- #
 
 _STAGES = ("refresh", "screen", "analyze", "portfolio", "site")
 _EXTERNALS = {
@@ -402,11 +382,6 @@ def test_verdict_thresholds_match_margin_verdict() -> None:
     assert margin_verdict(MOS_FAIR) == "around fair value"
     assert margin_verdict(MOS_FAIR - 1e-9) == "potentially overvalued"
     assert margin_verdict(None) == "n/a"
-
-
-# --------------------------------------------------------------------------- #
-# README and CONTEXT.md
-# --------------------------------------------------------------------------- #
 
 
 def test_readme_has_build_and_check_commands() -> None:

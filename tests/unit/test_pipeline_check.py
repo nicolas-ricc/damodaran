@@ -46,11 +46,6 @@ def _board(folder: Path, text: str, *, stem: str = "pipeline", render: bool = Tr
     return folder
 
 
-# --------------------------------------------------------------------------- #
-# The symbol index and the schema tables
-# --------------------------------------------------------------------------- #
-
-
 def test_index_resolves_modules_functions_classes_and_methods(idx: dict) -> None:
     assert idx["bot.cli"][0] == "src/bot/cli.py"
     assert idx["bot.cli.refresh"][0] == "src/bot/cli.py"
@@ -64,11 +59,6 @@ def test_tablas_reads_every_create_table(check: ModuleType, tables: set[str]) ->
     assert {"prices_daily", "screener_candidates", "holding_marks"} <= tables
     sql = "CREATE TABLE IF NOT EXISTS a (\n x INT\n);\nCREATE TABLE IF NOT EXISTS b (y INT);\n"
     assert check.tablas(sql) == {"a", "b"}
-
-
-# --------------------------------------------------------------------------- #
-# Directive parsing
-# --------------------------------------------------------------------------- #
 
 
 def test_trailing_directive_pairs_with_its_line(check: ModuleType) -> None:
@@ -141,11 +131,6 @@ def test_links_outside_md_blocks(check: ModuleType) -> None:
     assert check.links(text) == [("refresh.svg", 2), ("screen.svg", 7)]
 
 
-# --------------------------------------------------------------------------- #
-# Renderings and "shown"
-# --------------------------------------------------------------------------- #
-
-
 def test_renderings_of_a_large_integral_float(check: ModuleType) -> None:
     assert {"100000000", "100,000,000", "100M"} <= check.renderings(100_000_000.0)
 
@@ -171,11 +156,6 @@ def test_shown(check: ModuleType) -> None:
     assert check.shown((350, 380), "annual = 350\u2013380 days")
     assert not check.shown((350, 380), "annual = 350 days")
     assert not check.shown(1.0, "potentially overvalued below the floor")
-
-
-# --------------------------------------------------------------------------- #
-# revisar(): each error kind on synthetic boards
-# --------------------------------------------------------------------------- #
 
 
 def test_clean_board_has_no_errors(
@@ -270,11 +250,6 @@ def test_source_hash_covers_every_d2_sorted_by_name(check: ModuleType, tmp_path:
     assert [p.name for p in check.boards(tmp_path)] == ["a.d2", "b.d2"]
 
 
-# --------------------------------------------------------------------------- #
-# The CLI
-# --------------------------------------------------------------------------- #
-
-
 def test_main_exit_codes(
     check: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -287,11 +262,6 @@ def test_main_exit_codes(
     out = capsys.readouterr().out
     assert "error  pipeline.d2:1 unknown @table nope" in out
     assert "1 errors" in out
-
-
-# --------------------------------------------------------------------------- #
-# Review fixes: apostrophes, dangling and argument-less directives
-# --------------------------------------------------------------------------- #
 
 
 def test_apostrophe_in_unquoted_label_is_not_a_quote(check: ModuleType) -> None:
@@ -325,11 +295,6 @@ def test_directive_without_argument_is_an_error(
         "pipeline.d2:1 @symbol has no argument",
         "pipeline.d2:2 @symbol has no argument",
     ]
-
-
-# --------------------------------------------------------------------------- #
-# Code review (#145, stage 6)
-# --------------------------------------------------------------------------- #
 
 
 def test_at_sign_inside_a_word_is_not_a_directive(check: ModuleType) -> None:
