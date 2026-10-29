@@ -686,10 +686,6 @@ def test_pipeline_links_the_refresh_board() -> None:
     assert block is not None and re.search(r'(?m)^\s*link:\s*"\./refresh\.svg"\s*$', block)
 
 
-# --------------------------------------------------------------------------- #
-# screen board (#147)
-# --------------------------------------------------------------------------- #
-
 _LAYERS = ("quality_gates", "value_indicators", "trap_detection")
 
 
