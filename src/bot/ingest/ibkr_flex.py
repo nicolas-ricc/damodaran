@@ -7,8 +7,9 @@ into :class:`CorporateActionRecord` rows and upserted into
 ``corporate_actions``, where :func:`bot.portfolio.events.compute_events` reads
 them.
 
-Written from IBKR's documentation against a synthetic fixture and not yet
-verified against a real pull (#110); parser corrections land in #111.
+The parser is validated against the redacted real statement captured by
+``bot flex-capture`` (:mod:`bot.ingest.ibkr_flex_capture`); parser corrections
+are tracked in #111.
 
 Follows the ingest convention: download (:class:`FlexClient`) -> parse
 (:func:`parse_flex_statement`, pure) -> upsert (:func:`upsert_corporate_actions`).

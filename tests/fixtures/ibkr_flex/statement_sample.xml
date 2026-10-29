@@ -2,8 +2,9 @@
 <!--
   SYNTHETIC statement, written by hand from IBKR's Flex Web Service and Activity
   Flex Query documentation (issue #56). It is NOT a real pull: account ids,
-  conids, ids and amounts are invented. A redacted real sample arrives with #110;
-  parser corrections found there land in #111.
+  conids, ids and amounts are invented. A redacted real sample is captured with
+  `bot flex-capture` into statement_real_redacted.xml; parser corrections land
+  in #111.
 
   Expected import (see tests/unit/test_ibkr_flex_parser.py):
     ca:1001 split    AAPL U1234567 2026-09-15 ratio 4:1
