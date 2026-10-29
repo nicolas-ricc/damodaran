@@ -10,6 +10,7 @@ services, DuckDB tables, outputs), `refresh.svg`, `screen.svg`, `analyze.svg`,
 
 Reading order: `pipeline.svg` first. Its stage nodes link the stage boards, in
 the order refresh, screen, analyze, portfolio, site.
+
 ## Commands
 
 - Render: `docs/pipeline/build.sh` (run it after editing any `.d2`)
