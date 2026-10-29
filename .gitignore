@@ -30,4 +30,6 @@ tests/fixtures/cassettes/**/*.yaml.tmp
 docs/plano/plano.html
 docs/plano/codemap.json
 docs/plano/estado.html
+
+# Pipeline diagram: PNG renders are for eyes only (docs/pipeline/README.md)
 docs/pipeline/*.png

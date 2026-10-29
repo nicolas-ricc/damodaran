@@ -191,5 +191,7 @@ def test_workflow_renders_uploads_checks_and_gates_staleness() -> None:
     current = at(lambda s: s.get("name") == "committed render is current")
     assert "git diff --exit-code -- docs/pipeline/rendered.sha256" in runs[current]
     assert "git ls-files --others --exclude-standard docs/pipeline/*.svg" in runs[current]
+    ls_files = next(ln for ln in runs[current].splitlines() if "git ls-files" in ln)
+    assert "docs/pipeline/rendered.sha256" in ls_files
     assert checkout < install < tala < build < upload < checker < current == len(steps) - 1
     assert not any("uv" in u for u in uses)

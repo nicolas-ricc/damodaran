@@ -35,7 +35,7 @@ jobs:
       - name: committed render is current
         run: |
           git diff --exit-code -- docs/pipeline/rendered.sha256
-          if [ -n "$(git ls-files --others --exclude-standard docs/pipeline/*.svg)" ]; then
-            echo "docs/pipeline has SVGs that are not committed" >&2
+          if [ -n "$(git ls-files --others --exclude-standard docs/pipeline/*.svg docs/pipeline/rendered.sha256)" ]; then
+            echo "the render (SVGs or rendered.sha256) is not committed" >&2
             exit 1
           fi
