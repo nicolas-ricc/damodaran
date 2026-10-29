@@ -126,6 +126,45 @@ assumptions: "3. assumptions: the first source that yields a value wins; paths o
     | {class: note}
 }
 
+# Section 4: DCF
+dcf: "4. two-stage discounted cash flow" {  # @symbol bot.valuator.dcf.dcf
+  guard: "can it be valued?\nlatest revenue present,\n1,000,000 ≤ diluted shares ≤ 100,000,000,000,\nno assumption unresolved, sales-to-capital > 0\nno: cannot value, exit code 1" {  # @const bot.valuator.analysis.MIN_PLAUSIBLE_SHARES @const bot.valuator.analysis.MAX_PLAUSIBLE_SHARES
+    class: decision
+  }
+  wacc: "weighted average cost of capital (WACC)\n= equity weight × cost of equity + debt weight × pre-tax cost of debt × (1 − tax)" {  # @symbol bot.valuator.dcf._wacc
+    class: step
+  }
+  converges: "g_terminal < WACC?\nno: cannot value, exit code 1" {
+    class: decision
+  }
+  years: "for t = 1 … N (N = length of the growth path, 5 unless a manual list differs;\nthe margin path is cut, or extended with its last value, to N)\nrevenue_t = revenue_t−1 × (1 + g_t), revenue_0 = latest revenue\nEBIT_t = revenue_t × margin_t\nnet operating profit after tax (NOPAT)_t = EBIT_t × (1 − tax)\nreinvestment_t = (revenue_t − revenue_t−1) ÷ sales-to-capital\nfree cash flow to the firm (FCFF)_t = NOPAT_t − reinvestment_t\npresent value_t = FCFF_t ÷ (1 + WACC)^t" {
+    class: step
+  }
+  terminal: "terminal year N + 1: revenue = revenue_N × (1 + g_terminal), margin_N\nFCFF_N+1 by the same formulas\nterminal value = FCFF_N+1 ÷ (WACC − g_terminal)\npresent value of terminal value = terminal value ÷ (1 + WACC)^N" {
+    class: step
+  }
+  ev: "enterprise value (EV) = Σ present value_t + present value of terminal value\nterminal value share = present value of terminal value ÷ EV\n(0 when EV = 0)" {
+    class: step
+  }
+  equity: "equity = EV − net debt + adjustments\ngoing-concern value per share = equity ÷ diluted shares" {
+    class: step
+    adjustments: |md Gap: spec §7.2 adjusts equity for minority interests and cross-holdings; adjustments has no input path (not filled by the pipeline, not an override key), so it is always 0. | {class: gap}
+  }
+  blend: "intrinsic value per share = (1 − p) × going-concern value per share\n+ p × distress value per share" {
+    class: step
+  }
+}
+
+# Section 5: sensitivity
+sensitivity: "5. sensitivity" {
+  tornado: "tornado: each axis × 0.8 and × 1.2, one at a time\naxes: revenue_growth, operating_margin (every year scaled), tax_rate,\nsales_to_capital, terminal_growth, cost_of_equity, pretax_cost_of_debt\nswing = |intrinsic value at × 1.2 − intrinsic value at × 0.8|, widest first\nan end with g_terminal ≥ WACC: no value, ranked last" {  # @symbol bot.valuator.sensitivity.tornado @const bot.valuator.sensitivity._TORNADO_LOW @const bot.valuator.sensitivity._TORNADO_HIGH @enum bot.valuator.sensitivity.SensitivityAxis
+    class: step
+  }
+  grid: "5 × 5 grid on the two widest tornado axes\nmultipliers 0.8, 0.9, 1.0, 1.1, 1.2 on each\ncell = intrinsic value ÷ price (margin of safety); no price: intrinsic value\na cell with g_terminal ≥ WACC: empty" {  # @symbol bot.valuator.sensitivity.grid_2d @const bot.valuator.sensitivity._GRID_MULTIPLIERS
+    class: step
+  }
+}
+
 # Edges: entry point
 duckdb.screener_candidates -> tickers: "passed candidates of the latest run, by rank"
 cli -> tickers: "tickers or --from-screen"
@@ -170,3 +209,19 @@ assumptions.sector_row -> assumptions.sales_to_capital: "sector row and label"
 assumptions.sector_row -> assumptions.discount_rates: "sector row and label"
 assumptions.sector_row -> assumptions.weights: "sector row and label"
 assumptions.sector_row -> assumptions.tax: "sector row and label"
+
+# Edges: dcf
+assumptions -> dcf.guard: "resolved assumptions"
+inputs.derived -> dcf.guard: "latest revenue, diluted shares, net debt"
+dcf.guard -> dcf.wacc: "yes"
+dcf.wacc -> dcf.converges: "WACC"
+dcf.converges -> dcf.years: "yes"
+dcf.years -> dcf.terminal: "revenue_N, margin_N"
+dcf.terminal -> dcf.ev: "present value of terminal value"
+dcf.years -> dcf.ev: "present value_t"
+dcf.ev -> dcf.equity: "EV"
+dcf.equity -> dcf.blend: "going-concern value per share"
+
+# Edges: sensitivity
+dcf -> sensitivity.tornado: "the DCF re-run per scenario"
+sensitivity.tornado -> sensitivity.grid: "two widest axes"
