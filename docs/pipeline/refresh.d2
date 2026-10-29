@@ -94,7 +94,7 @@ damodaran: "1. Damodaran datasets" {
 
 # Sub-flow 2: fundamentals
 fundamentals: "2. fundamentals" {
-  mapping: "load the industry mapping once per run\nprovider industry label → companies.industry_damodaran\nEDGAR label: Standard Industrial Classification (SIC) description\ncase, spaces and dashes are ignored when matching" {  # @symbol bot.ingest.industry_mapping.load_industry_mapping
+  mapping: "load the industry mapping once per run\nprovider industry label → companies.industry_damodaran\nEDGAR label: Standard Industrial Classification (SIC) description\nmatching folds case, collapses spaces\nand treats dash variants alike" {  # @symbol bot.ingest.industry_mapping.load_industry_mapping
     class: step
     unmapped: |md
       - A label without a row leaves industry_damodaran empty and logs a warning;
@@ -118,21 +118,18 @@ fundamentals: "2. fundamentals" {
         so the skip check above finds the stored filings.
       - One refresh_log row per ticker, source = the provider name.
       - A failed ticker is recorded and the run continues.
+      - FMP statements come already parsed; the period, concept,
+        fiscal, derive and share rules below apply to SEC EDGAR only.
       | {class: note}
     base: |md EdgarPricedProvider is the EDGAR half shared by the Tiingo and Stooq providers. | {class: note}  # @symbol bot.ingest.edgar_base.EdgarPricedProvider
   }
-  periods: "which facts become a row?\nannual: a duration of 350 to 380 days from a 10-K or 10-K/A\nquarterly: a duration of 80 to 100 days from a 10-Q or 10-Q/A\nan instant fact joins the row with the same period end\nany other fact is dropped" {  # @symbol bot.ingest.sec_edgar._collect_period_rows @const bot.ingest.sec_edgar.ANNUAL_SPAN_DAYS @const bot.ingest.sec_edgar.QUARTERLY_SPAN_DAYS
+  periods: "which facts become a row?\nannual: a duration of 350 to 380 days from a 10-K or 10-K/A\nquarterly: a duration of 80 to 100 days from a 10-Q or 10-Q/A,\nfor a column stored quarterly\nan instant fact joins the row with the same period end\nany other fact is dropped" {  # @symbol bot.ingest.sec_edgar._collect_period_rows @const bot.ingest.sec_edgar.ANNUAL_SPAN_DAYS @const bot.ingest.sec_edgar.QUARTERLY_SPAN_DAYS
     class: decision
   }
-  precedence: "which concept fills a column?\nper column and period end, the first concept in the list\nwith an accepted fact wins; later concepts fill only empty ends" {  # @symbol bot.ingest.sec_edgar._collect_period_rows
+  precedence: "which concept fills a column?\nper column and period end, the first concept in the list\nwith an accepted fact wins; later concepts fill only empty ends\ne.g. revenue: Revenues, then\nRevenueFromContractWithCustomerExcludingAssessedTax, ...\nis_restated: a fact used for the period comes from an amendment" {  # @symbol bot.ingest.sec_edgar._collect_period_rows
     class: decision
-    example: |md
-      - Revenue: Revenues, then RevenueFromContractWithCustomerExcludingAssessedTax,
-        then SalesRevenueNet, and so on.
-      - is_restated is true when a fact used for the period comes from an amendment.
-      | {class: note}
   }
-  derive: "derive aggregates, only when not reported\nwith earnings before interest and taxes (EBIT) as input:\nso EBITDA = EBIT + depreciation\nfree cash flow = operating cash flow − capex\nworking capital = current assets − current liabilities\nan aggregate with a missing input stays empty" {  # @symbol bot.ingest.sec_edgar._derive_financial_fields
+  derive: "derive aggregates, only when not reported, from\nearnings before interest and taxes (EBIT): EBITDA = EBIT + depreciation\nfree cash flow = operating cash flow − capex\nworking capital = current assets − current liabilities\nan aggregate with a missing input stays empty" {  # @symbol bot.ingest.sec_edgar._derive_financial_fields
     class: step
   }
   fiscal: "label each row with its fiscal year\nannual: fiscal year = calendar year of the period end\nquarter: year of the next annual end within 380 days,\nelse previous annual end + 1;\nnumbered back or forward in 91.3-day steps\ntwo rows with one label: the later period end is kept" {  # @symbol bot.ingest.sec_edgar.parse_company_facts @symbol bot.ingest.sec_edgar._fiscal_quarter_key
@@ -144,13 +141,13 @@ fundamentals: "2. fundamentals" {
       - No such filing label: the row is dropped.
       | {class: note}
   }
-  shares: "annual diluted share count a whole scale off its peers?\nratio = median of the other annual counts ÷ count\nfactors tried: 1,000,000, then 1,000\nyes if factor ÷ 2 ≤ ratio ≤ factor × 2 (tolerance 2)\nneeds at least 3 other counts\nyes: count × factor, counted as rescaled" {  # @symbol bot.ingest.sec_edgar._rescale_shares_diluted @const bot.ingest.sec_edgar._SHARE_SCALE_FACTORS @const bot.ingest.sec_edgar._MIN_SHARE_COMPARATORS @const bot.ingest.sec_edgar._SHARE_SCALE_TOLERANCE
+  shares: "annual diluted share count a whole scale off its peers?\nratio = median of the other positive annual counts ÷ count\nfactors tried: 1,000,000, then 1,000\nyes if factor ÷ 2 ≤ ratio ≤ factor × 2 (tolerance 2)\nneeds at least 3 other counts\nyes: count × factor, counted as rescaled" {  # @symbol bot.ingest.sec_edgar._rescale_shares_diluted @const bot.ingest.sec_edgar._SHARE_SCALE_FACTORS @const bot.ingest.sec_edgar._MIN_SHARE_COMPARATORS @const bot.ingest.sec_edgar._SHARE_SCALE_TOLERANCE
     class: decision
   }
   rate_limit: "provider rate limit hit (probe or import)?\nyes: this ticker and every remaining one are deferred, not failed\ndeferred tickers are not counted in the failure rate" {  # @symbol bot.ingest.universe._run_bulk_refresh
     class: decision
   }
-  status: "status of the run\nfailure rate = failed ÷ attempted\nat most 5%: success; at most 25%: partial; above 25%: error\nnot success: exit code 2" {  # @const bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE @const bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE
+  status: "status of the run\nfailure rate = failed ÷ attempted\nat most 5%: success; at most 25%: partial; above 25%: error\nnot success: exit code 2" {  # @symbol bot.ingest.universe._resolve_status @const bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE @const bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE
     class: decision
   }
 }
@@ -170,19 +167,21 @@ prices: "3. prices" {
     class: step
     provider: |md
       - Tiingo is the default source: status 429 is a rate limit.
-      - Stooq is the alternative: CSV files read from BOT_STOOQ_DIR.
-      - FMP is the optional provider (BOT_DATA_PROVIDER=fmp).
+      - Stooq is the alternative (BOT_DATA_PROVIDER=edgar-stooq):
+        CSV files from BOT_STOOQ_DIR, else stooq.com.
+      - FMP is the optional provider (BOT_DATA_PROVIDER=fmp). Its market cap
+        is the marketCap field of its prices, or the current market cap
+        when the newest bar is at most 7 days old.
       | {class: note}
     default_provider: |md Gap: docs/plano/estado.py still calls edgar-stooq the default provider; the code default is edgar-tiingo. | {class: gap}  # @file docs/plano/estado.py
   }
-  market_cap: "market cap = close × shares outstanding\nnewest bar only, and only when it is at most 7 days old\nshares: newest SEC EDGAR dei EntityCommonStockSharesOutstanding" {  # @const bot.ingest.edgar_base._FRESH_DAYS @symbol bot.ingest.sec_edgar.SecEdgarClient.shares_outstanding
+  market_cap: "market cap = close × shares outstanding\nnewest bar only, and only when it is at most 7 days old\nshares: newest SEC EDGAR dei EntityCommonStockSharesOutstanding\nSEC EDGAR providers only; otherwise, or when the shares\nlookup fails, the bar is stored without market cap" {  # @const bot.ingest.edgar_base._FRESH_DAYS @symbol bot.ingest.sec_edgar.SecEdgarClient.shares_outstanding
     class: decision
-    fmp: |md This rule belongs to the EDGAR providers (Tiingo and Stooq). The FMP provider takes the marketCap field of its prices, or the current market cap when the newest bar is at most 7 days old. | {class: note}
   }
   rate_limit: "provider rate limit hit?\nyes: this ticker and every remaining one are deferred, not failed;\nthe run prints tickers deferred and daily.sh runs another round" {  # @symbol bot.ingest.universe._run_bulk_refresh
     class: decision
   }
-  status: "status of the run\nfailure rate = failed ÷ attempted\nat most 5%: success; at most 25%: partial; above 25%: error\nnot success: exit code 2" {  # @const bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE @const bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE
+  status: "status of the run\nfailure rate = failed ÷ attempted\nat most 5%: success; at most 25%: partial; above 25%: error\nnot success: exit code 2" {  # @symbol bot.ingest.universe._resolve_status @const bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE @const bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE
     class: decision
   }
 }
@@ -199,6 +198,9 @@ fx: "4. foreign exchange rates" {
       - The rate of the nearest prior date is used, never a later one.
       | {class: note}
     no_op: |md Gap: under the SEC EDGAR providers (edgar-tiingo, the default, and edgar-stooq) the FX refresh stores no rates for non-USD currencies; only Financial Modeling Prep supplies them. | {class: gap}  # @symbol bot.ingest.edgar_base.EdgarPricedProvider.fx_rates
+  }
+  status: "status of the run, as for prices\nrate limit: the remaining currencies are deferred\nat most 5%: success; at most 25%: partial; above 25%: error\nnot success: exit code 2" {  # @symbol bot.ingest.universe._resolve_status @const bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE @const bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE
+    class: decision
   }
 }
 
@@ -275,4 +277,5 @@ fmp -> fx.fetch: "daily rates (BOT_DATA_PROVIDER=fmp only)"
 fx.currencies -> fx.fetch: "one currency at a time"
 fx.fetch -> duckdb.currencies: "rate_to_usd per currency and date"
 fx.fetch -> duckdb.refresh_log: "one row per currency, source = provider name + _fx"
-fx.currencies -> duckdb.refresh_log: "one summary row per run, source = provider name + _fx_universe"
+fx.fetch -> fx.status: "imported, failed or deferred per currency"
+fx.status -> duckdb.refresh_log: "one summary row per run, source = provider name + _fx_universe"
