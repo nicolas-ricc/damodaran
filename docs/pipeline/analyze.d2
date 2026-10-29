@@ -83,31 +83,31 @@ story_type: "2. story type: first rule that matches wins" {  # @symbol bot.valua
 
 # Section 3: assumptions
 assumptions: "3. assumptions: the first source that yields a value wins; paths over 5 years" {  # @symbol bot.valuator.assumptions.resolve_assumptions @const bot.valuator.assumptions._HORIZON @enum bot.valuator.assumptions.AssumptionSource
-  sector_row: "sector row: newest damodaran_industry row for (industry, region)\nnone: the newest row of that industry in any region\nsector label = sector_default_damodaran,\nor sector_default_damodaran_cross_region when another region's row is used" {  # @symbol bot.valuator.assumptions._load_sector_with_fallback
+  sector_row: "sector row: newest damodaran_industry row\nfor (industry, region)\nnone: the newest row of that industry in any region\nsector label = sector_default_damodaran,\nor sector_default_damodaran_cross_region\nwhen another region's row is used" {  # @symbol bot.valuator.assumptions._load_sector_with_fallback
     class: step
   }
-  growth: "revenue growth g_t, a 5-year path\n1. manual: list, or one value repeated → manual\n2. high-growth with history: straight line from the mean historical growth\nto nominal gross domestic product (GDP) growth 4% → story_pattern\n3. mean historical growth, repeated → historical_average\n4. nominal GDP growth 4% each year → rule_based\nhistorical growth = mean of (revenue_t − revenue_t−1) ÷ revenue_t−1, zero bases skipped, ≥ 2 years" {  # @symbol bot.valuator.assumptions._resolve_revenue_growth @const bot.valuator.assumptions._DEFAULT_GDP_NOMINAL
+  growth: "revenue growth g_t, a 5-year path\n1. manual: list, or one value repeated → manual\n2. high-growth with history: straight line from the mean historical growth\nto nominal gross domestic product (GDP) growth 4% → story_pattern\n3. mean historical growth, repeated → historical_average\n4. nominal GDP growth 4% each year → rule_based\nhistorical growth = mean of (revenue_t − revenue_t−1) ÷ revenue_t−1,\nzero bases skipped, ≥ 2 years" {  # @symbol bot.valuator.assumptions._resolve_revenue_growth @const bot.valuator.assumptions._DEFAULT_GDP_NOMINAL
     class: step
     consensus: |md Gap: spec §7.3 starts revenue growth from analyst consensus converging to nominal GDP by year 10; there is no consensus layer (AssumptionSource has no analyst_consensus) and the horizon is 5 years. | {class: gap}
   }
-  margin: "operating margin, a 5-year path\n1. manual → manual\n2. high-growth: straight line from the latest EBIT ÷ revenue to the sector op_margin → story_pattern\n3. cyclical with ≥ 4 years: mean of the yearly EBIT ÷ revenue → historical_average\n4. sector op_margin each year → sector label\nno sector op_margin: unresolved" {  # @symbol bot.valuator.assumptions._resolve_operating_margin @const bot.valuator.assumptions._MIN_CYCLE_YEARS
+  margin: "operating margin, a 5-year path\n1. manual → manual\n2. high-growth: straight line from the latest EBIT ÷ revenue\nto the sector op_margin → story_pattern\n3. cyclical with ≥ 4 years: mean of the yearly\nEBIT ÷ revenue → historical_average\n4. sector op_margin each year → sector label\nno sector op_margin: unresolved" {  # @symbol bot.valuator.assumptions._resolve_operating_margin @const bot.valuator.assumptions._MIN_CYCLE_YEARS
     class: step
   }
-  sales_to_capital: "sales-to-capital: manual → manual; sector sales_to_capital → sector label; else unresolved" {  # @symbol bot.valuator.assumptions.resolve_assumptions
+  sales_to_capital: "sales-to-capital: manual → manual;\nsector sales_to_capital → sector label; else unresolved" {  # @symbol bot.valuator.assumptions.resolve_assumptions
     class: step
     story: |md Gap: spec §7.1 varies reinvestment by story type (high early for high-growth, minimal for mature-decline); sales-to-capital and terminal growth follow the same rule for every story type. | {class: gap}
   }
-  discount_rates: "cost of equity and pre-tax cost of debt, each:\nmanual → manual; sector cost_of_equity / cost_of_debt → sector label; else unresolved" {  # @symbol bot.valuator.assumptions.resolve_assumptions
+  discount_rates: "cost of equity and pre-tax cost of debt, each:\nmanual → manual; sector cost_of_equity / cost_of_debt\n→ sector label; else unresolved" {  # @symbol bot.valuator.assumptions.resolve_assumptions
     class: step
   }
-  weights: "equity and debt weights\n1. manual: one given, the other = 1 − it; both given must sum to 1, else cannot value → manual\n2. sector debt-to-equity (D/E): debt weight = D/E ÷ (1 + D/E), equity weight = 1 − debt weight → sector label\n3. else unresolved" {  # @symbol bot.valuator.assumptions._resolve_weights
+  weights: "equity and debt weights\n1. manual: one given, the other = 1 − it;\nboth given must sum to 1, else cannot value → manual\n2. sector debt-to-equity (D/E): debt weight = D/E ÷ (1 + D/E),\nequity weight = 1 − debt weight → sector label\n3. else unresolved" {  # @symbol bot.valuator.assumptions._resolve_weights
     class: step
     company: |md Gap: spec §7.3 builds the discount rate from the company's capital structure and the country equity risk premium; the code uses the sector's D/E and the sector cost of equity. | {class: gap}
   }
-  terminal_growth: "terminal growth g_terminal\n1. manual → manual\n2. country risk-free rate known: min(risk-free rate, nominal GDP growth 4%) → rule_based\n3. else nominal GDP growth 4% → rule_based" {  # @symbol bot.valuator.assumptions._resolve_terminal_growth
+  terminal_growth: "terminal growth g_terminal\n1. manual → manual\n2. country risk-free rate known:\nmin(risk-free rate, nominal GDP growth 4%) → rule_based\n3. else nominal GDP growth 4% → rule_based" {  # @symbol bot.valuator.assumptions._resolve_terminal_growth
     class: step
   }
-  tax: "tax rate\n1. manual → manual\n2. sector tax_rate → sector label\n3. country tax_rate (newest damodaran_country row) → sector_default_damodaran\n4. else 25% → rule_based" {  # @symbol bot.valuator.assumptions._resolve_tax_rate @const bot.valuator.assumptions._DEFAULT_TAX_RATE
+  tax: "tax rate\n1. manual → manual\n2. sector tax_rate → sector label\n3. country tax_rate (newest damodaran_country row)\n→ sector_default_damodaran\n4. else 25% → rule_based" {  # @symbol bot.valuator.assumptions._resolve_tax_rate @const bot.valuator.assumptions._DEFAULT_TAX_RATE
     class: step
   }
   bankruptcy: "probability of bankruptcy p and distress value per share\nmanual → manual; else 0 → rule_based" {  # @symbol bot.valuator.assumptions.resolve_assumptions
@@ -164,6 +164,7 @@ duckdb.damodaran_country -> assumptions.terminal_growth: "risk-free rate"
 duckdb.damodaran_country -> assumptions.tax: "country tax rate"
 duckdb.financials_annual -> assumptions.growth: "revenue history"
 duckdb.financials_annual -> assumptions.margin: "EBIT and revenue history"
+inputs.region -> assumptions.sector_row: "dataset region"
 assumptions.sector_row -> assumptions.margin: "sector row and label"
 assumptions.sector_row -> assumptions.sales_to_capital: "sector row and label"
 assumptions.sector_row -> assumptions.discount_rates: "sector row and label"
