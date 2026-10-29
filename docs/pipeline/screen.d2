@@ -116,6 +116,55 @@ quality_gates: "3. quality gates: every gate must pass" {
   }
 }
 
+# Layer 4: value indicators
+value_indicators: "4. value indicators: at least one must pass" {
+  pe_below_industry_multiple: "P/E < 0.7 × sector median P/E\nskipped: median or company P/E missing or ≤ 0" {  # @rule pe_below_industry_multiple @param pe_below_industry_multiple.multiple
+    class: decision
+  }
+  ev_ebitda_below_industry_multiple: "EV/EBITDA < 0.7 × sector median EV/EBITDA\nskipped: median or company EV/EBITDA missing or ≤ 0" {  # @rule ev_ebitda_below_industry_multiple @param ev_ebitda_below_industry_multiple.multiple
+    class: decision
+  }
+  pbv_below_industry_multiple_with_roe_above_median: "P/BV < 0.7 × sector median P/BV and ROE > sector median ROE\nskipped: a median or company figure missing, or P/BV ≤ 0" {  # @rule pbv_below_industry_multiple_with_roe_above_median @param pbv_below_industry_multiple_with_roe_above_median.multiple
+    class: decision
+  }
+  fcf_yield_above: "free cash flow yield > 8%\nskipped when missing; no sector benchmark needed" {  # @rule fcf_yield_above @param fcf_yield_above.minimum
+    class: decision
+  }
+  score: "value indicator score\nscore = (threshold − value) ÷ threshold, clipped to [0, 1]\n(threshold = 0.7 × sector median)\nfree cash flow yield: score = min(1, yield ÷ minimum)\nvalue metric = highest score among passing indicators" {  # @symbol bot.screener.rules._value_score
+    class: step
+  }
+  at_least_one: "at least one value indicator passed?\na skipped indicator neither passes nor fails;\nall four skipped: rejected\nno: rejected" {  # @symbol bot.screener.engine.evaluate_company
+    class: decision
+  }
+}
+
+# Layer 5: trap detection
+trap_detection: "5. trap detection: every detector must pass" {
+  growth_rate: "average growth = mean of (current − previous) ÷ previous\nover consecutive years\nundefined through a base ≤ 0" {  # @symbol bot.screener.rules._avg_growth_rate
+    class: step
+  }
+  revenue_not_declining: "average revenue growth over the last 3 years > −5%\nuses the last 4 revenues; fewer, or undefined growth: fails" {  # @rule revenue_not_declining @param revenue_not_declining.max_decline @param revenue_not_declining.window
+    class: decision
+  }
+  operating_margin_not_contracting: "margin change = (last − first) × 10,000 bps over the last 3 years ≥ −200 bps\nfewer than 2 margins: fails" {  # @rule operating_margin_not_contracting @param operating_margin_not_contracting.max_contraction_bps @param operating_margin_not_contracting.window
+    class: decision
+  }
+  roic_above_sector_wacc: "ROIC > sector WACC\nROIC missing: fails\nsector WACC missing: skipped (never after the coverage gate)" {  # @rule roic_above_sector_wacc
+    class: decision
+  }
+  sloan_accruals_below: "Sloan ratio = (net income − operating cash flow) ÷ total assets < 0.1\nmissing or total assets ≤ 0: fails" {  # @rule sloan_accruals_below @param sloan_accruals_below.maximum
+    class: decision
+  }
+  share_count_not_diluting: "average diluted share count growth ≤ 5% a year\nfewer than 2 counts or undefined growth: fails" {  # @rule share_count_not_diluting @param share_count_not_diluting.max_annual_growth
+    class: decision
+    mergers: |md Gap: spec §6.4 exempts dilution from justified mergers and acquisitions; the code caps growth unconditionally. | {class: gap}
+  }
+  all_pass: "every trap detector passed?\na skipped detector is eliminatory (ADR 0006)\nno: rejected" {  # @symbol bot.screener.engine.evaluate_company
+    class: decision
+  }
+  auditor: |md Gap: spec §6.4 also lists auditor changes and late filings; not implemented. | {class: gap}
+}
+
 # Edges: entry point
 damodaran_value -> cli: "default preset"
 deep_value -> cli: "alternative preset"
@@ -146,3 +195,24 @@ quality_gates.max_net_debt_to_ebitda -> quality_gates.all_pass: "pass or fail"
 quality_gates.min_interest_coverage -> quality_gates.all_pass: "pass or fail"
 quality_gates.positive_operating_cashflow -> quality_gates.all_pass: "pass or fail"
 quality_gates.max_goodwill_to_assets -> quality_gates.all_pass: "pass or fail"
+
+# Edges: value indicators
+quality_gates.all_pass -> value_indicators.pe_below_industry_multiple: "yes: all gates passed"
+quality_gates.all_pass -> value_indicators.ev_ebitda_below_industry_multiple: "yes: all gates passed"
+quality_gates.all_pass -> value_indicators.pbv_below_industry_multiple_with_roe_above_median: "yes: all gates passed"
+quality_gates.all_pass -> value_indicators.fcf_yield_above: "yes: all gates passed"
+value_indicators.pe_below_industry_multiple -> value_indicators.score: "pass, fail or skipped"
+value_indicators.ev_ebitda_below_industry_multiple -> value_indicators.score: "pass, fail or skipped"
+value_indicators.pbv_below_industry_multiple_with_roe_above_median -> value_indicators.score: "pass, fail or skipped"
+value_indicators.fcf_yield_above -> value_indicators.score: "pass, fail or skipped"
+value_indicators.score -> value_indicators.at_least_one: "scores of passing indicators"
+
+# Edges: trap detection
+value_indicators.at_least_one -> trap_detection.growth_rate: "yes: at least one passed"
+trap_detection.growth_rate -> trap_detection.revenue_not_declining: "average growth"
+trap_detection.growth_rate -> trap_detection.share_count_not_diluting: "average growth"
+trap_detection.revenue_not_declining -> trap_detection.all_pass: "pass or fail"
+trap_detection.operating_margin_not_contracting -> trap_detection.all_pass: "pass or fail"
+trap_detection.roic_above_sector_wacc -> trap_detection.all_pass: "pass, fail or skipped"
+trap_detection.sloan_accruals_below -> trap_detection.all_pass: "pass or fail"
+trap_detection.share_count_not_diluting -> trap_detection.all_pass: "pass or fail"
