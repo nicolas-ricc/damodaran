@@ -21,13 +21,13 @@ happens in the `pipeline-diagram` workflow on every push (artifact
 
 `rendered.sha256` is the hash of the `.d2` sources. `check.py` and CI fail when
 it differs from the sources or an SVG is missing. Never edit an SVG or the hash
-by hand.
+by hand. PNGs are for looking only: git-ignored, never committed.
 
 ## Directives
 
 A citation is a d2 line comment, trailing the line it describes or alone on the
 line before it: `# @kind argument`. Never inside a `|md ... |` block; outside
-directives, no `@` starts a word in a comment.
+directives, no `@` starts a word in a comment. `link:` targets must exist in this folder (`check.py`).
 
 | Directive | Cites | Checked by |
 | --- | --- | --- |
@@ -45,7 +45,7 @@ directives, no `@` starts a word in a comment.
 - Expand every acronym at first use.
 - Follow every ADR mention with its status: `ADR 0006 (Implemented)`.
 - A gap note starts `Gap:` and names the document: `plano <card>`, `leccion cap-N`, or a spec section.
-- Digits on a step label are cited by `@const`/`@param` on the same line; write counts in words.
+- Digits on a step label are cited by `@const`/`@param` on the same line (except 0, 1, 100, ordinals, digits inside words such as 10-K); write counts in words.
 - Stage links are `link: "./<stage>.svg"`: d2 v0.9.0 drops `link: <stage>.svg` when the board has a node keyed `<stage>`.
 
 ## How to add a step
