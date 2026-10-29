@@ -244,7 +244,7 @@ Source order (the acronym test reads top to bottom): `cli`, `tickers`, `override
   - Q13 CODE `_ACRONYMS_EXEMPT` holds `TICKER`, `YYYY`, `MM`, `DD`, `HTML`, `JSON`; `EV` is in `_ACRONYMS` and expanded on `dcf.ev`, before `sanity_check`; `DuckDB` is mixed case, not matched.
   - Q14 CODE `analysis.py` `_latest_from_row` (net debt, a missing term = 0, both missing = none) and `analyze` (`net_debt ... else 0.0`, interest coverage, age from `ipo_date`): two paths; wording fixed.
   - Q15 CODE `src/bot/cli.py:418-440` (query inside `analyze`); `tests/unit/test_cli_analyze.py:299` asserts "did not leave any candidates".
-  - Q16 CODE `src/bot/cli.py:442-445` `exit_code = max(...)`; covered in `tests/unit/test_cli_analyze.py`.
+  - Q16 CODE `src/bot/cli.py:442-445` `exit_code = max(...)`; `tests/unit/test_cli_analyze.py:404-408` (MCD fails, AAPL succeeds, exit code 1).
   - Q17 CODE `docs/pipeline/build.sh` last line hashes `cat ./*.d2` (sources); `.github/workflows/pipeline-diagram.yml` `on: [push, workflow_dispatch]`, no path filter. ISSUE: "d2 ≥ v0.9.0 bundles the TALA layout engine: open source, no separate plugin, no licence key".
   - Q18 CODE `src/bot/valuator/assumptions.py:84-102` `AssumptionSource`: seven members, no `analyst_consensus`.
 - Assumptions added: red stage-3 commit (Q2).
