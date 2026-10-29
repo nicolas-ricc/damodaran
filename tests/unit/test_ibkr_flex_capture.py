@@ -13,6 +13,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import pytest
+
+from bot.ingest.ibkr_flex import CorporateActionRecord, parse_flex_statement
 from bot.ingest.ibkr_flex_capture import (
     REDACTED_ACCOUNT,
     FlexSummary,
@@ -20,8 +22,6 @@ from bot.ingest.ibkr_flex_capture import (
     redact_statement,
     summarize_statement,
 )
-
-from bot.ingest.ibkr_flex import CorporateActionRecord, parse_flex_statement
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "ibkr_flex" / "statement_sample.xml"
 MONEY_KEYS = ("amount", "proceeds", "quantity", "value")
@@ -67,6 +67,7 @@ def _decimals(value: str) -> int:
         ("1,234.56", "1,234.56"),
         ("abc", "abc"),
         (" 75.00 ", "10.00"),
+        ("1E+5000", "1" + "0" * 5000),
     ],
 )
 def test_fake_number(value: str, expected: str) -> None:
@@ -191,6 +192,16 @@ def test_summary_dates_none_when_absent() -> None:
     summary = summarize_statement(xml)
     assert (summary.from_date, summary.to_date) == (None, None)
     assert (summary.accounts, summary.rows) == (1, 0)
+
+
+def test_summary_dates_tolerate_padding() -> None:
+    xml = (
+        "<FlexQueryResponse><FlexStatements>"
+        '<FlexStatement accountId="U1" fromDate=" 20260901" toDate="20260930 " />'
+        "</FlexStatements></FlexQueryResponse>"
+    )
+    summary = summarize_statement(xml)
+    assert (summary.from_date, summary.to_date) == ("2026-09-01", "2026-09-30")
 
 
 def test_summary_missing_type_counts_under_empty() -> None:

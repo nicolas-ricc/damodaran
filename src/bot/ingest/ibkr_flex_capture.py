@@ -13,7 +13,7 @@ from collections import Counter
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 
-from bot.ingest.ibkr_flex import _flex_date, parse_flex_row
+from bot.ingest.ibkr_flex import _attr, _flex_date, _flex_root, parse_flex_row
 
 REDACTED_ACCOUNT = "U0000000"
 
@@ -44,16 +44,14 @@ def _fake_number(value: str) -> str:
     decimals = max(0, -int(number.as_tuple().exponent))
     integer_digits = number.adjusted() + 1
     if integer_digits >= 1:
-        fake = sign + str(10 ** (integer_digits - 1))
+        fake = sign + "1" + "0" * (integer_digits - 1)
         return fake + ("." + "0" * decimals if decimals else "")
     return f"{sign}0.1{'0' * (decimals - 1)}"
 
 
 def redact_statement(xml: str) -> str:
     """Return the statement with account ids and money columns faked."""
-    root = ET.fromstring(xml)
-    if root.tag != "FlexQueryResponse":
-        raise ValueError(f"expected a FlexQueryResponse, got {root.tag}")
+    root = _flex_root(xml)
     for el in root.iter():
         if "accountId" in el.attrib:
             el.set("accountId", REDACTED_ACCOUNT)
@@ -93,12 +91,10 @@ def _sorted(counter: Counter[str]) -> dict[str, int]:
 
 def summarize_statement(xml: str) -> FlexSummary:
     """Count statements, row types and parser outcomes of a ``FlexQueryResponse``."""
-    root = ET.fromstring(xml)
-    if root.tag != "FlexQueryResponse":
-        raise ValueError(f"expected a FlexQueryResponse, got {root.tag}")
+    root = _flex_root(xml)
     statements = list(root.iter("FlexStatement"))
-    from_dates = [d for s in statements if (d := _flex_date(s.get("fromDate", ""))) is not None]
-    to_dates = [d for s in statements if (d := _flex_date(s.get("toDate", ""))) is not None]
+    from_dates = [d for s in statements if (d := _flex_date(_attr(s, "fromDate"))) is not None]
+    to_dates = [d for s in statements if (d := _flex_date(_attr(s, "toDate"))) is not None]
     corporate_actions = list(root.iter("CorporateAction"))
     cash_transactions = list(root.iter("CashTransaction"))
     parsed_by_type: Counter[str] = Counter()

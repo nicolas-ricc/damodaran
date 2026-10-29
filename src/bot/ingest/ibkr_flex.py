@@ -139,6 +139,14 @@ def _record(
     )
 
 
+def _flex_root(xml: str) -> ET.Element:
+    """Parse *xml* and return its root, which must be a ``FlexQueryResponse``."""
+    root = ET.fromstring(xml)
+    if root.tag != "FlexQueryResponse":
+        raise ValueError(f"expected a FlexQueryResponse, got {root.tag}")
+    return root
+
+
 def parse_flex_row(el: ET.Element) -> CorporateActionRecord | None:
     """Map one ``CorporateAction`` or ``CashTransaction`` element to a record (pure).
 
@@ -173,14 +181,10 @@ def parse_flex_row(el: ET.Element) -> CorporateActionRecord | None:
 def parse_flex_statement(xml: str) -> list[CorporateActionRecord]:
     """Map a ``FlexQueryResponse`` to corporate-action records (pure).
 
-    Dividend-type cash transactions become ``dividend``; ``FS``/``RS`` corporate
-    actions become ``split``; any other corporate action keeps its raw type,
-    lowercased. Other cash transactions are skipped silently; rows missing a
-    symbol, an id or a parseable date are skipped with a WARNING.
+    All ``CorporateAction`` rows first, then all ``CashTransaction`` rows, each
+    through :func:`parse_flex_row`; rows it returns ``None`` for are dropped.
     """
-    root = ET.fromstring(xml)
-    if root.tag != "FlexQueryResponse":
-        raise ValueError(f"expected a FlexQueryResponse, got {root.tag}")
+    root = _flex_root(xml)
     rows = (*root.iter("CorporateAction"), *root.iter("CashTransaction"))
     return [record for el in rows if (record := parse_flex_row(el)) is not None]
 
