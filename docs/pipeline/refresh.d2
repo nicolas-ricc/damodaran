@@ -11,11 +11,14 @@ price_fill: "price_fill.sh\nhourly, until every company has a price" {class: cro
 cli: "bot refresh\nruns the requested sources in dependency order:\nDamodaran, fundamentals, prices, foreign exchange (FX) rates" {  # @symbol bot.cli.refresh
   class: step
   options: |md
-    - Sources: --damodaran, --fundamentals (alias --fmp), --prices, --fx, or --all for all four.
+    - Sources: --damodaran, --fundamentals (alias --fmp), --prices, --fx,
+      or --all for all four.
     - Damodaran dataset: --region (default US) and --year (default the current year).
     - Tickers: --universe names the tickers CSV; --limit N takes the first N tickers.
     - Modes: --only-missing for prices, --force for fundamentals.
-    - Exit code: the worst of the requested sources; Damodaran failure 1, other sources 2.
+    - No source flag: exit code 2.
+    - Exit code: the worst of the requested sources;
+      Damodaran failure 1, other sources 2.
     | {class: note}
 }
 region: "Damodaran requested\nwith --region other than US?\nyes: whole command refused before any source runs, exit code 2" {  # @symbol bot.cli.refresh
@@ -26,7 +29,7 @@ region: "Damodaran requested\nwith --region other than US?\nyes: whole command r
 damodaran_data: "Damodaran datasets\npages.stern.nyu.edu/~adamodar/pc/datasets/" {class: external}
 edgar: "Securities and Exchange Commission (SEC)\nElectronic Data Gathering, Analysis, and Retrieval (EDGAR)" {class: external}
 tiingo: "Tiingo\nend-of-day (EOD) prices, default source" {class: external}  # @symbol bot.ingest.edgar_tiingo
-stooq: "Stooq\nprices from CSV files in BOT_STOOQ_DIR, alternative source" {class: external}  # @symbol bot.ingest.stooq
+stooq: "Stooq\nCSV files in BOT_STOOQ_DIR, else stooq.com\nend-of-day prices, alternative source" {class: external}  # @symbol bot.ingest.stooq @symbol bot.ingest.edgar_stooq
 fmp: "Financial Modeling Prep (FMP)\noptional provider (BOT_DATA_PROVIDER=fmp)" {class: external}  # @symbol bot.ingest.fmp
 
 # Files in the repository
@@ -48,26 +51,31 @@ duckdb: "DuckDB (bot.duckdb)" {
 
 # Sub-flow 1: Damodaran datasets
 damodaran: "1. Damodaran datasets" {
-  download: "download the eight files into --download-dir\nwacc.xls first, then the seven others" {  # @symbol bot.ingest.damodaran.import_damodaran
+  download: "download the eight files into --download-dir\nwacc.xls, ctryprem.xls, then the six others" {  # @symbol bot.ingest.damodaran.import_damodaran
     class: step
     files: |md
-      - wacc.xls: beta, cost of equity, cost of debt, tax rate, cost of capital, debt weight D/(D+E).
+      - wacc.xls: beta, cost of equity, cost of debt, tax rate,
+        cost of capital, debt weight D/(D+E).
+      - ctryprem.xls, sheet 'ERPs by country': country, region, rating,
+        total equity risk premium, country risk premium.
+        A failure stops the remaining downloads.
       - margin.xls: operating margin, net margin.
       - capex.xls: sales to invested capital.
       - pedata.xls: price to earnings multiple.
-      - pbvdata.xls: price to book multiple, return on equity, return on invested capital.
-      - vebitda.xls: enterprise value to earnings before interest, taxes, depreciation and amortization (EBITDA) multiple.
+      - pbvdata.xls: price to book multiple, return on equity,
+        return on invested capital.
+      - vebitda.xls: enterprise value to earnings before interest, taxes,
+        depreciation and amortization (EBITDA) multiple.
       - psdata.xls: enterprise value to sales multiple.
-      - ctryprem.xls, sheet 'ERPs by country': country, region, rating, total equity risk premium, country risk premium.
       | {class: note}
   }
-  files_ok: "wacc.xls or ctryprem.xls failed?\nyes: error run, nothing written\nno, another file failed: partial, without its columns" {  # @symbol bot.ingest.damodaran.import_damodaran
+  files_ok: "wacc.xls or ctryprem.xls failed\nto download or parse?\nyes: error run, nothing written\nno, another file failed: partial, without its columns" {  # @symbol bot.ingest.damodaran.import_damodaran
     class: decision
   }
-  merge: "merge the industry files\nouter join on industry name\nearlier file wins a shared column" {  # @symbol bot.ingest.damodaran.merge_industry_datasets
+  merge: "merge the industry files\nouter join on industry name\nearlier file wins a shared column;\na later file fills only empty columns" {  # @symbol bot.ingest.damodaran.merge_industry_datasets
     class: step
   }
-  derive: "derive industry columns\nD/E = w ÷ (1 − w), with w = D/(D+E); left empty when w = 1\nbeta_unlevered = beta_levered ÷ (1 + (1 − tax) × D/E)" {  # @symbol bot.ingest.damodaran.derive_industry_columns
+  derive: "derive industry columns\nD/E = w ÷ (1 − w), with w = D/(D+E); left empty unless 0 ≤ w < 1\nbeta_unlevered = beta_levered ÷ (1 + (1 − tax) × D/E)" {  # @symbol bot.ingest.damodaran.derive_industry_columns
     class: step
     tax: |md A missing tax rate counts as 0. beta_unlevered is empty when D/E is empty. | {class: note}
   }
@@ -75,7 +83,7 @@ damodaran: "1. Damodaran datasets" {
     class: step
     risk_free: |md Gap: the US risk-free rate is written into every country row; the per-currency rate of the architecture decision record (ADR) 0005 is not implemented. | {class: gap}
   }
-  empty_rows: "no industry rows\nor no country rows?\nyes: status partial" {  # @symbol bot.ingest.damodaran._import_files_into_run
+  empty_rows: "no industry rows\nor no country rows?\nyes: status partial; an empty side\nkeeps its old rows (upsert returns before it deletes)" {  # @symbol bot.ingest.damodaran._import_files_into_run
     class: decision
   }
   write: "write both tables in one transaction\nreplace the (region, year) rows of damodaran_industry\nreplace the year rows of damodaran_country\nregion = --region, year = --year or the current year" {  # @symbol bot.ingest.damodaran.upsert_industry_rows @symbol bot.ingest.damodaran.upsert_country_rows
@@ -86,10 +94,9 @@ damodaran: "1. Damodaran datasets" {
 
 # Entry points into the command
 weekly -> cli: "bot refresh --all"
-daily -> cli: "bot refresh --prices, repeated until no tickers deferred\n(BOT_PRICE_ROUNDS, default 10 rounds; BOT_PRICE_RETRY_PAUSE, default 3600 s apart)\nthen bot refresh --fx"
+daily -> cli: "bot refresh --prices, repeated until no tickers deferred\n(BOT_PRICE_ROUNDS, default 10 rounds;\nBOT_PRICE_RETRY_PAUSE, default 3600 s apart)\na failing round stops the loop\nthen bot refresh --fx, which runs even when prices failed"
 price_fill -> cli: "hourly bot refresh --prices --only-missing\nuntil every company has a price"
-cli -> region: "Damodaran requested (--damodaran or --all)"
-cli -> damodaran: "1. Damodaran datasets (--damodaran or --all)"
+cli -> region: "1. Damodaran datasets (--damodaran or --all)"
 region -> damodaran.download: "no, region is US"
 
 # Damodaran flow
