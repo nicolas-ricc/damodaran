@@ -32,6 +32,7 @@ Current version: US-only (S&P 500).
 - **Open audit**: `docs/superpowers/notes/2026-08-14-grilling-pipeline-seams.md` — pipeline seam-by-seam audit; seams 1-2 closed (ADR 0005, 0006), seam 3 onward pending.
 - **The two plans**: `docs/plano/` — `plano.html` explains how the system is meant to work; `estado.html` says how much of it exists today. Read `estado.html` before starting a stage and update both when finishing one. See `docs/plano/README.md`.
 - **The lesson**: `docs/leccion/` — `index.html` teaches the Damodaran pipeline chapter by chapter and points at the code; `check.py` fails when it cites a symbol that no longer exists. See `docs/leccion/README.md`.
+- **The pipeline boards**: `docs/pipeline/` — d2 diagrams of the whole pipeline, cron to published site, drawn from the code. `check.py` fails when a board cites a table, file or symbol that no longer exists. See `docs/pipeline/README.md`.
 
 ## Working with the plans
 
