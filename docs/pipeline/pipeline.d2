@@ -22,6 +22,7 @@ analyze: "analyze: value each shortlisted company and write its report" {  # @sy
 }
 portfolio: "portfolio: sync holdings, detect events, write alerts" {  # @symbol bot.cli.portfolio
   class: step
+  link: "./portfolio.svg"
 }
 site: "site: build the static viewer from the analysis sidecars" {  # @symbol bot.cli.site
   class: step
@@ -138,7 +139,7 @@ duckdb.currencies -> portfolio: "exchange rates to USD"
 portfolio -> duckdb.portfolio_snapshots: "daily snapshot"
 portfolio -> duckdb.cash_balances: "cash by currency"
 portfolio -> duckdb.trades: "new executions"
-portfolio -> duckdb.corporate_actions: "splits, mergers, spin-offs"
+portfolio -> duckdb.corporate_actions: "dividends, splits and other corporate actions"
 duckdb.prices_daily -> portfolio: "prices for marks"
 duckdb.filings_log -> portfolio: "new filings of held companies"
 duckdb.financials_annual -> portfolio: "fundamentals for quality gates and trap detection"
