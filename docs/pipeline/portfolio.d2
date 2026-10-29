@@ -133,7 +133,7 @@ events: "4b. diff two snapshots into events" {  # @symbol bot.portfolio.events.c
 
 # Section 5: reports
 reports: "5. reports, written to reports/YYYY-MM-DD/" {
-  portfolio: "portfolio.md, the full state: positions, profit and loss (P&L), concentration, suggested reviews\nP&L = market value − quantity × average cost; unpriced: P&L unknown\nconcentration weight = market value ÷ total of positions with a market value > 0; flagged above 15%\nsuggested review: each flagged position, consider trimming\n--history: P&L per snapshot; --concentration: the breakdown table" {  # @symbol bot.portfolio.report.build_report @symbol bot.portfolio.report.render_portfolio @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
+  portfolio: "portfolio.md, the full state: positions, profit and loss (P&L), concentration,\nsuggested reviews\nP&L = market value − quantity × average cost; unpriced: P&L unknown\nconcentration weight = market value ÷ total of positions with a market value > 0;\nflagged above 15%\nsuggested review: each flagged position, consider trimming\n--history: P&L per snapshot; --concentration: the breakdown table" {  # @symbol bot.portfolio.report.build_report @symbol bot.portfolio.report.render_portfolio @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
     class: step
   }
   alerts: "alerts.md, today's events only: type, ticker, details\nalways written; an empty file when there are no events" {  # @symbol bot.portfolio.report.render_alerts
@@ -142,8 +142,8 @@ reports: "5. reports, written to reports/YYYY-MM-DD/" {
 }
 
 # Section 6: notify
-notify: "6. notify (after the run)" {
-  channel: "which channel? BOT_NOTIFIER\nnone: nothing is sent\nemail: needs BOT_SMTP_HOST, BOT_SMTP_FROM, BOT_SMTP_TO\ntelegram: needs BOT_TELEGRAM_BOT_TOKEN, BOT_TELEGRAM_CHAT_ID\na missing setting, or a password in cleartext: exit code 2, before the sync" {  # @symbol bot.notifier.build_notifier
+notify: "6. notify: channel checked first, alerts sent after the run" {
+  channel: "which channel? BOT_NOTIFIER\nnone: nothing is sent\nemail: needs BOT_SMTP_HOST, BOT_SMTP_FROM, BOT_SMTP_TO\ntelegram: needs BOT_TELEGRAM_BOT_TOKEN, BOT_TELEGRAM_CHAT_ID\na missing setting, or a password in cleartext:\nexit code 2, before the sync" {  # @symbol bot.notifier.build_notifier
     class: decision
   }
   send: "send alerts.md?\nno channel, or a blank file: not sent\nelse its text is sent; a send failure: exit code 1" {  # @symbol bot.notifier.notify_alerts
