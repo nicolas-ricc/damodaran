@@ -1578,7 +1578,7 @@ _PORTFOLIO_TEXT: dict[str, list[str]] = {
     "sync.value": [
         f"market value = quantity {_TIMES} latest close",
         "on or before the snapshot date",
-        f"close {_TIMES} rate_to_usd(listing currency) ÷ rate_to_usd(position currency)",
+        f"close {_TIMES} rate_to_usd of the listing currency ÷ rate_to_usd of the position's currency",
         "close ≤ 0",
         "unpriced",
     ],
@@ -1704,6 +1704,12 @@ def test_portfolio_threshold_defaults() -> None:
     # just above each threshold fires, so the explicit-threshold cases above are not vacuous
     assert events_mod.detect_sector_recalibration(
         0.5, 0.76, "T", snapshot_date=_DAY, prev_date=_PREV, threshold=0.25) is not None
+    assert events_mod.detect_position_changes(
+        [_pos("T", 2.0)], [_pos("T", 3.5)], snapshot_date=_DAY, prev_date=_PREV,
+        size_change_threshold=0.5)
+    assert any(e.ticker == "A" for e in events_mod.detect_concentration(
+        [_pos("A", 1.0, 1.5), _pos("B", 1.0, 3.0)], snapshot_date=_DAY, prev_date=_PREV,
+        threshold=0.25))
 
 
 def test_portfolio_equality_is_not_a_cross() -> None:
@@ -1799,6 +1805,7 @@ def test_portfolio_filing_auto_analyze_gap_is_current() -> None:
     from bot.cli import portfolio
     from bot.portfolio.command import run_portfolio
 
+    # A substring check: a mere mention in a docstring also counts as reacting.
     sources = inspect.getsource(portfolio) + inspect.getsource(run_portfolio)
     reacts = "NEW_FILING" in sources or "new_filing" in sources
     assert _has_gap("events.new_filing.no_auto_analyze") != reacts

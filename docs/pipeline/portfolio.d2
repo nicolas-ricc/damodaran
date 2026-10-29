@@ -51,15 +51,15 @@ sync: "1–3. sync the account" {  # @symbol bot.portfolio.command.run_portfolio
   snapshot: "1. snapshot: every managed account's open positions\nand cash by currency\nidempotent per (snapshot_date, account):\ndelete that day's rows of the account,\nthen insert into portfolio_snapshots and cash_balances;\nother accounts' rows of the day untouched" {  # @symbol bot.portfolio.sync.sync_portfolio
     class: step
   }
-  value: "market value = quantity × latest close, expressed in the position's currency\nlatest close = newest prices_daily close on or before the snapshot date,\nin its listing currency; when that differs from the position's currency:\nclose × rate_to_usd(listing currency) ÷ rate_to_usd(position currency),\nnearest prior rates from currencies\neither currency unknown: close used as is\nno close, close ≤ 0, or a missing or non-positive rate:\nmarket value empty (unpriced)" {  # @symbol bot.portfolio.sync.value_positions
+  value: "market value = quantity × latest close, expressed in the position's currency\nlatest close = newest prices_daily close on or before the snapshot date,\nin its listing currency; when that differs from the position's currency:\nclose × rate_to_usd of the listing currency ÷ rate_to_usd of the position's currency,\nnearest prior rates from currencies\neither currency unknown: close used as is\nno close, close ≤ 0, or a missing or non-positive rate:\nmarket value empty (unpriced)" {  # @symbol bot.portfolio.sync.value_positions
     class: step
-    adr_0005: |md Gap: ADR 0005 (store money as reported, convert at the point of calculation) is not implemented; the universe is US-only and every holding trades in USD, so no real data exercises the cross-currency branch today. | {class: gap}  # @file docs/adr/0005-currency-handling-and-valuation-currency.md
+    adr_0005: |md Gap: ADR 0005 (store money as reported, convert at the point of calculation) is not implemented; the universe is US-only, so every close in prices_daily is in USD and no real data exercises the cross-currency branch today. | {class: gap}  # @file docs/adr/0005-currency-handling-and-valuation-currency.md
   }
   corporate_actions: "2. corporate actions, best effort\nonly when BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID are set\ndividend cash transactions → dividend, action_id ct:<id>\nforward and reverse splits → split; any other type kept lower-cased,\naction_id ca:<id>\ninserted de-duplicated on action_id\nany failure: a warning, the run goes on" {  # @symbol bot.ingest.ibkr_flex.import_corporate_actions
     class: step
     unverified: |md Gap: the Flex importer was written from IBKR's documentation against a synthetic fixture and is not yet verified against a real pull (issue 110). | {class: gap}  # @symbol bot.ingest.ibkr_flex
   }
-  trades: "3. trades, per account\nwatermark = newest executed_at stored for the account\nonly fills newer than the watermark are fetched\ninserted de-duplicated on exec_id\ntimestamps stored as naive Coordinated Universal Time (UTC)" {  # @symbol bot.portfolio.trades.sync_trades
+  trades: "3. trades, per account\nwatermark = newest executed_at stored for the account\nall fills TWS retains are fetched;\nthose at or after the watermark are kept\ninserted de-duplicated on exec_id\ntimestamps stored as naive Coordinated Universal Time (UTC)" {  # @symbol bot.portfolio.trades.sync_trades
     class: step
   }
 }
@@ -72,10 +72,10 @@ marks: "4a. mark every holding" {  # @symbol bot.portfolio.marks.mark_holdings
   valuation: "valuation: the analyze stage with config/assumptions/TICKER.yaml when present\n→ intrinsic value per share, latest close, red narrative flags\ncannot value: all three unknown" {  # @symbol bot.valuator.analysis.analyze
     class: step
   }
-  gates: "gates: screener inputs built as the screen builds them\n(companies, financials_annual, prices_daily, damodaran_industry)\nfailed gates = the gates that fail; a skipped rule does not count\nsector weighted average cost of capital (WACC) from the sector benchmark\nno sector benchmark row: sector WACC unknown, gates judged without it\nticker not in companies: failed gates and sector WACC unknown" {  # @symbol bot.screener.engine.load_holding_inputs
+  gates: "gates: screener inputs built as the screen builds them\n(companies, financials_annual, prices_daily, currencies,\ndamodaran_industry, damodaran_country)\nfailed gates = the gates that fail; a skipped rule does not count\nsector weighted average cost of capital (WACC) from the sector benchmark\nno sector benchmark row: sector WACC unknown, gates judged without it\nticker not in companies: failed gates and sector WACC unknown" {  # @symbol bot.screener.engine.load_holding_inputs
     class: step
   }
-  persist: "holding_marks: one row per holding;\nthe snapshot date's rows deleted, then inserted\nunknown values stored empty" {
+  persist: "holding_marks: one row per holding;\nthe snapshot date's rows deleted, then inserted\nunknown values stored empty" {  # @symbol bot.portfolio.marks.persist_marks
     class: step
     unknowns: |md An unknown current value never fires an event. An unknown previous red-flag set counts as empty, so standing red flags re-fire after a day without a valuation. Unknown previous gates or sector WACC fire nothing. | {class: note}
   }
@@ -83,7 +83,7 @@ marks: "4a. mark every holding" {  # @symbol bot.portfolio.marks.mark_holdings
 
 # Section 4b: events
 events: "4b. diff two snapshots into events" {  # @symbol bot.portfolio.events.compute_events @enum bot.portfolio.events.EventType
-  window: "previous snapshot = newest snapshot_date before today; none on the first run\npositions summed per ticker across accounts\nderived events diff the two persisted marks, never a recomputation" {
+  window: "previous snapshot = newest snapshot_date before today; none on the first run\npositions summed per ticker across accounts\nderived events diff the two persisted marks, never a recomputation" {  # @symbol bot.portfolio.marks.load_marks
     class: step
   }
   position_opened: "position_opened\nquantity ≠ 0 now, absent or 0 in the previous snapshot\nfirst run: every position" {  # @symbol bot.portfolio.events.detect_position_changes
@@ -95,7 +95,7 @@ events: "4b. diff two snapshots into events" {  # @symbol bot.portfolio.events.c
   position_size_changed: "position_size_changed: held in both and\n|Δquantity ÷ |previous quantity|| > 10%\nexactly 10%: no event" {  # @const bot.portfolio.events.DEFAULT_SIZE_CHANGE_THRESHOLD
     class: decision
   }
-  currency_changed: "currency_changed\nthe ticker's portfolio_snapshots currency (the listing currency IBKR reports)\ndiffers from the previous snapshot's, both known;\nheld in several accounts: any one account's currency\nnot on the first run" {  # @symbol bot.portfolio.events.detect_currency_changes
+  currency_changed: "currency_changed\nthe ticker's portfolio_snapshots currency\n(the position's currency IBKR reports: its listing currency at the broker)\ndiffers from the previous snapshot's, both known;\nheld in several accounts: any one account's currency\nnot on the first run" {  # @symbol bot.portfolio.events.detect_currency_changes
     class: decision
   }
   dividend: "dividend\na corporate_actions row of type dividend for a holding,\neffective after the previous snapshot, on or before this one\nfirst run: every action on or before this one" {  # @symbol bot.portfolio.events.detect_corporate_action_events
@@ -103,11 +103,11 @@ events: "4b. diff two snapshots into events" {  # @symbol bot.portfolio.events.c
   }
   split: "split\nthe same rule for type split (first run included)" {
     class: decision
-    other_actions: |md Gap: spec §8.3 lists dividend, split and corporate action; mergers, spin-offs and every other corporate action type are stored in corporate_actions but fire no event. | {class: gap}
+    other_actions: |md Gap: spec §8.3 also lists other corporate actions; mergers, spin-offs and the rest are stored but fire no event. | {class: gap}
   }
   new_filing: "new_filing\na filings_log row of a holding, filed on or before this snapshot,\nfiled after the previous snapshot or ingested on or after its date,\nnot reported before: (ticker, filing type, filing date)\nabsent from events_log\nfirst run: every unreported filing" {  # @symbol bot.portfolio.events.detect_new_filings
     class: decision
-    no_auto_analyze: |md Gap: spec §8.3 says a new filing auto-runs bot analyze and leaves an updated report. Verified against run_portfolio and the portfolio command: nothing reacts to new_filing; every holding is re-valued on every run by mark_holdings, and no analysis report is written. | {class: gap}
+    no_auto_analyze: |md Gap: spec §8.3 says a new filing auto-runs bot analyze. Verified in run_portfolio and the command: nothing reacts to new_filing; mark_holdings re-values every holding each run; no analysis report is written. | {class: gap}
   }
   intrinsic_value_crossed_price: "intrinsic_value_crossed_price\n(intrinsic value − price) < 0 before and > 0 now, or > 0 before and < 0 now\nequality is not a cross\nno previous mark, or any of the four values unknown: nothing" {  # @symbol bot.portfolio.events.detect_intrinsic_value_cross
     class: decision
@@ -133,7 +133,7 @@ events: "4b. diff two snapshots into events" {  # @symbol bot.portfolio.events.c
 
 # Section 5: reports
 reports: "5. reports, written to reports/YYYY-MM-DD/" {
-  portfolio: "portfolio.md, the full state: positions, profit and loss (P&L), concentration,\nsuggested reviews\nP&L = market value − quantity × average cost; unpriced: P&L unknown\nconcentration weight = market value ÷ total of positions with a market value > 0;\nflagged above 15%\nsuggested review: each flagged position, consider trimming\n--history: P&L per snapshot; --concentration: the breakdown table" {  # @symbol bot.portfolio.report.build_report @symbol bot.portfolio.report.render_portfolio @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
+  portfolio: "portfolio.md, the full state: positions, profit and loss (P&L), concentration,\nsuggested reviews\nP&L = market value − quantity × average cost; unpriced: P&L unknown\nconcentration weight = market value ÷ total of positions with a market value > 0;\nflagged above 15%\nsuggested review: each flagged position, consider trimming\n--history: P&L per snapshot; --concentration: the breakdown list" {  # @symbol bot.portfolio.report.build_report @symbol bot.portfolio.report.render_portfolio @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
     class: step
   }
   alerts: "alerts.md, today's events only: type, ticker, details\nalways written; an empty file when there are no events" {  # @symbol bot.portfolio.report.render_alerts
@@ -146,7 +146,7 @@ notify: "6. notify: channel checked first, alerts sent after the run" {
   channel: "which channel? BOT_NOTIFIER\nnone: nothing is sent\nemail: needs BOT_SMTP_HOST, BOT_SMTP_FROM, BOT_SMTP_TO\ntelegram: needs BOT_TELEGRAM_BOT_TOKEN, BOT_TELEGRAM_CHAT_ID\na missing setting, or a password in cleartext:\nexit code 2, before the sync" {  # @symbol bot.notifier.build_notifier
     class: decision
   }
-  send: "send alerts.md?\nno channel, or a blank file: not sent\nelse its text is sent; a send failure: exit code 1" {  # @symbol bot.notifier.notify_alerts
+  send: "send alerts.md?\nno channel, or a blank file: not sent\nelse its text is sent; a send failure: exit code 1\na same-day re-run sends the same alerts again" {  # @symbol bot.notifier.notify_alerts
     class: decision
   }
 }
@@ -160,12 +160,15 @@ override_yaml -> marks.valuation: "override of the holding"
 tws -> sync.snapshot: "accounts, positions, cash"
 duckdb.prices_daily -> sync.value: "latest close and its currency"
 duckdb.currencies -> sync.value: "rates to USD"
+duckdb.prices_daily -> marks.valuation: "latest close"
+duckdb.prices_daily -> marks.gates: "latest close for the gates"
+duckdb.currencies -> marks.gates: "rates to USD for market cap"
 sync.snapshot -> sync.value: "positions"
 sync.value -> duckdb.portfolio_snapshots: "positions with market value"
 sync.snapshot -> duckdb.cash_balances: "cash by currency"
 flex -> sync.corporate_actions: "statement"
 sync.corporate_actions -> duckdb.corporate_actions: "new actions"
-tws -> sync.trades: "fills newer than the watermark"
+tws -> sync.trades: "fills, kept at or after the watermark"
 duckdb.trades -> sync.trades: "watermark"
 sync.trades -> duckdb.trades: "new fills"
 sync.snapshot -> sync.corporate_actions: "2."
