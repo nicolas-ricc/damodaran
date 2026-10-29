@@ -40,6 +40,13 @@
 - `build.sh` works in its own directory (`cd "$(dirname "$0")"`), so a test can copy it with a few `.d2` files to `tmp_path` and run it there against a fake `d2`.
 - Build-tooling tests go in a third module, `tests/unit/test_pipeline_build.py`, so the two modules the issue names keep their stated roles.
 - Node keys in `pipeline.d2` are fixed here (the tests look them up), see Task 3.
+- `build.sh` reads the version as the first `v?[0-9]+\.[0-9]+\.[0-9]+` match in `d2 version`'s output (rejected: first whitespace token), because the exact v0.9.0 output format is not documented anywhere this plan can cite; the real CI run is what proves it.
+- Acronym test: an acronym is a token matching `\b[A-Z][A-Z0-9]+\b` or the literal `MoS` in `check.visible(board)`; its expansion counts when the expansion text appears (case-insensitive) anywhere from the start of the board to the end of the line holding the first occurrence. Every such token must be in `_ACRONYMS` or `_ACRONYMS_EXEMPT`; the exempt set is `JSON`, `CSV`, `YAML`, `SVG`, `URL` plus non-acronym capitals the board uses as words or placeholders (`US`, `YYYY`, `MM`, `DD`, `TICKER`, `HTML`, `S`, `P` if they occur). Underscored names such as `BOT_NOTIFIER` do not match (`_` is a word character). Rejected: a hard-coded list with no catch-all, which lets an unlisted acronym through.
+- `@enum` is checked against the whole board's visible text, not by `renderings()`; the `site.verdicts` note names the `Verdict` member values `undervalued`, `fair`, `overvalued`, `na` (`src/bot/web/views.py:32-36`) in its text.
+- `check.py` imports `codemap` with a `sys.path` insert of `docs/plano`, as `docs/leccion/check.py:13-16` does, and carries its own copy of `indice()` (rejected: importing the lesson's checker, which would couple two independent docs).
+- `test_build_refuses_without_d2` runs `build.sh` with `PATH` set to a `tmp_path` bin holding symlinks to `bash`, `cat`, `dirname`, `cut`, `sha256sum`, `sort`, `ls` (resolved with `shutil.which`) and no `d2`.
+- `check.py` carries type hints but stays outside mypy, which only checks `packages = ["bot"]` (`pyproject.toml`), as `docs/leccion/check.py` does; ruff covers it.
+- Intermediate `pipeline-diagram` runs (before the SVG is committed) are red by design; only the run on the PR head commit must be green.
 
 ---
 
@@ -142,3 +149,10 @@ README content: what the boards are; build `docs/pipeline/build.sh`; check `pyth
 - [ ] Push; find the `pipeline-diagram` run whose `headSha` is `HEAD`; `gh run watch <id> --exit-status`; on a build failure read `gh run view <id> --log-failed`, fix the source, push again.
 - [ ] When the build step is green: `gh run download <id> -n pipeline-render -D /tmp/render`; copy `*.svg` and `rendered.sha256` into `docs/pipeline/`; look at `/tmp/render/pipeline.png`; fix layout in the source if needed (then loop); commit `docs(#144): render pipeline`; push; the run on that commit must be green end to end and its log must show `d2 layout` listing `tala`.
 - [ ] `python3 docs/pipeline/check.py` exits 0; `uv run ruff check . && uv run mypy src && uv run pytest -q` green.
+
+## Grilling
+
+- Rounds: 1 (the answers added assumptions and changed no task, seam or step, so there was no second round). Griller model: fable.
+- Questions: 17. Answered from ISSUE: 8 (1, 3, 7, 10, 12, 13, 15, plus the "Python is present on the runner" half of 2); CODE: 7 (2, 5, 6, 9, 14, 16, 17); NO SOURCE → technical assumption: 3 (4, 8, 11). Spec ambiguities: 0. Out of scope: 0.
+- Assumptions added: version parsing in `build.sh`; acronym regex and exempt set; `@enum` checked against the board text, with the verdict note naming the member values; `codemap` import and `indice()` copy; the PATH construction in the build test; `check.py` outside mypy; intermediate red CI runs.
+- Issues opened: none.
