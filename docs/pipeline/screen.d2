@@ -197,10 +197,7 @@ quality_gates.positive_operating_cashflow -> quality_gates.all_pass: "pass or fa
 quality_gates.max_goodwill_to_assets -> quality_gates.all_pass: "pass or fail"
 
 # Edges: value indicators
-quality_gates.all_pass -> value_indicators.pe_below_industry_multiple: "yes: all gates passed"
-quality_gates.all_pass -> value_indicators.ev_ebitda_below_industry_multiple: "yes: all gates passed"
-quality_gates.all_pass -> value_indicators.pbv_below_industry_multiple_with_roe_above_median: "yes: all gates passed"
-quality_gates.all_pass -> value_indicators.fcf_yield_above: "yes: all gates passed"
+quality_gates -> value_indicators: "every measured company: all layers run"
 value_indicators.pe_below_industry_multiple -> value_indicators.score: "pass, fail or skipped"
 value_indicators.ev_ebitda_below_industry_multiple -> value_indicators.score: "pass, fail or skipped"
 value_indicators.pbv_below_industry_multiple_with_roe_above_median -> value_indicators.score: "pass, fail or skipped"
@@ -208,7 +205,7 @@ value_indicators.fcf_yield_above -> value_indicators.score: "pass, fail or skipp
 value_indicators.score -> value_indicators.at_least_one: "scores of passing indicators"
 
 # Edges: trap detection
-value_indicators.at_least_one -> trap_detection.growth_rate: "yes: at least one passed"
+value_indicators -> trap_detection: "every measured company: all layers run"
 trap_detection.growth_rate -> trap_detection.revenue_not_declining: "average growth"
 trap_detection.growth_rate -> trap_detection.share_count_not_diluting: "average growth"
 trap_detection.revenue_not_declining -> trap_detection.all_pass: "pass or fail"
