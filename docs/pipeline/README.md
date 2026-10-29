@@ -18,11 +18,11 @@ that version is on `PATH`. The SVG and `rendered.sha256` are never edited by han
 ## Directives
 
 A citation is a d2 line comment, trailing the line it describes, or alone on the
-line before it: `# @kind argument`. Never inside a `|md ... |` block.
+line before it: `# @kind argument`. Never inside a `|md ... |` block; outside directives, no `@` starts a word in a comment. `link:` targets are local SVGs.
 
 | Directive | Cites | Checked by |
 | --- | --- | --- |
-| `@symbol` | dotted path of a function or class | `check.py` |
+| `@symbol` | dotted path of a module, function, class or method | `check.py` |
 | `@table` | table in `schema.sql` | `check.py` |
 | `@file` | path from the repository root | `check.py` |
 | `@rule` | registered screener rule | `tests/unit/test_pipeline_diagram.py` |

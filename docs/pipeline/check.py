@@ -24,8 +24,10 @@ import codemap  # noqa: E402
 
 KINDS: tuple[str, ...] = ("symbol", "table", "file", "rule", "param", "const", "enum")
 
-_OPEN_RE = re.compile(r"(\|{1,3})(?:md|markdown)\b")
-_TOKEN_RE = re.compile(r"@(\w+)(?:[ \t]+([^\s@]\S*))?")
+# a block string: pipes, optional symbols, a language tag (|md, |`md, ||latex);
+# it closes on the same symbols reversed, then the pipes
+_OPEN_RE = re.compile(r"(\|+)([^\w\s|]*)[A-Za-z]\w*")
+_TOKEN_RE = re.compile(r"(?<!\S)@(\w+)(?:[ \t]+([^\s@]\S*))?")
 _QUOTE_START = ":{;([,"
 _LINK_RE = re.compile(r"(?:^|[\s.{;])link:\s*[\"']?([^\"'\s}]+)")
 _TABLE_RE = re.compile(r"CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(\w+)", re.I)
@@ -77,8 +79,8 @@ def _scan(text: str) -> list[_Line]:
             elif ch == "#" and (i == 0 or raw[i - 1].isspace()):
                 comment = raw[i + 1 :]
                 break
-            elif ch == "|" and (m := _OPEN_RE.match(raw, i)):
-                closer = m.group(1)
+            elif ch == "|" and raw[:i].rstrip().endswith(":") and (m := _OPEN_RE.match(raw, i)):
+                closer = m.group(2)[::-1] + m.group(1)
                 code.append(raw[i : m.end()])
                 vis.append(raw[i : m.end()])
                 i = m.end()
@@ -124,7 +126,11 @@ def unknown_directives(text: str) -> list[tuple[str, int]]:
 
 
 def links(text: str) -> list[tuple[str, int]]:
-    return [(m[1], ln.number) for ln in _scan(text) if (m := _LINK_RE.search(ln.code))]
+    return [
+        (m[1], ln.number)
+        for ln in _scan(text)
+        if (m := _LINK_RE.search(ln.code)) and "://" not in m[1]
+    ]
 
 
 def visible(text: str) -> str:

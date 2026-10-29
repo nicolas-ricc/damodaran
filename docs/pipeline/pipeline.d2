@@ -11,7 +11,7 @@ refresh: "refresh: download data in order: Damodaran, fundamentals, end-of-day (
   class: step
   fx_gap: |md Gap: with the default providers the FX refresh stores no rates for non-USD currencies; only Financial Modeling Prep supplies them. | {class: gap}  # @symbol bot.ingest.edgar_base.EdgarPricedProvider.fx_rates
 }
-screen: "screen: rank the universe with the quality gates and value indicators into a shortlist" {  # @symbol bot.cli.screen
+screen: "screen: rank the universe with the quality gates, value indicators and trap detection into a shortlist" {  # @symbol bot.cli.screen
   class: step
 }
 analyze: "analyze: value each shortlisted company and write its report" {  # @symbol bot.cli.analyze
@@ -90,14 +90,14 @@ refresh -> duckdb.damodaran_industry: "industry benchmarks"
 refresh -> duckdb.damodaran_country: "country risk"
 refresh -> duckdb.companies: "company profiles"
 refresh -> duckdb.financials_annual: "annual statements"
-refresh -> duckdb.financials_quarterly: "quarterly statements (EDGAR only)"
+refresh -> duckdb.financials_quarterly: "quarterly statements"
 refresh -> duckdb.filings_log: "filing dates"
 refresh -> duckdb.prices_daily: "close prices"
 refresh -> duckdb.currencies: "exchange rates to USD"
 refresh -> duckdb.refresh_log: "one row per source run"
 
 # screen
-presets -> screen: "gates, indicators and ranking weights"
+presets -> screen: "quality gates, value indicators, trap detection and ranking weights"
 assumptions -> screen: "overrides"
 duckdb.companies -> screen: "universe"
 duckdb.financials_annual -> screen: "fundamentals"

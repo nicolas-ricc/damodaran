@@ -325,3 +325,39 @@ def test_directive_without_argument_is_an_error(
         "pipeline.d2:1 @symbol has no argument",
         "pipeline.d2:2 @symbol has no argument",
     ]
+
+
+# --------------------------------------------------------------------------- #
+# Code review (#145, stage 6)
+# --------------------------------------------------------------------------- #
+
+
+def test_at_sign_inside_a_word_is_not_a_directive(check: ModuleType) -> None:
+    text = "a: x  # mail me@example.com  @file README.md\n"
+    assert check.unknown_directives(text) == []
+    assert [(d.kind, d.argument) for d in check.directives(text)] == [("file", "README.md")]
+
+
+@pytest.mark.parametrize(
+    ("opener", "closer"), [("|latex", "|"), ("|`md", "`|"), ("||md", "||"), ("|||go", "|||")]
+)
+def test_any_block_string_language_is_skipped(
+    check: ModuleType, opener: str, closer: str
+) -> None:
+    text = (
+        f"f: {opener}\n"
+        "  x # @table not_a_table @bogus\n"
+        f"{closer} {{class: note}}  # @file README.md\n"
+    )
+    assert [(d.kind, d.line) for d in check.directives(text)] == [("file", 3)]
+    assert check.unknown_directives(text) == []
+
+
+def test_url_links_are_not_local_targets(check: ModuleType) -> None:
+    text = "a: {\n  link: https://example.com/x.svg\n}\nb.link: screen.svg\n"
+    assert check.links(text) == [("screen.svg", 4)]
+
+
+def test_pipe_inside_a_value_does_not_open_a_block(check: ModuleType) -> None:
+    text = "a: b|c  # @file README.md\n"
+    assert check.directives(text) == [check.Directive("file", "README.md", "a: b|c", 1)]
