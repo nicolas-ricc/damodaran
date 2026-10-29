@@ -57,19 +57,19 @@ snapshot: "1. snapshot per company" {
       - terms: return on equity (ROE), earnings per share (EPS), book value (BV),
         enterprise value (EV), earnings before interest and taxes (EBIT),
         earnings before interest, taxes, depreciation and amortization (EBITDA).
-      - net debt = total debt − cash
+      - net debt = total debt − cash; a missing term counts as 0; both missing: empty
       - ROE = net income ÷ total equity
       - EPS = net income ÷ diluted shares
       - P/E = close ÷ EPS, only when EPS > 0
       - BV per share = total equity ÷ diluted shares
       - P/BV = close ÷ BV per share, only when > 0
       - EV ÷ EBITDA = (market cap + net debt) ÷ EBITDA
-      - ROIC = EBIT × (1 − tax) ÷ (total debt + total equity)
+      - ROIC = EBIT × (1 − tax) ÷ (total debt + total equity); a missing term counts as 0; both missing: empty
       - free cash flow yield = free cash flow ÷ market cap
       - operating margin = EBIT ÷ revenue, per year
       - Histories (revenue, operating cash flow, diluted shares, operating margin)
         drop empty years.
-      - A missing input leaves the ratio empty.
+      - Otherwise a missing input leaves the ratio empty.
       | {class: note}
   }
   usd: "market cap in USD\n= market cap × rate_to_usd of its currency,\nthe rate on or before the market-cap date (from currencies)\nno rate: empty, so min_market_cap fails\nno currency: taken as USD" {  # @symbol bot.screener.engine._market_cap_usd
