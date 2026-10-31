@@ -646,6 +646,52 @@ def test_refresh_ends_and_handovers() -> None:
         assert f'stagesDone\' = stagesDone \\cup {{"{stage}"}}' in bodies[handover], handover
 
 
+
+_PORTFOLIO_GROUPS = {
+    "portfolio-sync",
+    "portfolio-marks",
+    "portfolio-events",
+    "portfolio-mark-events",
+    "portfolio-alerts",
+}
+# Issue #171 rules (a)-(k): checked, or marked broken.
+_PORTFOLIO_RULES = {
+    "MisconfiguredChannelStoresNothing",
+    "UnreachableTwsWritesNoMarkOrEvent",
+    "MarkedAfterTheSnapshot",
+    "UnknownValueFiresNoMarkEvent",
+    "FirstRunOpensEveryPosition",
+    "NoPreviousMarkOnlyRedFlags",
+    "ReportedFilingNeverFiresAgain",
+    "ConcentrationOnEveryRun",
+    "EventsLoggedBeforeAlerts",
+    "AlertsWrittenSentOnlyWithText",
+    "CorporateActionsFailureNeverStops",
+}
+
+
+def test_portfolio_groups() -> None:
+    assert "portfolio" in _STEMS
+    assert set(_map("portfolio", "groups").values()) == _PORTFOLIO_GROUPS
+
+
+def test_portfolio_title() -> None:
+    assert 'export const title = "portfolio: one holding through bot portfolio";' in _text(
+        "portfolio", ".view.js"
+    )
+
+
+def test_portfolio_rules_are_all_present() -> None:
+    defs = {name: comments for name, comments, _ in _definitions("portfolio")}
+    checked = set(_invariants("portfolio"))
+    for rule in _PORTFOLIO_RULES:
+        assert rule in defs, f"portfolio.tla does not define {rule}"
+        assert rule in checked or _is_broken(defs[rule]), (
+            f"{rule} is neither checked nor marked broken"
+        )
+    assert not checked & {n for n, c in defs.items() if _is_broken(c)}
+    assert len(checked) >= 9
+
 @pytest.mark.parametrize("stem", _STEMS)
 def test_rules_cite_the_code(stem: str) -> None:
     """A `(* Cites: ... *)` line sits directly above each rule's `\\*` sentence."""
