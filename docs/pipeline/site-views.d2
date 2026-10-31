@@ -1,0 +1,41 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: turn each accepted analysis into its verdict, its place on the list pages and its own pages, then put the site online. | {class: note}
+back: |md back to the site board | {
+  class: note
+  link: "./site.svg"
+}
+
+# Sources
+design: "docs/DESIGN.md\nthe viewer's theme" {class: file}  # @file docs/DESIGN.md
+github_pages: "GitHub Pages\nhttps://<owner>.github.io/<repo>/" {class: external}
+
+# States
+# @symbol bot.web.views.row_view @symbol bot.web.views.verdict_of
+row: "the company has its verdict\nlist row fields: ticker, name, verdict, margin of safety (MoS), price, intrinsic value, story type, red and yellow flags, analysis date, value line;\nlist rows read the verdict text the sidecar carries,\nthe value line and the grid cells recompute it from their own MoS" {class: step}
+# @symbol bot.web.views.filter_sort @const bot.web.views.FILTERS @const bot.web.views.SORTS @const bot.web.views.DIRECTIONS
+listed: "the company is on the list pages\nverdict counts: all = every company, then one per verdict;\nfilters all, undervalued, fair, overvalued, na;\nsorts ticker, mos, date;\ndirections asc, desc;\nties by ticker ascending, and rows without a MoS last when sorted by MoS" {class: step}
+# @symbol bot.web.site._write_company
+pages: "the company pages are written\nc/TICKER.html and c/TICKER/YYYY-MM-DD.html, the list page with the detail;\nf/TICKER.html and f/TICKER/YYYY-MM-DD.html, the detail alone" {class: step}
+# @file .github/workflows/site.yml
+live: "the site is live\nthe site folder is uploaded as the Pages artifact,\nthen the deploy job runs after the build job" {class: step}
+
+# Neighbours
+# @symbol bot.web.site._renderable
+renderable: "the analysis has every field" {class: decision; link: "./site-scan.svg"}
+
+out: "Comes out:\nthe live static viewer: index.html, l/, rows/, c/, f/, 404.html, robots.txt, static/" {class: output; link: "./site.svg"}
+
+# Edges
+renderable -> row: "the build reads the verdict from the sidecar [margin of safety (MoS) 1.3 or more]\npotentially undervalued, filter value undervalued"  # @const bot.web.views.MOS_UNDERVALUED
+renderable -> row: "the build reads the verdict from the sidecar [margin of safety (MoS) from 1.0 to under 1.3]\naround fair value, filter value fair"  # @const bot.web.views.MOS_FAIR @const bot.web.views.MOS_UNDERVALUED
+renderable -> row: "the build reads the verdict from the sidecar [margin of safety (MoS) below 1.0]\npotentially overvalued, filter value overvalued"  # @const bot.web.views.MOS_FAIR
+renderable -> row: "the build reads the verdict from the sidecar [no price]\nn/a, filter value na"  # @enum bot.web.views.Verdict
+row -> listed: "the list pages show the company"
+listed -> pages: "the build writes the company pages"
+pages -> live: "GitHub Pages deploys the site"
+live -> out: "the run ends"
+design -> pages: "the theme"
+github_pages -> live: "the public address"
