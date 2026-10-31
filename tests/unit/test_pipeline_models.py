@@ -21,6 +21,29 @@ _STEMS = sorted(p.stem for p in _MODELS.glob("*.tla"))
 _EXPORTS = {"state", "step", "group", "colors", "title"}
 _COLORS = {"blue", "orange", "purple", "yellow", "teal", "tan", "pink"}
 _SITE_GROUPS = {"site-publish", "site-ci", "site-scan", "site-views"}
+_SCREEN_GROUPS = {
+    "screen-snapshot",
+    "screen-coverage",
+    "screen-quality",
+    "screen-value",
+    "screen-traps",
+    "screen-ranking",
+}
+_SCREEN_RULES = {
+    "UnmappedLeavesAsUnmapped",
+    "NoWaccNoRule",
+    "UncoveredCurrencyNoRule",
+    "OneCoverageReason",
+    "EveryLayerRecorded",
+    "FailedLayerRejects",
+    "OnlySurvivorsInPercentiles",
+    "CutNeitherValuedNorSaved",
+    "UnvaluedKeepsPlaceholder",
+    "RejectedSavedAsFailed",
+    "OneEndOnly",
+    "NoUsdCapFailsQuality",
+    "SkippedValueRecordsNothing",
+}
 _FIXED = {"check.sh", "README.md", "TLA_VERSION", "TLA_SHA256", "STATECHART_COMMIT"}
 
 _HOLDS = "# site\n\n## Rules that hold\nA, B, NoDeadlock\n"
@@ -386,6 +409,22 @@ def test_rules_are_checked_or_marked_broken(stem: str) -> None:
 def test_site_groups() -> None:
     assert set(_map("site", "groups").values()) == _SITE_GROUPS
     assert len(_invariants("site")) >= 6
+
+
+def test_screen_groups() -> None:
+    assert "screen" in _STEMS
+    assert set(_map("screen", "groups").values()) == _SCREEN_GROUPS
+
+
+def test_screen_rules() -> None:
+    """Every rule is checked in the .cfg, or marked broken in the .tla (broken-rule protocol)."""
+    broken = {
+        name
+        for name, comments, _ in _definitions("screen")
+        if any(re.fullmatch(r"\\\* broken: #\d+", c) for c in comments)
+    }
+    assert set(_invariants("screen")) | broken == _SCREEN_RULES
+    assert not set(_invariants("screen")) & broken
 
 
 def test_models_readme() -> None:
