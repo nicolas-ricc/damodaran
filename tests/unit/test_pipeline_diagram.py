@@ -28,6 +28,7 @@ import yaml
 from bot.portfolio import events as events_mod
 from bot.portfolio.events import EventType, Position
 from bot.portfolio.marks import HoldingMark
+from bot.reference.currencies import CurrencyRates
 from bot.reporting.analysis_report import margin_verdict
 from bot.screener.ranking import RankingWeights
 from bot.screener.rules import registered_rules
@@ -94,7 +95,6 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.ingest.damodaran.merge_industry_datasets",
         "bot.ingest.damodaran.derive_industry_columns",
         "bot.ingest.damodaran.parse_country_tax_rates",
-        "bot.ingest.damodaran.parse_preheader_scalar",
         "bot.ingest.universe.refresh_universe",
         "bot.ingest.universe.refresh_prices",
         "bot.ingest.universe.refresh_fx",
@@ -324,7 +324,6 @@ _REQUIRED_CONSTS: dict[str, set[str]] = {
         "bot.valuator.story_types._DECLINE_CAGR",
         "bot.valuator.assumptions._HORIZON",
         "bot.valuator.assumptions._MIN_CYCLE_YEARS",
-        "bot.valuator.assumptions._DEFAULT_GDP_NOMINAL",
         "bot.valuator.assumptions._DEFAULT_TAX_RATE",
         "bot.valuator.analysis.MIN_PLAUSIBLE_SHARES",
         "bot.valuator.analysis.MAX_PLAUSIBLE_SHARES",
@@ -738,7 +737,6 @@ _REFRESH_NODES: list[tuple[str, str]] = (
         ("damodaran.merge", "step"),
         ("damodaran.derive", "step"),
         ("damodaran.country", "step"),
-        ("damodaran.country.risk_free", "gap"),
         ("damodaran.empty_rows", "decision"),
         ("damodaran.write", "step"),
         ("damodaran.write.us_only", "gap"),
@@ -830,7 +828,6 @@ def test_refresh_text(key: str) -> None:
 
 def test_refresh_gap_notes() -> None:
     assert "ADR 0005" in _refresh_block("damodaran.write.us_only")
-    assert "risk-free" in _refresh_block("damodaran.country.risk_free")
     assert "Financial Modeling Prep" in _refresh_block("fx.fetch.no_op")
 
 
@@ -1254,7 +1251,8 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "story_pattern",
         "historical_average",
         "rule_based",
-        "4%",
+        "nominal gross domestic product (GDP) growth",
+        "unresolved",
         "(revenue_t - revenue_t-1) ÷ revenue_t-1",
     ],
     "assumptions.margin": [
@@ -1267,7 +1265,9 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
     "assumptions.sales_to_capital": ["manual", "sector label", "unresolved"],
     "assumptions.discount_rates": ["cost of equity", "pre-tax cost of debt", "unresolved"],
     "assumptions.weights": ["D/E ÷ (1 + D/E)", "1 - it", "sum to 1", "1 - debt weight"],
-    "assumptions.terminal_growth": ["min(risk-free rate, nominal GDP growth 4%)", "rule_based"],
+    "assumptions.terminal_growth": [
+        "min(its risk-free rate, its nominal GDP growth)", "rule_based", "unresolved",
+    ],
     "assumptions.tax": ["sector label", "country tax_rate", "sector_default_damodaran", "25%"],
     "assumptions.bankruptcy": ["manual", "else 0 → rule_based"],
     "dcf.guard": ["1,000,000 ≤ diluted shares ≤ 100,000,000,000", "exit code 1"],
@@ -1457,6 +1457,8 @@ def _valuation_input(shares: float) -> Any:
             country=None,
             sector=resolve._SectorRow(0.08, 0.09, 0.05, 0.1, 2.0, 0.25, 0.5),
             historical_growth_path=None,
+            valuation_currency="USD",
+            currency_rates=CurrencyRates(0.04, 0.04, "test", "test", date(2026, 1, 1)),
         ),
     )
 
