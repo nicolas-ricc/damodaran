@@ -561,7 +561,9 @@ def _decided_events(stem: str) -> set[str]:
 
     path = _PIPELINE / f"{stem}.d2"
     labels = [
-        label for _, cls, label in node_labels(_text(stem)).values() if cls == "decision"
+        label.replace("\\n", " ")
+        for _, cls, label in node_labels(_text(stem)).values()
+        if cls == "decision"
     ] if path.exists() else []
     return {
         e.value
