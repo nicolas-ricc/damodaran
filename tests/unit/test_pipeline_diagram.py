@@ -322,6 +322,42 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.valuator.analysis._sanity_check",
         "bot.reporting.analysis_json.render_analysis_json",
     },
+    "portfolio-sync": {
+        "bot.cli.portfolio",
+        "bot.notifier.build_notifier",
+        "bot.portfolio.sync.sync_portfolio",
+        "bot.portfolio.sync.value_positions",
+        "bot.ingest.ibkr_flex.import_corporate_actions",
+        "bot.portfolio.trades.sync_trades",
+    },
+    "portfolio-marks": {
+        "bot.portfolio.marks.mark_holdings",
+        "bot.valuator.analysis.analyze",
+        "bot.screener.engine.load_holding_inputs",
+        "bot.portfolio.marks.persist_marks",
+    },
+    "portfolio-mark-events": {
+        "bot.portfolio.events.compute_events",
+        "bot.portfolio.marks.load_marks",
+        "bot.portfolio.events.detect_intrinsic_value_cross",
+        "bot.portfolio.events.detect_new_red_flags",
+        "bot.portfolio.events.detect_below_quality_gate",
+        "bot.portfolio.events.detect_sector_recalibration",
+        "bot.portfolio.events.detect_concentration",
+    },
+    "portfolio-events": {
+        "bot.portfolio.events.compute_events",
+        "bot.portfolio.events.detect_position_changes",
+        "bot.portfolio.events.detect_currency_changes",
+        "bot.portfolio.events.detect_corporate_action_events",
+        "bot.portfolio.events.detect_new_filings",
+    },
+    "portfolio-alerts": {
+        "bot.portfolio.events.persist_events",
+        "bot.portfolio.report.render_portfolio",
+        "bot.portfolio.report.render_alerts",
+        "bot.notifier.notify_alerts",
+    },
 }
 # Derived from schema.sql, so a new table cannot go undrawn on the overview.
 _REQUIRED_TABLES: dict[str, set[str]] = {
@@ -380,6 +416,32 @@ _REQUIRED_TABLES: dict[str, set[str]] = {
         "damodaran_industry", "damodaran_country",
     },
     "analyze-assumptions": {"damodaran_industry", "damodaran_country"},
+    "portfolio-sync": {
+        "portfolio_snapshots",
+        "cash_balances",
+        "corporate_actions",
+        "trades",
+        "prices_daily",
+        "currencies",
+    },
+    "portfolio-marks": {
+        "holding_marks",
+    },
+    "portfolio-mark-events": {
+        "holding_marks",
+        "portfolio_snapshots",
+    },
+    "portfolio-events": {
+        "portfolio_snapshots",
+        "corporate_actions",
+        "filings_log",
+        "events_log",
+    },
+    "portfolio-alerts": {
+        "events_log",
+        "portfolio_snapshots",
+        "cash_balances",
+    },
 }
 _REQUIRED_FILES: dict[str, set[str]] = {
     "pipeline": {
@@ -440,6 +502,15 @@ _REQUIRED_FILES: dict[str, set[str]] = {
     "analyze-story": {"config/assumptions"},
     "analyze-assumptions": {"config/assumptions", "config/currencies.yaml"},
     "analyze-verdict": {"src/bot/reporting/templates/analysis.md.j2"},
+    "portfolio-marks": {
+        "config/presets/damodaran_value.yaml",
+        "config/assumptions",
+        "config/currencies.yaml",
+    },
+    "portfolio-alerts": {
+        "src/bot/reporting/templates/portfolio.md.j2",
+        "src/bot/reporting/templates/alerts.md.j2",
+    },
 }
 # Derived from the rule registry and the preset, so a new rule or parameter
 # cannot go undrawn on the screen board.
@@ -583,6 +654,16 @@ _REQUIRED_CONSTS: dict[str, set[str]] = {
         "bot.web.views.MOS_UNDERVALUED",
         "bot.web.views.MOS_FAIR",
         "bot.reporting.analysis_json.SCHEMA_VERSION",
+    },
+    "portfolio-mark-events": {
+        "bot.portfolio.events.DEFAULT_WACC_RECALIBRATION_BPS",
+        "bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD",
+    },
+    "portfolio-events": {
+        "bot.portfolio.events.DEFAULT_SIZE_CHANGE_THRESHOLD",
+    },
+    "portfolio-alerts": {
+        "bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD",
     },
 }
 _REQUIRED_ENUMS: dict[str, set[str]] = {

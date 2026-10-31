@@ -1,6 +1,6 @@
 const states = {
   started: "bot portfolio starts",
-  channel_misconfigured: "the run ends with exit code 2 before any sync",
+  channel_misconfigured: "the run ends with exit code two before any sync",
   channel_checked: "the notifier channel is valid",
   tws_unreachable: "the run ends with exit code 1 before the snapshot",
   tws_reached: "Trader Workstation (TWS) answers",
