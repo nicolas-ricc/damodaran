@@ -417,3 +417,105 @@ def test_context_lists_the_models() -> None:
     boards = text.index("**The pipeline boards**")
     models = text.index("docs/pipeline/models/")
     assert boards < models < text.index("## Working with the plans")
+
+
+# Sub-boards drawn from the models (#164): the stages whose groups are drawn as sub-boards.
+_SUBBOARDED = ("site",)
+_PHASES_RE = re.compile(r"phase = \"(\w+)\".*?phase' = \"(\w+)\"", re.S)
+
+
+def _transitions(stem: str) -> dict[str, tuple[str, str]]:
+    """Action -> (state it leaves, state it enters), from `phase = "a"` and `phase' = "b"`."""
+    out = {}
+    for action in _map(stem, "steps"):
+        if action == "Done":
+            continue
+        body = {name: body for name, _, body in _definitions(stem)}[action]
+        m = _PHASES_RE.search(body)
+        assert m, f"{stem}.tla {action}: no `phase = \"a\"` ... `phase' = \"b\"`"
+        out[action] = (m.group(1), m.group(2))
+    return out
+
+
+def _stage_boards(stage: str) -> dict[str, str]:
+    from tests.unit.test_pipeline_subboards import subboards
+
+    root = _ROOT / "docs" / "pipeline"
+    return {
+        stem: (root / f"{stem}.d2").read_text(encoding="utf-8")
+        for stem, (st, _) in subboards().items()
+        if st == stage
+    }
+
+
+def _drawn_nodes(text: str) -> dict[str, tuple[str | None, str]]:
+    """Node path -> (class, first line of its label)."""
+    from tests.unit.test_pipeline_subboards import first_line, node_labels
+
+    return {p: (cls, first_line(label)) for p, (_, cls, label) in node_labels(text).items()}
+
+
+@pytest.mark.parametrize("stage", _SUBBOARDED)
+def test_subboards_are_the_groups(stage: str) -> None:
+    assert set(_stage_boards(stage)) == set(_map(stage, "groups").values())
+
+
+@pytest.mark.parametrize("stage", _SUBBOARDED)
+def test_state_labels_are_drawn(stage: str) -> None:
+    boards = _stage_boards(stage)
+    groups = _map(stage, "groups")
+    missing = []
+    for key, label in _map(stage, "states").items():
+        group = groups[key]
+        drawn = {first for _, first in _drawn_nodes(boards.get(group or "", "")).values()}
+        if label not in drawn:
+            missing.append(f"{group}: {label}")
+    assert missing == []
+
+
+@pytest.mark.parametrize("stage", _SUBBOARDED)
+def test_step_labels_are_drawn(stage: str) -> None:
+    from tests.unit.test_pipeline_subboards import edges, first_line
+
+    drawn = {first_line(label) for text in _stage_boards(stage).values() for *_, label in edges(text)}
+    missing = [label for label in _map(stage, "steps").values() if label and label not in drawn]
+    assert missing == []
+
+
+@pytest.mark.parametrize("stage", _SUBBOARDED)
+def test_subboard_edges_join_the_model_states(stage: str) -> None:
+    from tests.unit.test_pipeline_subboards import edges, first_line
+
+    states, steps = _map(stage, "states"), _map(stage, "steps")
+    drawn = set()
+    for text in _stage_boards(stage).values():
+        nodes = _drawn_nodes(text)
+        for _, src, dst, label in edges(text):
+            ends = (nodes.get(src, (None, ""))[1], nodes.get(dst, (None, ""))[1])
+            drawn.add((first_line(label), *ends))
+    missing = [
+        f"{action}: {states[a]} -> {states[b]}"
+        for action, (a, b) in _transitions(stage).items()
+        if (steps[action], states[a], states[b]) not in drawn
+    ]
+    assert missing == []
+
+
+@pytest.mark.parametrize("stage", _SUBBOARDED)
+def test_subboard_state_classes(stage: str) -> None:
+    """A state is a decision when at least two steps leave it under a [condition]."""
+    states, steps = _map(stage, "states"), _map(stage, "steps")
+    conditioned = {key: 0 for key in states}
+    for action, (a, _) in _transitions(stage).items():
+        if "[" in (steps[action] or ""):
+            conditioned[a] += 1
+    expected = {
+        label: "decision" if conditioned[key] >= 2 else "step" for key, label in states.items()
+    }
+    wrong = [
+        f"{stem} {path}: {cls}, expected {expected[first]}"
+        for stem, text in _stage_boards(stage).items()
+        for path, (cls, first) in _drawn_nodes(text).items()
+        if first in expected and cls != expected[first]
+    ]
+    assert wrong == []

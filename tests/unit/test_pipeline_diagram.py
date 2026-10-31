@@ -220,6 +220,16 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.web.views.verdict_of",
         "bot.reporting.analysis_json.render_analysis_json",
     },
+    "site-publish": {"bot.reporting.analysis_json.render_analysis_json"},
+    "site-ci": {"bot.cli.site"},
+    "site-scan": {
+        "bot.web.site.build",
+        "bot.web.index.scan",
+        "bot.web.index.read_sidecar",
+        "bot.web.site._prepare_out_dir",
+        "bot.web.site._renderable",
+    },
+    "site-views": {"bot.web.views.verdict_of", "bot.web.views.row_view", "bot.web.views.filter_sort"},
 }
 # Derived from schema.sql, so a new table cannot go undrawn on the overview.
 _REQUIRED_TABLES: dict[str, set[str]] = {
@@ -306,6 +316,9 @@ _REQUIRED_FILES: dict[str, set[str]] = {
         ".gitignore",
         "scripts/weekly.sh",
     },
+    "site-publish": {"scripts/publish_site.sh", "scripts/weekly.sh"},
+    "site-ci": {".github/workflows/site.yml"},
+    "site-views": {".github/workflows/site.yml"},
 }
 # Derived from the rule registry and the preset, so a new rule or parameter
 # cannot go undrawn on the screen board.
@@ -369,6 +382,19 @@ _REQUIRED_CONSTS: dict[str, set[str]] = {
         "bot.web.site.MARKER",
         "bot.reporting.analysis_json.SCHEMA_VERSION",
     },
+    "site-scan": {
+        "bot.reporting.analysis_json.SCHEMA_VERSION",
+        "bot.web.site.MARKER",
+        "bot.web.views.MOS_UNDERVALUED",
+        "bot.web.views.MOS_FAIR",
+    },
+    "site-views": {
+        "bot.web.views.MOS_UNDERVALUED",
+        "bot.web.views.MOS_FAIR",
+        "bot.web.views.FILTERS",
+        "bot.web.views.SORTS",
+        "bot.web.views.DIRECTIONS",
+    },
 }
 _REQUIRED_ENUMS: dict[str, set[str]] = {
     "pipeline": {"bot.web.views.Verdict"},
@@ -381,6 +407,7 @@ _REQUIRED_ENUMS: dict[str, set[str]] = {
     "screen": {"bot.screener.engine.CoverageReason"},
     "portfolio": {"bot.portfolio.events.EventType"},
     "site": {"bot.web.views.Verdict"},
+    "site-views": {"bot.web.views.Verdict"},
 }
 
 _REQUIRED: dict[str, dict[str, set[str]]] = {
@@ -716,7 +743,7 @@ def test_verdict_thresholds_match_margin_verdict() -> None:
 
 def test_readme_has_build_and_check_commands() -> None:
     readme = (_PIPELINE / "README.md").read_text(encoding="utf-8")
-    assert len(readme.splitlines()) <= 60
+    assert len(readme.splitlines()) <= 90
     assert "docs/pipeline/build.sh" in readme
     assert "python3 docs/pipeline/check.py" in readme
     for kind in _check().KINDS:
@@ -727,6 +754,15 @@ def test_readme_has_build_and_check_commands() -> None:
         assert f"{stem}.svg" in readme, stem
     for words in ("reading order", "TALA", "rendered.sha256", "add a step"):
         assert words.lower() in readme.lower(), words
+
+
+def test_readme_documents_subboards() -> None:
+    readme = (_PIPELINE / "README.md").read_text(encoding="utf-8")
+    assert "## Sub-boards" in readme
+    section = readme[readme.index("## Sub-boards") :]
+    for words in ("<stage>-<sub>.d2", "`objective`", "`back`", "`out`", "Comes out:", "24",
+                  "statechart", "models/"):
+        assert words in section, words
 
 
 def test_context_source_of_truth_links_the_pipeline_docs() -> None:
