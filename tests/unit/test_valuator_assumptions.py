@@ -331,6 +331,73 @@ def test_override_path_absent_is_ignored(
     assert result.operating_margin.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
 
 
+def test_override_that_is_not_yaml_is_refused(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    """Malformed YAML is a ``ValueError``, so ``bot analyze`` moves on (#180)."""
+    _seed_full_sector(conn)
+    override = _write_override(tmp_path, "revenue_growth: [0.1\n")
+    with pytest.raises(ValueError, match=r"ACME\.yaml.*not valid YAML"):
+        resolve_assumptions("ACME", conn, override_path=override)
+
+
+def test_override_with_a_non_string_key_is_refused(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)
+    override = _write_override(tmp_path, "1: 2\nfoo: 3\n")
+    with pytest.raises(ValueError, match=r"unknown override key\(s\): 1, foo"):
+        resolve_assumptions("ACME", conn, override_path=override)
+
+
+@pytest.mark.parametrize(
+    ("body", "key"),
+    [
+        pytest.param("terminal_growth:\n", "terminal_growth", id="empty-value"),
+        pytest.param("tax_rate: [0.2]\n", "tax_rate", id="list-for-a-number"),
+        pytest.param("tax_rate: true\n", "tax_rate", id="bool"),
+        pytest.param("sales_to_capital: {a: 1}\n", "sales_to_capital", id="mapping"),
+        pytest.param("cost_of_equity: high\n", "cost_of_equity", id="word"),
+        pytest.param("terminal_growth: .nan\n", "terminal_growth", id="nan"),
+        pytest.param("terminal_growth: .inf\n", "terminal_growth", id="inf"),
+        pytest.param("terminal_growth: 'nan'\n", "terminal_growth", id="string-nan"),
+        pytest.param("terminal_growth: 1" + "0" * 400 + "\n", "terminal_growth", id="overflow"),
+        pytest.param("operating_margin: []\n", "operating_margin", id="empty-path"),
+        pytest.param("revenue_growth: [0.1, null]\n", "revenue_growth", id="null-in-path"),
+        pytest.param("revenue_growth: [0.1, [0.2]]\n", "revenue_growth", id="list-in-path"),
+    ],
+)
+def test_override_value_that_is_not_a_number_is_refused(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path, body: str, key: str
+) -> None:
+    """Every numeric key holds a finite number, or a list of them for a path (#180)."""
+    _seed_full_sector(conn)
+    override = _write_override(tmp_path, body)
+    with pytest.raises(ValueError, match=rf"ACME\.yaml: {key} must be"):
+        resolve_assumptions("ACME", conn, override_path=override)
+
+
+def test_override_names_the_first_bad_value_in_file_order(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    """With two bad values the refusal is stable: the first one written."""
+    _seed_full_sector(conn)
+    override = _write_override(tmp_path, "tax_rate: [0.2]\ncost_of_equity: high\n")
+    with pytest.raises(ValueError, match=r"ACME\.yaml: tax_rate must be"):
+        resolve_assumptions("ACME", conn, override_path=override)
+
+
+def test_override_numeric_string_still_applies(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    """PyYAML reads an unquoted ``3e-2`` as a string; ``float()`` still takes it."""
+    _seed_full_sector(conn)
+    override = _write_override(tmp_path, "terminal_growth: 3e-2\n")
+    result = resolve_assumptions("ACME", conn, override_path=override)
+    assert result.terminal_growth.value == pytest.approx(0.03)
+    assert result.terminal_growth.source is AssumptionSource.MANUAL
+
+
 def test_story_type_from_override_is_surfaced(
     conn: duckdb.DuckDBPyConnection, tmp_path: Path
 ) -> None:

@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import duckdb
+import pytest
 from typer.testing import CliRunner
 
 from bot.cli import app
@@ -410,3 +411,43 @@ def test_analyze_refuses_implausible_shares_and_continues_batch(
     out_dir = next(reports_dir.glob("*/analysis"))
     assert (out_dir / "AAPL.md").exists()
     assert not (out_dir / "MCD.md").exists()
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        pytest.param("revenue_growth: [0.1\n", id="not-yaml"),
+        pytest.param("terminal_growth:\n", id="empty-value"),
+        pytest.param("tax_rate: [0.2]\n", id="list-for-a-number"),
+        pytest.param("terminal_growth: .nan\n", id="nan"),
+        pytest.param("1: 2\nfoo: 3\n", id="non-string-key"),
+    ],
+)
+def test_analyze_malformed_override_fails_its_ticker_and_continues_batch(
+    tmp_path: Path, monkeypatch, body: str
+) -> None:
+    """A malformed override is a failing ticker, not a failing command (#180)."""
+    db_path = tmp_path / "bot.duckdb"
+    reports_dir = tmp_path / "reports"
+    assumptions_dir = tmp_path / "assumptions"
+    assumptions_dir.mkdir()
+    (assumptions_dir / "AAPL.yaml").write_text(body)
+    monkeypatch.setenv("BOT_DB_PATH", str(db_path))
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(reports_dir))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.setenv("BOT_ASSUMPTIONS_DIR", str(assumptions_dir))
+
+    conn = connect(db_path)
+    apply_schema(conn)
+    _seed(conn, "AAPL")
+    _seed(conn, "MSFT")
+    conn.close()
+
+    result = CliRunner().invoke(app, ["analyze", "AAPL", "MSFT"])
+    assert isinstance(result.exception, SystemExit), result.exception
+    assert result.exit_code == 1, result.output
+    assert "AAPL: cannot value" in result.output
+
+    out_dir = next(reports_dir.glob("*/analysis"))
+    assert (out_dir / "MSFT.md").exists()
+    assert not (out_dir / "AAPL.md").exists()

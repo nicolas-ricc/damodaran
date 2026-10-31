@@ -37,6 +37,7 @@ directly.
 from __future__ import annotations
 
 import itertools
+import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, fields
 from enum import StrEnum
@@ -637,6 +638,12 @@ _OVERRIDE_KEYS: frozenset[str] = frozenset(
     }
 )
 
+#: Override keys that take a number or a per-year list of numbers.
+_OVERRIDE_PATH_KEYS: frozenset[str] = frozenset({"revenue_growth", "operating_margin"})
+
+#: Override keys that carry text, not a number.
+_OVERRIDE_TEXT_KEYS: frozenset[str] = frozenset({"story_type", "notes"})
+
 
 def conventional_override_path(assumptions_dir: Path | None, ticker: str) -> Path | None:
     """Return ``<assumptions_dir>/<TICKER>.yaml`` when it exists (spec §7.6), else None.
@@ -653,19 +660,56 @@ def conventional_override_path(assumptions_dir: Path | None, ticker: str) -> Pat
 def _load_override(override_path: Path | None) -> dict[str, Any]:
     if override_path is None or not override_path.exists():
         return {}
-    loaded = yaml.safe_load(override_path.read_text())
+    try:
+        loaded = yaml.safe_load(override_path.read_text())
+    except yaml.YAMLError as exc:
+        raise ValueError(f"override file {override_path} is not valid YAML: {exc}") from exc
     if loaded is None:
         return {}
     if not isinstance(loaded, dict):
         raise ValueError(f"override file {override_path} must contain a YAML mapping")
-    unknown = sorted(set(loaded) - _OVERRIDE_KEYS)
+    unknown = sorted(set(loaded) - _OVERRIDE_KEYS, key=str)
     if unknown:
         valid = ", ".join(sorted(_OVERRIDE_KEYS))
         raise ValueError(
-            f"{override_path}: unknown override key(s): {', '.join(unknown)}. "
+            f"{override_path}: unknown override key(s): {', '.join(str(k) for k in unknown)}. "
             f"Valid keys: {valid}"
         )
+    _check_override_values(override_path, loaded)
     return loaded
+
+
+def _is_finite_number(value: object) -> bool:
+    if isinstance(value, bool):
+        return False
+    if not isinstance(value, (int, float, str)):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (ValueError, OverflowError):
+        return False
+
+
+def _check_override_values(override_path: Path, override: dict[str, Any]) -> None:
+    """Refuse a numeric override value that is not a finite number.
+
+    Raised here as ``ValueError`` so a malformed file fails its own ticker
+    instead of surfacing later as a ``TypeError`` or a NaN in the valuation.
+    """
+    for key, value in override.items():
+        if key in _OVERRIDE_TEXT_KEYS:
+            continue
+        if key in _OVERRIDE_PATH_KEYS:
+            if isinstance(value, list):
+                ok = bool(value) and all(_is_finite_number(x) for x in value)
+            else:
+                ok = _is_finite_number(value)
+            expected = "a finite number or a non-empty list of finite numbers"
+        else:
+            ok = _is_finite_number(value)
+            expected = "a finite number"
+        if not ok:
+            raise ValueError(f"{override_path}: {key} must be {expected}, got {value!r}")
 
 
 def _override_scalar(override: dict[str, Any], key: str) -> Sourced[float | None] | None:
