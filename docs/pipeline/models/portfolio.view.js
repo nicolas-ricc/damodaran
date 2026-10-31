@@ -44,7 +44,7 @@ const steps = {
   TheSnapshotIsStoredWithoutIt: "the snapshot is stored without it [no account holds it any more]",
   FlexIsNotConfigured: "no corporate action is fetched [Flex token or query id not set]",
   FlexImportsTheActions: "new corporate actions are stored from the IBKR Flex Web Service",
-  FlexFails: "the corporate actions fetch fails and a warning is logged",
+  FlexFails: "the corporate actions step fails and a warning is logged",
   TwsDropsBeforeTheTrades: "TWS cannot be reached for the trades [connection error or timeout]",
   TheNewFillsAreStored: "the fills at or after the newest stored one are added",
   ItIsAHolding: "it is marked [its summed quantity is not 0]",

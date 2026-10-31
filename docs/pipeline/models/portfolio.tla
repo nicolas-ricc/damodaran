@@ -9,9 +9,6 @@ VARIABLES phase, channel, stored, flexFailed, held, valuation,
 
 vars == << phase, channel, stored, flexFailed, held, valuation, gates, prevMark, above, prev, filing, event, anyFired, alerts >>
 
-(* The twelve EventType values of src/bot/portfolio/events.py. *)
-EventTypes == {"position_opened", "position_closed", "position_size_changed", "currency_changed", "dividend", "split", "new_filing", "intrinsic_value_crossed_price", "new_red_flag", "below_quality_gate", "sector_recalibrated", "concentration"}
-
 EndPhases == {"channel_misconfigured", "tws_unreachable", "tws_lost", "not_sent", "sent", "send_failed"}
 
 (* Some steps reset what no later step reads, to keep the model under the chart's 500 states.
