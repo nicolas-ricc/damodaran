@@ -16,6 +16,8 @@ EndPhases == {"channel_misconfigured", "tws_unreachable", "tws_lost", "not_sent"
    Leaving concentration_checked resets above to FALSE and prevMark to "unread". Leaving
    currency_checked resets prev to "unread". Leaving filings_checked resets filing to "unread".
    Leaving alerts_written resets anyFired to FALSE. *)
+(* stored holds what the run wrote that this holding sees: events_log only when this holding fired an
+   event (persist_events writes nothing for no events), alerts_md always (it lists every holding's events). *)
 Init ==
   /\ phase = "started"
   /\ channel = "unchecked"
@@ -626,7 +628,7 @@ Spec == Init /\ [][Next]_vars
 MisconfiguredChannelStoresNothing ==
   channel = "misconfigured" => (phase = "channel_misconfigured" /\ stored = {})
 
-(* Cites: sync_portfolio: `client.connect()` raises before `_replace_account_day`; sync_trades connects again; compute_marks and compute_events run only after both syncs; cli.py exits with code 1. *)
+(* Cites: sync_portfolio: `client.connect()` raises before `_replace_account_day`; sync_trades connects again; mark_holdings and compute_events run only after both syncs; cli.py exits with code 1. *)
 \* When Trader Workstation (TWS) cannot be reached, the run ends: before the snapshot on the first call, and never with a mark or an event written.
 UnreachableTwsWritesNoMarkOrEvent ==
   (phase = "tws_unreachable" => stored = {})

@@ -646,7 +646,6 @@ def test_refresh_ends_and_handovers() -> None:
         assert f'stagesDone\' = stagesDone \\cup {{"{stage}"}}' in bodies[handover], handover
 
 
-
 _PORTFOLIO_GROUPS = {
     "portfolio-sync",
     "portfolio-marks",
@@ -691,6 +690,7 @@ def test_portfolio_rules_are_all_present() -> None:
         )
     assert not checked & {n for n, c in defs.items() if _is_broken(c)}
     assert len(checked) >= 9
+
 
 @pytest.mark.parametrize("stem", _STEMS)
 def test_rules_cite_the_code(stem: str) -> None:
