@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from bot.portfolio.events import EventType
 from bot.screener.rules import registered_rules
 from tests.unit.test_pipeline_diagram import (
     _SCREEN_LAYER_BOARDS,
@@ -561,8 +562,6 @@ def _decided_events(stem: str) -> set[str]:
     Only lines after the first count: the first line is the model's state label and may say
     "concentration" without deciding it. Neighbours (nodes linking another sub-board) are skipped.
     """
-    from bot.portfolio.events import EventType
-
     if not (_PIPELINE / f"{stem}.d2").exists():
         return set()
     text = _text(stem)
@@ -579,8 +578,6 @@ def _decided_events(stem: str) -> set[str]:
 
 
 def test_portfolio_events_cover_every_event_type() -> None:
-    from bot.portfolio.events import EventType
-
     marks, snapshots = _decided_events("portfolio-mark-events"), _decided_events("portfolio-events")
     assert marks | snapshots == {e.value for e in EventType}
     assert marks == _MARK_EVENTS
