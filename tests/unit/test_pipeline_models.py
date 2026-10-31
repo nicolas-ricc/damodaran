@@ -199,6 +199,37 @@ def test_check_requires_env(tmp_path: Path, var: str) -> None:
     assert _calls(tmp_path) == []
 
 
+def test_check_refuses_a_used_out_dir(tmp_path: Path) -> None:
+    work = _folder(tmp_path, "site")
+    (tmp_path / "out" / "site").mkdir(parents=True)
+    (tmp_path / "out" / "site" / "report.md").write_text("# site\n\n## A breaks\n")
+    result = _run(tmp_path, work, {"site": _HOLDS})
+    assert result.returncode == 1
+    error = next(ln for ln in result.stdout.splitlines() if ln.startswith("error  site: "))
+    assert "not empty" in error
+    assert _calls(tmp_path) == []
+
+
+def test_check_fails_without_models(tmp_path: Path) -> None:
+    work = _folder(tmp_path)
+    result = _run(tmp_path, work, {})
+    assert result.returncode == 1
+    assert result.stdout.splitlines()[-1] == "models | 0 models, 0 rules, 1 errors"
+
+
+def test_check_needs_an_out_dir(tmp_path: Path) -> None:
+    work = _folder(tmp_path, "site")
+    result = subprocess.run(
+        ["bash", str(work / "check.sh")],
+        env={"PATH": os.environ["PATH"], "STATECHART": "x", "TLA2TOOLS": "y"},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 2
+    assert "usage: check.sh OUT_DIR" in result.stderr
+
+
 # --- model conventions -------------------------------------------------------
 
 

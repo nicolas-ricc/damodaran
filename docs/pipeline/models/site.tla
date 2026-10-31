@@ -317,34 +317,42 @@ Next ==
 
 Spec == Init /\ [][Next]_vars
 
+(* Cites: site.yml runs only on a push to master; publish_site.sh pushes HEAD:master. *)
 \* A sidecar reaches the viewer only through a commit pushed to master.
 ViewerOnlyFromMaster ==
   page => onMaster
 
+(* Cites: publish_site.sh: `diff --cached --quiet` exits 0 before `git commit`. *)
 \* A publish with nothing new makes no commit, so no site workflow runs.
 NothingNewNoWorkflow ==
   (phase = "nothing_new" => ~committed) /\ (workflowRan => (committed /\ onMaster))
 
+(* Cites: publish_site.sh: worktree reset --hard and clean -fd, then only reports/*/analysis/*.json copied and `git add -- reports`. *)
 \* The publish commit holds sidecars only, never the checkout's other changes.
 OnlySidecarsCommitted ==
   committedFiles \subseteq {"sidecar"}
 
+(* Cites: site.yml: steps run in order in job build; deploy needs build. *)
 \* Any failing workflow step deploys nothing.
 FailedStepDeploysNothing ==
   failed # "none" => (phase # "live" /\ ~page)
 
+(* Cites: site.py _prepare_out_dir: every ValueError is raised before the MARKER is written. *)
 \* An unsafe output directory is refused and nothing is written to it.
 UnsafeOutputUntouched ==
   phase = "out_refused" => ~wrote
 
+(* Cites: index.py scan and read_sidecar skip; site.py _renderable drops; build makes rows and pages from the kept entries only. *)
 \* A sidecar that cannot be used or rendered never becomes a row or a page.
 SkippedNeverARow ==
   skip # "none" => (~row /\ ~page)
 
+(* Cites: analysis_json.py writes margin_verdict(mos); views.py row_view reads it back with verdict_from_text. *)
 \* Every listed company has one verdict, read from its sidecar, that matches its margin of safety.
 OneVerdictFromTheMargin ==
   row => (verdict = ThresholdVerdict(margin) /\ verdict # "none")
 
+(* Cites: site.py build: normalize_base_url is its first line, before _prepare_out_dir. *)
 \* Nothing is written before the base address of the site is normalised.
 BaseUrlFirst ==
   (wrote \/ page) => baseUrl = "normalised"

@@ -25,7 +25,8 @@ Per stage, `<stem>.tla`, `<stem>.cfg` and `<stem>.view.js`: the model, its const
   is a named action, not hidden nondeterminism.
 - One `INVARIANT` per rule. The reader's sentence is a `\*` comment directly above the definition.
   `\*` is reserved for the rule sentence and its `\* broken:` marker; helpers and actions are
-  commented with `(* ... *)`.
+  commented with `(* ... *)`. Each action, and each rule above its sentence, carries a
+  `(* ... *)` citation of the code it mirrors.
 - The view maps (`states`, `steps`, `groups`) are plain `const`, not exported: the skill's view
   loader rejects any export beyond `state`, `step`, `group`, `colors` and `title`.
 - Groups are named `<stage>-<sub>`. Aim for about 20 arrows per group; the cap is 24.
@@ -41,7 +42,7 @@ Labels are written for the reader of the chart:
 ## Running
 
 CI runs the job `models` of the `pipeline-diagram` workflow on every push. To run it locally you
-need Java 11 or later (CI uses 21) and Node 22.18+, a `tla2tools.jar` at the pinned version, and a
+need Java 11 or later (CI uses 21) and Node 22.18 to 22.x or 23.6+, a `tla2tools.jar` at the pinned version, and a
 clone of the skill at the pinned commit:
 
 ```

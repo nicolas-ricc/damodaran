@@ -35,6 +35,11 @@ for tla in "$DIR"/*.tla; do
     errors+=("error  $stem: $stem.view.js is missing")
     continue
   fi
+  # The launcher writes only into a new or empty folder; say so instead of its exit 2.
+  if [ -n "$(ls -A "$OUT_DIR/$stem" 2>/dev/null)" ]; then
+    errors+=("error  $stem: $OUT_DIR/$stem is not empty; pass a new OUT_DIR")
+    continue
+  fi
   # The launcher prints its report to stdout; keep that off ours.
   code=0
   "$STATECHART" "$tla" --config "$cfg" --view "$view" --out "$OUT_DIR/$stem" >&2 || code=$?
@@ -62,6 +67,9 @@ for tla in "$DIR"/*.tla; do
   count="$(printf '%s\n' "$names" | tr ',' '\n' | grep -c '[^[:space:]]' || true)"
   rules=$((rules + count))
 done
+if [ "$models" -eq 0 ]; then
+  errors+=("error  models: no *.tla in $DIR")
+fi
 
 if [ "${#errors[@]}" -gt 0 ]; then
   printf '%s\n' "${errors[@]}"
