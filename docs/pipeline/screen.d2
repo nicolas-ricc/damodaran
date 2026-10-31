@@ -19,6 +19,8 @@ deep_value: "config/presets/deep_value.yaml" {class: file}  # @file config/prese
 qarp: "config/presets/qarp.yaml" {class: file}  # @file config/presets/qarp.yaml
 assumptions: "config/assumptions/TICKER.yaml, manual overrides" {class: file}  # @symbol bot.valuator.assumptions.conventional_override_path
 
+currencies_yaml: "config/currencies.yaml, risk-free rate and nominal gross domestic product (GDP) growth per currency\nabsent or malformed: empty table, every currency uncovered" {class: file}  # @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table
+
 # Database
 duckdb: "DuckDB (bot.duckdb)" {
   companies: {class: store}  # @table companies
@@ -85,7 +87,7 @@ snapshot: "1. snapshot per company" {
 
 # Layer 2: coverage gate
 coverage_gate: "2. coverage gate" {
-  gate: "sector benchmark row for (industry, region)\nwith a weighted average cost of capital (WACC)?\nno: the company leaves the universe before any rule runs,\nrecorded as rejected with coverage_gate\n(architecture decision record (ADR) 0006 (Implemented))" {  # @symbol bot.screener.engine.run_screen @file docs/adr/0006-unmeasurable-companies-leave-the-universe.md
+  gate: "can the company be measured? the first reason that applies:\nindustry_unmapped: no Damodaran industry (industry_damodaran)\nbenchmark_missing: no sector benchmark row, or one without a weighted average cost of capital (WACC)\ncurrency_uncovered: valuation currency (currency of the newest non-restated financials_annual row)\nmissing, or not in config/currencies.yaml\nany reason: the company leaves the universe before any rule runs,\nrecorded as rejected with that one reason\n(architecture decision record (ADR) 0006 (Implemented))" {  # @symbol bot.screener.engine.run_screen @enum bot.screener.engine.CoverageReason @symbol bot.screener.engine.CoverageReason @file config/currencies.yaml @file docs/adr/0006-unmeasurable-companies-leave-the-universe.md
     class: decision
     plano_caveat: |md Gap: plano damodaran card says the engine still resolves missing benchmarks layer by layer; the coverage gate removes the company before any rule runs (ADR 0006 (Implemented)). | {class: gap}
     plano_wacc: |md Gap: plano a-wacc card says the sector WACC's only consumer is roic_above_sector_wacc; the coverage gate requires it too, and the portfolio's sector_recalibrated event diffs it. | {class: gap}
@@ -196,7 +198,7 @@ ranking: "6. ranking of the survivors" {
   top_n: "--top given?\nyes: keep the best N\nno: keep every survivor" {  # @symbol bot.screener.engine.run_screen
     class: decision
   }
-  second_pass: "second pass: value each kept ticker by DCF\nmargin of safety = intrinsic value ÷ price\nwith config/assumptions/TICKER.yaml when present" {  # @symbol bot.screener.engine._batch_dcf_margins
+  second_pass: "second pass: value each kept ticker by DCF\nmargin of safety = intrinsic value ÷ price\nwith config/assumptions/TICKER.yaml when present\nrates of the valuation currency from config/currencies.yaml, the table the gate used" {  # @symbol bot.screener.engine._batch_dcf_margins
     class: step
   }
   valued: "valued?\nno (unknown ticker, missing data, incomplete assumptions):\nkeeps margin of safety 0.5" {  # @const bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY
@@ -213,7 +215,7 @@ persist_and_report: "7. persist and report" {
     class: step
     cut: |md Survivors cut by --top are not written. | {class: note}
   }
-  report: "shortlist report, markdown and CSV with the same columns\nrank, ticker, name, sector, score, the four sub-scores, market cap,\nP/E, EV/EBITDA, P/BV, ROE, ROIC, free cash flow yield\nmarkdown header: companies screened, shortlist size,\ncoverage gate exclusions" {  # @symbol bot.reporting.screen_report.render_markdown @symbol bot.reporting.screen_report.render_csv
+  report: "shortlist report, markdown and CSV with the same columns\nrank, ticker, name, sector, score, the four sub-scores, market cap,\nP/E, EV/EBITDA, P/BV, ROE, ROIC, free cash flow yield\nmarkdown header: companies screened, shortlist size,\ncoverage gate exclusions per reason" {  # @symbol bot.reporting.screen_report.render_markdown @symbol bot.reporting.screen_report.render_csv @symbol bot.screener.engine.format_coverage_counts
     class: step
   }
 }
@@ -240,7 +242,10 @@ snapshot.usd -> snapshot.benchmark: "industry and region"
 snapshot.benchmark -> coverage_gate.gate: "sector benchmark, or none"
 
 # Edges: coverage gate and quality gates
-coverage_gate.gate -> quality_gates: "yes: measured, every rule runs"
+duckdb.financials_annual -> coverage_gate.gate: "valuation currency"
+currencies_yaml -> coverage_gate.gate: "covered currencies"
+currencies_yaml -> ranking.second_pass: "currency table"
+coverage_gate.gate -> quality_gates: "no reason: measured, every rule runs"
 quality_gates.min_market_cap -> quality_gates.all_pass: "pass or fail"
 quality_gates.min_years_history -> quality_gates.all_pass: "pass or fail"
 quality_gates.exclude_sectors -> quality_gates.all_pass: "pass or fail"
@@ -271,7 +276,7 @@ trap_detection.share_count_not_diluting -> trap_detection.all_pass: "pass or fai
 quality_gates.all_pass -> persist_and_report.persist: "no: one rejected row per company,\nfailed rules of every layer"
 value_indicators.at_least_one -> persist_and_report.persist: "no: one rejected row per company,\nfailed rules of every layer"
 trap_detection.all_pass -> persist_and_report.persist: "no: one rejected row per company,\nfailed rules of every layer"
-coverage_gate.gate -> persist_and_report.persist: "no: rejected with coverage_gate"
+coverage_gate.gate -> persist_and_report.persist: "any reason: rejected with that reason"
 trap_detection.all_pass -> ranking.metrics: "yes, with all three layer verdicts passed: survivors"
 ranking.metrics -> ranking.percentiles: "value, quality, growth"
 ranking.percentiles -> ranking.weights: "percentiles"
