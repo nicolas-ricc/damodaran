@@ -27,7 +27,7 @@
 
 Group order, which is also the order of the `out` links: snapshot → coverage → quality → value → traps → ranking → `./screen.svg`.
 
-Decision states (the test's rule): `listed`, `loaded`, `currency_read`, `region_set`, `ratios`, `cap_in_usd`, `benchmark_looked`, `benchmarked`, `quality_passed`, `quality_failed`, `traps_passed`, `first_ranked`. Every other state is a `step`.
+Decision states (the test's rule, `test_subboard_state_classes`, which classifies only nodes whose first line is a model state label): `listed`, `loaded`, `currency_read`, `region_set`, `ratios`, `cap_in_usd`, `benchmark_looked`, `benchmarked`, `quality_passed`, `quality_failed`, `traps_passed`, `first_ranked`. Every other state is a `step`.
 
 Steps per group (source → target):
 
@@ -54,10 +54,21 @@ Steps per group (source → target):
 6. **Stage-board links** on the containers of `screen.d2`: `snapshot` → `./screen-snapshot.svg`, `coverage_gate` → `./screen-coverage.svg`, `quality_gates` → `./screen-quality.svg`, `value_indicators` → `./screen-value.svg`, `trap_detection` → `./screen-traps.svg`, `ranking` → `./screen-ranking.svg`.
 7. **`site` workflow** runs only on a push to master; its commands are run locally on the head and the PR lists it as manual verification (as #164, #166).
 
+## Assumptions (from the plan grilling; decided, with the rejected alternative)
+
+- A1. **Cap over the both-boards convention** (decision 1). The issue fixes both the cap ("At most 24 edges per sub-board") and the rule branches ("[pass], [fail] and, where the rule can skip, [skipped] branches into the layer's verdict state"); its remedy for an oversize board ("split the sub-board and the group together") cannot help, because the rule branches belong to one layer. The both-boards line is a README convention, not a test: `test_subboard_edges_join_the_model_states` checks the union of the stage's boards. Rejected: dropping rule branches (breaks the issue), raising the cap (the issue fixes it).
+- A2. **Rule nodes are decisions with no incoming edge**, as on `screen.d2` (`quality_gates.*` etc.). `test_subboard_state_classes` classifies only model states; `test_every_step_has_purpose_and_edges` checks only `step` nodes. Rejected: an edge from the entry state into each rule (+7 edges on quality, over the cap).
+- A3. **`Done` drawn once**, `reported -> out: "the run ends"`. `test_step_labels_are_drawn` needs the label on one edge; `_transitions` skips `Done`. `cut` is terminal with a `No outgoing edge` comment. Rejected: three `Done` edges, which add nothing for the reader.
+- A4. **Only `ranking` links `screen-ranking`**; `persist_and_report` gets no link. `test_stage_board_links_its_subboards` requires every sub-board to be linked, not every container to link. Rejected: two links to one target, against the issue's "change nothing else".
+- A5. **Red intermediate commits.** The evals commit fails by design (stage 3), and the issue says the render check "fails once, on the push before the SVGs are committed; that is expected". Only the final head must be green. A stalled render leaves `rendered.sha256` stale against the `.d2` sources on this branch only.
+- A6. **Rendering on a branch push.** `pipeline-diagram.yml` runs `on: [push, workflow_dispatch]`, so it renders this branch; `site.yml` runs only on master (decision 7).
+- A7. **README in place.** `test_readme_has_build_and_check_commands` caps it at 90 lines; it has 90 today. The count sentence is rewritten and the exception is appended to the existing "A step that crosses groups" bullet, without new lines.
+- A8. **ADR mention in a multi-line note.** `test_subboard_digits_are_cited` reads single-line labels and would read `0006` as an uncited 6; no `@const` can cite an ADR number. The ADR goes in a multi-line `|md` note child, as on `screen.d2`, with its `@file`. Rejected: dropping the ADR (the issue asks for it on screen-coverage).
+
 ## Review Focus
 
 1. **A rule drawn on the wrong layer or twice** (e.g. `roic_above_sector_wacc` on screen-quality). Expected: each registered rule is a decision node on exactly the sub-board of its preset section. Test: `test_screen_rules_sit_on_their_layer_subboard` (Task 1).
-2. **A threshold shown with the wrong value or uncited** (100M, 5 years, 4, 2, 4 of 5, 0.5, 0.7, 8%, −5%, −200 bps, 0.1, 5%, 0.40/0.30/0.20/0.10, MoS 0.5, 21%). Tests: `test_subboard_digits_are_cited`, `test_every_directive_is_valid`, `_REQUIRED_PARAMS` per sub-board (Task 1).
+2. **A threshold shown with the wrong value or uncited** (100M, 5 years, 4, 2, 4 of 5, 0.5, 0.7, 8%, −5%, −200 basis points, 0.1, 5%, 0.40/0.30/0.20/0.10, MoS 0.5, 21%). Tests: `test_subboard_digits_are_cited`, `test_every_directive_is_valid`, `_REQUIRED_PARAMS` per sub-board (Task 1).
 3. **Coverage reasons out of precedence order** on screen-coverage. Test: `test_screen_coverage_reasons_in_order` (Task 1): `industry_unmapped`, `benchmark_missing`, `currency_uncovered` appear in that order in the visible text.
 4. **A [skipped] branch into the wrong state** (a skipped trap detector drawn as passing). Test: `test_screen_skip_branches` (Task 1): on screen-value every edge with `[skipped]` ends in `value_skipped`; on screen-traps every `[skipped]` edge ends in `traps_failed`.
 5. **The SVG drops a link** (stage → sub-board, `out` → next, ranking → analyze). Tests: `test_stage_svg_links_its_subboards`, `test_subboard_svg_hrefs`, `test_svg_keeps_every_link` on the SVGs from CI (Task 8).
@@ -88,7 +99,7 @@ Done in the evals stage, before any board exists. The new tests fail.
     - `screen-coverage`: `"ADR 0006 (Implemented)"`, `"config/currencies.yaml"`
     - `screen-quality`: `"100M"`, `"≤ 4"`, `"≥ 2"`, `"≤ 0.5"`
     - `screen-value`: `"0.7 × sector median"`, `"8%"`, `"value metric = highest score among passing indicators"`
-    - `screen-traps`: `"−5%"`, `"−200 bps"`, `"< 0.1"`, `"5%"`
+    - `screen-traps`: `"−5%"`, `"−200 basis points"`, `"< 0.1"`, `"5%"`
     - `screen-ranking`: `"0.40 × value"`, `"0.30 × quality"`, `"0.20 × growth"`, `"0.10 × margin of safety"`, `"ties share a percentile"`, `"--top"`, `"0.5"`
 - [ ] **Step 4:** Run `uv run pytest -q tests/unit/test_pipeline_subboards.py tests/unit/test_pipeline_models.py tests/unit/test_pipeline_diagram.py`. Expected: the new tests and the screen label-match tests fail (boards missing); everything else passes.
 - [ ] **Step 5:** Commit `test(#168): evals`.
@@ -113,7 +124,8 @@ Done in the evals stage, before any board exists. The new tests fail.
 
 - [ ] **Step 1:** Write the board.
   - `objective`: "Objective: decide whether the company can be measured at all, and if not, remove it from the universe with exactly one reason."
-  - States: `benchmark_looked` (newest-year damodaran_industry row for (industry, region), industry = industry_damodaran else the provider industry, `@symbol bot.screener.benchmarks.load_industry_benchmarks`), `benchmarked`, `rejected_coverage` (the three reasons in precedence order, `@enum bot.screener.engine.CoverageReason @symbol bot.screener.engine.CoverageReason`, "architecture decision record (ADR) 0006 (Implemented)" with `@file docs/adr/0006-...`), `measured` ("every rule of the three layers runs").
+  - States: `benchmark_looked` (newest-year damodaran_industry row for (industry, region), industry = industry_damodaran else the provider industry, `@symbol bot.screener.benchmarks.load_industry_benchmarks`), `benchmarked`, `rejected_coverage` (the three reasons in precedence order, `@enum bot.screener.engine.CoverageReason @symbol bot.screener.engine.CoverageReason`), `measured` ("every rule of the three layers runs").
+  - The ADR goes in a multi-line `|md` note child `adr` of `rejected_coverage` (assumption A8), cited `@file docs/adr/0006-unmeasurable-companies-leave-the-universe.md` on its declaration line: first line `Architecture decision record (ADR):`, second line `ADR 0006 (Implemented): a company that cannot be measured leaves the universe before any rule runs.`
   - Neighbours per decision 4. Stores/files: `damodaran_industry → benchmark_looked`, `currencies_yaml` (file, `@file config/currencies.yaml`) `→ benchmarked`.
   - `out`: "Comes out:" a measured company with its sector benchmark (medians and WACC), or one rejected row with one reason. `link: "./screen-quality.svg"`. Fed from `measured`.
   - Edges: 3 in + 5 inside + 2 to quality + 1 to `rejected_saved` + 2 sources + 1 out = 14.
@@ -150,9 +162,9 @@ Done in the evals stage, before any board exists. The new tests fail.
 - [ ] **Step 1:** Write the board.
   - `objective`: "Objective: drop a company that looks cheap for a reason, then decide whether it survives all three layers."
   - States `traps_passed`, `traps_failed`, `rejected_rules` ("failed rules of every layer recorded"); neighbours per decision 4.
-  - Five rule nodes: average revenue growth over the last 3 years > −5% (average growth = mean of (current − previous) ÷ previous; fewer revenues or undefined growth fails); margin change over the last 3 years ≥ −200 bps; ROIC > sector WACC (`[skipped]` → `traps_failed`); Sloan ratio (net income − operating cash flow) ÷ total assets < 0.1; average diluted share growth ≤ 5% a year.
+  - Five rule nodes: average revenue growth over the last 3 years > −5% (average growth = mean of (current − previous) ÷ previous; fewer revenues or undefined growth fails); operating margin change (last − first) over the last 3 years ≥ −200 basis points (write "basis points", never "bps": the digit test reads `bps` as a unit and −200 bps as −0.02, while the preset value is −200.0; no "× 10,000" factor on the label); ROIC > sector WACC (`[skipped]` → `traps_failed`, "a skipped detector counts as failed", `@symbol bot.screener.engine.evaluate_company`; no ADR number on this board); Sloan ratio (net income − operating cash flow) ÷ total assets < 0.1; average diluted share growth ≤ 5% a year.
   - `out`: "Comes out:" a survivor with its value, quality and growth inputs, or a rejected company with its failed rules. `link: "./screen-ranking.svg"`. Fed from `survivor`.
-  - Edges: 6 in + 2 inside + 11 rule branches + `traps_passed -> survivor` + `rejected_rules -> rejected_saved` + `survivor -> out` = 21.
+  - Edges: 6 in + 2 inside + 11 rule branches + `traps_passed -> survivor` + `rejected_rules -> rejected_saved` + `survivor -> out` = 22.
 - [ ] **Step 2:** Tests as Task 2. **Step 3:** Commit `docs(#168): screen-traps sub-board`.
 
 ### Task 7: screen-ranking
@@ -165,7 +177,7 @@ Done in the evals stage, before any board exists. The new tests fail.
   - How lines, from `screen.d2`'s `ranking.*` and `persist_and_report.*`: metrics (value, quality = (ROIC − sector WACC) + ROE, growth = revenue CAGR); percentile = 0-based rank among distinct values ÷ (distinct values − 1), ties share a percentile, one survivor or all equal: 1; score = 100 × (0.40 × value + 0.30 × quality + 0.20 × growth + 0.10 × margin of safety) with the four `@param ranking.*`; first pass MoS 0.5 (`@const bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY`), best first, ties by ticker; `--top N` keeps the best N; second pass margin of safety = intrinsic value ÷ price; rescore keeps first-pass percentiles; persisted columns; report columns.
   - Stores/outputs: `screener_candidates` (`saved →`, `rejected_saved →`), `report` (output, `reports/YYYY-MM-DD/screen/<preset>.md and .csv`, `reported →`).
   - `out`: "Comes out:" the shortlist rows of the run in screener_candidates and the shortlist report; rejected rows with their reasons. `link: "./screen.svg"`. Fed by `reported -> out: "the run ends"`.
-  - Edges: 12 inside + 3 in + Done + 2 analyze + 2 store + 1 report = 21. `cut`, `rejected_saved` carry `# No outgoing edge: the run ends here`.
+  - Edges: 12 inside + 3 in + Done + 3 analyze (`kept -> analyze`, `assumptions -> analyze`, `analyze -> valued` "margin of safety = intrinsic value ÷ price, or an error") + 2 store + 1 report = 22. `cut` carries `# No outgoing edge: the run ends here`; `rejected_saved` has its edge into `screener_candidates`.
 - [ ] **Step 2:** Tests as Task 2. **Step 3:** Commit `docs(#168): screen-ranking sub-board`.
 
 ### Task 8: stage links, README, render
@@ -175,3 +187,10 @@ Done in the evals stage, before any board exists. The new tests fail.
 - [ ] **Step 1:** Add the links and README edits; run the three test files: everything passes except the SVG-dependent tests.
 - [ ] **Step 2:** Commit `docs(#168): link the screen sub-boards`; push; render loop until `pipeline-diagram` is green on the head with the committed SVGs.
 - [ ] **Step 3:** Full suite, `uv run ruff check . && uv run mypy src`, `python3 docs/pipeline/check.py` (`0 errors`), and the `site` workflow's commands locally.
+
+## Grilling
+
+- Rounds: 1 (the revisions changed counts, phrases and one edge, not the task list or the seam).
+- Questions: 18. Sources: CODE 14 (`tests/unit/test_pipeline_models.py`, `test_pipeline_subboards.py`, `test_pipeline_diagram.py`, `screen.tla`, `screen.view.js`, `pipeline-diagram.yml`, `check.py`), ISSUE 3, NO SOURCE 1 (Q2, cap vs both-boards: technical assumption A1).
+- Fixes: traps edge count (21 → 22); "−200 bps" → "−200 basis points" (the digit test reads bps as a unit); the ADR phrase moved to a note (A8); `analyze -> valued` added so the `analyze` step has an outgoing edge.
+- Assumptions: A1–A8. Issues opened: none.
