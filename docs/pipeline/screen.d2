@@ -19,6 +19,8 @@ deep_value: "config/presets/deep_value.yaml" {class: file}  # @file config/prese
 qarp: "config/presets/qarp.yaml" {class: file}  # @file config/presets/qarp.yaml
 assumptions: "config/assumptions/TICKER.yaml, manual overrides" {class: file}  # @symbol bot.valuator.assumptions.conventional_override_path
 
+currencies_yaml: "config/currencies.yaml, risk-free rate and nominal gross domestic product (GDP) growth per currency\nabsent or malformed: empty table, every currency uncovered\na rate out of range: the command stops with an error" {class: file}  # @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table
+
 # Database
 duckdb: "DuckDB (bot.duckdb)" {
   companies: {class: store}  # @table companies
@@ -41,6 +43,7 @@ report_csv: "reports/YYYY-MM-DD/screen/<preset>.csv" {class: output}
 
 # Layer 1: snapshot
 snapshot: "1. snapshot per company" {
+  link: "./screen-snapshot.svg"
   load: "load every company of companies\nits non-restated financials_annual rows, oldest first\n(latest row = newest fiscal year)\nnewest prices_daily close and newest market cap,\neach from its own newest non-empty row" {  # @symbol bot.screener.engine.run_screen
     class: step
     plano_restated: |md Gap: plano sec card says the screener always uses the latest (corrected) statement; screen and analyze read only rows with is_restated false. | {class: gap}
@@ -78,14 +81,15 @@ snapshot: "1. snapshot per company" {
   usd: "market cap in USD\n= market cap × rate_to_usd of its listing currency,\nthe rate on or before the market-cap date (from currencies)\nno rate: empty, so min_market_cap fails\nno listing currency: taken as USD" {  # @symbol bot.screener.engine._market_cap_usd
     class: decision
   }
-  benchmark: "sector benchmark for the company\nnewest-year damodaran_industry row for (industry, region)\nindustry = industry_damodaran, else the provider industry\nlooked up once per pair" {  # @symbol bot.screener.benchmarks.load_industry_benchmarks
+  benchmark: "sector benchmark for the company\nnewest-year damodaran_industry row for (industry, region)\nindustry = industry_damodaran, else the provider industry\n(no industry_damodaran: the coverage gate drops it as industry_unmapped)\nlooked up once per pair" {  # @symbol bot.screener.benchmarks.load_industry_benchmarks
     class: step
   }
 }
 
 # Layer 2: coverage gate
 coverage_gate: "2. coverage gate" {
-  gate: "sector benchmark row for (industry, region)\nwith a weighted average cost of capital (WACC),\nand reporting currency in config/currencies.yaml?\nno: the company leaves the universe before any rule runs,\nrecorded as rejected with coverage_gate and one reason,\nindustry_unmapped > benchmark_missing > currency_uncovered\n(architecture decision record (ADR) 0006 (Implemented))" {  # @symbol bot.screener.engine.run_screen @file docs/adr/0006-unmeasurable-companies-leave-the-universe.md
+  link: "./screen-coverage.svg"
+  gate: "can the company be measured? the first reason that applies:\nindustry_unmapped: no Damodaran industry (industry_damodaran)\nbenchmark_missing: no sector benchmark row, or one without a weighted average cost of capital (WACC)\ncurrency_uncovered: valuation currency (currency of the newest non-restated financials_annual row)\nmissing, or not in config/currencies.yaml\nany reason: the company leaves the universe before any rule runs,\nrecorded as rejected with that one reason\n(architecture decision record (ADR) 0006 (Implemented))" {  # @symbol bot.screener.engine.run_screen @enum bot.screener.engine.CoverageReason @symbol bot.screener.engine.CoverageReason @file config/currencies.yaml @file docs/adr/0006-unmeasurable-companies-leave-the-universe.md
     class: decision
     plano_caveat: |md Gap: plano damodaran card says the engine still resolves missing benchmarks layer by layer; the coverage gate removes the company before any rule runs (ADR 0006 (Implemented)). | {class: gap}
     plano_wacc: |md Gap: plano a-wacc card says the sector WACC's only consumer is roic_above_sector_wacc; the coverage gate requires it too, and the portfolio's sector_recalibrated event diffs it. | {class: gap}
@@ -94,6 +98,7 @@ coverage_gate: "2. coverage gate" {
 
 # Layer 3: quality gates
 quality_gates: "3. quality gates: every gate must pass" {
+  link: "./screen-quality.svg"
   plano_bounds: |md Gap: plano g-cap, g-debt, g-cover and g-gw cards state strict bounds (more than USD 100M, below 4, above 2, under 50% of assets); the code passes at equality (market cap ≥ 100M, net debt ÷ EBITDA ≤ 4, interest coverage ≥ 2, goodwill ÷ total assets ≤ 0.5). | {class: gap}  # @param min_market_cap.minimum_usd @param max_net_debt_to_ebitda.maximum @param min_interest_coverage.minimum @param max_goodwill_to_assets.maximum
   min_market_cap: "market cap in USD ≥ 100M\nmissing: fails" {  # @rule min_market_cap @param min_market_cap.minimum_usd
     class: decision
@@ -124,6 +129,7 @@ quality_gates: "3. quality gates: every gate must pass" {
 
 # Layer 4: value indicators
 value_indicators: "4. value indicators: at least one must pass" {
+  link: "./screen-value.svg"
   pe_below_industry_multiple: "P/E < 0.7 × sector median P/E\nskipped: median or company P/E missing or ≤ 0" {  # @rule pe_below_industry_multiple @param pe_below_industry_multiple.multiple
     class: decision
   }
@@ -146,6 +152,7 @@ value_indicators: "4. value indicators: at least one must pass" {
 
 # Layer 5: trap detection
 trap_detection: "5. trap detection: every detector must pass" {
+  link: "./screen-traps.svg"
   growth_rate: "average growth = mean of (current − previous) ÷ previous\nover consecutive years\nundefined through a base ≤ 0" {  # @symbol bot.screener.rules._avg_growth_rate
     class: step
   }
@@ -174,6 +181,7 @@ trap_detection: "5. trap detection: every detector must pass" {
 
 # Layer 6: ranking
 ranking: "6. ranking of the survivors" {
+  link: "./screen-ranking.svg"
   metrics: "survivor metrics\nvalue = highest passing value indicator score\nquality = (ROIC − sector WACC) + ROE; a missing ROE counts 0\ngrowth = revenue compound annual growth rate (CAGR)\n= (last ÷ first)^(1 ÷ (years − 1)) − 1\ngrowth = 0 when fewer than two years or first ≤ 0" {  # @symbol bot.screener.engine._quality_metric @symbol bot.screener.engine._growth_metric @symbol bot.utils.finance.cagr
     class: step
     spec_scores: |md Gap: spec §6.5 puts margin stability in the quality score and free cash flow growth in the growth score; the code uses (ROIC − WACC) + ROE and revenue CAGR only. | {class: gap}
@@ -196,7 +204,7 @@ ranking: "6. ranking of the survivors" {
   top_n: "--top given?\nyes: keep the best N\nno: keep every survivor" {  # @symbol bot.screener.engine.run_screen
     class: decision
   }
-  second_pass: "second pass: value each kept ticker by DCF\nmargin of safety = intrinsic value ÷ price\nwith config/assumptions/TICKER.yaml when present" {  # @symbol bot.screener.engine._batch_dcf_margins
+  second_pass: "second pass: value each kept ticker by DCF\nmargin of safety = intrinsic value ÷ price\nwith config/assumptions/TICKER.yaml when present\nrates of the valuation currency from config/currencies.yaml, the table the gate used" {  # @symbol bot.screener.engine._batch_dcf_margins
     class: step
   }
   valued: "valued?\nno (unknown ticker, missing data, incomplete assumptions):\nkeeps margin of safety 0.5" {  # @const bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY
@@ -213,7 +221,7 @@ persist_and_report: "7. persist and report" {
     class: step
     cut: |md Survivors cut by --top are not written. | {class: note}
   }
-  report: "shortlist report, markdown and CSV with the same columns\nrank, ticker, name, sector, score, the four sub-scores, market cap,\nP/E, EV/EBITDA, P/BV, ROE, ROIC, free cash flow yield\nmarkdown header: companies screened, shortlist size,\ncoverage gate exclusions" {  # @symbol bot.reporting.screen_report.render_markdown @symbol bot.reporting.screen_report.render_csv
+  report: "shortlist report, markdown and CSV with the same columns\nrank, ticker, name, sector, score, the four sub-scores, market cap,\nP/E, EV/EBITDA, P/BV, ROE, ROIC, free cash flow yield\nmarkdown header: companies screened, shortlist size,\ncoverage gate exclusions per reason" {  # @symbol bot.reporting.screen_report.render_markdown @symbol bot.reporting.screen_report.render_csv @symbol bot.screener.engine.format_coverage_counts
     class: step
   }
 }
@@ -238,11 +246,12 @@ snapshot.tax -> snapshot.ratios: "tax rate"
 snapshot.ratios -> snapshot.usd: "ratios and market cap"
 snapshot.usd -> snapshot.benchmark: "industry and region"
 snapshot.benchmark -> coverage_gate.gate: "sector benchmark, or none"
-currencies_yaml: "config/currencies.yaml\nthe currencies the valuation covers" {class: file}  # @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table
-currencies_yaml -> coverage_gate.gate: "covered currencies"
 
 # Edges: coverage gate and quality gates
-coverage_gate.gate -> quality_gates: "yes: measured, every rule runs"
+duckdb.financials_annual -> coverage_gate.gate: "valuation currency"
+currencies_yaml -> coverage_gate.gate: "covered currencies"
+currencies_yaml -> ranking.second_pass: "currency table"
+coverage_gate.gate -> quality_gates: "no reason: measured, every rule runs"
 quality_gates.min_market_cap -> quality_gates.all_pass: "pass or fail"
 quality_gates.min_years_history -> quality_gates.all_pass: "pass or fail"
 quality_gates.exclude_sectors -> quality_gates.all_pass: "pass or fail"
@@ -273,7 +282,7 @@ trap_detection.share_count_not_diluting -> trap_detection.all_pass: "pass or fai
 quality_gates.all_pass -> persist_and_report.persist: "no: one rejected row per company,\nfailed rules of every layer"
 value_indicators.at_least_one -> persist_and_report.persist: "no: one rejected row per company,\nfailed rules of every layer"
 trap_detection.all_pass -> persist_and_report.persist: "no: one rejected row per company,\nfailed rules of every layer"
-coverage_gate.gate -> persist_and_report.persist: "no: rejected with coverage_gate"
+coverage_gate.gate -> persist_and_report.persist: "any reason: rejected with that reason"
 trap_detection.all_pass -> ranking.metrics: "yes, with all three layer verdicts passed: survivors"
 ranking.metrics -> ranking.percentiles: "value, quality, growth"
 ranking.percentiles -> ranking.weights: "percentiles"

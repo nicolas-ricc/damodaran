@@ -30,6 +30,7 @@ from bot.portfolio.events import EventType, Position
 from bot.portfolio.marks import HoldingMark
 from bot.reference.currencies import CurrencyRates
 from bot.reporting.analysis_report import margin_verdict
+from bot.screener.engine import CoverageReason
 from bot.screener.ranking import RankingWeights
 from bot.screener.rules import registered_rules
 from bot.screener.types import CompanyData, IndustryBenchmarks
@@ -78,6 +79,27 @@ def _preset_params() -> dict[str, Any]:
     return params
 
 
+# Rule layer of the preset -> the screen sub-board that draws its rules (#168).
+_SCREEN_LAYER_BOARDS = {
+    "quality_gates": "screen-quality",
+    "value_indicators": "screen-value",
+    "trap_detection": "screen-traps",
+}
+
+
+def _preset_layer_rules(section: str) -> set[str]:
+    preset = yaml.safe_load(_PRESET.read_text(encoding="utf-8"))
+    return {rule["name"] for rule in preset[section]["rules"]}
+
+
+def _preset_layer_params(section: str) -> set[str]:
+    """The `<rule>.<param>` keys of one preset section; `ranking` gives the weights."""
+    if section == "ranking":
+        return {k for k in _preset_params() if k.startswith("ranking.")}
+    rules = _preset_layer_rules(section)
+    return {k for k in _preset_params() if k.partition(".")[0] in rules}
+
+
 # Required citations, per board stem. Stage issues append their own entries.
 _REQUIRED_SYMBOLS: dict[str, set[str]] = {
     "pipeline": {
@@ -113,11 +135,15 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.ingest.fmp",
         "bot.ingest.industry_mapping.load_industry_mapping",
         "bot.reference.industries",
+        "bot.reference.currencies.load_currency_table",
         "bot.utils.fx.import_fx_rates",
     },
     "screen": {
         "bot.cli.screen",
         "bot.screener.engine.run_screen",
+        "bot.screener.engine.CoverageReason",
+        "bot.screener.engine.format_coverage_counts",
+        "bot.reference.currencies.load_currency_table",
         "bot.screener.engine.build_company_data",
         "bot.screener.engine.evaluate_company",
         "bot.screener.engine._quality_metric",
@@ -150,6 +176,8 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.valuator.story_types._cagr",
         "bot.valuator.story_types._earnings_cv",
         "bot.valuator.assumptions.resolve_assumptions",
+        "bot.valuator.assumptions.load_assumption_inputs",
+        "bot.reference.currencies.load_currency_table",
         "bot.valuator.assumptions._resolve_revenue_growth",
         "bot.valuator.assumptions._resolve_operating_margin",
         "bot.valuator.assumptions._resolve_weights",
@@ -213,6 +241,123 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.web.views.verdict_of",
         "bot.reporting.analysis_json.render_analysis_json",
     },
+    "site-publish": {"bot.reporting.analysis_json.render_analysis_json"},
+    "site-ci": {"bot.cli.site"},
+    "site-scan": {
+        "bot.web.site.build",
+        "bot.web.index.scan",
+        "bot.web.index.read_sidecar",
+        "bot.web.site._prepare_out_dir",
+        "bot.web.site._renderable",
+    },
+    "site-views": {"bot.web.views.verdict_of", "bot.web.views.row_view", "bot.web.views.filter_sort"},
+    "refresh-damodaran": {
+        "bot.ingest.damodaran.import_damodaran",
+        "bot.ingest.damodaran.merge_industry_datasets",
+        "bot.ingest.damodaran.derive_industry_columns",
+    },
+    "refresh-fundamentals": {
+        "bot.ingest.universe.import_company",
+        "bot.ingest.universe._should_skip",
+        "bot.ingest.industry_mapping.load_industry_mapping",
+        "bot.ingest.universe._run_bulk_refresh",
+    },
+    "refresh-facts": {
+        "bot.ingest.sec_edgar._collect_period_rows",
+        "bot.ingest.sec_edgar._rescale_shares_diluted",
+        "bot.ingest.sec_edgar._fiscal_quarter_key",
+        "bot.ingest.sec_edgar._derive_financial_fields",
+    },
+    "refresh-prices": {
+        "bot.ingest.universe.refresh_prices",
+        "bot.ingest.universe._stale_first",
+        "bot.ingest.universe._last_weekday_before",
+    },
+    "refresh-fx": {"bot.ingest.universe.refresh_fx"},
+    "screen-snapshot": {
+        "bot.screener.engine.build_company_data",
+        "bot.screener.engine._resolve_region",
+        "bot.screener.engine._resolve_tax_rate",
+        "bot.screener.engine._market_cap_usd",
+    },
+    "screen-coverage": {
+        "bot.screener.engine.CoverageReason",
+        "bot.screener.benchmarks.load_industry_benchmarks",
+    },
+    "screen-quality": {"bot.screener.engine.evaluate_company"},
+    "screen-value": {"bot.screener.engine.evaluate_company", "bot.screener.rules._value_score"},
+    "screen-traps": {"bot.screener.engine.evaluate_company"},
+    "screen-ranking": {
+        "bot.screener.ranking.rank",
+        "bot.screener.ranking.rescore_with_margins",
+        "bot.screener.ranking._percentiles",
+        "bot.screener.persist.persist_candidates",
+    },
+    "analyze-inputs": {
+        "bot.valuator.analysis.load_valuation_input",
+        "bot.cli.analyze",
+        "bot.reference.regions.dataset_region",
+    },
+    "analyze-story": {
+        "bot.valuator.story_types.classify",
+        "bot.valuator.story_types._earnings_cv",
+        "bot.valuator.story_types._cagr",
+    },
+    "analyze-assumptions": {
+        "bot.valuator.assumptions.resolve_assumptions",
+        "bot.valuator.assumptions._resolve_revenue_growth",
+        "bot.valuator.assumptions._resolve_operating_margin",
+        "bot.valuator.assumptions._resolve_weights",
+        "bot.valuator.assumptions._resolve_terminal_growth",
+        "bot.valuator.assumptions._resolve_tax_rate",
+    },
+    "analyze-dcf": {"bot.valuator.dcf.dcf", "bot.valuator.dcf._wacc"},
+    "analyze-sensitivity": {"bot.valuator.sensitivity.tornado", "bot.valuator.sensitivity.grid_2d"},
+    "analyze-flags": {
+        "bot.valuator.narrative_flags.narrative_flags",
+        "bot.valuator.narrative_flags.country_exposure_flag",
+    },
+    "analyze-verdict": {
+        "bot.reporting.analysis_report.margin_verdict",
+        "bot.valuator.analysis._sanity_check",
+        "bot.reporting.analysis_json.render_analysis_json",
+    },
+    "portfolio-sync": {
+        "bot.cli.portfolio",
+        "bot.notifier.build_notifier",
+        "bot.portfolio.sync.sync_portfolio",
+        "bot.portfolio.sync.value_positions",
+        "bot.ingest.ibkr_flex.import_corporate_actions",
+        "bot.portfolio.trades.sync_trades",
+    },
+    "portfolio-marks": {
+        "bot.portfolio.marks.mark_holdings",
+        "bot.valuator.analysis.analyze",
+        "bot.screener.engine.load_holding_inputs",
+        "bot.portfolio.marks.persist_marks",
+    },
+    "portfolio-mark-events": {
+        "bot.portfolio.events.compute_events",
+        "bot.portfolio.marks.load_marks",
+        "bot.portfolio.events.detect_intrinsic_value_cross",
+        "bot.portfolio.events.detect_new_red_flags",
+        "bot.portfolio.events.detect_below_quality_gate",
+        "bot.portfolio.events.detect_sector_recalibration",
+        "bot.portfolio.events.detect_concentration",
+    },
+    "portfolio-events": {
+        "bot.portfolio.events.compute_events",
+        "bot.portfolio.events.detect_position_changes",
+        "bot.portfolio.events.detect_currency_changes",
+        "bot.portfolio.events.detect_corporate_action_events",
+        "bot.portfolio.events.detect_new_filings",
+    },
+    "portfolio-alerts": {
+        "bot.portfolio.events.persist_events",
+        "bot.portfolio.report.render_portfolio",
+        "bot.portfolio.report.render_alerts",
+        "bot.notifier.notify_alerts",
+    },
 }
 # Derived from schema.sql, so a new table cannot go undrawn on the overview.
 _REQUIRED_TABLES: dict[str, set[str]] = {
@@ -256,6 +401,47 @@ _REQUIRED_TABLES: dict[str, set[str]] = {
         "prices_daily",
         "currencies",
     },
+    "refresh-damodaran": {"damodaran_industry", "damodaran_country", "refresh_log"},
+    "refresh-fundamentals": {"companies", "filings_log", "refresh_log"},
+    "refresh-facts": {"financials_annual", "financials_quarterly"},
+    "refresh-prices": {"prices_daily", "refresh_log"},
+    "refresh-fx": {"companies", "currencies", "refresh_log"},
+    "screen-snapshot": {
+        "companies", "financials_annual", "prices_daily", "damodaran_country", "currencies",
+    },
+    "screen-coverage": {"damodaran_industry"},
+    "screen-ranking": {"screener_candidates"},
+    "analyze-inputs": {
+        "screener_candidates", "companies", "financials_annual", "prices_daily",
+        "damodaran_industry", "damodaran_country",
+    },
+    "analyze-assumptions": {"damodaran_industry", "damodaran_country"},
+    "portfolio-sync": {
+        "portfolio_snapshots",
+        "cash_balances",
+        "corporate_actions",
+        "trades",
+        "prices_daily",
+        "currencies",
+    },
+    "portfolio-marks": {
+        "holding_marks",
+    },
+    "portfolio-mark-events": {
+        "holding_marks",
+        "portfolio_snapshots",
+    },
+    "portfolio-events": {
+        "portfolio_snapshots",
+        "corporate_actions",
+        "filings_log",
+        "events_log",
+    },
+    "portfolio-alerts": {
+        "events_log",
+        "portfolio_snapshots",
+        "cash_balances",
+    },
 }
 _REQUIRED_FILES: dict[str, set[str]] = {
     "pipeline": {
@@ -273,30 +459,70 @@ _REQUIRED_FILES: dict[str, set[str]] = {
         "scripts/daily.sh",
         "scripts/weekly.sh",
         "scripts/price_fill.sh",
+        "config/currencies.yaml",
     },
     "screen": {
         "config/presets/damodaran_value.yaml",
         "config/presets/deep_value.yaml",
         "config/presets/qarp.yaml",
+        "config/currencies.yaml",
     },
     # config/assumptions/<TICKER>.yaml is a pattern: its directory is cited.
     "analyze": {
         "config/assumptions",
         "config/assumptions/_EXAMPLE.yaml.example",
         "src/bot/reporting/templates/analysis.md.j2",
+        "config/currencies.yaml",
     },
-    "portfolio": {"scripts/daily.sh", "config/presets/damodaran_value.yaml"},
+    "portfolio": {
+        "scripts/daily.sh",
+        "config/presets/damodaran_value.yaml",
+        "config/currencies.yaml",
+    },
     "site": {
         "scripts/publish_site.sh",
         ".github/workflows/site.yml",
         ".gitignore",
         "scripts/weekly.sh",
     },
+    "site-publish": {"scripts/publish_site.sh", "scripts/weekly.sh"},
+    "site-ci": {".github/workflows/site.yml"},
+    "site-views": {".github/workflows/site.yml"},
+    "refresh-damodaran": {"scripts/weekly.sh"},
+    "refresh-fundamentals": {
+        "src/bot/ingest/industry_mapping.csv",
+        "src/bot/ingest/universe_default.csv",
+    },
+    "refresh-prices": {"scripts/daily.sh", "scripts/price_fill.sh"},
+    "refresh-fx": {"scripts/daily.sh"},
+    "screen-coverage": {
+        "config/currencies.yaml",
+        "docs/adr/0006-unmeasurable-companies-leave-the-universe.md",
+    },
+    "analyze-story": {"config/assumptions"},
+    "analyze-assumptions": {"config/assumptions", "config/currencies.yaml"},
+    "analyze-verdict": {"src/bot/reporting/templates/analysis.md.j2"},
+    "portfolio-marks": {
+        "config/presets/damodaran_value.yaml",
+        "config/assumptions",
+        "config/currencies.yaml",
+    },
+    "portfolio-alerts": {
+        "src/bot/reporting/templates/portfolio.md.j2",
+        "src/bot/reporting/templates/alerts.md.j2",
+    },
 }
 # Derived from the rule registry and the preset, so a new rule or parameter
 # cannot go undrawn on the screen board.
-_REQUIRED_RULES: dict[str, set[str]] = {"screen": set(registered_rules())}
-_REQUIRED_PARAMS: dict[str, set[str]] = {"screen": set(_preset_params())}
+_REQUIRED_RULES: dict[str, set[str]] = {
+    "screen": set(registered_rules()),
+    **{board: _preset_layer_rules(layer) for layer, board in _SCREEN_LAYER_BOARDS.items()},
+}
+_REQUIRED_PARAMS: dict[str, set[str]] = {
+    "screen": set(_preset_params()),
+    **{board: _preset_layer_params(layer) for layer, board in _SCREEN_LAYER_BOARDS.items()},
+    "screen-ranking": _preset_layer_params("ranking"),
+}
 _REQUIRED_CONSTS: dict[str, set[str]] = {
     "pipeline": {"bot.web.views.MOS_UNDERVALUED", "bot.web.views.MOS_FAIR"},
     "refresh": {
@@ -355,6 +581,90 @@ _REQUIRED_CONSTS: dict[str, set[str]] = {
         "bot.web.site.MARKER",
         "bot.reporting.analysis_json.SCHEMA_VERSION",
     },
+    "site-scan": {
+        "bot.reporting.analysis_json.SCHEMA_VERSION",
+        "bot.web.site.MARKER",
+        "bot.web.views.MOS_UNDERVALUED",
+        "bot.web.views.MOS_FAIR",
+    },
+    "site-views": {
+        "bot.web.views.MOS_UNDERVALUED",
+        "bot.web.views.MOS_FAIR",
+        "bot.web.views.FILTERS",
+        "bot.web.views.SORTS",
+        "bot.web.views.DIRECTIONS",
+    },
+    "refresh-fundamentals": {
+        "bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE",
+        "bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE",
+    },
+    "refresh-facts": {
+        "bot.ingest.sec_edgar.ANNUAL_SPAN_DAYS",
+        "bot.ingest.sec_edgar.QUARTERLY_SPAN_DAYS",
+        "bot.ingest.sec_edgar._QUARTER_DAYS",
+        "bot.ingest.sec_edgar._SHARE_SCALE_FACTORS",
+        "bot.ingest.sec_edgar._MIN_SHARE_COMPARATORS",
+        "bot.ingest.sec_edgar._SHARE_SCALE_TOLERANCE",
+    },
+    "refresh-prices": {
+        "bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE",
+        "bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE",
+        "bot.ingest.edgar_base._FRESH_DAYS",
+    },
+    "refresh-fx": {
+        "bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE",
+        "bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE",
+    },
+    "screen-snapshot": {"bot.screener.engine.DEFAULT_REGION", "bot.screener.engine.DEFAULT_TAX_RATE"},
+    "screen-quality": {"bot.screener.rules.DEFAULT_EXCLUDED_SECTORS"},
+    "screen-ranking": {"bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY"},
+    "analyze-story": {
+        "bot.valuator.story_types._DISTRESS_ALTMAN_Z",
+        "bot.valuator.story_types._DISTRESS_INTEREST_COVERAGE",
+        "bot.valuator.story_types._CYCLICAL_EARNINGS_CV",
+        "bot.valuator.story_types._HIGH_GROWTH_CAGR",
+        "bot.valuator.story_types._MATURE_AGE_YEARS",
+        "bot.valuator.story_types._DECLINE_CAGR",
+    },
+    "analyze-assumptions": {
+        "bot.valuator.assumptions._HORIZON",
+        "bot.valuator.assumptions._MIN_CYCLE_YEARS",
+        "bot.valuator.assumptions._DEFAULT_TAX_RATE",
+    },
+    "analyze-dcf": {
+        "bot.valuator.analysis.MIN_PLAUSIBLE_SHARES",
+        "bot.valuator.analysis.MAX_PLAUSIBLE_SHARES",
+        "bot.valuator.assumptions._HORIZON",
+    },
+    "analyze-sensitivity": {
+        "bot.valuator.sensitivity._TORNADO_LOW",
+        "bot.valuator.sensitivity._TORNADO_HIGH",
+        "bot.valuator.sensitivity._GRID_MULTIPLIERS",
+    },
+    "analyze-flags": {
+        "bot.valuator.narrative_flags._TERMINAL_VALUE_SHARE_CEILING",
+        "bot.valuator.narrative_flags._FOREIGN_REVENUE_MAJORITY",
+        "bot.valuator.narrative_flags._ERP_GAP_THRESHOLD",
+        "bot.valuator.narrative_flags._DEFENSIVE_BETA",
+        "bot.valuator.narrative_flags._HIGH_OPERATING_LEVERAGE",
+        "bot.valuator.narrative_flags._HIGH_FINANCIAL_LEVERAGE",
+        "bot.valuator.narrative_flags._STRETCHED_REINVESTMENT_RATE",
+    },
+    "analyze-verdict": {
+        "bot.web.views.MOS_UNDERVALUED",
+        "bot.web.views.MOS_FAIR",
+        "bot.reporting.analysis_json.SCHEMA_VERSION",
+    },
+    "portfolio-mark-events": {
+        "bot.portfolio.events.DEFAULT_WACC_RECALIBRATION_BPS",
+        "bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD",
+    },
+    "portfolio-events": {
+        "bot.portfolio.events.DEFAULT_SIZE_CHANGE_THRESHOLD",
+    },
+    "portfolio-alerts": {
+        "bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD",
+    },
 }
 _REQUIRED_ENUMS: dict[str, set[str]] = {
     "pipeline": {"bot.web.views.Verdict"},
@@ -364,8 +674,15 @@ _REQUIRED_ENUMS: dict[str, set[str]] = {
         "bot.valuator.narrative_flags.FlagColor",
         "bot.valuator.sensitivity.SensitivityAxis",
     },
+    "screen": {"bot.screener.engine.CoverageReason"},
     "portfolio": {"bot.portfolio.events.EventType"},
     "site": {"bot.web.views.Verdict"},
+    "site-views": {"bot.web.views.Verdict"},
+    "screen-coverage": {"bot.screener.engine.CoverageReason"},
+    "analyze-story": {"bot.valuator.story_types.StoryType"},
+    "analyze-assumptions": {"bot.valuator.assumptions.AssumptionSource"},
+    "analyze-sensitivity": {"bot.valuator.sensitivity.SensitivityAxis"},
+    "analyze-flags": {"bot.valuator.narrative_flags.FlagColor"},
 }
 
 _REQUIRED: dict[str, dict[str, set[str]]] = {
@@ -701,7 +1018,7 @@ def test_verdict_thresholds_match_margin_verdict() -> None:
 
 def test_readme_has_build_and_check_commands() -> None:
     readme = (_PIPELINE / "README.md").read_text(encoding="utf-8")
-    assert len(readme.splitlines()) <= 60
+    assert len(readme.splitlines()) <= 90
     assert "docs/pipeline/build.sh" in readme
     assert "python3 docs/pipeline/check.py" in readme
     for kind in _check().KINDS:
@@ -712,6 +1029,15 @@ def test_readme_has_build_and_check_commands() -> None:
         assert f"{stem}.svg" in readme, stem
     for words in ("reading order", "TALA", "rendered.sha256", "add a step"):
         assert words.lower() in readme.lower(), words
+
+
+def test_readme_documents_subboards() -> None:
+    readme = (_PIPELINE / "README.md").read_text(encoding="utf-8")
+    assert "## Sub-boards" in readme
+    section = readme[readme.index("## Sub-boards") :]
+    for words in ("<stage>-<sub>.d2", "`objective`", "`back`", "`out`", "Comes out:", "24",
+                  "statechart", "models/"):
+        assert words in section, words
 
 
 def test_context_source_of_truth_links_the_pipeline_docs() -> None:
@@ -737,6 +1063,7 @@ _REFRESH_NODES: list[tuple[str, str]] = (
         ("damodaran.merge", "step"),
         ("damodaran.derive", "step"),
         ("damodaran.country", "step"),
+        ("damodaran.country.risk_free", "note"),
         ("damodaran.empty_rows", "decision"),
         ("damodaran.write", "step"),
         ("damodaran.write.us_only", "gap"),
@@ -827,8 +1154,16 @@ def test_refresh_text(key: str) -> None:
 
 
 def test_refresh_gap_notes() -> None:
-    assert "ADR 0005" in _refresh_block("damodaran.write.us_only")
+    assert "risk-free" in _refresh_block("damodaran.country.risk_free")
     assert "Financial Modeling Prep" in _refresh_block("fx.fetch.no_op")
+    assert "ADR 0005 (Implemented)" in _refresh_block("damodaran.write.us_only")
+    assert "config/currencies.yaml" in _refresh_block("damodaran.country.risk_free")
+
+
+def test_refresh_country_rows_carry_no_risk_free_rate() -> None:
+    assert "wacc.xls" not in _refresh_block("damodaran.country")
+    edge = _edge_line(_refresh(), "damodaran.write", "duckdb.damodaran_country")
+    assert edge is not None and "risk-free" not in edge
 
 
 def _edge_line(board: str, src: str, dst: str) -> str | None:
@@ -906,7 +1241,7 @@ def _class_at_line(text: str, line: int) -> str | None:
 
 _SCREEN_NODES: list[tuple[str, str]] = (
     [("cli", "step"), ("cli.options", "note"), ("analyze_stage", "step")]
-    + [(f, "file") for f in ("damodaran_value", "deep_value", "qarp", "assumptions")]
+    + [(f, "file") for f in ("damodaran_value", "deep_value", "qarp", "assumptions", "currencies_yaml")]
     + [("report_md", "output"), ("report_csv", "output")]
     + [(f"duckdb.{t}", "store") for t in sorted(_REQUIRED_TABLES["screen"])]
     + [
@@ -963,7 +1298,17 @@ _SCREEN_TEXT: dict[str, list[str]] = {
     "snapshot.region": ["China, India, Japan", "grouping", "US"],
     "snapshot.usd": ["rate_to_usd", "on or before"],
     "snapshot.benchmark": ["newest", "(industry, region)"],
-    "coverage_gate.gate": ["coverage_gate", "leaves the universe", "before any rule runs"],
+    "coverage_gate.gate": [
+        "industry_unmapped",
+        "benchmark_missing",
+        "currency_uncovered",
+        "leaves the universe",
+        "before any rule runs",
+        "one reason",
+        "missing, or not in config/currencies.yaml",
+    ],
+    "currencies_yaml": ["absent or malformed", "every currency uncovered"],
+    "persist_and_report.report": ["coverage gate exclusions per reason"],
     "quality_gates.exclude_sectors": ["financial services", "exact match", "bank", "insurance"],
     "quality_gates.max_net_debt_to_ebitda": ["net debt ≤ 0: passes"],
     "quality_gates.min_interest_coverage": ["interest expense ≤ 0: passes"],
@@ -994,7 +1339,9 @@ _SCREEN_TEXT: dict[str, list[str]] = {
     "ranking.weights.bounds": ["sum", "no ceiling"],
     "ranking.first_pass": ["0.5"],
     "ranking.top_n": ["--top"],
-    "ranking.second_pass": ["intrinsic value ÷ price", "config/assumptions/TICKER.yaml"],
+    "ranking.second_pass": [
+        "intrinsic value ÷ price", "config/assumptions/TICKER.yaml", "config/currencies.yaml",
+    ],
     "ranking.valued": ["0.5"],
     "ranking.rescore": ["percentiles kept"],
     "persist_and_report.persist": ["passed = true", "passed = false"],
@@ -1133,7 +1480,16 @@ def test_screen_dcf_seam_and_rejections() -> None:
     assert _edge_line(board, "ranking.second_pass", "analyze_stage") is not None
     assert _edge_line(board, "analyze_stage", "ranking.valued") is not None
     assert _edge_line(board, "coverage_gate.gate", "persist_and_report.persist") is not None
+    assert _edge_line(board, "currencies_yaml", "coverage_gate.gate") is not None
+    assert _edge_line(board, "currencies_yaml", "ranking.second_pass") is not None
     assert _edge_line(board, "persist_and_report.persist", "duckdb.screener_candidates")
+
+
+def test_screen_coverage_reasons_in_precedence_order() -> None:
+    gate = _screen_block("coverage_gate.gate")
+    order = ["industry_unmapped", "benchmark_missing", "currency_uncovered"]
+    assert [gate.index(r) for r in order] == sorted(gate.index(r) for r in order)
+    assert [r.value for r in CoverageReason] == order
 
 
 def test_pipeline_links_the_screen_board() -> None:
@@ -1162,7 +1518,7 @@ _FLAGS = (
 
 _ANALYZE_NODES: list[tuple[str, str]] = (
     [("cli", "step"), ("cli.errors", "note"), ("tickers", "decision"), ("override", "decision")]
-    + [(f, "file") for f in ("override_yaml", "example_yaml", "template")]
+    + [(f, "file") for f in ("override_yaml", "example_yaml", "template", "currencies_yaml")]
     + [(f"duckdb.{t}", "store") for t in sorted(_REQUIRED_TABLES["analyze"])]
     + [(o, "output") for o in ("report_md", "report_html", "report_json")]
     + [
@@ -1224,7 +1580,9 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
     "tickers": ["--from-screen", "latest", "by rank", "exit code 2"],
     "override": ["--override", "exactly one ticker", "config/assumptions/TICKER.yaml"],
     "cli.errors": ["exit code 2", "exit code 1", "worst"],
-    "inputs.load": ["non-restated", "oldest-first", "pe, ev_sales, op_margin, beta_levered"],
+    "inputs.load": [
+        "non-restated", "oldest-first", "pe, ev_sales, op_margin, beta_levered", "valuation currency",
+    ],
     "inputs.derived": [
         "net debt = total debt - cash",
         "EBIT ÷ interest expense",
@@ -1251,7 +1609,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "story_pattern",
         "historical_average",
         "rule_based",
-        "nominal gross domestic product (GDP) growth",
+        "nominal GDP growth of the valuation currency",
         "unresolved",
         "(revenue_t - revenue_t-1) ÷ revenue_t-1",
     ],
@@ -1266,7 +1624,11 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
     "assumptions.discount_rates": ["cost of equity", "pre-tax cost of debt", "unresolved"],
     "assumptions.weights": ["D/E ÷ (1 + D/E)", "1 - it", "sum to 1", "1 - debt weight"],
     "assumptions.terminal_growth": [
-        "min(its risk-free rate, its nominal GDP growth)", "rule_based", "unresolved",
+        "min(risk-free rate, nominal GDP growth)",
+        "valuation currency",
+        "config/currencies.yaml",
+        "rule_based",
+        "unresolved",
     ],
     "assumptions.tax": ["sector label", "country tax_rate", "sector_default_damodaran", "25%"],
     "assumptions.bankruptcy": ["manual", "else 0 → rule_based"],
@@ -1458,7 +1820,7 @@ def _valuation_input(shares: float) -> Any:
             sector=resolve._SectorRow(0.08, 0.09, 0.05, 0.1, 2.0, 0.25, 0.5),
             historical_growth_path=None,
             valuation_currency="USD",
-            currency_rates=CurrencyRates(0.04, 0.04, "test", "test", date(2026, 1, 1)),
+            currency_rates=CurrencyRates(0.0395, 0.04, "s", "g", date(2026, 1, 1)),
         ),
     )
 
@@ -1477,6 +1839,17 @@ def test_analyze_share_bounds_are_inclusive(shares: float, valued: bool) -> None
     else:
         with pytest.raises(ValueError, match="implausible diluted share count"):
             analyze("T", conn, company=_valuation_input(shares))
+
+
+def test_analyze_has_no_gdp_constant() -> None:
+    assert re.search(r"(?<![\d.])4%", _check().visible(_analyze())) is None
+
+
+def test_analyze_terminal_growth_reads_the_currency_table() -> None:
+    board = _analyze()
+    assert _edge_line(board, "currencies_yaml", "assumptions.terminal_growth") is not None
+    assert _edge_line(board, "duckdb.damodaran_country", "assumptions.terminal_growth") is None
+    assert _edge_line(board, "inputs.load", "assumptions") is not None
 
 
 def test_analyze_terminal_growth_must_stay_below_wacc() -> None:
@@ -1631,7 +2004,10 @@ _PORTFOLIO_TEXT: dict[str, list[str]] = {
         "naive Coordinated Universal Time (UTC)",
     ],
     "marks.held": ["≠ 0"],
-    "marks.valuation": ["config/assumptions/TICKER.yaml", "red narrative flags", "unknown"],
+    "marks.valuation": [
+        "config/assumptions/TICKER.yaml", "red narrative flags", "unknown",
+        "config/currencies.yaml", "once per run",
+    ],
     "marks.gates": ["skipped rule does not count", "sector WACC"],
     "marks.persist.unknowns": ["never fires", "counts as empty"],
     "events.window": ["per ticker across accounts", "never a recomputation"],
@@ -1788,7 +2164,7 @@ def test_portfolio_cli_order_matches_code() -> None:
 
 
 _PORTFOLIO_GAPS: dict[str, list[str]] = {
-    "sync.value.adr_0005": ["ADR 0005 (Not implemented)"],
+    "sync.value.adr_0005": ["ADR 0005 (Implemented)", "§1\u2013§3", "US-only"],
     "sync.corporate_actions.unverified": ["not yet verified against a real pull", "issue 110"],
     "events.split.other_actions": ["mergers", "fire no event"],
     "events.new_filing.no_auto_analyze": [
@@ -1816,7 +2192,8 @@ def _collapsed(text: str) -> str:
 def test_portfolio_adr_0005_gap_is_current() -> None:
     adr = next((_ROOT / "docs" / "adr").glob("0005-*.md")).read_text(encoding="utf-8")
     status = adr[adr.index("## Status") :].split("\n## ", 1)[0]
-    unimplemented = "Not implemented" in _collapsed(status)
+    # §4 is implemented (#109); the gap stays while §1-§3 are not.
+    unimplemented = "still not implemented" in _collapsed(status)
     assert _has_gap("sync.value.adr_0005") == unimplemented
 
 

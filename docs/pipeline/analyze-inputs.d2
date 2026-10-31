@@ -1,0 +1,68 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: pick the tickers to value, find each one's override file, and load its figures, its dataset region and the signals the classifier reads. | {class: note}
+back: |md back to the analyze board | {
+  class: note
+  link: "./analyze.svg"
+}
+
+# States
+# @symbol bot.cli.analyze
+asked: "the ticker is asked for\nbot analyze TICKER ... or --from-screen\ntickers given: those\n--from-screen: passed candidates of the latest screener_candidates run (newest created_at), by rank" {class: decision}
+# @symbol bot.cli.analyze
+command_stops: "the command stops before any ticker\nno ticker is valued" {class: step}  # No outgoing edge: the run of this ticker ends here
+# @symbol bot.cli.analyze
+chosen: "the ticker is chosen\neach ticker of the batch in turn" {class: decision}
+# @symbol bot.valuator.assumptions.conventional_override_path
+override_picked: "the override file is settled\n--override path (only with exactly one ticker)\nelse config/assumptions/TICKER.yaml when it exists, else none" {class: step}
+# @symbol bot.cli.analyze
+not_found: "the ticker is skipped (exit code two)\nthe batch goes on with the next ticker" {class: step}  # No outgoing edge: the run of this ticker ends here
+# @symbol bot.valuator.analysis.load_valuation_input @symbol bot.valuator.assumptions.load_assumption_inputs
+loaded: "the company and its figures are loaded\ncompanies row (name, country, currency, industry_damodaran, ipo_date)\nthe newest non-restated financials_annual row\noldest-first revenue, net income and earnings before interest and taxes (EBIT) histories, empty years dropped\nnewest prices_daily close\nsector pe, ev_sales, op_margin, beta_levered from the newest damodaran_industry row of (industry, region)\nvaluation currency = currency of that newest non-restated row" {class: decision}
+# @symbol bot.reference.regions.dataset_region
+region_set: "the dataset region is set\nChina, India, Japan: their own dataset region\nelse from the country's grouping in its newest damodaran_country row\nunknown: US" {class: step}
+# @symbol bot.valuator.analysis.analyze @symbol bot.reference.sectors.is_cyclical
+signals: "the signals are derived\nnet debt, interest coverage, age and the cyclical sector" {class: decision}
+
+# Neighbours
+# @symbol bot.valuator.story_types.classify
+classified: "the classifier has named a story type" {class: decision; link: "./analyze-story.svg"}  # No outgoing edge drawn: its branches are on analyze-story
+# @symbol bot.valuator.story_types.classify
+not_distressed: "the company is not distressed" {class: decision; link: "./analyze-story.svg"}
+
+# Stores
+screener_candidates: {class: store}  # @table screener_candidates
+companies: {class: store}  # @table companies
+financials_annual: {class: store}  # @table financials_annual
+prices_daily: {class: store}  # @table prices_daily
+damodaran_industry: {class: store}  # @table damodaran_industry
+damodaran_country: {class: store}  # @table damodaran_country
+
+out: "Comes out:\none loaded company: its newest annual figures and histories, newest close, sector multiples, dataset region, valuation currency, override file or none, and the signals" {class: output; link: "./analyze-story.svg"}
+
+# Edges
+asked -> chosen: "the ticker is named on the command line\n[tickers named, no --from-screen]"
+asked -> chosen: "the latest screen lists it as a passed candidate [--from-screen]"
+asked -> command_stops: "the command stops, exit code two [tickers with --from-screen, neither, or --override without exactly one ticker]"
+asked -> command_stops: "the command stops, exit code 1 [a rate in config/currencies.yaml is out of range]"
+asked -> command_stops: "the command stops, exit code two [--from-screen, and no screen run or no passed candidate]"
+chosen -> override_picked: "the override file is the one --override names [exactly one ticker]"
+chosen -> override_picked: "the override file is config/assumptions/TICKER.yaml [it exists]"
+chosen -> override_picked: "no override file [no --override, no TICKER.yaml]"
+override_picked -> not_found: "the ticker is skipped, exit code two [not in companies, or no annual financials]"
+override_picked -> loaded: "the company, its newest annual figures, history, close and sector multiples are loaded"
+loaded -> region_set: "the dataset region is its own [China, India, Japan]"
+loaded -> region_set: "the dataset region comes from its country's grouping\n[not China, India or Japan; grouping known]"
+loaded -> region_set: "the dataset region is US [grouping unknown]"
+region_set -> signals: "net debt, interest coverage, age and the cyclical sector are derived\nnet debt = total debt − cash, a missing term counts as 0\ninterest coverage = EBIT ÷ interest expense, empty when EBIT is missing, or interest expense is 0 or missing\nage = whole years since ipo_date\ncyclical sector = industry_damodaran in the cyclical list (exact match)"
+signals -> classified: "the classifier says distressed [interest coverage at most 1.0]"  # @const bot.valuator.story_types._DISTRESS_INTEREST_COVERAGE
+signals -> not_distressed: "not distressed [interest coverage above 1.0 or unknown]"  # @const bot.valuator.story_types._DISTRESS_INTEREST_COVERAGE
+screener_candidates -> asked: "passed candidates of the latest run, by rank"
+companies -> loaded: "company row"
+financials_annual -> loaded: "annual rows"
+prices_daily -> loaded: "newest close"
+damodaran_industry -> loaded: "sector multiples"
+damodaran_country -> region_set: "country grouping"
+signals -> out: "the loaded company goes on to the story type [always]"

@@ -28,6 +28,7 @@ override: "which override file?\n--override path (only with exactly one ticker)\
 # Files
 override_yaml: "config/assumptions/TICKER.yaml, manual overrides" {class: file}  # @file config/assumptions @symbol bot.valuator.assumptions.conventional_override_path
 example_yaml: "config/assumptions/_EXAMPLE.yaml.example, every override key" {class: file}  # @file config/assumptions/_EXAMPLE.yaml.example
+currencies_yaml: "config/currencies.yaml, risk-free rate and nominal gross domestic product (GDP) growth per currency\nabsent or malformed: empty table, every currency uncovered\na rate out of range: the command stops with an error" {class: file}  # @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table
 template: "src/bot/reporting/templates/analysis.md.j2" {class: file}  # @file src/bot/reporting/templates/analysis.md.j2
 
 # Database
@@ -47,7 +48,8 @@ report_json: "reports/YYYY-MM-DD/analysis/TICKER.json, read by the site" {class:
 
 # Section 1: inputs
 inputs: "1. inputs of one company" {
-  load: "load the company\ncompanies row (name, country, currency, industry_damodaran, ipo_date)\nthe newest non-restated financials_annual row\noldest-first revenue, net income and\nearnings before interest and taxes (EBIT) histories,\nempty years dropped\nnewest prices_daily close\nsector pe, ev_sales, op_margin, beta_levered\nfrom the newest damodaran_industry row\nof (industry, region)" {  # @symbol bot.valuator.analysis.load_valuation_input
+  link: "./analyze-inputs.svg"
+  load: "load the company\ncompanies row (name, country, currency, industry_damodaran, ipo_date)\nthe newest non-restated financials_annual row\noldest-first revenue, net income and\nearnings before interest and taxes (EBIT) histories,\nempty years dropped\nnewest prices_daily close\nsector pe, ev_sales, op_margin, beta_levered\nfrom the newest damodaran_industry row\nof (industry, region)\nvaluation currency = currency of that newest non-restated row" {  # @symbol bot.valuator.analysis.load_valuation_input @symbol bot.valuator.assumptions.load_assumption_inputs
     class: step
     exact_region: |md The sector multiples here (sanity check, flags) take the company's own dataset region only; the assumptions use the cross-region fallback. | {class: note}
   }
@@ -62,6 +64,7 @@ inputs: "1. inputs of one company" {
 
 # Section 2: story type
 story_type: "2. story type: first rule that matches wins" {  # @symbol bot.valuator.story_types.classify @enum bot.valuator.story_types.StoryType
+  link: "./analyze-story.svg"
   distressed: "distressed: Altman Z < 1.81 or interest coverage ≤ 1.0" {  # @const bot.valuator.story_types._DISTRESS_ALTMAN_Z @const bot.valuator.story_types._DISTRESS_INTEREST_COVERAGE
     class: decision
     label.near: outside-top-center
@@ -88,11 +91,12 @@ story_type: "2. story type: first rule that matches wins" {  # @symbol bot.valua
 
 # Section 3: assumptions
 assumptions: "3. assumptions: the first source that yields a value wins; paths over 5 years" {  # @symbol bot.valuator.assumptions.resolve_assumptions @const bot.valuator.assumptions._HORIZON @enum bot.valuator.assumptions.AssumptionSource
+  link: "./analyze-assumptions.svg"
   plano_sources: |md Gap: plano assumptions card lists six sources without story_pattern, and plano a-growth says the default is the historical average; a high-growth company with history gets the story_pattern path. | {class: gap}
   sector_row: "sector row: newest damodaran_industry row\nfor (industry, region)\nnone: the newest row of that industry in any region\nsector label = sector_default_damodaran,\nor sector_default_damodaran_cross_region\nwhen another region's row is used" {  # @symbol bot.valuator.assumptions._load_sector_with_fallback
     class: step
   }
-  growth: "revenue growth g_t, a 5-year path\n1. manual: list, or one value repeated → manual\n2. high-growth with history: straight line from the mean historical growth\nto the valuation currency's nominal gross domestic product (GDP) growth → story_pattern\n3. mean historical growth, repeated → historical_average\n4. that currency's nominal GDP growth each year → rule_based\n5. currency not in config/currencies.yaml → unresolved\nhistorical growth = mean of (revenue_t − revenue_t−1) ÷ revenue_t−1,\nzero bases skipped, at least two years" {  # @symbol bot.valuator.assumptions._resolve_revenue_growth
+  growth: "revenue growth g_t, a 5-year path\n1. manual: list, or one value repeated → manual\n2. high-growth with history, GDP known: straight line from the mean historical growth\nto nominal GDP growth of the valuation currency → story_pattern\n3. mean historical growth, repeated → historical_average\n4. no history: nominal GDP growth of the valuation currency each year → rule_based\nno history and an uncovered currency: unresolved\nhistorical growth = mean of (revenue_t − revenue_t−1) ÷ revenue_t−1,\nzero bases skipped, at least two years" {  # @symbol bot.valuator.assumptions._resolve_revenue_growth @file config/currencies.yaml
     class: step
     consensus: |md Gap: spec §7.3 starts revenue growth from analyst consensus converging to nominal GDP by year 10; there is no consensus layer (AssumptionSource has no analyst_consensus) and the horizon is 5 years. | {class: gap}
   }
@@ -110,7 +114,7 @@ assumptions: "3. assumptions: the first source that yields a value wins; paths o
     class: step
     company: |md Gap: spec §7.3 builds the discount rate from the company's capital structure and the country equity risk premium; the code uses the sector's D/E and the sector cost of equity. | {class: gap}
   }
-  terminal_growth: "terminal growth g_terminal\n1. manual → manual\n2. valuation currency in config/currencies.yaml:\nmin(its risk-free rate, its nominal GDP growth) → rule_based\n3. else unresolved (no USD fallback)" {  # @symbol bot.valuator.assumptions._resolve_terminal_growth
+  terminal_growth: "terminal growth g_terminal\n1. manual → manual\n2. valuation currency in config/currencies.yaml:\nmin(risk-free rate, nominal GDP growth) of that currency → rule_based\n3. uncovered currency: unresolved, so the DCF cannot run" {  # @symbol bot.valuator.assumptions._resolve_terminal_growth @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table
     class: step
   }
   tax: "tax rate\n1. manual → manual\n2. sector tax_rate → sector label\n3. country tax_rate (newest damodaran_country row)\n→ sector_default_damodaran\n4. else 25% → rule_based" {  # @symbol bot.valuator.assumptions._resolve_tax_rate @const bot.valuator.assumptions._DEFAULT_TAX_RATE
@@ -134,6 +138,7 @@ assumptions: "3. assumptions: the first source that yields a value wins; paths o
 
 # Section 4: DCF
 dcf: "4. two-stage discounted cash flow" {  # @symbol bot.valuator.dcf.dcf
+  link: "./analyze-dcf.svg"
   guard: "can it be valued?\nlatest revenue present,\n1,000,000 ≤ diluted shares ≤ 100,000,000,000,\nno assumption unresolved, sales-to-capital > 0\nno: cannot value, exit code 1" {  # @const bot.valuator.analysis.MIN_PLAUSIBLE_SHARES @const bot.valuator.analysis.MAX_PLAUSIBLE_SHARES
     class: decision
   }
@@ -163,6 +168,7 @@ dcf: "4. two-stage discounted cash flow" {  # @symbol bot.valuator.dcf.dcf
 
 # Section 5: sensitivity
 sensitivity: "5. sensitivity" {
+  link: "./analyze-sensitivity.svg"
   tornado: "tornado: each axis × 0.8 and × 1.2, one at a time\naxes: revenue_growth, operating_margin (every year scaled), tax_rate,\nsales_to_capital, terminal_growth, cost_of_equity, pretax_cost_of_debt\nswing = |intrinsic value at × 1.2 − intrinsic value at × 0.8|, widest first\nan end with g_terminal ≥ WACC: no value, ranked last" {  # @symbol bot.valuator.sensitivity.tornado @const bot.valuator.sensitivity._TORNADO_LOW @const bot.valuator.sensitivity._TORNADO_HIGH @enum bot.valuator.sensitivity.SensitivityAxis
     class: step
   }
@@ -173,6 +179,7 @@ sensitivity: "5. sensitivity" {
 
 # Section 6: narrative flags
 narrative_flags: "6. narrative flags: five checks for a human, not in any ranking" {  # @symbol bot.valuator.narrative_flags.narrative_flags @enum bot.valuator.narrative_flags.FlagColor
+  link: "./analyze-flags.svg"
   story_margin: "story margin\nstory type not high-growth: green\ncompany or sector margin missing: unknown\ncompany EBIT ÷ revenue (latest year) > sector op_margin: yellow\nelse green" {  # @symbol bot.valuator.narrative_flags.story_margin_flag
     class: decision
   }
@@ -194,6 +201,7 @@ narrative_flags: "6. narrative flags: five checks for a human, not in any rankin
 
 # Section 7: margin of safety and verdict
 verdict: "7. margin of safety and verdict" {
+  link: "./analyze-verdict.svg"
   mos: "margin of safety (MoS) = intrinsic value per share ÷ latest close\nno price, or price ≤ 0: none" {  # @symbol bot.valuator.analysis.analyze
     class: step
   }
@@ -257,9 +265,9 @@ override_yaml -> story_type.manual: "story_type key"
 story_type.manual -> assumptions: "story type"
 override_yaml -> assumptions: "manual values"
 duckdb.damodaran_industry -> assumptions.sector_row: "sector rows"
-currencies_yaml: "config/currencies.yaml\nrisk-free rate and nominal GDP growth per currency" {class: file}  # @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table
-currencies_yaml -> assumptions.terminal_growth: "risk-free rate, nominal GDP growth"
-currencies_yaml -> assumptions.growth: "nominal GDP growth"
+currencies_yaml -> assumptions.terminal_growth: "risk-free rate and nominal GDP growth of the valuation currency"
+currencies_yaml -> assumptions.growth: "nominal GDP growth of the valuation currency"
+inputs.load -> assumptions: "valuation currency"
 duckdb.damodaran_country -> assumptions.tax: "country tax rate"
 duckdb.financials_annual -> assumptions.growth: "revenue history"
 duckdb.financials_annual -> assumptions.margin: "EBIT and revenue history"

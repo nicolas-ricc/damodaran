@@ -1,0 +1,49 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: store a daily rate to US dollars for every listing currency other than USD, so later reads can convert amounts. | {class: note}
+back: |md back to the refresh board | {
+  class: note
+  link: "./refresh.svg"
+}
+
+# Sources
+daily: "daily.sh\nweekdays" {class: cron}  # @file scripts/daily.sh
+fmp: "Financial Modeling Prep (FMP)\ndaily currency rates\nBOT_DATA_PROVIDER=fmp only" {class: external}  # @symbol bot.ingest.fmp
+companies: {class: store}  # @table companies
+
+# States
+# @symbol bot.ingest.universe.refresh_fx @symbol bot.ingest.universe.distinct_non_usd_currencies
+fx_listing: "the foreign exchange (FX) stage lists the listing currencies other than the US dollar (USD)\ndistinct currencies in companies; USD is the numeraire and needs no rate\nnone left: no provider call, status success" {class: decision}
+# @symbol bot.ingest.universe._refresh_one_currency @symbol bot.ingest.edgar_base.EdgarPricedProvider.fx_rates
+fx_requested: "the rates of a currency are requested\nunder the Securities and Exchange Commission (SEC) Electronic Data Gathering, Analysis, and Retrieval (EDGAR) providers, edgar-tiingo (the default) and edgar-stooq, no rates come back\nonly FMP supplies them" {class: step}
+# @symbol bot.cli._refresh_fx
+fx_done: "the refresh command ends" {class: step}
+# @symbol bot.cli._refresh_fx @symbol bot.ingest.universe._run_bulk_refresh @symbol bot.ingest.universe._resolve_status @const bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE @const bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE
+status: "status of the run\nfailure rate = failed ÷ attempted; deferred are left out\nat most 5%: success; at most 25%: partial; above 25%: error\nnot success: exit code two" {class: step}
+
+# Neighbours
+# @symbol bot.ingest.universe._refresh_one_price
+price_counted: "the prices stage is done with the ticker" {class: step; link: "./refresh-prices.svg"}  # No incoming edge: the flow enters from refresh-prices
+
+# Stores
+currencies: {class: store}  # @table currencies
+refresh_log: {class: store}  # @table refresh_log
+
+out: "Comes out:\ncurrencies rows, rate_to_usd per currency and date\none run status\nthe exit code of the command, the worst source" {class: output; link: "./refresh.svg"}
+
+# Edges
+price_counted -> fx_listing: "the foreign exchange stage starts"
+daily -> fx_listing: "bot refresh --fx, after the price rounds, even when they failed"  # @file scripts/daily.sh
+companies -> fx_listing: "distinct listing currencies other than USD"
+fx_listing -> fx_done: "the run succeeds with no provider call [every listing currency is USD]"
+fx_listing -> fx_requested: "each other currency is requested in turn [a listing currency other than USD]"
+fx_requested -> fx_done: "nothing is stored and the run succeeds [the SEC EDGAR providers supply no rates]"
+fmp -> fx_requested: "daily rates of one currency"  # @symbol bot.ingest.fmp
+fx_requested -> currencies: "rate_to_usd per currency and date; a later read uses the nearest prior date"  # @symbol bot.utils.fx.import_fx_rates @symbol bot.utils.fx.get_fx_rate
+fx_requested -> status: "each currency counted: imported, failed or deferred; a rate limit defers this and every later currency"
+fx_requested -> refresh_log: "one row per requested currency, source = provider name + _fx"  # @symbol bot.utils.fx.import_fx_rates
+status -> refresh_log: "one summary row for the run, source = provider name + _fx_universe"
+status -> out: "the status of the run"
+fx_done -> out: "the run ends"

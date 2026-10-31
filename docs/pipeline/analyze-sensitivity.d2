@@ -1,0 +1,31 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: show how far the intrinsic value moves when one assumption, then two at once, is wrong. | {class: note}
+back: |md back to the analyze board | {
+  class: note
+  link: "./analyze.svg"
+}
+
+# States
+# @symbol bot.valuator.sensitivity.tornado @enum bot.valuator.sensitivity.SensitivityAxis
+tornado_done: "the one-at-a-time sensitivity is done\naxes: revenue_growth, operating_margin, tax_rate, sales_to_capital, terminal_growth, cost_of_equity, pretax_cost_of_debt" {class: step}
+# @symbol bot.valuator.sensitivity.grid_2d
+grid_done: "the two-way grid is done" {class: decision}
+
+# Neighbours
+# @symbol bot.valuator.analysis.analyze
+valued: "the company has an intrinsic value" {class: step; link: "./analyze-dcf.svg"}  # No incoming edge: the flow enters from analyze-dcf
+# @symbol bot.valuator.narrative_flags.story_margin_flag
+story_margin_checked: "the story margin flag is set" {class: decision; link: "./analyze-flags.svg"}  # No outgoing edge drawn: its branches are on analyze-flags
+
+out: "Comes out:\nthe tornado bars, widest first, and the five by five grid of margins of safety" {class: output; link: "./analyze-flags.svg"}
+
+# Edges
+valued -> tornado_done: "each assumption is moved to 0.8 and 1.2 times, one at a time\nswing = |intrinsic value at × 1.2 − intrinsic value at × 0.8|, bars ranked widest first\nan end with g_terminal ≥ the weighted average cost of capital (WACC): no value, ranked last"  # @const bot.valuator.sensitivity._TORNADO_LOW @const bot.valuator.sensitivity._TORNADO_HIGH @symbol bot.valuator.sensitivity.tornado
+tornado_done -> grid_done: "a five by five grid crosses the two widest axes\nmultipliers 0.8, 0.9, 1.0, 1.1, 1.2 on each\ncell = intrinsic value ÷ price, the margin of safety; no price, or price ≤ 0: the intrinsic value\na cell with g_terminal ≥ the weighted average cost of capital (WACC): empty"  # @const bot.valuator.sensitivity._GRID_MULTIPLIERS @symbol bot.valuator.sensitivity.grid_2d
+grid_done -> story_margin_checked: "story margin is green [not high-growth, or company margin at most the sector's]"
+grid_done -> story_margin_checked: "story margin is yellow [high-growth and company margin above the sector's]"
+grid_done -> story_margin_checked: "story margin is unknown [a margin missing]"
+grid_done -> out: "the bars and the grid go on to the narrative flags [always]"

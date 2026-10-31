@@ -1,0 +1,51 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: raise five narrative flags for a human reader; they decide nothing and enter no ranking. | {class: note}
+back: |md back to the analyze board | {
+  class: note
+  link: "./analyze.svg"
+}
+
+# States
+# @symbol bot.valuator.narrative_flags.story_margin_flag @enum bot.valuator.narrative_flags.FlagColor
+story_margin_checked: "the story margin flag is set" {class: decision}
+# @symbol bot.valuator.narrative_flags.growth_reinvestment_flag
+reinvestment_checked: "the reinvestment flag is set" {class: decision}
+# @symbol bot.valuator.narrative_flags.beta_business_risk_flag
+beta_checked: "the beta flag is set" {class: decision}
+# @symbol bot.valuator.narrative_flags.terminal_value_share_flag
+tv_share_checked: "the terminal value share flag is set" {class: step}
+# @symbol bot.valuator.narrative_flags.country_exposure_flag
+country_checked: "the country flag is set" {class: decision}
+
+always_unknown: |md Gap: analyze never supplies the foreign revenue share or the two equity risk premiums, so country exposure is always unknown. | {class: gap}
+
+# Neighbours
+# @symbol bot.valuator.sensitivity.grid_2d
+grid_done: "the two-way grid is done" {class: decision; link: "./analyze-sensitivity.svg"}  # No incoming edge: the flow enters from analyze-sensitivity
+# @symbol bot.valuator.analysis.analyze
+verdict_given: "the company has its verdict" {class: step; link: "./analyze-verdict.svg"}  # No outgoing edge: the flow leaves through analyze-verdict
+
+# @symbol bot.valuator.narrative_flags.narrative_flags
+out: "Comes out:\nfive flags, each green, yellow, red or unknown, with its reason" {class: output; link: "./analyze-verdict.svg"}
+
+# Edges
+grid_done -> story_margin_checked: "story margin is green [not high-growth, or company margin at most the sector's]"
+grid_done -> story_margin_checked: "story margin is yellow [high-growth and company margin above the sector's]\ncompany margin = earnings before interest and taxes (EBIT) ÷ revenue, latest year"
+grid_done -> story_margin_checked: "story margin is unknown [a margin missing]"
+story_margin_checked -> reinvestment_checked: "reinvestment is red [a year with negative free cash flow, or reinvestment without profit]\nfree cash flow to the firm (FCFF) = net operating profit after tax (NOPAT) − reinvestment"
+story_margin_checked -> reinvestment_checked: "reinvestment is yellow [reinvestment above 90% of after-tax operating profit]\nreinvestment ÷ NOPAT, highest over the years with NOPAT above 0"  # @const bot.valuator.narrative_flags._STRETCHED_REINVESTMENT_RATE
+story_margin_checked -> reinvestment_checked: "reinvestment is green [otherwise]"
+reinvestment_checked -> beta_checked: "beta is yellow [sector beta below 1.0, operating leverage above 1.5, debt above 40%]\noperating leverage = %ΔEBIT ÷ %ΔRevenue, last two years\ndebt = total debt ÷ (total debt + total equity)"  # @const bot.valuator.narrative_flags._DEFENSIVE_BETA @const bot.valuator.narrative_flags._HIGH_OPERATING_LEVERAGE @const bot.valuator.narrative_flags._HIGH_FINANCIAL_LEVERAGE
+reinvestment_checked -> beta_checked: "beta is unknown [one of the three missing]"
+reinvestment_checked -> beta_checked: "beta is green [otherwise]"
+beta_checked -> tv_share_checked: "terminal value share is yellow [above 80% of the enterprise value]"  # @const bot.valuator.narrative_flags._TERMINAL_VALUE_SHARE_CEILING
+beta_checked -> tv_share_checked: "terminal value share is green [otherwise]"
+tv_share_checked -> country_checked: "country exposure is unknown [no revenue by geography is supplied]\nred would need foreign revenue share above 50% and a gap above 300 bps\ngap = weighted equity risk premium (ERP) − listing-country ERP"  # @const bot.valuator.narrative_flags._FOREIGN_REVENUE_MAJORITY @const bot.valuator.narrative_flags._ERP_GAP_THRESHOLD @symbol bot.valuator.narrative_flags.country_exposure_flag
+country_checked -> verdict_given: "the verdict reads the margin of safety (MoS) [MoS 1.3 or more]"  # @const bot.web.views.MOS_UNDERVALUED
+country_checked -> verdict_given: "the verdict reads the margin of safety (MoS) [MoS from 1.0 to under 1.3]"  # @const bot.web.views.MOS_UNDERVALUED @const bot.web.views.MOS_FAIR
+country_checked -> verdict_given: "the verdict reads the margin of safety (MoS) [MoS below 1.0]"  # @const bot.web.views.MOS_FAIR
+country_checked -> verdict_given: "the verdict reads the margin of safety (MoS) [no close, or a close at most 0]"
+country_checked -> out: "the five flags go on to the report [always]"

@@ -1,0 +1,45 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: the site continuous integration (CI) workflow proves, on every push to master, that the commit installs, lints, type-checks and passes its tests before any page is built. | {class: note}
+back: |md back to the site board | {
+  class: note
+  link: "./site.svg"
+}
+
+# Sources
+site_yml: ".github/workflows/site.yml\na newer push cancels the running workflow" {class: file}  # @file .github/workflows/site.yml
+
+# States
+# @file .github/workflows/site.yml
+installed: "the dependencies are installed\nuv sync --frozen" {class: step}
+# @file .github/workflows/site.yml
+linted: "the style check passes\nuv run ruff check ." {class: step}
+# @file .github/workflows/site.yml
+typed: "the type check passes\nuv run mypy src" {class: step}
+# @file .github/workflows/site.yml
+tested: "the tests pass\nuv run pytest -q" {class: step}
+# @file .github/workflows/site.yml
+ci_failed: "the workflow stops with an error\na failing step stops the job; nothing is deployed" {class: step}  # No outgoing edge: the run ends here
+
+# Neighbours
+# @file scripts/publish_site.sh
+on_master: "the sidecar is on master" {class: step; link: "./site-publish.svg"}  # No incoming edge: the flow enters from site-publish
+# @symbol bot.web.site.normalize_base_url
+base_url_set: "the base address of the site is normalised" {class: decision; link: "./site-scan.svg"}
+
+out: "Comes out:\nthe commit of master, installed, linted, type-checked and tested, handed to bot site" {class: output; link: "./site-scan.svg"}
+
+# Edges
+on_master -> installed: "the site continuous integration (CI) workflow starts and installs the dependencies"
+on_master -> ci_failed: "the install fails [a dependency cannot be installed]"
+installed -> linted: "the style check passes"
+installed -> ci_failed: "the style check fails [a lint error]"
+linted -> typed: "the type check passes"
+linted -> ci_failed: "the type check fails [a type error]"
+typed -> tested: "the tests pass"
+typed -> ci_failed: "the tests fail [a test breaks]"
+tested -> base_url_set: "the build normalises the base address of the site\nuv run bot site --out site --base-url /<repo>/"  # @symbol bot.cli.site
+tested -> out: "the commit"
+site_yml -> installed: "the workflow steps"
