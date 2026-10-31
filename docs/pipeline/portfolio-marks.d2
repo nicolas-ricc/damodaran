@@ -1,0 +1,56 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: give every holding today's mark: its intrinsic value, price, red flags, failed gates and sector weighted average cost of capital (WACC), each known or unknown. | {class: note}
+back: |md back to the portfolio board | {
+  class: note
+  link: "./portfolio.svg"
+}
+
+# States
+# @symbol bot.portfolio.marks.mark_holdings
+holding: "it is a holding today\nholdings = tickers whose summed quantity ≠ 0 on the snapshot date" {class: decision}
+valuation_done: "its intrinsic value, price and red flags are known, or unknown" {class: decision}  # @symbol bot.portfolio.marks.mark_holdings
+# @symbol bot.screener.engine.load_holding_inputs
+gates_done: "its failed gates and sector weighted average cost of capital (WACC) are known, or unknown" {class: step}
+# @symbol bot.portfolio.marks.persist_marks
+marked: "today's mark is stored\nthe snapshot date's rows deleted, then inserted; unknown values stored empty" {class: decision}
+
+# Neighbours
+# @symbol bot.portfolio.trades.sync_trades
+trades_synced: "the new fills are stored" {class: decision; link: "./portfolio-sync.svg"}  # No incoming edge: the flow enters from portfolio-sync
+# @symbol bot.portfolio.marks.load_marks
+marks_read: "the previous mark is read, or there is none" {class: decision; link: "./portfolio-mark-events.svg"}  # No outgoing edge drawn: its branches are on portfolio-mark-events
+
+# The analyze hand-off
+# @symbol bot.valuator.analysis.analyze
+analyze: "the analyze stage values the holding, see the analyze board" {class: step; link: "./analyze.svg"}
+
+# Files
+override_yaml: "config/assumptions/TICKER.yaml, manual overrides when valuing a holding" {class: file}  # @file config/assumptions @symbol bot.valuator.assumptions.conventional_override_path
+currencies_yaml: "config/currencies.yaml:\nthe currency table, loaded once per run" {class: file}  # @file config/currencies.yaml @symbol bot.portfolio.marks.mark_holdings
+preset: "config/presets/damodaran_value.yaml:\nits quality gates and trap detection gate every holding" {class: file}  # @file config/presets/damodaran_value.yaml
+
+# Stores
+holding_marks: {class: store}  # @table holding_marks
+
+out: "Comes out:\none holding_marks row per holding for the snapshot date" {class: output; link: "./portfolio-mark-events.svg"}
+
+# Edges
+trades_synced -> holding: "it is held today [its summed quantity is not 0]"
+holding -> valuation_done: "the valuator values it [a narrative flag is red]\nintrinsic value per share, latest close, red narrative flags"
+holding -> valuation_done: "the valuator values it [no narrative flag is red]\nintrinsic value per share, latest close, red narrative flags"
+holding -> valuation_done: "the valuator cannot value it, so all three stay unknown\n[an unknown ticker, missing data or an error]"
+valuation_done -> gates_done: "the gates are judged and the sector WACC is read [in companies, with a sector benchmark that has a WACC]\nscreener inputs built as the screen builds them; failed gates = the gates that fail; a skipped rule does not count; sector WACC from the sector benchmark"
+valuation_done -> gates_done: "the gates are judged without a sector WACC [no sector benchmark, or no WACC in it]\nfailed gates = the gates that fail; a skipped rule does not count; sector WACC unknown"
+valuation_done -> gates_done: "the gates and the sector WACC stay unknown [not in companies]\nfailed gates and sector WACC unknown"
+gates_done -> marked: "today's mark is stored, replacing any earlier mark of the day\none holding_marks row per holding; the snapshot date's rows deleted, then inserted; unknown values stored empty"
+marked -> marks_read: "the previous mark is read [it was marked then]"
+marked -> marks_read: "there is no previous mark [first run, or not marked then]"
+override_yaml -> analyze: "override of the holding"
+currencies_yaml -> analyze: "currency table"
+analyze -> valuation_done: "intrinsic value, price, red flags"
+preset -> gates_done: "quality gates and trap detection rules"
+marked -> holding_marks: "[always]\nmarks of the day"
+marked -> out: "[always]"
