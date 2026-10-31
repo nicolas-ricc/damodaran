@@ -106,19 +106,19 @@ TheCompanyIsLoaded ==
   /\ phase' = "loaded"
   /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
 
-(* src/bot/valuator/regions.py: dataset_region, COUNTRY_REGION_OVERRIDES *)
+(* src/bot/reference/regions.py: dataset_region, COUNTRY_REGION_OVERRIDES *)
 ItsOwnDatasetRegion ==
   /\ phase = "loaded"
   /\ phase' = "region_set"
   /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
 
-(* src/bot/valuator/regions.py: dataset_region, GEOGRAPHIC_TO_DATASET_REGION *)
+(* src/bot/reference/regions.py: dataset_region, GEOGRAPHIC_TO_DATASET_REGION *)
 RegionFromItsCountryGrouping ==
   /\ phase = "loaded"
   /\ phase' = "region_set"
   /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
 
-(* src/bot/valuator/regions.py: dataset_region returns DEFAULT_DATASET_REGION *)
+(* src/bot/reference/regions.py: dataset_region returns DEFAULT_DATASET_REGION *)
 RegionDefaultsToUs ==
   /\ phase = "loaded"
   /\ phase' = "region_set"
@@ -198,14 +198,14 @@ TheOverrideFileIsNotYaml ==
   /\ exitCode' = "1"
   /\ UNCHANGED << storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
 
-(* src/bot/valuator/analysis.py: _resolve_story_type *)
+(* src/bot/valuator/assumptions.py: _resolve_story_type *)
 NoManualStoryType ==
   /\ phase = "classified"
   /\ phase' = "story_set"
   /\ overrideStory' = "absent"
   /\ UNCHANGED << batch, exitCode, storyTypes, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
 
-(* src/bot/valuator/analysis.py: _resolve_story_type (manual wins); assumptions.py: resolve_assumptions, _STORY_TYPE_VALUES *)
+(* src/bot/valuator/assumptions.py: _resolve_story_type (manual wins); resolve_assumptions, _STORY_TYPE_VALUES *)
 TheOverrideSetsTheStoryType ==
   /\ phase = "classified"
   /\ phase' = "story_set"
@@ -677,7 +677,7 @@ TerminalGrowthAtTheWaccStops ==
 ImplausibleSharesStop ==
   shares = "implausible" => (~valued /\ phase = "cannot_value" /\ exitCode = "1")
 
-(* Cites: analysis.py _resolve_story_type, and analyze: story_type = assumptions.story_type or auto_story.value. *)
+(* Cites: assumptions.py _resolve_story_type, and analyze: story_type = assumptions.story_type or auto_story.value. *)
 \* A manual story type replaces the classifier's, and exactly one story type holds.
 OneStoryType ==
   (overrideStory # "unread" => (storyTypes = {"classifier"} \/ storyTypes = {"override"}))
