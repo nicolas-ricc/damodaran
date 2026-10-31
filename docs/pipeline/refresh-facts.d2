@@ -16,9 +16,9 @@ fact_in_period: "the fact belongs to a year or quarter row\nconcept precedence p
 # @symbol bot.ingest.sec_edgar._collect_period_rows
 fact_chosen: "the fact fills its column for that period end\none value per column and period end" {class: step}
 # @symbol bot.ingest.sec_edgar._derive_financial_fields
-fact_derived: "the aggregates of the row are derived\nonly when not reported, and a reported aggregate is never overwritten\nearnings before interest, taxes, depreciation and amortization (EBITDA) = earnings before interest and taxes (EBIT) + depreciation\nfree cash flow = operating cash flow − capex\nworking capital = current assets − current liabilities" {class: decision}
+fact_derived: "the aggregates of the row are derived\nonly when not reported, and a reported aggregate is never overwritten\nearnings before interest, taxes, depreciation and amortization (EBITDA) = earnings before interest and taxes (EBIT) + depreciation\nEBIT, when not reported = pretax income + interest expense\nfree cash flow = operating cash flow − capex\nworking capital = current assets − current liabilities" {class: decision}
 # @symbol bot.ingest.sec_edgar._label_rows @symbol bot.ingest.sec_edgar._fiscal_quarter_key
-row_labelled: "the row has its fiscal year\nan annual row takes the year of its end; a quarter also gets its number" {class: decision}
+row_labelled: "the row has its fiscal year\nan annual row takes the year of its end; a quarter gets its year and number from the nearest year end" {class: decision}
 # @symbol bot.ingest.sec_edgar._rescale_shares_diluted
 fact_in_row: "the row of the fact is ready to write\nannual share counts are corrected" {class: step}
 # @symbol bot.ingest.sec_edgar.parse_company_facts
@@ -46,7 +46,7 @@ fact_in_period -> fact_chosen: "its concept fills the column [the first concept 
 fact_in_period -> fact_dropped: "the fact is not used [an earlier concept already fills that end]"
 fact_chosen -> fact_derived: "earnings before interest, taxes, depreciation and amortization (EBITDA), free cash flow and working capital are derived [when not reported and their inputs exist]"
 fact_derived -> row_labelled: "the row takes the calendar year of its end [a year row]\nfiscal year = calendar year of its end"
-fact_derived -> row_labelled: "the quarter is numbered from the nearest year end [a year end within 380 days]\nquarter number = fourth quarter minus whole 91.3-day steps (days to the year end ÷ 91.3, rounded); year end limit = top of the 350 to 380 day annual span"  # @const bot.ingest.sec_edgar._QUARTER_DAYS @const bot.ingest.sec_edgar.ANNUAL_SPAN_DAYS
+fact_derived -> row_labelled: "the quarter is numbered from the nearest year end [a year end within 380 days]\nfiscal year = year of the next year end within 380 days; quarter = fourth quarter minus whole 91.3-day steps back from it (days ÷ 91.3, rounded)\nelse forward from the previous year end: fiscal year = its year + 1, quarter = whole 91.3-day steps since it\nyear end limit = top of the 350 to 380 day annual span"  # @const bot.ingest.sec_edgar._QUARTER_DAYS @const bot.ingest.sec_edgar.ANNUAL_SPAN_DAYS
 fact_derived -> row_labelled: "the quarter takes the label of the filing that first reported it [no year end near it, or a quarter number outside one to four]"
 fact_derived -> fact_dropped: "the row is dropped [a quarter with no usable year end and no filing label]"
 fact_derived -> fact_dropped: "the row is dropped [a later period end has the same label]\nthe later period end is kept"
