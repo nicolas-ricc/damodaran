@@ -21,10 +21,10 @@ downloaded: "the Damodaran files are downloaded\nthe files that arrived go on to
 industry_read: "the industry files are read\neach sheet is picked by keywords; columns are read by exact header" {class: step}
 # @symbol bot.ingest.damodaran.merge_industry_datasets
 merged: "one row per industry\nouter join on industry name; the earlier file wins, a later file fills only empty columns\nrows without an industry name are dropped" {class: step}
-# @symbol bot.ingest.damodaran.parse_country_tax_rates
-country_read: "the country rows are read\nsheet 'ERPs by country'" {class: step}
+# @symbol bot.ingest.damodaran.parse_country_xls
+country_read: "the country rows are read\nsheet picked by keyword: ERPs by country" {class: step}
 # @symbol bot.ingest.damodaran.derive_industry_columns @symbol bot.ingest.damodaran.parse_country_tax_rates
-derived: "the derived columns are filled in\ndebt to equity (D/E): D/E = w ÷ (1 − w), with w = D/(D+E); empty unless 0 ≤ w < 1\nbeta_unlevered = beta_levered ÷ (1 + (1 − tax) × D/E); a missing tax counts as 0\ncountry tax rate: sheet 'Country Tax Rates', kept within [0, 1]" {class: decision}
+derived: "the derived columns are filled in\ndebt to equity (D/E): D/E = w ÷ (1 − w), with w = D/(D+E); empty unless 0 ≤ w < 1\nbeta_unlevered = beta_levered ÷ (1 + (1 − tax) × D/E), tax = the industry's tax rate; a missing tax counts as 0; empty when D/E is empty\ncountry tax rate: sheet 'Country Tax Rates', rows outside [0, 1] are skipped" {class: decision}
 # @symbol bot.ingest.damodaran.upsert_industry_rows @symbol bot.ingest.damodaran.upsert_country_rows
 damodaran_written: "the Damodaran tables are written\nreplaces the (region, year) rows of damodaran_industry and the year rows of damodaran_country\none refresh_log row, status success or partial" {class: step}
 # @table refresh_log
