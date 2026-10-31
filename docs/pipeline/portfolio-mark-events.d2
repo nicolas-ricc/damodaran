@@ -10,17 +10,17 @@ back: |md back to the portfolio board | {
 
 # States
 # @symbol bot.portfolio.marks.load_marks @symbol bot.portfolio.events.compute_events @symbol bot.portfolio.events.detect_intrinsic_value_cross
-marks_read: "the previous mark is read, or there is none\nevent intrinsic_value_crossed_price: decided on the pair of marks" {class: decision}
+marks_read: "the previous mark is read, or there is none\nnext, event intrinsic_value_crossed_price: decided on the pair of marks" {class: decision}
 # @symbol bot.portfolio.events.detect_new_red_flags
-cross_checked: "intrinsic value and price are compared\nevent new_red_flag: decided on the pair of marks" {class: decision}
+cross_checked: "intrinsic value and price are compared\nnext, event new_red_flag: decided on the pair of marks" {class: decision}
 # @symbol bot.portfolio.events.detect_below_quality_gate
-flags_checked: "its red flags are compared\nevent below_quality_gate: decided on the pair of marks" {class: decision}
+flags_checked: "its red flags are compared\nnext, event below_quality_gate: decided on the pair of marks" {class: decision}
 # @symbol bot.portfolio.events.detect_sector_recalibration @const bot.portfolio.events.DEFAULT_WACC_RECALIBRATION_BPS
-gates_checked: "its failed gates are compared\nevent sector_recalibrated: decided on the sector weighted average cost of capital (WACC) of the pair of marks, threshold 100 bps" {class: decision}
+gates_checked: "its failed gates are compared\nnext, event sector_recalibrated: decided on the sector weighted average cost of capital (WACC) of the pair of marks, threshold 100 bps" {class: decision}
 # @symbol bot.portfolio.events.detect_concentration @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
 recal_checked: "its sector WACC is compared\nits weight = market value ÷ total market value, against 15%" {class: decision}
 # @symbol bot.portfolio.events.detect_concentration @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
-weighed: "its weight in the portfolio is known\nevent concentration: decided on its weight, threshold 15%" {class: decision}
+weighed: "its weight in the portfolio is known\nnext, event concentration: decided on its weight, threshold 15%" {class: decision}
 # @symbol bot.portfolio.events.compute_events
 concentration_checked: "its mark events and concentration are settled" {class: decision}
 
@@ -29,7 +29,7 @@ concentration_checked: "its mark events and concentration are settled" {class: d
 trades_synced: "the new fills are stored" {class: decision; link: "./portfolio-sync.svg"}  # No incoming edge: the flow enters from portfolio-sync
 # @symbol bot.portfolio.marks.persist_marks
 marked: "today's mark is stored" {class: decision; link: "./portfolio-marks.svg"}  # No incoming edge: the flow enters from portfolio-marks
-# @symbol bot.portfolio.marks.load_marks
+# @symbol bot.portfolio.events.compute_events
 window: "the previous snapshot is read, or there is none" {class: decision; link: "./portfolio-events.svg"}  # No outgoing edge drawn: its branches are on portfolio-events
 
 # Stores

@@ -9,16 +9,16 @@ back: |md back to the portfolio board | {
 }
 
 # States
-# @symbol bot.portfolio.marks.load_marks @symbol bot.portfolio.events.detect_position_changes @const bot.portfolio.events.DEFAULT_SIZE_CHANGE_THRESHOLD
-window: "the previous snapshot is read, or there is none\nevents position_opened, position_closed and position_size_changed: decided on the quantity per ticker, summed across accounts; size changed above 10%" {class: decision}
+# @symbol bot.portfolio.events.compute_events @symbol bot.portfolio.events.detect_position_changes @const bot.portfolio.events.DEFAULT_SIZE_CHANGE_THRESHOLD
+window: "the previous snapshot is read, or there is none\nnext, events position_opened, position_closed and position_size_changed: decided on the quantity per ticker, summed across accounts; size changed above 10%" {class: decision}
 # @symbol bot.portfolio.events.detect_currency_changes
-positions_diffed: "its position is compared\nevent currency_changed: decided on the currency of the position" {class: decision}
+positions_diffed: "its position is compared\nnext, event currency_changed: decided on the currency of the position" {class: decision}
 # @symbol bot.portfolio.events.detect_corporate_action_events
-currency_checked: "its currency is compared\nevent dividend: decided on a dividend row of corporate_actions" {class: decision}
+currency_checked: "its currency is compared\nnext, event dividend: decided on a dividend row of corporate_actions" {class: decision}
 # @symbol bot.portfolio.events.detect_corporate_action_events
-dividend_checked: "its dividends are checked\nevent split: decided on a split row of corporate_actions" {class: decision}
+dividend_checked: "its dividends are checked\nnext, event split: decided on a split row of corporate_actions" {class: decision}
 # @symbol bot.portfolio.events.detect_new_filings
-split_checked: "its splits are checked\nevent new_filing: decided on a filings_log row not yet in events_log" {class: decision}
+split_checked: "its splits are checked\nnext, event new_filing: decided on a filings_log row not yet in events_log" {class: decision}
 # @symbol bot.portfolio.events.detect_new_filings
 filing_found: "a filing of it is in the window" {class: step}
 # @symbol bot.portfolio.events.detect_new_filings

@@ -12,7 +12,7 @@ back: |md back to the portfolio board | {
 # @symbol bot.portfolio.events.persist_events
 logged: "its events are in the events log\nthe events log keeps every event, so a same-day re-run appends the same events again" {class: step}
 # @symbol bot.portfolio.report.render_portfolio @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
-portfolio_written: "portfolio.md is written\nprofit and loss (P&L) and concentration are in it\nP&L = market value − quantity × average cost; unpriced: P&L unknown\nconcentration weight = market value ÷ total of positions with a market value > 0; flagged above 15%\n--history: P&L per snapshot; --concentration: the breakdown list" {class: decision}
+portfolio_written: "portfolio.md is written\nprofit and loss (P&L) and concentration are in it\nP&L = market value − quantity × average cost; unpriced: P&L unknown\nconcentration weight = market value ÷ total of positions with a market value > 0; flagged above 15%\n--history: P&L per snapshot; --concentration: the breakdown list\nsuggested review: each flagged position, consider trimming" {class: decision}
 # @symbol bot.portfolio.report.render_alerts
 alerts_written: "alerts.md is written\nalways written; an empty file when there are no events" {class: decision}
 # @symbol bot.notifier.notify_alerts
@@ -57,7 +57,7 @@ portfolio_template -> portfolio_written: "layout"
 alerts_template -> alerts_written: "layout"
 portfolio_written -> portfolio_md: "markdown file [always]"
 alerts_written -> alerts_md: "markdown file [always]"
-sent -> channels: "non-blank alerts"
+sent -> channels: "the text of alerts.md, when not blank"
 not_sent -> out: "the run ends\nexit code 0"
 sent -> out: "the run ends\nexit code 0"
 send_failed -> out: "the run ends\nexit code 1"

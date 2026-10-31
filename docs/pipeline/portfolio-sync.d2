@@ -51,7 +51,7 @@ started -> channel_checked: "the notifier check passes [no channel, or every set
 channel_checked -> tws_unreachable: "Interactive Brokers (IBKR) Trader Workstation (TWS) cannot be reached [connection error or timeout]"
 channel_checked -> tws_reached: "TWS answers"
 tws_reached -> snapshot_stored: "its position is stored with a market value [a close, converted when its currency differs]\nmarket value = quantity × latest close, in the position's currency; latest close = newest prices_daily close on or before the snapshot date, in its listing currency; when that differs from the position's currency: close × rate_to_usd of the listing currency ÷ rate_to_usd of the position's currency, nearest prior rates from currencies; either currency unknown: close used as is"  # @symbol bot.portfolio.sync.value_positions
-tws_reached -> snapshot_stored: "its position is stored unpriced [no close, a close of 0 or less, or a missing rate]\nthe market value is left empty"
+tws_reached -> snapshot_stored: "its position is stored unpriced [no close, a close of 0 or less, or a missing rate]\nthe market value is left empty; a rate of 0 or less counts as missing"
 tws_reached -> snapshot_stored: "the snapshot is stored without it [no account holds it any more]"
 snapshot_stored -> actions_synced: "no corporate action is fetched [Flex token or query id not set]\nonly when BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID are set"
 snapshot_stored -> actions_synced: "new corporate actions are stored from the IBKR Flex Web Service\ndividend cash transactions → dividend, action_id ct:<id>; forward and reverse splits → split; any other type kept lower-cased, action_id ca:<id>; inserted de-duplicated on action_id"
