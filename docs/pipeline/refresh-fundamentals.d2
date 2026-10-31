@@ -38,7 +38,7 @@ fact_read: "one fact of the ticker is read" {class: decision; link: "./refresh-f
 # @symbol bot.ingest.sec_edgar.parse_company_facts
 fact_dropped: "the fact is dropped\nthe import goes on without it" {class: step; link: "./refresh-facts.svg"}  # No incoming edge: the flow enters from refresh-facts
 # @symbol bot.ingest.sec_edgar.parse_company_facts
-fact_in_row: "the row of the fact is ready to write" {class: step; link: "./refresh-facts.svg"}  # No incoming edge: the flow enters from refresh-facts
+fact_in_row: "the row of the fact is ready to write\nan annual or quarterly row, share counts corrected" {class: step; link: "./refresh-facts.svg"}  # No incoming edge: the flow enters from refresh-facts
 # @symbol bot.ingest.universe.refresh_prices
 price_listing: "the prices stage lists the tickers" {class: decision; link: "./refresh-prices.svg"}
 
