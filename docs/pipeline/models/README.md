@@ -87,4 +87,4 @@ Model work never changes the pipeline code.
 
 | Stage | Rule | Reader's sentence | Issue |
 | --- | --- | --- | --- |
-| analyze | `OnlyTheCommandStopsTheBatch` | Only refused arguments or an empty screen stop the whole command; a failing ticker never does. | #180 |
+| analyze | `OnlyTheCommandStopsTheBatch` | Only refused arguments, an empty screen or a refused currency table stop the whole command; a failing ticker never does. | #180 |

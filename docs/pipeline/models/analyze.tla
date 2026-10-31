@@ -22,7 +22,7 @@ MarginVerdict(m) ==
     [] m = "below 1.0" -> "potentially overvalued"
     [] OTHER -> "none"
 
-(* The rule of CONTEXT.md "Verdict", from the margin of safety itself: 1.3 or more, 1.0 or more, below 1.0, n/a without a price. *)
+(* The rule of CONTEXT.md "Verdict", written as its bands: 1.3 or more, 1.0 or more, below 1.0, n/a without a price. With string bands it agrees with MarginVerdict by construction; it guards against an action giving the wrong word. *)
 ThresholdVerdict(m) ==
   CASE m = "1.3 or more" -> "potentially undervalued"
     [] m = "1.0 to under 1.3" -> "around fair value"
@@ -73,6 +73,14 @@ TheScreenLeftNoCandidate ==
   /\ phase' = "command_stops"
   /\ batch' = "stopped"
   /\ exitCode' = "2"
+  /\ UNCHANGED << storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+
+(* src/bot/cli.py: analyze, load_currency_table before the loop; src/bot/reference/currencies.py: _check_bounds raises ValueError on a rate out of range, uncaught *)
+TheCurrencyTableIsRefused ==
+  /\ phase = "asked"
+  /\ phase' = "command_stops"
+  /\ batch' = "stopped"
+  /\ exitCode' = "1"
   /\ UNCHANGED << storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
 
 (* src/bot/cli.py: analyze, the `override` option; _analyze_one *)
@@ -190,7 +198,7 @@ TheOverrideFileIsInvalid ==
   /\ exitCode' = "1"
   /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
 
-(* src/bot/valuator/assumptions.py: _load_override, yaml.safe_load raises yaml.YAMLError (an Exception, not a ValueError); _analyze_one catches only LookupError and ValueError, so the error leaves the `for ticker` loop of cli.analyze *)
+(* src/bot/valuator/assumptions.py: _load_override, yaml.safe_load raises yaml.YAMLError; _override_scalar / _override_path_field, float() of an empty or list value raises TypeError. Neither is a ValueError; _analyze_one catches only LookupError and ValueError, so the error leaves the `for ticker` loop of cli.analyze *)
 TheOverrideFileIsNotYaml ==
   /\ phase = "classified"
   /\ phase' = "crashed"
@@ -582,6 +590,7 @@ Next ==
   \/ TheLatestScreenListsIt
   \/ TheArgumentsAreRefused
   \/ TheScreenLeftNoCandidate
+  \/ TheCurrencyTableIsRefused
   \/ TheOverrideFlagNamesTheFile
   \/ TheTickersFileExists
   \/ NoOverrideFile
@@ -713,7 +722,7 @@ UnknownTickerSkippedBatchGoesOn ==
   phase = "not_found" => (exitCode = "2" /\ ~valued /\ storyTypes = {} /\ batch = "going")
 
 (* Cites: cli.py analyze: typer.Exit(code=2) only before the loop; inside it the exit code is the max of the tickers' codes. *)
-\* Only refused arguments or an empty screen stop the whole command; a failing ticker never does.
+\* Only refused arguments, an empty screen or a refused currency table stop the whole command; a failing ticker never does.
 \* broken: #180
 OnlyTheCommandStopsTheBatch ==
   batch = "stopped" => (phase = "command_stops" /\ storyTypes = {})
