@@ -1,0 +1,43 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: read the margin of safety (MoS) into a verdict, set the implied multiples beside the sector's, and write the three reports. | {class: note}
+back: |md back to the analyze board | {
+  class: note
+  link: "./analyze.svg"
+}
+
+# States
+# @symbol bot.reporting.analysis_report.margin_verdict
+verdict_given: "the company has its verdict\nMoS = intrinsic value per share ÷ latest close" {class: step}
+# @symbol bot.valuator.analysis._sanity_check
+sanity_checked: "the multiples are compared\nthe implied multiples sit beside the sector's; this decides nothing" {class: step}
+# @symbol bot.reporting.analysis_report.render_analysis
+reported: "the reports are written" {class: step}
+
+# Neighbours
+# @symbol bot.valuator.narrative_flags.country_exposure_flag
+country_checked: "the country flag is set" {class: decision; link: "./analyze-flags.svg"}  # No incoming edge: the flow enters from analyze-flags
+
+# @file src/bot/reporting/templates/analysis.md.j2
+template: "src/bot/reporting/templates/analysis.md.j2" {class: file}
+
+report_md: "reports/YYYY-MM-DD/analysis/TICKER.md" {class: output}
+report_html: "reports/YYYY-MM-DD/analysis/TICKER.html" {class: output}
+# @symbol bot.reporting.analysis_json.render_analysis_json @const bot.reporting.analysis_json.SCHEMA_VERSION
+report_json: "reports/YYYY-MM-DD/analysis/TICKER.json, read by the site\nschema_version 1" {class: output; link: "./site.svg"}
+out: "Comes out:\na verdict and three reports per ticker: markdown, HTML and the JSON sidecar the site reads" {class: output; link: "./analyze.svg"}
+
+# Edges
+country_checked -> verdict_given: "the verdict reads the margin of safety (MoS) [MoS 1.3 or more]\npotentially undervalued"  # @const bot.web.views.MOS_UNDERVALUED
+country_checked -> verdict_given: "the verdict reads the margin of safety (MoS) [MoS from 1.0 to under 1.3]\naround fair value"  # @const bot.web.views.MOS_UNDERVALUED @const bot.web.views.MOS_FAIR
+country_checked -> verdict_given: "the verdict reads the margin of safety (MoS) [MoS below 1.0]\npotentially overvalued"  # @const bot.web.views.MOS_FAIR
+country_checked -> verdict_given: "the verdict reads the margin of safety (MoS) [no close, or a close at most 0]\nn/a"
+verdict_given -> sanity_checked: "implied price-to-earnings and enterprise value to sales are set beside the sector's\nimplied price-to-earnings (P/E) = price ÷ earnings per share (EPS), with EPS = net income ÷ diluted shares\nimplied enterprise value (EV) ÷ sales = EV ÷ revenue"
+sanity_checked -> reported: "the markdown, HTML and JSON reports are written\nmarkdown sections: executive summary, story type, assumptions, discounted cash flow (DCF) detail, sensitivity, narrative flags, manual overrides, sanity check"
+template -> reported: "layout"
+reported -> report_md: "markdown file"
+reported -> report_html: "HTML file"
+reported -> report_json: "JSON file"
+reported -> out: "the run of this ticker ends"
