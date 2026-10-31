@@ -1,7 +1,8 @@
 # Pipeline boards
 
-Six d2 boards and four sub-boards document the investment-bot pipeline. `classes.d2` holds the nine node classes and
-is not a board. Every board starts with `...@classes` and imports nothing else.
+Six d2 boards and four sub-boards document the investment-bot pipeline.
+`classes.d2` holds the nine node classes and is not a board. Every board starts with
+`...@classes` and imports nothing else.
 
 Boards: `pipeline.svg` (overview: cron schedules, the five stages, external services, DuckDB
 tables, outputs), `refresh.svg`, `screen.svg`, `analyze.svg`, `portfolio.svg`, `site.svg` (one per
@@ -39,9 +40,11 @@ top-level nodes at the edge of the flow, never a container.
   cited. The statechart is in `models/`; `tests/unit/test_pipeline_models.py` (`_SUBBOARDED`)
   matches the labels.
 - A state is a `decision` when two or more steps leaving it carry a [condition], else a `step`.
-  Every edge leaving a decision has a [condition]; an unlabelled one gets it on its second line.
+  Every edge leaving a decision has a [condition]; an edge whose label has no [condition] gets one
+  on its second line.
 - A step drawn on two boards (it crosses groups) appears on both. The far end is a neighbour node,
-  with a trailing comment `No incoming edge` or `No outgoing edge`, as is a terminal state.
+  with a trailing comment `No incoming edge` or `No outgoing edge`, as is a terminal state. A
+  neighbour node carries `link:` to its own sub-board.
 - Every step and decision node carries a directive.
 - At most 24 edges per board, aim for 20. Over that, split the group in the model (groups and
   colours only, not the TLA+ logic).
