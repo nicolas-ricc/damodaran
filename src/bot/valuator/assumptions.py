@@ -696,10 +696,9 @@ def _check_override_values(override_path: Path, override: dict[str, Any]) -> Non
     Raised here as ``ValueError`` so a malformed file fails its own ticker
     instead of surfacing later as a ``TypeError`` or a NaN in the valuation.
     """
-    for key in _OVERRIDE_KEYS - _OVERRIDE_TEXT_KEYS:
-        if key not in override:
+    for key, value in override.items():
+        if key in _OVERRIDE_TEXT_KEYS:
             continue
-        value = override[key]
         if key in _OVERRIDE_PATH_KEYS:
             if isinstance(value, list):
                 ok = bool(value) and all(_is_finite_number(x) for x in value)
