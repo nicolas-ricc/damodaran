@@ -1,0 +1,84 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: turn one company's stored rows into the figures the screen judges it on: region, tax rate, ratios and market cap in US dollars. | {class: note}
+back: |md back to the screen board | {
+  class: note
+  link: "./screen.svg"
+}
+
+# States
+# @symbol bot.screener.engine.run_screen
+listed: "the company is in the companies table\nevery company of companies is screened" {class: decision}
+# @symbol bot.screener.engine.run_screen
+loaded: "its rows are loaded\nits non-restated financials_annual rows, oldest first (latest row = newest fiscal year)\nnewest prices_daily close and newest market cap, each from its own newest non-empty row" {class: decision}
+# @symbol bot.screener.engine.run_screen
+currency_read: "its valuation currency is read\nvaluation currency = currency of the newest non-restated financials_annual row" {class: decision}
+# @symbol bot.screener.engine._resolve_region @symbol bot.reference.regions.dataset_region @const bot.screener.engine.DEFAULT_REGION
+region_set: "its Damodaran dataset region is set\nChina, India, Japan: their own dataset\nelse the country's grouping in its newest damodaran_country row, mapped to a dataset region (e.g. Western Europe → Europe)\nno country, or an unknown grouping: US" {class: decision}
+# @symbol bot.screener.engine._resolve_tax_rate @const bot.screener.engine.DEFAULT_TAX_RATE
+tax_set: "its tax rate is set\nnewest damodaran_country tax rate of the country, when within [0, 1)\nelse 21%" {class: step}
+# @symbol bot.screener.engine.build_company_data
+ratios: "its ratios are computed" {
+  class: decision
+  formulas: |md
+    - terms: return on equity (ROE), return on invested capital (ROIC), earnings per share (EPS), book value (BV),
+      enterprise value (EV), earnings before interest and taxes (EBIT),
+      earnings before interest, taxes, depreciation and amortization (EBITDA).
+    - net debt = total debt − cash;
+      a missing term counts as 0; both missing: empty
+    - ROE = net income ÷ total equity
+    - EPS = net income ÷ diluted shares
+    - price-to-earnings P/E = close ÷ EPS, only when EPS > 0
+    - BV per share = total equity ÷ diluted shares
+    - price-to-book-value P/BV = close ÷ BV per share, only when > 0
+    - EV ÷ EBITDA = (market cap + net debt) ÷ EBITDA
+    - ROIC = EBIT × (1 − tax) ÷ (total debt + total equity);
+      a missing term counts as 0; both missing: empty
+    - free cash flow yield = free cash flow ÷ market cap
+    - operating margin = EBIT ÷ revenue, per year
+    - Histories (revenue, operating cash flow, diluted shares, operating margin)
+      drop empty years.
+    - Otherwise a missing input leaves the ratio empty.
+    | {class: note}
+}
+# @symbol bot.screener.engine._market_cap_usd
+cap_in_usd: "its market cap is in US dollars (USD), or empty\nmarket cap in USD = market cap × rate_to_usd of its listing currency, the rate on or before the market-cap date (from currencies)\nno rate: empty, so min_market_cap fails\nno listing currency: taken as USD" {class: decision}
+
+# Neighbours
+# @symbol bot.screener.benchmarks.load_industry_benchmarks
+benchmark_looked: "its sector benchmark is looked up" {class: decision; link: "./screen-coverage.svg"}
+
+# Stores
+companies: {class: store}  # @table companies
+financials_annual: {class: store}  # @table financials_annual
+prices_daily: {class: store}  # @table prices_daily
+damodaran_country: {class: store}  # @table damodaran_country
+currencies: {class: store}  # @table currencies
+
+out: "Comes out:\none company snapshot: ratios and histories, market cap in USD or empty, region, tax rate, valuation currency, Damodaran industry or none" {class: output; link: "./screen-coverage.svg"}
+
+# Edges
+listed -> loaded: "the screen loads its rows [it has a Damodaran industry]"
+listed -> loaded: "the screen loads its rows [it has no Damodaran industry]"
+loaded -> currency_read: "the screen reads its valuation currency [it is in config/currencies.yaml]"
+loaded -> currency_read: "the screen reads its valuation currency [missing, or not in config/currencies.yaml]"
+currency_read -> region_set: "the region is its own dataset [China, India or Japan]"
+currency_read -> region_set: "the region maps from its country's grouping [a known grouping]\nthe grouping is mapped to a dataset region, e.g. Western Europe → Europe"
+currency_read -> region_set: "the region is US [no country, or an unknown grouping]"  # @const bot.screener.engine.DEFAULT_REGION
+region_set -> tax_set: "the tax rate is its country's [a Damodaran rate within 0 to 1]\nthe rate is taken when 0 ≤ rate < 1"
+region_set -> tax_set: "the tax rate is 21% [no country rate, or one out of range]"  # @const bot.screener.engine.DEFAULT_TAX_RATE
+tax_set -> ratios: "the screen computes its ratios from the newest row and the histories"
+ratios -> cap_in_usd: "the market cap is converted to US dollars (USD) [a rate on or before its date, or no listing currency or date]\nmarket cap in USD = market cap × rate_to_usd"
+ratios -> cap_in_usd: "the market cap stays empty [no market cap, or no rate to USD]"
+cap_in_usd -> benchmark_looked: "the screen finds the newest sector benchmark row [it has a weighted average cost of capital (WACC)]"
+cap_in_usd -> benchmark_looked: "the screen finds a sector benchmark row [its WACC is empty]"
+cap_in_usd -> benchmark_looked: "the screen finds no sector benchmark row [none for the industry and region]"
+companies -> listed: "every company"
+financials_annual -> loaded: "annual rows"
+prices_daily -> loaded: "newest close and newest market cap"
+damodaran_country -> region_set: "country mapping"
+damodaran_country -> tax_set: "country tax rate"
+currencies -> cap_in_usd: "rate_to_usd"
+benchmark_looked -> out: "the snapshot goes on to the coverage gate [always: every company is looked up]"
