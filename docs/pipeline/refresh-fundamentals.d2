@@ -1,0 +1,74 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: for each ticker of the universe, decide whether its filings are new, fetch its Securities and Exchange Commission (SEC) Electronic Data Gathering, Analysis, and Retrieval (EDGAR) company facts and write the company with its Damodaran industry. | {class: note}
+back: |md back to the refresh board | {
+  class: note
+  link: "./refresh.svg"
+}
+
+# Sources
+industry_mapping_csv: "industry mapping (CSV)" {class: file}  # @file src/bot/ingest/industry_mapping.csv
+universe_csv: "universe tickers (CSV)" {class: file}  # @file src/bot/ingest/universe_default.csv
+edgar: "SEC EDGAR\nsubmissions and company facts" {class: external}
+filings_log: {class: store}  # @table filings_log
+
+# States
+# @symbol bot.ingest.industry_mapping.load_industry_mapping @symbol bot.ingest.industry_mapping.normalize_industry_label
+mapping_loading: "the fundamentals stage loads the industry mapping\nprovider industry label → companies.industry_damodaran\nEDGAR label: Standard Industrial Classification (SIC) description\nmatching folds case, collapses spaces\nand treats dash variants alike" {class: step}
+# @symbol bot.ingest.industry_mapping.load_industry_mapping
+mapping_refused: "the command stops: the industry mapping is invalid\nthe load fails before any ticker is imported" {class: step}  # No outgoing edge: the run ends here
+# @symbol bot.ingest.universe._should_skip
+ticker_checked: "the ticker waits for the latest-filing check\nskipped when the provider's newest filing date is not after the newest filings_log date of this provider\n--force bypasses the check; a probe error fetches anyway" {class: decision}
+# @symbol bot.ingest.universe._refresh_one
+fetching: "the company facts and submissions of the ticker are fetched from SEC EDGAR (the Securities and Exchange Commission (SEC) Electronic Data Gathering, Analysis, and Retrieval system)\na rate limit defers this ticker and every later one" {class: decision}
+# @symbol bot.ingest.universe.import_company @symbol bot.ingest.universe._company_row
+facts_parsed: "the facts of the ticker are parsed into rows\nindustry_damodaran comes from the mapping" {class: decision}
+# @symbol bot.ingest.universe._run_bulk_refresh @const bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE @const bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE
+ticker_counted: "the fundamentals outcome of the ticker is counted\noutcome: imported, skipped, failed or deferred\nfailure rate = failed ÷ attempted; deferred are left out\nat most 5%: success; at most 25%: partial; above 25%: error\nnot success: exit code two" {class: step}
+
+# Neighbours
+# @symbol bot.ingest.damodaran.upsert_industry_rows
+damodaran_written: "the Damodaran tables are written" {class: step; link: "./refresh-damodaran.svg"}  # No incoming edge: the flow enters from refresh-damodaran
+# @table refresh_log
+damodaran_failed: "the Damodaran run fails and writes nothing" {class: step; link: "./refresh-damodaran.svg"}  # No incoming edge: the flow enters from refresh-damodaran
+# @symbol bot.ingest.sec_edgar.parse_company_facts
+fact_read: "one fact of the ticker is read" {class: decision; link: "./refresh-facts.svg"}
+# @symbol bot.ingest.sec_edgar.parse_company_facts
+fact_in_row: "the row of the fact is ready to write" {class: step; link: "./refresh-facts.svg"}  # No incoming edge: the flow enters from refresh-facts
+# @symbol bot.ingest.sec_edgar.parse_company_facts
+fact_dropped: "the fact is dropped" {class: step; link: "./refresh-facts.svg"}  # No incoming edge: the flow enters from refresh-facts
+# @symbol bot.ingest.universe.refresh_prices
+price_listing: "the prices stage lists the tickers" {class: decision; link: "./refresh-prices.svg"}
+
+# Stores
+companies: {class: store}  # @table companies
+refresh_log: {class: store}  # @table refresh_log
+
+out: "Comes out:\nper ticker one outcome: imported, skipped, failed or deferred\nfor each fetched ticker its company facts, read fact by fact in refresh-facts" {class: output; link: "./refresh-facts.svg"}
+
+# Edges
+damodaran_written -> mapping_loading: "the fundamentals stage starts"
+damodaran_failed -> mapping_loading: "the fundamentals stage starts [a Damodaran failure does not stop the command]"
+mapping_loading -> mapping_refused: "the load fails [a missing column, a target outside the Damodaran industry list, or a duplicate label]"
+mapping_loading -> ticker_checked: "the mapping is loaded once for the run"
+ticker_checked -> ticker_counted: "the ticker is skipped, nothing is stored [its latest filing is already stored, no --force]"
+ticker_checked -> ticker_counted: "the ticker and every later one are deferred, not failed [the rate limit is hit, by this or an earlier ticker]"
+ticker_checked -> fetching: "the ticker is fetched [a newer filing, none stored, the check fails, or --force]"
+fetching -> ticker_counted: "the ticker and every later one are deferred, not failed [the fetch hits the rate limit]"
+fetching -> ticker_counted: "the ticker fails and the run goes on [the facts cannot be fetched]"
+fetching -> fact_read: "the facts of the ticker are read one by one\n[the company facts arrive]"
+fact_in_row -> facts_parsed: "parsing goes on with the row"
+fact_dropped -> facts_parsed: "parsing goes on without the fact"
+facts_parsed -> ticker_counted: "the company, its financials and its filings are written in one transaction [its industry label is mapped]"
+facts_parsed -> ticker_counted: "the company is written with no Damodaran industry, with its financials and filings [its industry label is unmapped]"
+ticker_counted -> price_listing: "the prices stage starts"
+industry_mapping_csv -> mapping_loading: "provider, provider_industry, damodaran_industry rows"
+universe_csv -> ticker_checked: "tickers, one at a time; --limit takes the first N"
+edgar -> ticker_checked: "submissions: newest 10-K, 10-Q or 20-F filing date"  # @symbol bot.ingest.sec_edgar.latest_filing_date_from_submissions
+filings_log -> ticker_checked: "newest stored filing date of this provider"
+edgar -> fetching: "company facts, submissions"
+facts_parsed -> companies: "company row with industry_damodaran, financials and filings\n[written in either case, in one transaction with the financials and filings_log rows]"
+ticker_counted -> refresh_log: "one row per ticker, source = provider name\none summary row, source = provider name + _universe"
+ticker_counted -> out: "the outcome of each ticker"
