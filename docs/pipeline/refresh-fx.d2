@@ -41,9 +41,9 @@ fx_listing -> fx_done: "the run succeeds with no provider call [every listing cu
 fx_listing -> fx_requested: "each other currency is requested in turn [a listing currency other than USD]"
 fx_requested -> fx_done: "nothing is stored and the run succeeds [the SEC EDGAR providers supply no rates]"
 fmp -> fx_requested: "daily rates of one currency"  # @symbol bot.ingest.fmp
-fx_requested -> currencies: "rate_to_usd per currency and date; a later read uses the nearest prior date"  # @symbol bot.utils.fx.import_fx_rates
+fx_requested -> currencies: "rate_to_usd per currency and date; a later read uses the nearest prior date"  # @symbol bot.utils.fx.import_fx_rates @symbol bot.utils.fx.get_fx_rate
 fx_requested -> status: "each currency counted: imported, failed or deferred; a rate limit defers this and every later currency"
-fx_requested -> refresh_log: "one row per currency, source = provider name + _fx"  # @symbol bot.utils.fx.import_fx_rates
+fx_requested -> refresh_log: "one row per requested currency, source = provider name + _fx"  # @symbol bot.utils.fx.import_fx_rates
 status -> refresh_log: "one summary row for the run, source = provider name + _fx_universe"
 status -> out: "the status of the run"
 fx_done -> out: "the run ends"
