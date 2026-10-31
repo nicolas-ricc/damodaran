@@ -1,0 +1,369 @@
+{
+  "schema_version": 1,
+  "generated_on": "2026-10-31",
+  "verdict": "potentially overvalued",
+  "analysis": {
+    "ticker": "IBM",
+    "name": "INTERNATIONAL BUSINESS MACHINES CORP",
+    "country": "US",
+    "currency": "USD",
+    "story_type": "mature-decline",
+    "story_reasons": [
+      "historical revenue CAGR -2.1% over 18 years",
+      "classified as mature-decline"
+    ],
+    "assumptions": {
+      "revenue_growth": {
+        "value": [
+          -0.01714129753796982,
+          -0.01714129753796982,
+          -0.01714129753796982,
+          -0.01714129753796982,
+          -0.01714129753796982
+        ],
+        "source": "historical_average"
+      },
+      "operating_margin": {
+        "value": [
+          0.22484874696685003,
+          0.22484874696685003,
+          0.22484874696685003,
+          0.22484874696685003,
+          0.22484874696685003
+        ],
+        "source": "sector_default_damodaran"
+      },
+      "sales_to_capital": {
+        "value": 3.6197887497686683,
+        "source": "sector_default_damodaran"
+      },
+      "terminal_growth": {
+        "value": 0.04,
+        "source": "rule_based"
+      },
+      "probability_of_bankruptcy": {
+        "value": 0.0,
+        "source": "rule_based"
+      },
+      "distress_value_per_share": {
+        "value": 0.0,
+        "source": "rule_based"
+      },
+      "cost_of_equity": {
+        "value": 0.09972468270289851,
+        "source": "sector_default_damodaran"
+      },
+      "pretax_cost_of_debt": {
+        "value": 0.052913,
+        "source": "sector_default_damodaran"
+      },
+      "equity_weight": {
+        "value": 0.9557968962195064,
+        "source": "sector_default_damodaran"
+      },
+      "debt_weight": {
+        "value": 0.044203103780493636,
+        "source": "sector_default_damodaran"
+      },
+      "tax_rate": {
+        "value": 0.05911353077642165,
+        "source": "sector_default_damodaran"
+      },
+      "story_type": "mature-decline",
+      "notes": null
+    },
+    "financials": {
+      "revenue": 67535000000.0,
+      "net_debt": 47672000000.0,
+      "shares_diluted": 948675228.0,
+      "adjustments": 0.0
+    },
+    "dcf_result": {
+      "intrinsic_value": 154.7062143477054,
+      "enterprise_value": 194437953169.3263,
+      "equity_value": 146765953169.3263,
+      "projections": [
+        {
+          "year": 1,
+          "revenue": 66377362470.77321,
+          "ebit": 14924866778.517773,
+          "nopat": 14042605206.871868,
+          "reinvestment": -319808035.565825,
+          "fcff": 14362413242.437693,
+          "discount_factor": 0.9111474523154607,
+          "present_value": 13086276234.948938
+        },
+        {
+          "year": 2,
+          "revenue": 65239568350.876015,
+          "ebit": 14669035196.352638,
+          "nopat": 13801896732.812634,
+          "reinvestment": -314326110.8731573,
+          "fcff": 14116222843.685791,
+          "discount_factor": 0.8301896798609546,
+          "present_value": 11719142523.4454
+        },
+        {
+          "year": 3,
+          "revenue": 64121277498.52493,
+          "ebit": 14417588899.457006,
+          "nopat": 13565314314.32716,
+          "reinvestment": -308938153.48272717,
+          "fcff": 13874252467.809887,
+          "discount_factor": 0.7564252117438968,
+          "present_value": 10494834360.751375
+        },
+        {
+          "year": 4,
+          "revenue": 63022155602.40799,
+          "ebit": 14170452718.351284,
+          "nopat": 13332787225.469196,
+          "reinvestment": -303642552.6730491,
+          "fcff": 13636429778.142246,
+          "discount_factor": 0.6892149045476345,
+          "present_value": 9398430647.912828
+        },
+        {
+          "year": 5,
+          "revenue": 61941874081.74288,
+          "ebit": 13927552772.058292,
+          "nopat": 13104245952.626987,
+          "reinvestment": -298437725.33249235,
+          "fcff": 13402683677.95948,
+          "discount_factor": 0.6279764043764205,
+          "present_value": 8416569105.079534
+        }
+      ],
+      "terminal_value": 225044602491.90637,
+      "terminal_value_share": 0.7268267228369626,
+      "wacc": 0.09751719928398206,
+      "equity_weight": 0.9557968962195064,
+      "debt_weight": 0.044203103780493636
+    },
+    "tornado": [
+      {
+        "axis": "cost_of_equity",
+        "low_value": 0.07977974616231881,
+        "high_value": 0.11966961924347821,
+        "intrinsic_low": 251.7715659643605,
+        "intrinsic_high": 105.79072279082503,
+        "impact": 145.98084317353545
+      },
+      {
+        "axis": "operating_margin",
+        "low_value": 0.17987899757348003,
+        "high_value": 0.26981849636022004,
+        "intrinsic_low": 112.38858426618006,
+        "intrinsic_high": 197.02384442923076,
+        "impact": 84.6352601630507
+      },
+      {
+        "axis": "terminal_growth",
+        "low_value": 0.032,
+        "high_value": 0.048,
+        "intrinsic_low": 136.84030682648984,
+        "intrinsic_high": 178.34495483348482,
+        "impact": 41.504648006994984
+      },
+      {
+        "axis": "revenue_growth",
+        "low_value": -0.013713038030375858,
+        "high_value": -0.020569557045563784,
+        "intrinsic_low": 157.61254540307402,
+        "intrinsic_high": 151.83769428919038,
+        "impact": 5.774851113883642
+      },
+      {
+        "axis": "tax_rate",
+        "low_value": 0.04729082462113732,
+        "high_value": 0.07093623693170598,
+        "intrinsic_low": 157.2694183558469,
+        "intrinsic_high": 152.14061255378974,
+        "impact": 5.1288058020571725
+      },
+      {
+        "axis": "pretax_cost_of_debt",
+        "low_value": 0.042330400000000004,
+        "high_value": 0.0634956,
+        "intrinsic_low": 156.21878864754706,
+        "intrinsic_high": 153.2164897949126,
+        "impact": 3.0022988526344534
+      },
+      {
+        "axis": "sales_to_capital",
+        "low_value": 2.895830999814935,
+        "high_value": 4.343746499722402,
+        "intrinsic_low": 153.04851225033195,
+        "intrinsic_high": 155.8113490792877,
+        "impact": 2.7628368289557557
+      }
+    ],
+    "grid": {
+      "axis_a": "cost_of_equity",
+      "axis_b": "operating_margin",
+      "row_multipliers": [
+        0.8,
+        0.9,
+        1.0,
+        1.1,
+        1.2
+      ],
+      "col_multipliers": [
+        0.8,
+        0.9,
+        1.0,
+        1.1,
+        1.2
+      ],
+      "cells": [
+        [
+          {
+            "intrinsic_value": 189.0565740102562,
+            "margin_of_safety": 0.7960611984094328
+          },
+          {
+            "intrinsic_value": 220.41406998730835,
+            "margin_of_safety": 0.9280983198758194
+          },
+          {
+            "intrinsic_value": 251.7715659643605,
+            "margin_of_safety": 1.060135441342206
+          },
+          {
+            "intrinsic_value": 283.1290619414128,
+            "margin_of_safety": 1.192172562808593
+          },
+          {
+            "intrinsic_value": 314.4865579184648,
+            "margin_of_safety": 1.3242096842749793
+          }
+        ],
+        [
+          {
+            "intrinsic_value": 143.14093145861042,
+            "margin_of_safety": 0.6027240366272703
+          },
+          {
+            "intrinsic_value": 168.38816199947547,
+            "margin_of_safety": 0.709032641372165
+          },
+          {
+            "intrinsic_value": 193.6353925403405,
+            "margin_of_safety": 0.8153412461170596
+          },
+          {
+            "intrinsic_value": 218.88262308120557,
+            "margin_of_safety": 0.9216498508619544
+          },
+          {
+            "intrinsic_value": 244.12985362207056,
+            "margin_of_safety": 1.0279584556068488
+          }
+        ],
+        [
+          {
+            "intrinsic_value": 112.38858426618006,
+            "margin_of_safety": 0.47323501733201423
+          },
+          {
+            "intrinsic_value": 133.54739930694274,
+            "margin_of_safety": 0.5623285161772821
+          },
+          {
+            "intrinsic_value": 154.7062143477054,
+            "margin_of_safety": 0.65142201502255
+          },
+          {
+            "intrinsic_value": 175.86502938846814,
+            "margin_of_safety": 0.7405155138678182
+          },
+          {
+            "intrinsic_value": 197.02384442923076,
+            "margin_of_safety": 0.8296090127130858
+          }
+        ],
+        [
+          {
+            "intrinsic_value": 90.33512819412555,
+            "margin_of_safety": 0.3803744502679083
+          },
+          {
+            "intrinsic_value": 108.56522536120352,
+            "margin_of_safety": 0.4571359861939598
+          },
+          {
+            "intrinsic_value": 126.79532252828153,
+            "margin_of_safety": 0.5338975221200115
+          },
+          {
+            "intrinsic_value": 145.0254196953596,
+            "margin_of_safety": 0.6106590580460634
+          },
+          {
+            "intrinsic_value": 163.25551686243753,
+            "margin_of_safety": 0.6874205939721147
+          }
+        ],
+        [
+          {
+            "intrinsic_value": 73.7344174773495,
+            "margin_of_safety": 0.310473777747903
+          },
+          {
+            "intrinsic_value": 89.76257013408727,
+            "margin_of_safety": 0.3779635779783876
+          },
+          {
+            "intrinsic_value": 105.79072279082503,
+            "margin_of_safety": 0.44545337820887204
+          },
+          {
+            "intrinsic_value": 121.81887544756285,
+            "margin_of_safety": 0.5129431784393568
+          },
+          {
+            "intrinsic_value": 137.84702810430062,
+            "margin_of_safety": 0.5804329786698413
+          }
+        ]
+      ],
+      "reference_price": 237.49
+    },
+    "narrative_flags": [
+      {
+        "name": "story_margin",
+        "color": "green",
+        "reason": "story type 'mature-decline' is not 'high-growth'"
+      },
+      {
+        "name": "growth_reinvestment",
+        "color": "green",
+        "reason": "projected reinvestment is comfortably funded by NOPAT every year"
+      },
+      {
+        "name": "beta_business_risk",
+        "color": "green",
+        "reason": "sector beta 1.35 is consistent with operating leverage 8.31 and financial leverage 65%"
+      },
+      {
+        "name": "terminal_value_share",
+        "color": "green",
+        "reason": "terminal value is 73% of enterprise value (<= 80%)"
+      },
+      {
+        "name": "country_exposure",
+        "color": "unknown",
+        "reason": "not evaluated: needs revenue by geography and a revenue-weighted ERP; no ingest path supplies either"
+      }
+    ],
+    "sanity_check": {
+      "implied_pe": 21.268845454330222,
+      "sector_pe": 80.9453264906077,
+      "implied_ev_sales": 2.8790694183656815,
+      "sector_ev_sales": 6.629803188728592
+    },
+    "current_price": 237.49,
+    "margin_of_safety": 0.65142201502255,
+    "override_notes": null
+  }
+}
