@@ -556,15 +556,21 @@ def test_portfolio_subboard_text(stem: str) -> None:
 
 
 def _decided_events(stem: str) -> set[str]:
-    """EventType values named, as whole words, in the labels of the board's decision nodes."""
+    """EventType values named, as whole words, in the labels of the board's own decision nodes.
+
+    Neighbours (nodes linking another sub-board) are skipped: their first line is fixed by the
+    model and may say "concentration" without deciding it here.
+    """
     from bot.portfolio.events import EventType
 
-    path = _PIPELINE / f"{stem}.d2"
+    if not (_PIPELINE / f"{stem}.d2").exists():
+        return set()
+    text = _text(stem)
     labels = [
         label.replace("\\n", " ")
-        for _, cls, label in node_labels(_text(stem)).values()
-        if cls == "decision"
-    ] if path.exists() else []
+        for path, (_, cls, label) in node_labels(text).items()
+        if cls == "decision" and _link(_block(text, path) or "") is None
+    ]
     return {
         e.value
         for e in EventType
