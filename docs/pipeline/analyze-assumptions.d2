@@ -2,7 +2,7 @@
 
 direction: down
 
-objective: |md Objective: give every DCF input a value and a source, trying the sources of each assumption in order; a missing one leaves it unresolved. | {class: note}
+objective: |md Objective: give every discounted cash flow (DCF) input a value and a source, trying the sources of each assumption in order; a missing one leaves it unresolved. | {class: note}
 back: |md back to the analyze board | {
   class: note
   link: "./analyze.svg"
@@ -55,11 +55,11 @@ story_set -> sector_read: "the sector row is found [its region's, else another r
 story_set -> sector_read: "no sector row [industry absent from every region]"
 sector_read -> currency_read: "the valuation currency is in the currency table"
 sector_read -> currency_read: "the valuation currency is not in the currency table"
-currency_read -> growth_set: "revenue growth gets a source [manual, story pattern, history, or nominal gross domestic product (GDP) growth]\nrevenue growth, a path over 5 years, tries in order:\n1. manual → manual\n2. high-growth with history: straight line from the mean historical growth to nominal GDP growth → story_pattern\n3. mean historical growth, repeated → historical_average\n4. no history: nominal GDP growth each year → rule_based"  # @symbol bot.valuator.assumptions._resolve_revenue_growth @const bot.valuator.assumptions._HORIZON
+currency_read -> growth_set: "revenue growth gets a source [manual, story pattern, history, or nominal gross domestic product (GDP) growth]\nrevenue growth, a path over 5 years, tries in order:\n1. manual → manual\n2. high-growth with history, GDP known: straight line from the mean historical growth to nominal GDP growth → story_pattern\n3. mean historical growth, repeated → historical_average\n4. no history: nominal GDP growth each year → rule_based"  # @symbol bot.valuator.assumptions._resolve_revenue_growth @const bot.valuator.assumptions._HORIZON
 currency_read -> growth_set: "revenue growth is unresolved [no history and an uncovered currency]"
-growth_set -> margin_set: "operating margin gets a source [manual, story pattern, cycle average, or sector]\noperating margin, a path over 5 years, tries in order:\n1. manual → manual\n2. high-growth with a latest EBIT ÷ revenue: straight line from it to the sector margin → story_pattern\n3. cyclical with at least 4 years: mean of the yearly EBIT ÷ revenue → historical_average\n4. sector margin each year → sector label"  # @symbol bot.valuator.assumptions._resolve_operating_margin @const bot.valuator.assumptions._HORIZON @const bot.valuator.assumptions._MIN_CYCLE_YEARS
+growth_set -> margin_set: "operating margin gets a source [manual, story pattern, cycle average, or sector]\noperating margin, a path over 5 years, tries in order:\n1. manual → manual\n2. high-growth with a latest earnings before interest and taxes (EBIT) ÷ revenue: straight line from it to the sector margin → story_pattern\n3. cyclical with at least 4 years: mean of the yearly EBIT ÷ revenue → historical_average\n4. sector margin each year → sector label"  # @symbol bot.valuator.assumptions._resolve_operating_margin @const bot.valuator.assumptions._HORIZON @const bot.valuator.assumptions._MIN_CYCLE_YEARS
 growth_set -> margin_set: "operating margin is unresolved [no sector operating margin]"
-margin_set -> scalars_set: "sales-to-capital and the costs of equity and debt get a source [manual or sector]\n1. manual → manual\n2. sector value → sector label"
+margin_set -> scalars_set: "sales-to-capital and the costs of equity and debt get a source [manual or sector]\n1. manual → manual\n2. sector value (cost of equity, pre-tax cost of debt) → sector label"
 margin_set -> scalars_set: "sales-to-capital or a cost of capital is unresolved [not in the file nor the sector row]"
 scalars_set -> weights_set: "the equity and debt weights get a source [manual, or the sector's debt-to-equity (D/E)]\n1. manual: one given, the other = 1 − it → manual\n2. sector D/E: debt weight = D/E ÷ (1 + D/E), equity weight = 1 − debt weight → sector label"
 scalars_set -> weights_set: "the weights are unresolved [no manual weight, no sector debt-to-equity (D/E)]"
@@ -67,7 +67,7 @@ weights_set -> tg_set: "terminal growth is set by hand [in the override file]\n1
 weights_set -> tg_set: "terminal growth is the lower of the currency's risk-free rate and nominal gross domestic product (GDP) growth [covered currency]\n2. min(risk-free rate, nominal GDP growth) of the currency in config/currencies.yaml → rule_based"
 weights_set -> tg_set: "terminal growth is unresolved [uncovered currency, not set by hand]"
 scalars_set -> cannot_value: "the ticker cannot be valued, exit code 1 [both weights set by hand and not summing to 1]"
-tg_set -> ready: "tax rate and bankruptcy odds are set [manual, sector, country, or 25%; bankruptcy manual or 0]\ntax: manual, sector, country row, else 25% → rule_based\nbankruptcy: manual, else 0 → rule_based"  # @const bot.valuator.assumptions._DEFAULT_TAX_RATE @symbol bot.valuator.assumptions._resolve_tax_rate
+tg_set -> ready: "tax rate and bankruptcy odds are set [manual, sector, country, or 25%; bankruptcy manual or 0]\ntax rate:\n1. manual → manual\n2. sector tax_rate → sector label\n3. country tax_rate → sector_default_damodaran\n4. else 25% → rule_based\nbankruptcy odds and distress value per share: manual, else 0 → rule_based"  # @const bot.valuator.assumptions._DEFAULT_TAX_RATE @symbol bot.valuator.assumptions._resolve_tax_rate
 damodaran_industry -> sector_read: "sector rows"
 currencies_yaml -> currency_read: "risk-free rate and nominal GDP growth of the valuation currency"
 override_yaml -> sector_read: "manual values, tried first by every assumption"
