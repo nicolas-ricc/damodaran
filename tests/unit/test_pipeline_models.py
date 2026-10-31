@@ -463,7 +463,7 @@ def test_context_lists_the_models() -> None:
 
 
 # Sub-boards drawn from the models (#164): the stages whose groups are drawn as sub-boards.
-_SUBBOARDED = ("site", "refresh")
+_SUBBOARDED = ("site", "refresh", "screen")
 _PHASES_RE = re.compile(r"phase = \"(\w+)\".*?phase' = \"(\w+)\"", re.S)
 
 
@@ -477,6 +477,23 @@ def _transitions(stem: str) -> dict[str, tuple[str, str]]:
         m = _PHASES_RE.search(body)
         assert m, f'{stem}.tla {action}: no `phase = "a"` ... `phase\' = "b"`'
         out[action] = (m.group(1), m.group(2))
+    return out
+
+
+_SOURCES_RE = re.compile(r"phase (?:= \"(\w+)\"|\\in \{([^}]*)\}).*?phase' = \"(\w+)\"", re.S)
+
+
+def _moves(stem: str) -> list[tuple[str, str, str]]:
+    """(action, state it leaves, state it enters), one per source of `phase \\in {"a", "b"}` (#168)."""
+    bodies = {name: body for name, _, body in _definitions(stem)}
+    out = []
+    for action in _map(stem, "steps"):
+        if action == "Done":
+            continue
+        m = _SOURCES_RE.search(bodies[action])
+        assert m, f'{stem}.tla {action}: no `phase = "a"` or `phase \\in {{...}}` ... `phase\' = "b"`'
+        sources = [m.group(1)] if m.group(1) else re.findall(r'"(\w+)"', m.group(2))
+        out += [(action, a, m.group(3)) for a in sources]
     return out
 
 
@@ -540,7 +557,7 @@ def test_subboard_edges_join_the_model_states(stage: str) -> None:
             drawn.add((first_line(label), *ends))
     missing = [
         f"{action}: {states[a]} -> {states[b]}"
-        for action, (a, b) in _transitions(stage).items()
+        for action, a, b in _moves(stage)
         if (steps[action], states[a], states[b]) not in drawn
     ]
     assert missing == []
@@ -551,7 +568,7 @@ def test_subboard_state_classes(stage: str) -> None:
     """A state is a decision when at least two steps leave it under a [condition]."""
     states, steps = _map(stage, "states"), _map(stage, "steps")
     conditioned = {key: 0 for key in states}
-    for action, (a, _) in _transitions(stage).items():
+    for action, a, _ in _moves(stage):
         if "[" in (steps[action] or ""):
             conditioned[a] += 1
     expected = {
