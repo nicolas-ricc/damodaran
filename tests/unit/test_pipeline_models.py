@@ -26,9 +26,6 @@ _FIXED = {"check.sh", "README.md", "TLA_VERSION", "TLA_SHA256", "STATECHART_COMM
 _HOLDS = "# site\n\n## Rules that hold\nA, B, NoDeadlock\n"
 
 
-# --- pins and check.sh -------------------------------------------------------
-
-
 def test_pins() -> None:
     assert (_MODELS / "TLA_VERSION").read_text() == "1.7.4\n"
     assert (_MODELS / "TLA_SHA256").read_text() == (
@@ -230,9 +227,6 @@ def test_check_needs_an_out_dir(tmp_path: Path) -> None:
     assert "usage: check.sh OUT_DIR" in result.stderr
 
 
-# --- model conventions -------------------------------------------------------
-
-
 def _text(stem: str, ext: str) -> str:
     return (_MODELS / f"{stem}{ext}").read_text(encoding="utf-8")
 
@@ -388,9 +382,6 @@ def test_rules_are_checked_or_marked_broken(stem: str) -> None:
 def test_site_groups() -> None:
     assert set(_map("site", "groups").values()) == _SITE_GROUPS
     assert len(_invariants("site")) >= 6
-
-
-# --- docs and layout ---------------------------------------------------------
 
 
 def test_models_readme() -> None:
