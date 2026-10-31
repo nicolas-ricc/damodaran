@@ -25,13 +25,13 @@ ticker_checked: "the ticker waits for the latest-filing check\nskipped when the 
 fetching: "the company facts and submissions of the ticker are fetched from SEC EDGAR (the Securities and Exchange Commission (SEC) Electronic Data Gathering, Analysis, and Retrieval system)\na rate limit defers this ticker and every later one" {class: decision}
 # @symbol bot.ingest.universe.import_company @symbol bot.ingest.universe._company_row
 facts_parsed: "the facts of the ticker are parsed into rows\nindustry_damodaran comes from the mapping" {class: decision}
-# @symbol bot.ingest.universe._run_bulk_refresh @const bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE @const bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE
+# @symbol bot.ingest.universe._run_bulk_refresh @symbol bot.ingest.universe._resolve_status @symbol bot.cli._refresh_fmp_universe @const bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE @const bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE
 ticker_counted: "the fundamentals outcome of the ticker is counted\noutcome: imported, skipped, failed or deferred\nfailure rate = failed ÷ attempted; deferred are left out\nat most 5%: success; at most 25%: partial; above 25%: error\nnot success: exit code two" {class: step}
 
 # Neighbours
 # @symbol bot.ingest.damodaran.upsert_industry_rows
 damodaran_written: "the Damodaran tables are written" {class: step; link: "./refresh-damodaran.svg"}  # No incoming edge: the flow enters from refresh-damodaran
-# @table refresh_log
+# @symbol bot.ingest.damodaran.import_damodaran
 damodaran_failed: "the Damodaran run fails and writes nothing" {class: step; link: "./refresh-damodaran.svg"}  # No incoming edge: the flow enters from refresh-damodaran
 # @symbol bot.ingest.sec_edgar.parse_company_facts
 fact_read: "one fact of the ticker is read" {class: decision; link: "./refresh-facts.svg"}
@@ -66,9 +66,9 @@ facts_parsed -> ticker_counted: "the company is written with no Damodaran indust
 ticker_counted -> price_listing: "the prices stage starts"
 industry_mapping_csv -> mapping_loading: "provider, provider_industry, damodaran_industry rows"
 universe_csv -> ticker_checked: "tickers, one at a time; --limit takes the first N"
-edgar -> ticker_checked: "submissions: newest 10-K, 10-Q or 20-F filing date"  # @symbol bot.ingest.sec_edgar.latest_filing_date_from_submissions
+edgar -> ticker_checked: "submissions: newest 10-K, 10-Q or 20-F filing date (amendments too)"  # @symbol bot.ingest.sec_edgar.latest_filing_date_from_submissions
 filings_log -> ticker_checked: "newest stored filing date of this provider"
 edgar -> fetching: "company facts, submissions"
 facts_parsed -> companies: "company row with industry_damodaran, financials and filings\n[written in either case, in one transaction with the financials and filings_log rows]"
-ticker_counted -> refresh_log: "one row per ticker, source = provider name\none summary row, source = provider name + _universe"
+ticker_counted -> refresh_log: "one row per fetched ticker (imported or failed), source = provider name\none summary row, source = provider name + _universe"
 ticker_counted -> out: "the outcome of each ticker"
