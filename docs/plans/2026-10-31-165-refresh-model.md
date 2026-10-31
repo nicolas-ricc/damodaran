@@ -28,6 +28,17 @@
 4. **Left out:** a database write failure inside a transaction, the region check (it refuses before any source runs), an empty universe file, both Damodaran sides empty at once, and the per-ticker refresh_log row. The run's status thresholds (5% / 25%) concern the whole universe, not the one ticker, so the model counts an outcome without computing them.
 5. **An invalid mapping stops the command.** `load_industry_mapping` raises `ValueError` inside `refresh_universe`. Nothing in `_refresh_fmp_universe` or `refresh` catches it, so prices and FX never run. `mapping_refused` is an end phase.
 
+## Assumptions
+
+Decided during grilling (technical; the rejected alternative is in brackets):
+
+- A1. **The model follows a ticker with at least one fact.** A company-facts document with no accepted fact is imported with a company row and no financials (`import_company` writes whatever `parse_company_facts` returns). That path is left out [rejected: an extra arrow `fetching→ticker_counted` "imported, no rows"].
+- A2. **The rules mirror the code's structure, so most hold by construction.** What TLC checks is reachability over the whole graph. Rule (a) holds only if no path from `damodaran_failed` reaches a write, (e) only if no path from `mapping_refused` reaches prices, and (m) checks the stage order on every path. The rules are also the sentences the sub-boards show (#166). [rejected: modelling the code more loosely so that rules can break; that would describe a pipeline that does not exist.]
+- A3. **Several arrows on one edge, each with its own label, are acceptable.** `site.view.js` already has four labels on `renderable→row`, and its CI is green. The shared-label rule applies only where two actions mean the same thing to the reader.
+- A4. **Stores per sub-board are the `refresh.d2` nodes of that sub-flow.** Damodaran has 4 (Damodaran site, `damodaran_industry`, `damodaran_country`, `refresh_log`), fundamentals 8, facts 0 or 1, prices 6, FX 3. #166 owns the final choice. With these counts every group is at 24 or fewer.
+- A5. **A replay test** for a broken rule lives in `tests/unit/test_refresh_replay_<rule>.py`. It is committed only when it proves a real code bug, and is otherwise discarded (issue: "not committed if it only proves the model wrong").
+- A6. **`stagesDone` also records "damodaran".** It costs no states, because each phase has exactly one `stagesDone` value. It keeps the stage order readable in TLC traces.
+
 ## Review Focus
 
 1. A phase that some combination of flags leaves with no enabled step is a deadlock: TLC fails `NoDeadlock`, and CI reports `breaks`. Check every guard on `rowKind`. `row_labelled` and `fact_derived` must each have a step for `"year"` and one for `"quarter"`.
@@ -79,7 +90,7 @@ refresh-damodaran (`damodaran.py` `import_damodaran`, `_import_files_into_run`):
 - `TheWaccFileFailsToParse` downloaded→damodaran_failed, dCoreFailed, dStatus "error". Label: "the run stops [wacc.xls cannot be read]". Cites the first `parse_industry_xls`, which raises before `transaction`.
 - `TheIndustryFilesAreMerged` industry_read→merged. Label: "the industry files are joined on the industry name [the earlier file wins a shared column]". Cites `merge_industry_datasets`.
 - `TheCountrySheetIsRead` merged→country_read. Label: "the country risk sheet is read". Cites `parse_country_xls`.
-- `TheCountryFileFailsToParse` merged→damodaran_failed, dCoreFailed, dStatus "error". Label: "the run stops [ctryprem.xls cannot be read]".
+- `TheCountryFileFailsToParse` merged→damodaran_failed, dCoreFailed, dStatus "error". Label: "the run stops [ctryprem.xls cannot be read]". Cites `parse_country_xls`, which raises before `transaction`, and the `except` around `_import_files_into_run` in `import_damodaran` that sets `status_override = "error"`.
 - `TheColumnsAreDerived` country_read→derived. Label: "debt-to-equity, unlevered beta and country tax rates are filled in". Cites `derive_industry_columns`, `parse_country_tax_rates`.
 - `BothSidesAreWritten` derived→damodaran_written, dIndustry/dCountry "replaced", dStatus = IF dDegraded THEN "partial" ELSE "success". Label: "both tables are replaced for the year in one transaction [industry and country rows exist]".
 - `TheIndustrySideIsEmpty` derived→damodaran_written, dEmpty "industry", dCountry "replaced", dStatus "partial". Label: "only the country table is replaced, the run is partial [no industry rows]". Cites `upsert_industry_rows` `if not rows: return 0` before its `DELETE`.
@@ -155,7 +166,7 @@ refresh-fx (`universe.py` `refresh_fx`, `distinct_non_usd_currencies`; `fx.py` `
 - (m) `StagesRunInOrder`: "In a --all run, prices run only after fundamentals, and foreign exchange only after prices." `(phase \in PricePhases => "fundamentals" \in stagesDone) /\ (phase \in FxPhases => "prices" \in stagesDone)`
 - extra `PriceRateLimitDefersTheRest`: "A ticker whose prices hit the rate limit is deferred, never counted as failed, and every later ticker is deferred too." `pRateLimit # "none" => (pOutcome \in {"none","deferred"} /\ pLater = "deferred")`
 
-- [ ] **Step 1: Evals fail.** Run `uv run pytest -q tests/unit/test_pipeline_models.py -k refresh`. Expected: FAIL, because `refresh` is not in the stems.
+- [ ] **Step 1: Evals fail.** Run `uv run pytest -q tests/unit/test_pipeline_models.py -k refresh`. Expected: FAIL. The stage-3 evals are explicit `test_refresh_*` tests that read `refresh.*` (groups, rule names, title). They fail with FileNotFoundError, not "no tests collected": `_STEMS` is discovered from `*.tla`, so the parametrized tests alone would collect nothing for `refresh`.
 - [ ] **Step 2: Write `refresh.tla`** in the shape of `site.tla`, from the tables above: the variables, `vars`, `EndPhases`, `PricePhases` and `FxPhases`, an `Init`, one action per row in table order, then `Done`, `Next` (every action, `Done` last), `Spec` and the 14 rules. Each rule is preceded by its `(* Cites: ... *)` line and then its `\*` sentence. A definition is never preceded by a blank `\*` line.
 - [ ] **Step 3: Write `refresh.cfg`**: `SPECIFICATION Spec` plus 14 `INVARIANT` lines in rule order. **Write `refresh.view.js`** in the shape of `site.view.js` with the tables above.
 - [ ] **Step 4: Update the models README line.**
@@ -169,5 +180,32 @@ refresh-fx (`universe.py` `refresh_fx`, `distinct_non_usd_currencies`; `fx.py` `
 - [ ] **Step 1:** Push the branch. Get the run with `id=$(gh run list --branch agent/165-refresh-model --workflow pipeline-diagram --limit 1 --json databaseId --jq '.[0].databaseId')`, then `gh run watch "$id" --exit-status`.
 - [ ] **Step 2:** Run `gh run download "$id" -n pipeline-models -D /tmp/models-<n>` and read `refresh/report.md`, `refresh/chart.mmd` and `refresh/tlc.out`.
 - [ ] **Step 3:** Fix parse errors, deadlocks and labels in the model or the view. For a rule that breaks, replay the path as a pytest against the code. If the model is wrong, fix the model. If the code really breaks the rule, open a `bug` issue, add `\* broken: #n`, remove the rule from the `.cfg` and add a README table row.
-- [ ] **Step 4:** Repeat until the head commit's run is green in both jobs, and `report.md` has `## Rules that hold` with at least 10 names and no `breaks`, `Rules not checked` or `TLC stopped`, and `chart.mmd` exists.
-- [ ] **Step 5:** Commit each fix as `fix(#165): <what TLC showed>`.
+- [ ] **Step 4:** Check the state count in `report.md` and `tlc.out`, and that `refresh/chart.mmd` exists. `check.sh` checks neither: above 500 states, the launcher writes no chart and still passes.
+- [ ] **Step 5:** Repeat until the head commit's run is green in both jobs, and `report.md` has `## Rules that hold` with at least 10 names and no `breaks`, `Rules not checked` or `TLC stopped`, and `chart.mmd` exists.
+- [ ] **Step 6:** Commit each fix as `fix(#165): <what TLC showed>`.
+
+## Grilling
+
+- Rounds: 1 (the revision changed no step or seam, so there was no second round). Griller model: fable.
+- Questions: 18. Sources: CODE 14, ISSUE 3, DOC 1, NO SOURCE 4 (A1, A3, A4, A6 → technical assumptions).
+- Answers in brief:
+  - Q1: CODE `src/bot/config.py:25`, default `data_provider`. `cli.py:67-91` `_make_provider` builds the provider for `_refresh_fmp_universe`, whose name is historical.
+  - Q2: CODE `damodaran.py:870-887`, where `except Exception` sets `status_override = "error"`, and `cli.py:200-218`, which returns 1 and does not raise.
+  - Q3: A2.
+  - Q4: A3.
+  - Q5: CODE `cli.py:184-196`: `_open_db`, then the sources in order, with no earlier mapping load.
+  - Q6: CODE `tests/unit/test_pipeline_models.py` `_STEMS = sorted(p.stem for p in _MODELS.glob("*.tla"))`. Step 1 fixed.
+  - Q7: A4.
+  - Q8: Task 2 Step 4 added. ISSUE: "the chart budget is 500 states".
+  - Q9: A1.
+  - Q10: CODE `universe.py` `_should_skip`: `except Exception: ... return False`, so the ticker is imported.
+  - Q11: CODE `fx.py:147-158` with `upsert_fx_rates` `if not rates`: an empty result is a success with 0 rows, so the currency is counted "imported" and the status is success. `distinct_non_usd_currencies` excludes `currency IS NULL`, so a NULL currency is not listed: `OnlyUsdIsListed` when it is the only one.
+  - Q12: CODE `damodaran.py` `_import_files_into_run`: `if empty_sides: reasons.append(...)`, then `if reasons: status_override = "partial"`, whether or not the run is degraded.
+  - Q13: CODE `universe.py` `_run_bulk_refresh`: `for index, item in enumerate(items, start=1)` with `rate_limited`, a sequential loop.
+  - Q14: CODE `sec_edgar.py:346` `_rescale_shares_diluted(ticker, annual_rows)`, annual only. `shares_diluted` is `WeightedAverageNumberOfDilutedSharesOutstanding`, a duration fact.
+  - Q15: ISSUE: "The sandbox has no Java and refuses to run downloaded binaries … CI is the gate."
+  - Q16: A5, ISSUE "not committed if it only proves the model wrong".
+  - Q17: DOC `docs/pipeline/models/README.md:20`, verbatim. Nothing else lists the models.
+  - Q18: A6.
+- Spec ambiguities: none. Out of scope (follow-up issues): none.
+- Status: ok.
