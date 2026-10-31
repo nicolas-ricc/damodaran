@@ -78,15 +78,16 @@
   - `_REQUIRED_SYMBOLS["screen"]`: add `bot.screener.engine.CoverageReason`, `bot.reference.currencies.load_currency_table`, `bot.screener.engine.format_coverage_counts`.
   - `_REQUIRED_FILES["screen"]`: add `config/currencies.yaml`.
   - `_SCREEN_NODES`: add `("currencies_yaml", "file")`.
-  - `_SCREEN_TEXT["coverage_gate.gate"] = ["industry_unmapped", "benchmark_missing", "currency_uncovered", "leaves the universe", "before any rule runs", "one reason"]`.
+  - `_SCREEN_TEXT["currencies_yaml"] = ["absent or malformed", "every currency uncovered"]`.
+  - `_SCREEN_TEXT["coverage_gate.gate"] = ["industry_unmapped", "benchmark_missing", "currency_uncovered", "leaves the universe", "before any rule runs", "one reason", "missing, or not in config/currencies.yaml"]`.
   - `_SCREEN_TEXT["persist_and_report.report"]`: add `"coverage gate exclusions per reason"`.
   - `_SCREEN_TEXT["ranking.second_pass"]`: add `"config/currencies.yaml"`.
   - New `test_screen_coverage_reasons_in_precedence_order`: in `_screen_block("coverage_gate.gate")`, `index("industry_unmapped") < index("benchmark_missing") < index("currency_uncovered")`, and the enum's member order `[r.value for r in CoverageReason]` equals that same order.
   - `test_screen_dcf_seam_and_rejections`: add `_edge_line(board, "currencies_yaml", "coverage_gate.gate")` and `_edge_line(board, "currencies_yaml", "ranking.second_pass")` not `None`.
 - [ ] **Step 2: Run** `uv run pytest -q tests/unit/test_pipeline_diagram.py -k screen` — expect FAIL.
 - [ ] **Step 3: Edit `screen.d2`.**
-  - `coverage_gate.gate` (class `decision`) label, one reason per line in precedence order: `can the company be measured? the first reason that applies:` / `industry_unmapped: no Damodaran industry (industry_damodaran)` / `benchmark_missing: no sector benchmark row, or one without a weighted average cost of capital (WACC)` / `currency_uncovered: valuation currency (currency of the newest non-restated financials_annual row) not in config/currencies.yaml` / `any reason: the company leaves the universe before any rule runs,` / `recorded as rejected with that one reason` / `(architecture decision record (ADR) 0006 (Implemented))`. Directives: `@symbol bot.screener.engine.run_screen @enum bot.screener.engine.CoverageReason @symbol bot.screener.engine.CoverageReason @file config/currencies.yaml @file docs/adr/0006-unmeasurable-companies-leave-the-universe.md`.
-  - `currencies_yaml` file node: `"config/currencies.yaml, risk-free rate and nominal GDP growth per currency"` with `# @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table`; GDP must be expanded at first use on the board (`gross domestic product (GDP)`).
+  - `coverage_gate.gate` (class `decision`) label, one reason per line in precedence order: `can the company be measured? the first reason that applies:` / `industry_unmapped: no Damodaran industry (industry_damodaran)` / `benchmark_missing: no sector benchmark row, or one without a weighted average cost of capital (WACC)` / `currency_uncovered: valuation currency (currency of the newest non-restated financials_annual row)` / `missing, or not in config/currencies.yaml` / `any reason: the company leaves the universe before any rule runs,` / `recorded as rejected with that one reason` / `(architecture decision record (ADR) 0006 (Implemented))`. Directives: `@symbol bot.screener.engine.run_screen @enum bot.screener.engine.CoverageReason @symbol bot.screener.engine.CoverageReason @file config/currencies.yaml @file docs/adr/0006-unmeasurable-companies-leave-the-universe.md`.
+  - `currencies_yaml` file node: `"config/currencies.yaml, risk-free rate and nominal GDP growth per currency\nabsent or malformed: empty table, every currency uncovered"` with `# @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table`; GDP must be expanded at first use on the board (`gross domestic product (GDP)`).
   - `persist_and_report.report`: last line `coverage gate exclusions per reason` with `@symbol bot.screener.engine.format_coverage_counts` added to its directives.
   - `ranking.second_pass`: add line `rates of the valuation currency from config/currencies.yaml, the table the gate used`.
   - Edges: `duckdb.financials_annual -> coverage_gate.gate: "valuation currency"`, `currencies_yaml -> coverage_gate.gate: "covered currencies"`, `currencies_yaml -> ranking.second_pass: "currency table"`; `coverage_gate.gate -> persist_and_report.persist: "any reason: rejected with that reason"`; `coverage_gate.gate -> quality_gates` stays `"no reason: measured, every rule runs"`.
@@ -116,7 +117,7 @@
   - `assumptions.growth` (directive: drop the `@const`, add `@file config/currencies.yaml`): `1. manual ... → manual` / `2. high-growth with history, GDP known: straight line from the mean historical growth` / `to nominal gross domestic product (GDP) growth of the valuation currency → story_pattern` / `3. mean historical growth, repeated → historical_average` / `4. no history: nominal GDP growth each year → rule_based` / `no history and an uncovered currency: unresolved` / the two historical-growth lines unchanged.
   - `assumptions.terminal_growth` (directives `@symbol bot.valuator.assumptions._resolve_terminal_growth @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table`): `terminal growth g_terminal` / `1. manual → manual` / `2. valuation currency in config/currencies.yaml:` / `min(risk-free rate, nominal GDP growth) of that currency → rule_based` / `3. uncovered currency: unresolved, so the DCF cannot run`.
   - `currencies_yaml` file node as on screen.
-  - Edges: delete `duckdb.damodaran_country -> assumptions.terminal_growth`; add `currencies_yaml -> assumptions.terminal_growth: "risk-free rate and nominal GDP growth of the valuation currency"`, `currencies_yaml -> assumptions.growth: "nominal GDP growth of the valuation currency"`, `inputs.load -> assumptions: "valuation currency"` only if no existing edge already carries it.
+  - Edges: delete `duckdb.damodaran_country -> assumptions.terminal_growth`; add `currencies_yaml -> assumptions.terminal_growth: "risk-free rate and nominal GDP growth of the valuation currency"`, `currencies_yaml -> assumptions.growth: "nominal GDP growth of the valuation currency"`, `inputs.load -> assumptions: "valuation currency"` (no edge leaves `inputs.load` for `assumptions` today: its five outgoing edges go to `inputs.region`, `sensitivity.grid`, `narrative_flags`, `verdict.mos`, `sanity_check.multiples`). Pin it in `test_analyze_terminal_growth_reads_the_currency_table`: `_edge_line(_analyze(), "inputs.load", "assumptions")` is not `None`.
 - [ ] **Step 4: Run** analyze tests and `test_every_step_has_purpose_and_edges`, `test_every_directive_is_valid` — PASS.
 - [ ] **Step 5: Commit** `docs(#162): analyze board per-currency growth rules`.
 
@@ -144,3 +145,21 @@
 - [ ] On a d2 error: `gh run view "$id" --log-failed`, fix, push, repeat.
 - [ ] `gh run download "$id" -n pipeline-render -D /tmp/render`; copy `/tmp/render/*.svg` and `/tmp/render/rendered.sha256` into `docs/pipeline/`; commit `docs(#162): render boards`; push; the run on that commit must be fully green.
 - [ ] Locally: `uv run pytest -q`, `uv run ruff check . && uv run mypy src`, `python3 docs/pipeline/check.py` prints `0 errors`, and `uv run bot site --out /tmp/site --base-url /damodaran/` (the `site` workflow's steps; that workflow only runs on pushes to `master`).
+
+## Assumptions
+
+Technical decisions taken during plan review (no source dictates them; any choice satisfies #162):
+
+1. **Board for `load_currency_table`.** Required on refresh (the issue's Task 1 asks the refresh note to cite it), screen and analyze. Rejected: requiring it on screen only.
+2. **No-currency case on the gate.** The `currency_uncovered` line says "missing, or not in config/currencies.yaml" (`normalize_currency(None)` is `None`, never a table key). Rejected: leaving it implicit as in CONTEXT.md's "Uncovered currency".
+3. **Empty-table failure mode** is stated on screen's `currencies_yaml` file node ("absent or malformed: empty table, every currency uncovered"), the board where it removes companies. Rejected: a separate note node.
+4. **Edge `inputs.load -> assumptions: "valuation currency"`** is added on analyze. `load_valuation_input` hands the valuation currency to the assumptions through `load_assumption_inputs`. Rejected: an edge from `duckdb.financials_annual`, which would duplicate the existing "annual rows" edge.
+5. **Report text paraphrased** ("coverage gate exclusions per reason") plus the `format_coverage_counts` citation, not the header string quoted verbatim. The citation keeps the board tied to the code. Rejected: quoting the header, whose exact wording would then change with every copy edit to it.
+6. **Enum order as a guard.** The board draws `run_screen`'s `if` chain. The test also asserts that `CoverageReason`'s declaration order matches it, because the enum's docstring states the same precedence (`engine.py:54-63`) and `format_coverage_counts` prints in enum order.
+7. **Intermediate commits are red** on the SVG and hash tests until Task 5. The issue expects this ("Its last step fails once, on the push before the SVGs are committed"). If CI rendering cannot be made to pass, the branch stays unmerged and nothing reaches the base branch.
+
+## Grilling
+
+- Rounds: 1 (the revisions were local text and test additions, not a different seam, so no second round).
+- Questions: 18. Sources: ISSUE 4 (Q6 branch/BASE, Q9, Q13, Q17), CODE 12 (Q1, Q2, Q3, Q5, Q7, Q8, Q10, Q11, Q12, Q14, Q15, Q16), DOC 2 (Q4, Q18 ADR status sections). Unsourced: 0 spec ambiguities, 0 out of scope; 7 technical assumptions recorded above.
+- Issues opened: none.
