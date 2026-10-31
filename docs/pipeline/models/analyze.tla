@@ -714,6 +714,7 @@ UnknownTickerSkippedBatchGoesOn ==
 
 (* Cites: cli.py analyze: typer.Exit(code=2) only before the loop; inside it the exit code is the max of the tickers' codes. *)
 \* Only refused arguments or an empty screen stop the whole command; a failing ticker never does.
+\* broken: #180
 OnlyTheCommandStopsTheBatch ==
   batch = "stopped" => (phase = "command_stops" /\ storyTypes = {})
 
