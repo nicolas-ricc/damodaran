@@ -19,7 +19,7 @@
 - Each rule: a `(* Cites: ... *)` line, then the `\*` reader's sentence, then its definition. `\*` is reserved for rule sentences; every other comment is `(* ... *)`. Each action carries a `(* ... *)` citation of the code it mirrors.
 - View maps `states`, `steps`, `groups` are plain `const`, one `key: "value",` per line, keys unquoted (the README and the screen model; the issue's `export const` is rejected by the skill's loader). The five exports verbatim as in `screen.view.js`; `title = "portfolio: one holding through bot portfolio"`.
 - Labels: reader's words, no underscore, no camelCase, no action name; acronyms expanded at first use; conditions in `[brackets]` at the end of a step label.
-- At most 500 distinct states (the skill writes no `chart.mmd` above that). The design below reaches 387, counted with a scratch Python mirror of these tables; the TLC count is authoritative.
+- At most 500 distinct states (the skill writes no `chart.mmd` above that). The design below reaches 351, counted with a scratch Python mirror of these tables; the TLC count is authoritative.
 - No file under `src/` or `docs/pipeline/*.d2` changes. Pipeline code never changes in this task.
 - TLC cannot run in the sandbox (no Java, downloaded binaries refused); CI is the gate.
 
@@ -38,7 +38,10 @@
 - **The channel is split late.** `build_notifier` fixes the channel before the sync. The model only records valid or misconfigured there, and picks none or configured at the send. Nothing in between reads the channel, so this changes no behaviour and halves the states.
 - **Left out:** the preset check (`damodaran_value.yaml` missing: exit code 2 before the sync; same shape as the channel check, not in the issue's list); a dividend and a split in the same window (each check fires at most one event); corporate actions as a store (the import's outcome is read by no rule except (k)); several accounts.
 - **TWS dropping before the trades** is modelled: `sync_trades` connects again, and a `ConnectionError` there ends the run with exit code 1 after the snapshot is stored. Rule (b) covers both connections.
-- **Resets.** To stay under the budget, these steps reset a variable that no later step reads: leaving `flags_checked` resets `valuation`; leaving `recal_checked` resets `gates` and `prevMark`; leaving `concentration_checked` resets `above`; leaving `currency_checked` resets `prev`; leaving `filings_checked` resets `filing`; leaving `alerts_written` resets `anyFired`. The `.tla` says so in one `(* ... *)` comment above `Init`.
+- **Two actions with the same effects** (`ItIsStoredWithAMarketValue`, `ItIsStoredUnpriced`): the issue's `portfolio-sync` lists "market value", and the stage board draws the unpriced case; no rule reads the difference, so no variable records it, and the two arrows differ by label only. `ItsWeightIsNotAbove15` names "unpriced" because `detect_concentration` drops positions without a positive market value. Rejected alternative: a `priced` variable, which would double the sync and marks stretch for no rule.
+- **Rule (h) restates the detector's guard.** `above` is set by the weighing step, before and apart from the detector, so the rule checks that the detector follows the weight with no condition on the previous snapshot or mark (`detect_concentration` reads `curr_positions` only). The model has no previous weight, because the code has none.
+- **The closed holding** goes from `trades_synced` straight to `concentration_checked`, labelled "its mark events and concentration are settled": nothing is computed for it there (`_held_tickers`, `held_tickers`, `detect_concentration` on positions with a market value).
+- **Resets.** To stay under the budget, these steps reset a variable that no later step reads: leaving `flags_checked` resets `valuation`; leaving `recal_checked` resets `gates`; leaving `concentration_checked` resets `above` and `prevMark` (after the first-run guards have read it); leaving `currency_checked` resets `prev`; leaving `filings_checked` resets `filing`; leaving `alerts_written` resets `anyFired`. The `.tla` says so in one `(* ... *)` comment above `Init`.
 
 ---
 
@@ -81,7 +84,7 @@
 | --- | --- |
 | portfolio-sync | `started`: "bot portfolio starts"; `channel_misconfigured`: "the run ends with exit code 2 before any sync"; `channel_checked`: "the notifier channel is valid"; `tws_unreachable`: "the run ends with exit code 1 before the snapshot"; `tws_reached`: "Trader Workstation (TWS) answers"; `snapshot_stored`: "today's snapshot and cash are stored"; `actions_imported`: "the corporate actions are imported, skipped or failed"; `tws_lost`: "the run ends with exit code 1 after the snapshot"; `trades_synced`: "the new fills are stored" |
 | portfolio-marks | `holding`: "it is a holding today"; `valuation_done`: "its intrinsic value, price and red flags are known, or unknown"; `gates_done`: "its failed gates and sector weighted average cost of capital (WACC) are known, or unknown"; `marked`: "today's mark is stored" |
-| portfolio-mark-events | `marks_read`: "the previous mark is read, or there is none"; `cross_checked`: "intrinsic value and price are compared"; `flags_checked`: "its red flags are compared"; `gates_checked`: "its failed gates are compared"; `recal_checked`: "its sector WACC is compared"; `weighed`: "its weight in the portfolio is known"; `concentration_checked`: "its concentration is checked" |
+| portfolio-mark-events | `marks_read`: "the previous mark is read, or there is none"; `cross_checked`: "intrinsic value and price are compared"; `flags_checked`: "its red flags are compared"; `gates_checked`: "its failed gates are compared"; `recal_checked`: "its sector WACC is compared"; `weighed`: "its weight in the portfolio is known"; `concentration_checked`: "its mark events and concentration are settled" |
 | portfolio-events | `window`: "the previous snapshot is read, or there is none"; `positions_diffed`: "its position is compared"; `currency_checked`: "its currency is compared"; `dividend_checked`: "its dividends are checked"; `split_checked`: "its splits are checked"; `filing_found`: "a filing of it is in the window"; `filings_checked`: "its filings are checked" |
 | portfolio-alerts | `logged`: "its events are in the events log"; `portfolio_written`: "portfolio.md is written"; `alerts_written`: "alerts.md is written"; `not_sent`: "the run ends with exit code 0, nothing sent"; `sent`: "the run ends with exit code 0, alerts sent"; `send_failed`: "the run ends with exit code 1, the send failed" |
 
@@ -110,7 +113,7 @@ Each action: `phase = "<from>"`, its guard, `phase' = "<to>"`, the effects named
 | `TheValuatorCannotValueIt` | holding → valuation_done | `valuation' = "unknown"` | `mark_holdings`: `except (LookupError, ValueError)` leaves all three `None` | "the valuator cannot value it, so all three stay unknown" |
 | `TheGatesAreJudged` | valuation_done → gates_done | `gates' = "with_wacc"` | `screener/engine.py` `load_holding_inputs`; `mark_holdings` `failed_gates`, `benchmarks.wacc` | "the gates are judged and the sector WACC is read [in companies, with a sector benchmark]" |
 | `TheGatesAreJudgedWithoutWacc` | valuation_done → gates_done | `gates' = "without_wacc"` | `mark_holdings`: `sector_wacc = benchmarks.wacc if benchmarks else None` | "the gates are judged without a sector WACC [no sector benchmark, or no WACC in it]" |
-| `TheGatesCannotBeJudged` | valuation_done → gates_done | `gates' = "unknown"` | `mark_holdings`: `if ticker in inputs` is false | "the gates and the sector WACC stay unknown [not in companies]" |
+| `TheGatesCannotBeJudged` | valuation_done → gates_done | guard `valuation = "unknown"`; `gates' = "unknown"` | `mark_holdings`: `if ticker in inputs` is false; `valuator/analysis.py` raises `LookupError` for a ticker not in `companies`, so it was not valued either | "the gates and the sector WACC stay unknown [not in companies]" |
 | `TheMarkIsStored` | gates_done → marked | `stored' = stored \cup {"holding_marks"}` | `persist_marks` | "today's mark replaces the day's marks" |
 | `ThePreviousMarkIsRead` | marked → marks_read | `prevMark' = "present"` | `compute_events`: `load_marks(conn, prev_snapshot_date)` | "the previous mark is read [it was marked then]" |
 | `ThereIsNoPreviousMark` | marked → marks_read | `prevMark' = "absent"` | `compute_events`: `prev_marks` is `{}`, or lacks the ticker | "there is no previous mark [first run, or not marked then]" |
@@ -122,13 +125,13 @@ Each action: `phase = "<from>"`, its guard, `phase' = "<to>"`, the effects named
 | `NoNewFailedGate` | flags_checked → gates_checked | resets `valuation` | same, returns `[]` | "no new failed gate [none new, no previous mark, or gates unknown]" |
 | `SectorRecalibratedFires` | gates_checked → recal_checked | guard `prevMark = "present" /\ gates = "with_wacc"`; fires `sector_recalibrated` | `detect_sector_recalibration`, `DEFAULT_WACC_RECALIBRATION_BPS` | "sector recalibrated fires [the sector WACC moved more than 100 basis points]" |
 | `NoRecalibration` | gates_checked → recal_checked | — | same, returns `None` | "no recalibration [100 basis points or less, no previous mark, or a WACC unknown]" |
-| `ItsWeightIsAbove15` | recal_checked → weighed | `above' = TRUE`; resets `gates`, `prevMark` | `detect_concentration`: weight = market value ÷ total of positive market values; `DEFAULT_CONCENTRATION_THRESHOLD` | "its weight is computed [above 15% of the portfolio]" |
-| `ItsWeightIsNotAbove15` | recal_checked → weighed | `above' = FALSE`; resets `gates`, `prevMark` | same | "its weight is computed [15% or less, or unpriced]" |
+| `ItsWeightIsAbove15` | recal_checked → weighed | `above' = TRUE`; resets `gates` | `detect_concentration`: weight = market value ÷ total of positive market values; `DEFAULT_CONCENTRATION_THRESHOLD` | "its weight is computed [above 15% of the portfolio]" |
+| `ItsWeightIsNotAbove15` | recal_checked → weighed | `above' = FALSE`; resets `gates` | same | "its weight is computed [15% or less, or unpriced]" |
 | `ConcentrationFires` | weighed → concentration_checked | guard `above`; fires `concentration` | `detect_concentration`, `weight > threshold` | "concentration fires [above 15%]" |
 | `NotConcentrated` | weighed → concentration_checked | guard `~above` | same | "no concentration [15% or less]" |
-| `ThisIsTheFirstRun` | concentration_checked → window | guard `held /\ prevMark # "present"`; `prev' = "none"`; resets `above` | `run_portfolio` `_previous_snapshot_date` → `None`; `compute_events` `prev_positions = []` | "there is no earlier snapshot [first run]" |
-| `ThePreviousSnapshotHeldIt` | concentration_checked → window | `prev' = "with_it"`; resets `above` | `compute_events` `_load_positions(conn, prev_snapshot_date)` | "the previous snapshot is read [it held it]" |
-| `ThePreviousSnapshotLacksIt` | concentration_checked → window | guard `held /\ prevMark # "present"`; `prev' = "without_it"`; resets `above` | same | "the previous snapshot is read [it did not hold it]" |
+| `ThisIsTheFirstRun` | concentration_checked → window | guard `held /\ prevMark # "present"`; `prev' = "none"`; resets `above`, `prevMark` | `run_portfolio` `_previous_snapshot_date` → `None`; `compute_events` `prev_positions = []` | "there is no earlier snapshot [first run]" |
+| `ThePreviousSnapshotHeldIt` | concentration_checked → window | `prev' = "with_it"`; resets `above`, `prevMark` | `compute_events` `_load_positions(conn, prev_snapshot_date)` | "the previous snapshot is read [it held it]" |
+| `ThePreviousSnapshotLacksIt` | concentration_checked → window | guard `held /\ prevMark # "present"`; `prev' = "without_it"`; resets `above`, `prevMark` | same | "the previous snapshot is read [it did not hold it]" |
 | `PositionOpenedFires` | window → positions_diffed | guard `held /\ prev # "with_it"`; fires `position_opened` | `detect_position_changes` | "position opened fires [held now, not in the previous snapshot]" |
 | `PositionClosedFires` | window → positions_diffed | guard `~held`; fires `position_closed` | same | "position closed fires [held before, not now]" |
 | `PositionSizeChangedFires` | window → positions_diffed | guard `held /\ prev = "with_it"`; fires `position_size_changed` | same, `DEFAULT_SIZE_CHANGE_THRESHOLD` | "position size changed fires [the quantity moved more than 10%]" |
@@ -236,4 +239,28 @@ def test_portfolio_rules_are_all_present() -> None:
 - [ ] Stopping rule: at most five push/watch rounds; still red after the fifth: comment the stage and the report on #171 and stop with an error.
 - [ ] Push; `id=$(gh run list --branch agent/171-portfolio-model --workflow pipeline-diagram --limit 1 --json databaseId --jq '.[0].databaseId')`; `gh run watch "$id" --exit-status || true`; `gh run download "$id" -n pipeline-models -D /tmp/models-<round>`; read `portfolio/report.md`, `portfolio/chart.mmd`, `portfolio/tlc.out`.
 - [ ] Green means: `## Rules that hold` lists the eleven rules plus `NoDeadlock` (fewer only when the missing ones are marked broken under the protocol, never fewer than nine); no `breaks`, `Rules not checked` or `TLC stopped`; `chart.mmd` present (under 500 states). A parse error is fixed in the model. A broken rule follows the protocol: replay the path as a pytest against the real code in `tests/unit/test_portfolio_model_replay.py`; model wrong → fix the model, never the rule (the replay test is not committed); code wrong → `bug` issue titled after the rule, `\* broken: #n`, out of the `.cfg`, README table row, replay test committed. Each fix round commits `fix(#171): portfolio model, <what>`.
+- [ ] Over 500 states (no `chart.mmd`, no break): the designated cut is `TheGatesAreJudgedWithoutWacc` (fold it into `TheGatesAreJudged` and drop the `"without_wacc"` value and its conjunct in rule (d)); the scratch mirror counts 76 fewer states without it (275). A red round on a parse error and a red round on a broken rule share the same five-round budget.
+- [ ] Stopped after the fifth round: the branch keeps its pushed `fix(#171)` commits; an uncommitted replay test is deleted (`git clean` of `tests/unit/test_portfolio_model_replay.py`); the #171 comment names the round, the failing section of the report and the rules still in the `.cfg`.
 - [ ] Full suite, lint, `python3 docs/pipeline/check.py` → pass.
+
+## Grilling
+
+- Rounds: 1. The revision moved one reset, added one guard and changed one label. No task was added or removed and no seam changed, so a second round was not needed.
+- Questions: 18. Sources:
+  - ISSUE, 3: 3 (the parent's plan, decision 6: "groups are the sub-board stems"; the order of independent detectors is not fixed); 10 ("listing at least nine rules"); 17 (decisions 6, 7 and 9 copied into Global Constraints and Task 2).
+  - CODE, 9: 2 (`check.sh` loops `for tla in "$DIR"/*.tla`; `check.py` never reads `models/`); 7 (`run_portfolio` calls `sync_trades` outside any `try`; `cli.py` `portfolio` turns `ConnectionError`/`TimeoutError` into exit 1); 8 (`valuator/analysis.py:145-149` raises `LookupError` for a ticker not in `companies`); 9 (`_STEMS` globs `*.tla`; `_definitions`, `_invariants`, `_is_broken`, `_map`, `_text` exist with these shapes); 12 (`test_every_cfg_invariant_has_a_sentence` skips `\* broken:` lines; `_is_broken` reads them); 13 (`_transitions` searches each action's own body from `_definitions` and skips `Done`); 14 (`render_alerts(events)` lists every holding's events, so text without this holding's event is a real case); 16 (`_COLORS` and `test_groups_are_stage_subboards` check `colors`); 1 (the mirror reset `prevMark` before the guard).
+  - DOC, 1: 17 (`docs/pipeline/models/README.md`: the modelled-stages sentence and the "Known broken rules" table).
+  - NO SOURCE, 5: 4, 5, 6, 11 and 15. All are technical assumptions.
+- Assumptions added (see `## Assumptions` and Task 2):
+  - 4: the designated cut over 500 states.
+  - 5: the closed-holding label.
+  - 6: rule (h) restates the detector's guard.
+  - 11: parse errors and breaks share the five rounds, and no local parse check exists.
+  - 15: two arrows with the same effects.
+  - 18: the state left behind after five red rounds.
+- Plan corrected:
+  - Q1: the `prevMark` reset moves to after the first-run guards, which were vacuous before.
+  - Q8: `TheGatesCannotBeJudged` requires `valuation = "unknown"`.
+  - Q5: the `concentration_checked` label.
+  - State count: 387 → 351.
+- Issues opened: none.
