@@ -63,7 +63,8 @@ def node_labels(text: str) -> dict[str, tuple[int, str | None, str]]:
     out = {}
     for path, (i, cls) in _nodes(text).items():
         visible = lines[i].visible
-        m = _QUOTED_RE.search(visible) or _MD_RE.search(visible)
+        found = [m for m in (_QUOTED_RE.search(visible), _MD_RE.search(visible)) if m]
+        m = min(found, key=lambda m: m.start(), default=None)
         out[path] = (i, cls, m.group(1).strip() if m else "")
     return out
 
