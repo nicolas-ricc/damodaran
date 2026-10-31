@@ -1,0 +1,65 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: diff today's snapshot against the previous one into the position, currency, corporate action and filing events. | {class: note}
+back: |md back to the portfolio board | {
+  class: note
+  link: "./portfolio.svg"
+}
+
+# States
+# @symbol bot.portfolio.marks.load_marks @symbol bot.portfolio.events.detect_position_changes @const bot.portfolio.events.DEFAULT_SIZE_CHANGE_THRESHOLD
+window: "the previous snapshot is read, or there is none\nevents position_opened, position_closed and position_size_changed: decided on the quantity per ticker, summed across accounts; size changed above 10%" {class: decision}
+# @symbol bot.portfolio.events.detect_currency_changes
+positions_diffed: "its position is compared\nevent currency_changed: decided on the currency of the position" {class: decision}
+# @symbol bot.portfolio.events.detect_corporate_action_events
+currency_checked: "its currency is compared\nevent dividend: decided on a dividend row of corporate_actions" {class: decision}
+# @symbol bot.portfolio.events.detect_corporate_action_events
+dividend_checked: "its dividends are checked\nevent split: decided on a split row of corporate_actions" {class: decision}
+# @symbol bot.portfolio.events.detect_new_filings
+split_checked: "its splits are checked\nevent new_filing: decided on a filings_log row not yet in events_log" {class: decision}
+# @symbol bot.portfolio.events.detect_new_filings
+filing_found: "a filing of it is in the window" {class: step}
+# @symbol bot.portfolio.events.detect_new_filings
+filings_checked: "its filings are checked" {class: step}
+
+# Neighbours
+# @symbol bot.portfolio.events.compute_events
+concentration_checked: "its mark events and concentration are settled" {class: decision; link: "./portfolio-mark-events.svg"}  # No incoming edge: the flow enters from portfolio-mark-events
+# @symbol bot.portfolio.events.persist_events
+logged: "its events are in the events log" {class: step; link: "./portfolio-alerts.svg"}  # No outgoing edge: the flow goes on in portfolio-alerts
+
+# Stores
+portfolio_snapshots: {class: store}  # @table portfolio_snapshots
+corporate_actions: {class: store}  # @table corporate_actions
+filings_log: {class: store}  # @table filings_log
+events_log: {class: store}  # @table events_log
+
+out: "Comes out:\nthis holding's snapshot events and, with the mark events, every event fired for it, handed to the events log" {class: output; link: "./portfolio-alerts.svg"}
+
+# Edges
+concentration_checked -> window: "there is no earlier snapshot [first run]"
+concentration_checked -> window: "the previous snapshot is read [it held it]"
+concentration_checked -> window: "the previous snapshot is read [it did not hold it]"
+window -> positions_diffed: "position opened fires [held now, not in the previous snapshot]\nquantity ≠ 0 now, absent or 0 in the previous snapshot\nfirst run: every position"
+window -> positions_diffed: "position closed fires [held before, not now]\nquantity ≠ 0 in the previous snapshot, absent or 0 now\nan account that returns no positions closes each of its holdings no other account holds"
+window -> positions_diffed: "position size changed fires [the quantity moved more than 10%]\n|Δquantity ÷ |previous quantity|| > 10%"  # @const bot.portfolio.events.DEFAULT_SIZE_CHANGE_THRESHOLD
+window -> positions_diffed: "no position event [the quantity moved 10% or less]\nexactly 10%: no event"  # @const bot.portfolio.events.DEFAULT_SIZE_CHANGE_THRESHOLD
+positions_diffed -> currency_checked: "currency changed fires [both known and different]\nthe currency of the position in portfolio_snapshots, as Interactive Brokers (IBKR) reports it: its listing currency at the broker, differs from the previous snapshot's; held in several accounts: any one account's currency\nnot on the first run"
+positions_diffed -> currency_checked: "no currency event [same, unknown, or nothing to compare]\neither currency unknown, or no previous snapshot: nothing"
+currency_checked -> dividend_checked: "dividend fires [a dividend in the window]\na corporate_actions row of type dividend for a holding, effective after the previous snapshot, on or before this one\nfirst run: every action on or before this one"
+currency_checked -> dividend_checked: "no dividend [none in the window, or no longer held]\nonly a holding is checked"
+dividend_checked -> split_checked: "split fires [a split in the window]\nthe same rule for type split (first run included)"
+dividend_checked -> split_checked: "no split [none in the window, or no longer held]\nonly a holding is checked"
+split_checked -> filing_found: "a filing of it is in the window [not yet in the events log]\na filings_log row of a holding, filed on or before this snapshot, filed after the previous snapshot or ingested on or after its date, not reported before: (ticker, filing type, filing date) absent from events_log\nfirst run: every unreported filing"
+split_checked -> filing_found: "a filing of it is in the window [already in the events log]\nits (ticker, filing type, filing date) is in events_log"
+split_checked -> filings_checked: "no filing in the window [none, or no longer held]\nonly a holding is checked"
+filing_found -> filings_checked: "new filing fires"
+filing_found -> filings_checked: "the filing is skipped [already reported]\nnot a new event: nothing"
+filings_checked -> logged: "every event fired is appended to the events log\nevent_type, ticker, previous and current snapshot dates, details"
+portfolio_snapshots -> window: "both snapshots"
+corporate_actions -> currency_checked: "dividends and splits in the window"
+filings_log -> split_checked: "filings of holdings"
+events_log -> split_checked: "filings already reported"
+filings_checked -> out: "every event fired for this holding"
