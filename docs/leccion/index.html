@@ -633,7 +633,7 @@ h1 {
         <li><code data-symbol="bot.valuator.story_types.StoryType">bot.valuator.story_types.StoryType</code> · <code class="at">src/bot/valuator/story_types.py:60</code>: los cinco valores. Son los tokens exactos que aparecen en los reportes y en la configuración.</li>
         <li><code data-symbol="bot.valuator.story_types.classify">bot.valuator.story_types.classify</code> · <code class="at">src/bot/valuator/story_types.py:161</code>: función pura, lee una foto de la empresa y devuelve la etiqueta con el orden de la tabla.</li>
         <li><code data-symbol="bot.valuator.story_types.SectorContext">bot.valuator.story_types.SectorContext</code> · <code class="at">src/bot/valuator/story_types.py:103</code>: lo único que <code>classify</code> sabe del sector es si es cíclico.</li>
-        <li><code data-symbol="bot.valuator.assumptions.conventional_override_path">bot.valuator.assumptions.conventional_override_path</code> · <code class="at">src/bot/valuator/assumptions.py:641</code>: dado un directorio y un ticker devuelve <code>config/assumptions/&lt;TICKER&gt;.yaml</code> si existe. Si ese archivo trae <code>story_type</code>, gana sobre lo que haya decidido <code>classify</code>.</li>
+        <li><code data-symbol="bot.valuator.assumptions.conventional_override_path">bot.valuator.assumptions.conventional_override_path</code> · <code class="at">src/bot/valuator/assumptions.py:648</code>: dado un directorio y un ticker devuelve <code>config/assumptions/&lt;TICKER&gt;.yaml</code> si existe. Si ese archivo trae <code>story_type</code>, gana sobre lo que haya decidido <code>classify</code>.</li>
       </ul>
     </div>
     <aside class="caveat">
@@ -689,9 +689,9 @@ h1 {
         <li><code data-symbol="bot.valuator.dcf.dcf">bot.valuator.dcf.dcf</code> · <code class="at">src/bot/valuator/dcf.py:159</code>: la cuenta, función pura. Falla si el crecimiento terminal es mayor o igual que la tasa de descuento, porque la perpetuidad no converge.</li>
         <li><code data-symbol="bot.valuator.dcf.DCFResult">bot.valuator.dcf.DCFResult</code> · <code class="at">src/bot/valuator/dcf.py:122</code>: valor por acción, valor de la empresa, valor terminal y su peso (<code>terminal_value_share</code>), tasa y pesos usados.</li>
         <li><code data-symbol="bot.valuator.dcf.YearProjection">bot.valuator.dcf.YearProjection</code> · <code class="at">src/bot/valuator/dcf.py:108</code>: una fila de la tabla de arriba, por año.</li>
-        <li><code data-symbol="bot.valuator.assumptions.AssumptionSource">bot.valuator.assumptions.AssumptionSource</code> · <code class="at">src/bot/valuator/assumptions.py:91</code>: las siete procedencias.</li>
-        <li><code data-symbol="bot.valuator.assumptions.Sourced">bot.valuator.assumptions.Sourced</code> · <code class="at">src/bot/valuator/assumptions.py:113</code>: valor más procedencia.</li>
-        <li><code data-symbol="bot.valuator.assumptions.resolve_assumptions">bot.valuator.assumptions.resolve_assumptions</code> · <code class="at">src/bot/valuator/assumptions.py:694</code>: arma todos los supuestos de un ticker. Prioridad: manual, luego lo que corresponda por arquetipo e historia propia, luego el sector, luego las reglas.</li>
+        <li><code data-symbol="bot.valuator.assumptions.AssumptionSource">bot.valuator.assumptions.AssumptionSource</code> · <code class="at">src/bot/valuator/assumptions.py:92</code>: las siete procedencias.</li>
+        <li><code data-symbol="bot.valuator.assumptions.Sourced">bot.valuator.assumptions.Sourced</code> · <code class="at">src/bot/valuator/assumptions.py:114</code>: valor más procedencia.</li>
+        <li><code data-symbol="bot.valuator.assumptions.resolve_assumptions">bot.valuator.assumptions.resolve_assumptions</code> · <code class="at">src/bot/valuator/assumptions.py:738</code>: arma todos los supuestos de un ticker. Prioridad: manual, luego lo que corresponda por arquetipo e historia propia, luego el sector, luego las reglas.</li>
       </ul>
     </div>
     <aside class="caveat">

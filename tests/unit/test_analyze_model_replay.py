@@ -3,7 +3,8 @@
 TLC's shortest path: a ticker is chosen, its override file is picked, the company is
 loaded and classified, then the override file is read and is not valid YAML, or holds
 a value float() refuses with a TypeError. The model says the command crashes; the rule
-says a failing ticker never stops the batch.
+says a failing ticker never stops the batch. #187 fixed the code (#180): the ticker fails
+alone and the batch goes on.
 """
 
 from __future__ import annotations
@@ -47,18 +48,6 @@ def _run_batch(
     return result, reports_dir
 
 
-@pytest.mark.parametrize(("override", "error"), _MALFORMED)
-def test_a_malformed_override_raises_out_of_the_batch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, override: str, error: type[Exception]
-) -> None:
-    """What the code does today (#180): the error escapes and MSFT is never analysed."""
-    result, reports_dir = _run_batch(tmp_path, monkeypatch, override)
-    assert isinstance(result.exception, error)
-    assert result.exit_code == 1
-    assert not list(reports_dir.glob("*/analysis/MSFT.md"))
-
-
-@pytest.mark.xfail(strict=True, reason="#180: a malformed override file stops the batch")
 @pytest.mark.parametrize(("override", "error"), _MALFORMED)
 def test_a_malformed_override_leaves_the_batch_going(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, override: str, error: type[Exception]
