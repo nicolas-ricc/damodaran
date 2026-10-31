@@ -273,6 +273,10 @@ def _definitions(stem: str) -> list[tuple[str, list[str], str]]:
     return out
 
 
+def _is_broken(comments: list[str]) -> bool:
+    return any(re.fullmatch(r"\\\* broken: #\d+", c) for c in comments)
+
+
 def _invariants(stem: str) -> list[str]:
     names = []
     for line in _text(stem, ".cfg").splitlines():
@@ -374,7 +378,7 @@ def test_rules_are_checked_or_marked_broken(stem: str) -> None:
         shaped = comments and "(" not in name and "'" not in body and "UNCHANGED" not in body
         if not shaped or name in checked:
             continue
-        assert any(re.fullmatch(r"\\\* broken: #\d+", c) for c in comments), (
+        assert _is_broken(comments), (
             f"{stem}.tla {name} looks like a rule but is neither in {stem}.cfg nor marked broken"
         )
 
@@ -583,15 +587,24 @@ def test_refresh_rules_are_all_present() -> None:
     checked = set(_invariants("refresh"))
     for rule in _REFRESH_RULES:
         assert rule in defs, f"refresh.tla does not define {rule}"
-        broken = any(re.fullmatch(r"\\\* broken: #\d+", c) for c in defs[rule])
-        assert rule in checked or broken, f"{rule} is neither checked nor marked broken"
+        assert rule in checked or _is_broken(defs[rule]), (
+            f"{rule} is neither checked nor marked broken"
+        )
     assert len(checked) >= 10
 
 
 def test_refresh_ends_and_handovers() -> None:
-    tla = _text("refresh", ".tla")
-    assert 'EndPhases == {"mapping_refused", "fx_done"}' in tla
-    assert 'phase = "started"' in tla
+    bodies = {name: body for name, _, body in _definitions("refresh")}
+    assert bodies["EndPhases"] == 'EndPhases == {"mapping_refused", "fx_done"}'
+    assert 'phase = "started"' in bodies["Init"]
+    assert "stagesDone = {}" in bodies["Init"]
+    for handover, stage in [
+        ("FundamentalsStartAfterTheWrite", "damodaran"),
+        ("FundamentalsStartAfterTheFailure", "damodaran"),
+        ("PricesStart", "fundamentals"),
+        ("FxStarts", "prices"),
+    ]:
+        assert f'stagesDone\' = stagesDone \\cup {{"{stage}"}}' in bodies[handover], handover
 
 
 @pytest.mark.parametrize("stem", _STEMS)

@@ -178,7 +178,7 @@ FundamentalsStartAfterTheFailure ==
   /\ dStatus' = "none"
   /\ UNCHANGED << mappingInvalid, force, latestStored, fRateLimit, fLater, fOutcome, companyWritten, financialsWritten, industryDamodaran, unmapped, factKind, rowKind, fiscalYear, otherCounts, sharesRescaled, factInRow, barCurrent, requested, newestAge, shares, marketCap, pRateLimit, pLater, pOutcome, fxCurrencies, fxCalled, fxStatus >>
 
-(* src/bot/ingest/industry_mapping.py: load_industry_mapping raises ValueError (target outside the Damodaran industry list, duplicate label); nothing in refresh catches it *)
+(* src/bot/ingest/industry_mapping.py: load_industry_mapping raises ValueError (missing column, target outside the Damodaran industry list, duplicate label); nothing in refresh catches it *)
 TheMappingIsInvalid ==
   /\ phase = "mapping_loading"
   /\ phase' = "mapping_refused"
