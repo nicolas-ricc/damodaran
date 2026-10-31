@@ -17,6 +17,7 @@ master: "GitHub repository, branch master" {class: external}
 
 # Section 1: publish
 publish: "1. publish the sidecars" {
+  link: "./site-publish.svg"
   collect: "collect every reports/*/analysis/*.json\nnone: nothing to publish, exit 0" {  # @file scripts/publish_site.sh
     class: step
   }
@@ -33,6 +34,7 @@ publish: "1. publish the sidecars" {
 
 # Section 2: continuous integration
 ci: "2. site workflow, on every push to master" {
+  link: "./site-ci.svg"
   concurrency: |md One deploy at a time: a newer push cancels the running one. | {class: note}
   checkout: "1. check out master" {
     class: step
@@ -63,6 +65,7 @@ ci: "2. site workflow, on every push to master" {
 
 # Section 3: build
 build: "3. bot site: build the static viewer" {  # @symbol bot.web.site.build
+  link: "./site-scan.svg"
   read_only: |md Architecture decision record (ADR) 0008 (Implemented): the viewer is read-only; it values nothing and runs no bot command. | {class: note}  # @file docs/adr/0008-read-only-web-viewer.md
   cli: "bot site --out path [--reports-dir reports] [--base-url /]\nbase URL normalised to one leading and one trailing slash" {  # @symbol bot.cli.site
     class: step
@@ -81,6 +84,7 @@ build: "3. bot site: build the static viewer" {  # @symbol bot.web.site.build
   }
   rows: "one list row per company, from its newest analysis:\nticker, name, verdict, margin of safety, price, intrinsic value,\nstory type, red and yellow flags, date" {  # @symbol bot.web.views.row_view
     class: step
+    link: "./site-views.svg"
   }
   verdict: "verdict, as a filter value\nmargin of safety (MoS) ≥ 1.3: undervalued; ≥ 1.0: fair; < 1.0: overvalued; none: na\nlist rows and the detail's verdict sentence: the verdict text the sidecar carries, read back\nvalue line and grid cells: recomputed from their MoS" {  # @symbol bot.web.views.verdict_of @const bot.web.views.MOS_UNDERVALUED @const bot.web.views.MOS_FAIR @enum bot.web.views.Verdict
     class: decision
@@ -112,6 +116,7 @@ static: "static/: style sheet, scripts, fonts" {class: output}
 
 # Section 4: serve
 serve: "4. serve" {
+  link: "./site-views.svg"
   pages: "GitHub Pages, https://<owner>.github.io/<repo>/" {class: external}
   published_site: "published site (static viewer)" {class: output}
 }

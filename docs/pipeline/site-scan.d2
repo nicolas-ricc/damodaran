@@ -1,0 +1,53 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: start the build on a safe output folder and keep only the sidecars the viewer can read and render. | {class: note}
+back: |md back to the site board | {
+  class: note
+  link: "./site.svg"
+}
+
+# Sources
+reports: "reports/*/analysis/*.json\nthe sidecars of the checked-out commit" {class: file}
+
+# States
+# @symbol bot.web.site.normalize_base_url
+base_url_set: "the base address of the site is normalised\none leading and one trailing slash" {class: decision}
+# @symbol bot.web.site._prepare_out_dir
+out_refused: "the output folder is refused\nthe build stops with an error" {class: step}  # No outgoing edge: the run ends here
+# @const bot.web.site.MARKER
+out_ready: "the output folder is ready\nthe .bot-site marker file is in it" {class: decision}
+# @symbol bot.web.index.read_sidecar
+skipped: "the sidecar is skipped\na skip leaves a warning in the log" {class: step}  # No outgoing edge: the run ends here
+# @symbol bot.web.index.scan
+usable: "the sidecar is read\nthe sidecars are grouped by ticker, newest analysis first" {class: step}
+# @symbol bot.web.site._renderable
+renderable: "the analysis has every field\nan analysis the views cannot read is skipped with a warning;\na company with no analysis left is dropped" {class: decision}
+
+# Neighbours
+# @file .github/workflows/site.yml
+tested: "the tests pass" {class: step; link: "./site-ci.svg"}  # No incoming edge: the flow enters from site-ci
+# @symbol bot.web.views.row_view
+row: "the company has its verdict" {class: step; link: "./site-views.svg"}  # No outgoing edge: the flow goes on in site-views
+
+out: "Comes out:\neach company the viewer can render, its analyses newest first, each one complete" {class: output; link: "./site-views.svg"}
+
+# Edges
+tested -> base_url_set: "the build normalises the base address of the site"  # @symbol bot.web.site.build
+base_url_set -> out_refused: "the build refuses the output folder [it holds the reports, or it is not empty and not a site output]\nrefused when it is or holds the reports folder, it exists and is not a folder, or it is not empty and has no .bot-site marker file"  # @const bot.web.site.MARKER
+base_url_set -> out_ready: "the build empties the output folder and marks it as its own [the folder is safe]\nthe folder is emptied, or created when missing, and the .bot-site marker is written before any page"  # @const bot.web.site.MARKER
+out_ready -> skipped: "the scan skips the sidecar [the folder name is not a date]\nthe folder name must be a YYYY-MM-DD date, read back unchanged"
+out_ready -> skipped: "the scan skips the sidecar [the sidecar name is not a ticker]\nthe ticker is up to twelve characters among capital letters, digits, . and -"
+out_ready -> skipped: "the scan skips the sidecar [it cannot be read as a JSON object]"
+out_ready -> skipped: "the scan skips the sidecar [the schema version is not supported]\nschema_version must be 1"  # @const bot.reporting.analysis_json.SCHEMA_VERSION
+out_ready -> skipped: "the scan skips the sidecar [the ticker inside differs from the sidecar name]\nanalysis.ticker must equal the file name"
+out_ready -> usable: "the scan reads the sidecar\n[it passes every check above]"
+usable -> skipped: "the build skips the sidecar [an analysis field is missing]"
+usable -> renderable: "the build accepts the analysis"
+renderable -> row: "the build reads the verdict from the sidecar [margin of safety (MoS) 1.3 or more]\nMoS = intrinsic value ÷ price"  # @const bot.web.views.MOS_UNDERVALUED
+renderable -> row: "the build reads the verdict from the sidecar [margin of safety (MoS) from 1.0 to under 1.3]"  # @const bot.web.views.MOS_FAIR @const bot.web.views.MOS_UNDERVALUED
+renderable -> row: "the build reads the verdict from the sidecar [margin of safety (MoS) below 1.0]"  # @const bot.web.views.MOS_FAIR
+renderable -> row: "the build reads the verdict from the sidecar [no price]"
+renderable -> out: "the viewer renders the company\n[the analysis is kept]"
+reports -> out_ready: "the sidecars"
