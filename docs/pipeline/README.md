@@ -1,6 +1,6 @@
 # Pipeline boards
 
-Six d2 boards and four sub-boards document the investment-bot pipeline.
+Six d2 boards and nine sub-boards document the investment-bot pipeline.
 `classes.d2` holds the nine node classes and is not a board. Every board starts with
 `...@classes` and imports nothing else.
 

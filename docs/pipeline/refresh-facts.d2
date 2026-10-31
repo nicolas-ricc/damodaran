@@ -10,13 +10,13 @@ back: |md back to the refresh board | {
 
 # States
 # @symbol bot.ingest.sec_edgar._accepted_entries @symbol bot.ingest.sec_edgar._collect_period_rows
-fact_read: "one fact of the ticker is read\nduration facts take their own start and end; the filing's fy and fp never pick the period" {class: decision}
+fact_read: "one fact of the ticker is read\nduration facts take their own start and end; the filing's fiscal year and fiscal period fields never pick the period" {class: decision}
 # @symbol bot.ingest.sec_edgar._collect_period_rows
 fact_in_period: "the fact belongs to a year or quarter row\nconcept precedence per column and period end: the first concept in the list with an accepted fact wins\nlater concepts fill only empty ends\ne.g. revenue: Revenues, then RevenueFromContractWithCustomerExcludingAssessedTax, ...\nis_restated when a fact used for the period comes from an amendment" {class: decision}
 # @symbol bot.ingest.sec_edgar._collect_period_rows
 fact_chosen: "the fact fills its column for that period end\none value per column and period end" {class: step}
 # @symbol bot.ingest.sec_edgar._derive_financial_fields
-fact_derived: "the aggregates of the row are derived\nonly when not reported, and a reported aggregate is never overwritten\nearnings before interest, taxes, depreciation and amortization (EBITDA) = earnings before interest and taxes (EBIT) + depreciation\nEBIT, when not reported = pretax income + interest expense\nfree cash flow = operating cash flow − capex\nworking capital = current assets − current liabilities" {class: decision}
+fact_derived: "the aggregates of the row are derived\nonly when not reported, and a reported aggregate is never overwritten\nearnings before interest, taxes, depreciation and amortization (EBITDA) = earnings before interest and taxes (EBIT) + depreciation\nEBIT, when not reported = pretax income + interest expense (a missing interest expense counts as 0)\nfree cash flow = operating cash flow − capex\nworking capital = current assets − current liabilities" {class: decision}
 # @symbol bot.ingest.sec_edgar._label_rows @symbol bot.ingest.sec_edgar._fiscal_quarter_key
 row_labelled: "the row has its fiscal year\nan annual row takes the year of its end; a quarter gets its year and number from the nearest year end" {class: decision}
 # @symbol bot.ingest.sec_edgar._rescale_shares_diluted

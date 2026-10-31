@@ -45,10 +45,10 @@ out: "Comes out:\none damodaran_industry row per industry for (region, year), wi
 weekly -> started: "bot refresh --all"
 damodaran_data -> started: "eight .xls files, one request each"
 started -> downloaded: "the eight files download\n[every download succeeds]"  # @symbol bot.ingest.damodaran.import_damodaran
-started -> downloaded: "the files download without one of the six others [its download fails]"
+started -> downloaded: "the files download without one of the six others [its download fails]\nthe run is partial, without that file's columns"
 started -> damodaran_failed: "the run stops [wacc.xls or ctryprem.xls fails to download]"
 downloaded -> industry_read: "the industry files are read\n[every file can be read]"
-downloaded -> industry_read: "the industry files are read without one of the six others [it cannot be read]"
+downloaded -> industry_read: "the industry files are read without one of the six others [it cannot be read]\nthe run is partial, without that file's columns"
 downloaded -> damodaran_failed: "the run stops [wacc.xls cannot be read]"
 industry_read -> merged: "the industry files are joined on the industry name [the earlier file wins a shared column]"  # @symbol bot.ingest.damodaran.merge_industry_datasets
 merged -> country_read: "the country risk sheet is read"
