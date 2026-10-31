@@ -36,9 +36,9 @@ damodaran_failed: "the Damodaran run fails and writes nothing" {class: step; lin
 # @symbol bot.ingest.sec_edgar.parse_company_facts
 fact_read: "one fact of the ticker is read" {class: decision; link: "./refresh-facts.svg"}
 # @symbol bot.ingest.sec_edgar.parse_company_facts
-fact_in_row: "the row of the fact is ready to write" {class: step; link: "./refresh-facts.svg"}  # No incoming edge: the flow enters from refresh-facts
-# @symbol bot.ingest.sec_edgar.parse_company_facts
 fact_dropped: "the fact is dropped\nthe import goes on without it" {class: step; link: "./refresh-facts.svg"}  # No incoming edge: the flow enters from refresh-facts
+# @symbol bot.ingest.sec_edgar.parse_company_facts
+fact_in_row: "the row of the fact is ready to write" {class: step; link: "./refresh-facts.svg"}  # No incoming edge: the flow enters from refresh-facts
 # @symbol bot.ingest.universe.refresh_prices
 price_listing: "the prices stage lists the tickers" {class: decision; link: "./refresh-prices.svg"}
 
