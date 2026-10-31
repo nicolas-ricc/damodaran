@@ -1,0 +1,65 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: bring each ticker's end-of-day price bars up to date, stalest first, and give the newest bar its market cap. | {class: note}
+back: |md back to the refresh board | {
+  class: note
+  link: "./refresh.svg"
+}
+
+# Sources
+daily: "daily.sh\nweekdays" {class: cron}  # @file scripts/daily.sh
+price_fill: "price_fill.sh\nhourly, until every company has a price" {class: cron}  # @file scripts/price_fill.sh
+tiingo: "Tiingo\nend-of-day prices, default source\nStooq is the alternative" {class: external}  # @symbol bot.ingest.edgar_tiingo @symbol bot.ingest.edgar_stooq
+edgar: "Securities and Exchange Commission (SEC)\nElectronic Data Gathering, Analysis, and Retrieval (EDGAR)\nshares outstanding" {class: external}  # @symbol bot.ingest.sec_edgar.SecEdgarClient.shares_outstanding
+prices_daily: {class: store}  # @table prices_daily
+
+# States
+# @symbol bot.ingest.universe.refresh_prices
+price_listing: "the prices stage lists the tickers\n--only-missing drops the tickers that already have a price, so no quota is spent on them" {class: decision}
+# @symbol bot.ingest.universe._last_weekday_before @symbol bot.ingest.universe._newest_price_dates
+price_listed: "the ticker is on the price list\ncurrent: its newest bar is on or after the last weekday before today" {class: decision}
+# @symbol bot.ingest.universe._stale_first
+price_queued: "the ticker waits its turn, stalest first\nnever priced first, then oldest newest bar first; ties keep the input order" {class: decision}
+# @symbol bot.ingest.universe._refresh_one_price @symbol bot.ingest.edgar_base.EdgarPricedProvider._stamp_market_cap @const bot.ingest.edgar_base._FRESH_DAYS
+bars_fetched: "the new daily bars of the ticker arrive\nmarket cap = close × shares outstanding, newest bar only, when it is at most 7 days old" {class: decision}
+# @symbol bot.ingest.universe._refresh_one_price
+price_counted: "the prices stage is done with the ticker\nprices_daily.currency = companies.currency" {class: step}
+# @symbol bot.ingest.universe._run_bulk_refresh @symbol bot.ingest.universe._resolve_status @const bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE @const bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE
+status: "status of the run\nfailure rate = failed ÷ attempted; deferred are left out\nat most 5%: success; at most 25%: partial; above 25%: error\nnot success: exit code two" {class: step}
+
+# Neighbours
+# @symbol bot.ingest.universe._refresh_one
+ticker_counted: "the fundamentals outcome of the ticker is counted" {class: step; link: "./refresh-fundamentals.svg"}  # No incoming edge: the flow enters from refresh-fundamentals
+# @symbol bot.ingest.universe.refresh_fx
+fx_listing: "the foreign exchange (FX) stage lists the listing currencies other than the US dollar (USD)" {class: decision; link: "./refresh-fx.svg"}
+
+# Stores
+refresh_log: {class: store}  # @table refresh_log
+
+out: "Comes out:\nnew prices_daily bars per ticker, the newest with market cap when it is fresh\none run status" {class: output; link: "./refresh-fx.svg"}
+
+# Edges
+ticker_counted -> price_listing: "the prices stage starts"
+daily -> price_listing: "bot refresh --prices, repeated while tickers are deferred\nten rounds, an hour apart by default"  # @file scripts/daily.sh
+price_fill -> price_listing: "bot refresh --prices --only-missing, hourly"
+price_listing -> price_counted: "the ticker is left out, no request [--only-missing and it already has a price]"
+price_listing -> price_listed: "the ticker is listed [no --only-missing, or no price yet]"
+price_listed -> price_counted: "the ticker is skipped, no request [its newest bar is on or after the last weekday before today]"
+price_listed -> price_queued: "the ticker is queued [no bar yet, or an older newest bar]"
+price_queued -> price_counted: "the ticker and every later one are deferred, not failed [the rate limit is hit, by this or an earlier ticker]\nthe rest skip the request; deferred tickers are left out of the failure rate; daily.sh runs another round"  # @file scripts/daily.sh
+price_queued -> price_counted: "the ticker fails and the run goes on [the bars cannot be fetched]"
+price_queued -> bars_fetched: "only the bars after the newest stored one are fetched\n[the request succeeds]"
+bars_fetched -> price_counted: "the bars are stored, the newest with market cap = close × shares outstanding [newest bar at most 7 days old, shares found]"  # @const bot.ingest.edgar_base._FRESH_DAYS
+bars_fetched -> price_counted: "the bars are stored without market cap [the newest bar is more than 7 days old]"  # @const bot.ingest.edgar_base._FRESH_DAYS
+bars_fetched -> price_counted: "the bars are stored without market cap [the shares lookup fails or finds no count]"
+bars_fetched -> price_counted: "the ticker and every later one are deferred, not failed [the shares lookup hits the rate limit]"
+price_counted -> fx_listing: "the foreign exchange stage starts"
+tiingo -> bars_fetched: "daily bars after the newest stored date"
+edgar -> bars_fetched: "newest reported common shares outstanding"
+prices_daily -> price_listed: "newest bar per ticker"
+price_counted -> prices_daily: "bars with close, volume, market cap"
+price_counted -> status: "the outcome of each ticker"
+status -> refresh_log: "one summary row for the run"
+status -> out: "the status of the run"
