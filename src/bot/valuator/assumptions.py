@@ -653,16 +653,19 @@ def conventional_override_path(assumptions_dir: Path | None, ticker: str) -> Pat
 def _load_override(override_path: Path | None) -> dict[str, Any]:
     if override_path is None or not override_path.exists():
         return {}
-    loaded = yaml.safe_load(override_path.read_text())
+    try:
+        loaded = yaml.safe_load(override_path.read_text())
+    except yaml.YAMLError as exc:
+        raise ValueError(f"override file {override_path} is not valid YAML: {exc}") from exc
     if loaded is None:
         return {}
     if not isinstance(loaded, dict):
         raise ValueError(f"override file {override_path} must contain a YAML mapping")
-    unknown = sorted(set(loaded) - _OVERRIDE_KEYS)
+    unknown = sorted(set(loaded) - _OVERRIDE_KEYS, key=str)
     if unknown:
         valid = ", ".join(sorted(_OVERRIDE_KEYS))
         raise ValueError(
-            f"{override_path}: unknown override key(s): {', '.join(unknown)}. "
+            f"{override_path}: unknown override key(s): {', '.join(str(k) for k in unknown)}. "
             f"Valid keys: {valid}"
         )
     return loaded
