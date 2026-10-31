@@ -127,7 +127,7 @@ Rules (INVARIANT, reader's sentence as `\*` comment directly above):
 
 `site.cfg`: `SPECIFICATION Spec` and the eight `INVARIANT` lines. Deadlock checking stays on.
 
-`site.view.js`: `const states`, `const steps`, `const groups` (one entry per line, unquoted keys, double-quoted values; `Done: null` hidden), the five exports with `title = "site: one sidecar through bot site"` and colors `site-publish: blue`, `site-ci: orange`, `site-scan: purple`, `site-views: teal`.
+`site.view.js`: `const states`, `const steps`, `const groups` (one entry per line, unquoted keys, double-quoted values; `Done: "the run ends"`), the five exports with `title = "site: one sidecar through bot site"` and colors `site-publish: blue`, `site-ci: orange`, `site-scan: purple`, `site-views: teal`.
 
 - [ ] **Step 1: Tests fail:** `uv run pytest -q tests/unit/test_pipeline_models.py -k "model or site"` (no `.tla` yet: `test_site_model_exists` fails). Convention tests, parametrized over each `*.tla` stem:
   - `test_model_files_sit_together`: `.cfg` and `.view.js` exist; first line of `.tla` matches `---- MODULE <stem> ----` (any run of 4+ dashes).
