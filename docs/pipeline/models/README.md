@@ -29,6 +29,9 @@ Per stage, `<stem>.tla`, `<stem>.cfg` and `<stem>.view.js`: the model, its const
   `(* ... *)` citation of the code it mirrors.
 - The view maps (`states`, `steps`, `groups`) are plain `const`, not exported: the skill's view
   loader rejects any export beyond `state`, `step`, `group`, `colors` and `title`.
+- A model extends no standard module. With `EXTENDS FiniteSets`, the skill's export step
+  (SANY's XML exporter) fails with a `NullPointerException`; write "at most one" as
+  `\A x, y \in S : x = y` instead of `Cardinality(S) <= 1`.
 - Groups are named `<stage>-<sub>`. Aim for about 20 arrows per group; the cap is 24.
 
 Labels are written for the reader of the chart:
