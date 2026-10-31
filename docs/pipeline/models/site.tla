@@ -181,6 +181,13 @@ TheStemIsNotATicker ==
   /\ skip' = "stem not a ticker"
   /\ UNCHANGED << worktree, committedFiles, committed, onMaster, workflowRan, wrote, row, page, failed, baseUrl, margin, verdict >>
 
+(* src/bot/web/index.py: read_sidecar returns None on an OSError/ValueError or a non-object JSON (scan then continues) *)
+TheSidecarIsNotReadable ==
+  /\ phase = "out_ready"
+  /\ phase' = "skipped"
+  /\ skip' = "unreadable"
+  /\ UNCHANGED << worktree, committedFiles, committed, onMaster, workflowRan, wrote, row, page, failed, baseUrl, margin, verdict >>
+
 (* src/bot/web/index.py: read_sidecar returns None on an unsupported schema_version (scan then continues) *)
 TheSchemaVersionIsWrong ==
   /\ phase = "out_ready"
@@ -293,6 +300,7 @@ Next ==
   \/ TheOutputDirIsReady
   \/ TheFolderIsNotADate
   \/ TheStemIsNotATicker
+  \/ TheSidecarIsNotReadable
   \/ TheSchemaVersionIsWrong
   \/ TheTickerDoesNotMatch
   \/ TheSidecarIsUsable
