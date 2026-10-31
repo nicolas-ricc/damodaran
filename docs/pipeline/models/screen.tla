@@ -246,7 +246,7 @@ ATrapDetectorFails ==
   /\ recorded' = recorded \cup {"traps"}
   /\ UNCHANGED << mapped, currency, capInUsd, bench, reasons, qualityFailed, valueOutcome, inPercentiles, kept, dcf, margin, row, reported, outcomes >>
 
-(* src/bot/screener/engine.py: evaluate_company, `if not verdict.passed: rejected.append(...)` *)
+(* src/bot/screener/engine.py: run_screen, `if not verdict.passed: rejected.append(...)` *)
 TheCompanyIsRejected ==
   /\ phase \in {"traps_passed", "traps_failed"}
   /\ qualityFailed \/ valueOutcome # "passed" \/ trapsOutcome # "passed"
@@ -254,14 +254,14 @@ TheCompanyIsRejected ==
   /\ outcomes' = outcomes \cup {"rejected_by_rules"}
   /\ UNCHANGED << mapped, currency, capInUsd, bench, reasons, layersRun, qualityFailed, valueOutcome, trapsOutcome, recorded, inPercentiles, kept, dcf, margin, row, reported >>
 
-(* src/bot/screener/engine.py: evaluate_company, `pending.append` and `candidates.append` *)
+(* src/bot/screener/engine.py: run_screen, `pending.append` and `candidates.append` *)
 TheCompanySurvives ==
   /\ phase = "traps_passed"
   /\ ~qualityFailed /\ valueOutcome = "passed" /\ trapsOutcome = "passed"
   /\ phase' = "survivor"
   /\ UNCHANGED << mapped, currency, capInUsd, bench, reasons, layersRun, qualityFailed, valueOutcome, trapsOutcome, recorded, inPercentiles, kept, dcf, margin, row, reported, outcomes >>
 
-(* src/bot/screener/engine.py: _quality_metric, _growth_metric, cagr *)
+(* src/bot/screener/engine.py: evaluate_company builds the _Verdict with _quality_metric and _growth_metric (via cagr); run_screen carries them into Candidate for survivors only *)
 TheMetricsAreComputed ==
   /\ phase = "survivor"
   /\ phase' = "metrics"
@@ -425,7 +425,7 @@ EveryLayerRecorded ==
       /\ (valueOutcome = "failed" => "value" \in recorded)
       /\ (trapsOutcome = "failed" => "traps" \in recorded))
 
-(* Cites: evaluate_company: `if not verdict.passed: rejected.append(...)`; only candidates reach rank. *)
+(* Cites: run_screen: `if not verdict.passed: rejected.append(...)`; only candidates reach rank. *)
 \* A failed quality gate, no passing value indicator, or a failed trap detector rejects the company, and it is never ranked.
 FailedLayerRejects ==
   (qualityFailed \/ valueOutcome \in {"failed", "skipped"} \/ trapsOutcome = "failed") =>
