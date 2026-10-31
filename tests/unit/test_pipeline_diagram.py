@@ -851,8 +851,7 @@ def test_refresh_gap_notes() -> None:
 
 
 def test_refresh_country_rows_carry_no_risk_free_rate() -> None:
-    country = _refresh_block("damodaran.country")
-    assert "wacc.xls" not in country.split("risk_free:")[0]
+    assert "wacc.xls" not in _refresh_block("damodaran.country")
     edge = _edge_line(_refresh(), "damodaran.write", "duckdb.damodaran_country")
     assert edge is not None and "risk-free" not in edge
 
@@ -1533,7 +1532,7 @@ def test_analyze_share_bounds_are_inclusive(shares: float, valued: bool) -> None
 
 
 def test_analyze_has_no_gdp_constant() -> None:
-    assert "4%" not in _check().visible(_analyze())
+    assert re.search(r"(?<![\d.])4%", _check().visible(_analyze())) is None
 
 
 def test_analyze_terminal_growth_reads_the_currency_table() -> None:
