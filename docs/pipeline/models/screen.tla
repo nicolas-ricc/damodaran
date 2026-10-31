@@ -2,8 +2,6 @@
 (* One company, from the companies table through the coverage gate, the quality, value and trap
    rules, the ranking and the second pass, to the screener_candidates table and the shortlist report,
    in one run of `bot screen`. *)
-EXTENDS FiniteSets
-
 VARIABLES phase, mapped, currency, capInUsd, bench, reasons, layersRun, qualityFailed,
           valueOutcome, trapsOutcome, recorded, inPercentiles, kept, dcf, margin, row, reported,
           outcomes
@@ -415,7 +413,7 @@ UncoveredCurrencyNoRule ==
 (* Cites: run_screen: one if / elif / else chain gives one CoverageReason per rejected company. *)
 \* A company rejected by the coverage gate has exactly one reason.
 OneCoverageReason ==
-  ("rejected_by_coverage" \in outcomes <=> reasons # {}) /\ Cardinality(reasons) <= 1
+  (("rejected_by_coverage" \in outcomes) = (reasons # {})) /\ (\A r1, r2 \in reasons : r1 = r2)
 
 (* Cites: evaluate_company: the quality, value and trap loops all run and append each failed rule to failed_gates. *)
 \* Every layer runs on a measured company, even after a failed gate, so the failed rules of every layer are recorded.
@@ -458,7 +456,7 @@ RejectedSavedAsFailed ==
 (* Cites: run_screen: a company is rejected by the gate, rejected by the rules, cut by first_pass[:top], or on the shortlist, never two. *)
 \* A company reaches at most one end: rejected by the coverage gate, rejected by the rules, cut, or saved on the shortlist.
 OneEndOnly ==
-  Cardinality(outcomes) <= 1
+  \A o1, o2 \in outcomes : o1 = o2
 
 (* Cites: _market_cap_usd returns None; MinMarketCap fails on a missing cap in the quality loop. *)
 \* A company whose market cap has no value in US dollars (USD) fails the quality gates.
