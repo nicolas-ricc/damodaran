@@ -45,7 +45,7 @@
 | `verdict` | `"none"`, `"n/a"`, `"potentially overvalued"`, `"around fair value"`, `"potentially undervalued"` | a, g |
 | `reports` | subset of `{"markdown", "HTML", "JSON"}` | i |
 
-`EndPhases == {"command_stops", "not_found", "cannot_value", "reported"}`.
+`EndPhases == {"command_stops", "not_found", "cannot_value", "crashed", "reported"}`.
 
 The model does not track which of the five story types a company holds. `storyTypes` records who set it (`"classifier"` or `"override"`). The story-dependent sources (the story-pattern growth and margin paths, the cycle-average margin, the story-margin flag) are therefore unguarded actions: their story condition is written in the step label. Rule (e) needs only "exactly one, and the override's replaces the classifier's". Keeping the five types would multiply every later state by 6 and break the 500-state budget (counted below). The override file's presence is not tracked either: the manual actions are always enabled, and their labels say "[set in the override file]".
 
@@ -68,7 +68,7 @@ Format: `Action: from → to (variable changes) — "step label" — code citati
 - `RegionDefaultsToUs`: loaded → region_set — "the dataset region is US [grouping unknown]" — `dataset_region` returns `DEFAULT_DATASET_REGION`.
 - `TheSignalsAreDerived`: region_set → signals — "net debt, interest coverage, age and the cyclical sector are derived" — `analysis.analyze` (age, `interest_coverage`, `is_cyclical`); `_latest_from_row` (net debt).
 
-**analyze-story** (phases `not_distressed`, `not_cyclical`, `not_high_growth`, `classified`, `story_set`)
+**analyze-story** (phases `not_distressed`, `not_cyclical`, `not_high_growth`, `classified`, `crashed`, `story_set`)
 - `ItIsDistressed`: signals → classified (storyTypes' = {"classifier"}) — "the classifier says distressed [interest coverage at most 1.0]" — `story_types.classify` / `_is_distressed`.
 - `ItIsNotDistressed`: signals → not_distressed — "not distressed [interest coverage above 1.0 or unknown]".
 - `ItIsCyclical`: not_distressed → classified (storyTypes' = {"classifier"}) — "the classifier says cyclical [cyclical sector and earnings variation at least 0.50]" — `_is_cyclical`.
@@ -78,6 +78,7 @@ Format: `Action: from → to (variable changes) — "step label" — code citati
 - `ItIsInDecline`: not_high_growth → classified (storyTypes' = {"classifier"}) — "the classifier says mature-decline [revenue growth at most −1% a year]" — `_DECLINE_CAGR`.
 - `ItIsMatureStable`: not_high_growth → classified (storyTypes' = {"classifier"}) — "the classifier says mature-stable [every other company]".
 - `TheOverrideFileIsInvalid`: classified → cannot_value (exitCode' = "1") — "the ticker cannot be valued, exit code 1 [the override file is not a mapping or has an unknown key]" — `assumptions._load_override` raises `ValueError`; `_analyze_one` returns 1.
+- `TheOverrideFileIsNotYaml`: classified → crashed (batch' = "stopped", exitCode' = "1") — "the command crashes, exit code 1 [the override file is not valid YAML]" — `assumptions._load_override` `yaml.safe_load` raises `yaml.YAMLError` (an `Exception`, not a `ValueError`); `_analyze_one` catches only `LookupError` and `ValueError`, so it leaves the `for ticker` loop of `cli.analyze`.
 - `NoManualStoryType`: classified → story_set (overrideStory' = "absent") — "the classifier's story type stands [no story type in the override file]" — `_resolve_story_type`.
 - `TheOverrideSetsTheStoryType`: classified → story_set (overrideStory' = "given", storyTypes' = {"override"}) — "the override file's story type replaces it [story type set in the file; an unknown label drives no branch]" — `_resolve_story_type` (manual wins); `resolve_assumptions` `_STORY_TYPE_VALUES`.
 
@@ -86,17 +87,17 @@ Format: `Action: from → to (variable changes) — "step label" — code citati
 - `NoSectorRow`: story_set → sector_read — "no sector row [industry absent from every region]" — `_pick_sector` returns `(None, False)`.
 - `TheCurrencyIsCovered`: sector_read → currency_read (currency' = "covered") — "the valuation currency is in the currency table" — `load_assumption_inputs`, `_currency_rates`.
 - `TheCurrencyIsUncovered`: sector_read → currency_read (currency' = "uncovered") — "the valuation currency is not in the currency table" — `_currency_rates` returns `None` rates; `_warn_uncovered`.
-- `GrowthIsResolved`: currency_read → growth_set — "revenue growth gets a source [manual, story pattern, history, or nominal GDP growth]" — `_resolve_revenue_growth`.
+- `GrowthIsResolved`: currency_read → growth_set — "revenue growth gets a source [manual, story pattern, history, or nominal gross domestic product (GDP) growth]" — `_resolve_revenue_growth`.
 - `GrowthIsUnresolved`: currency_read → growth_set (unresolved' = TRUE), guard `currency = "uncovered"` — "revenue growth is unresolved [no history and an uncovered currency]" — `_resolve_revenue_growth` returns UNRESOLVED when `gdp is None`.
 - `MarginIsResolved`: growth_set → margin_set — "operating margin gets a source [manual, story pattern, cycle average, or sector]" — `_resolve_operating_margin`.
 - `MarginIsUnresolved`: growth_set → margin_set (unresolved' = TRUE) — "operating margin is unresolved [no sector operating margin]".
 - `ScalarsAreResolved`: margin_set → scalars_set — "sales-to-capital and the costs of equity and debt get a source [manual or sector]" — `_resolve_sector_scalar`.
 - `AScalarIsUnresolved`: margin_set → scalars_set (unresolved' = TRUE) — "sales-to-capital or a cost of capital is unresolved [not in the file nor the sector row]".
 - `WeightsAreResolved`: scalars_set → weights_set — "the equity and debt weights get a source [manual, or the sector's debt-to-equity (D/E)]" — `_resolve_weights`.
-- `WeightsAreUnresolved`: scalars_set → weights_set (unresolved' = TRUE) — "the weights are unresolved [no manual weight, no sector D/E]".
+- `WeightsAreUnresolved`: scalars_set → weights_set (unresolved' = TRUE) — "the weights are unresolved [no manual weight, no sector debt-to-equity (D/E)]".
 - `TheManualWeightsDoNotSumToOne`: scalars_set → cannot_value (exitCode' = "1") — "the ticker cannot be valued, exit code 1 [both weights set by hand and not summing to 1]" — `_resolve_weights` raises `ValueError`.
 - `TerminalGrowthIsManual`: weights_set → tg_set (tgSource' = "manual") — "terminal growth is set by hand [in the override file]" — `_resolve_terminal_growth` manual branch.
-- `TerminalGrowthFromTheCurrency`: weights_set → tg_set (tgSource' = "rule based"), guard `currency = "covered"` — "terminal growth is the lower of the currency's risk-free rate and nominal GDP growth [covered currency]" — `_resolve_terminal_growth` `min(rates.risk_free_rate, rates.nominal_gdp_growth)`.
+- `TerminalGrowthFromTheCurrency`: weights_set → tg_set (tgSource' = "rule based"), guard `currency = "covered"` — "terminal growth is the lower of the currency's risk-free rate and nominal gross domestic product (GDP) growth [covered currency]" — `_resolve_terminal_growth` `min(rates.risk_free_rate, rates.nominal_gdp_growth)`.
 - `TerminalGrowthIsUnresolved`: weights_set → tg_set (tgSource' = "unresolved", unresolved' = TRUE), guard `currency = "uncovered"` — "terminal growth is unresolved [uncovered currency, not set by hand]" — `_resolve_terminal_growth` `rates is None`.
 
 **analyze-dcf** (phases `ready`, `shares_ok`, `resolved`, `cannot_value`, `wacc_computed`, `projected`, `terminal_valued`, `ev_found`, `equity_found`, `valued`)
@@ -181,7 +182,7 @@ inputs 8; story 7; assumptions about 50 (`unresolved` × `currency` × `tgSource
   - `test_analyze_groups`: `set(_map("analyze", "groups").values())` equals the seven groups, and `len(_invariants("analyze")) >= 8`.
   - `test_analyze_rules`: the `.cfg` INVARIANTs include the twelve names above.
   - `test_analyze_every_phase_is_reachable`, `test_analyze_rule_antecedents_are_set`, `test_analyze_groups_fit_a_subboard` (for each group, `sum(1 for a, (s, t) in _transitions("analyze").items() if groups[s] == g or groups[t] == g) <= 20`), `test_analyze_avoids_what_sany_export_rejects`, `test_analyze_actions_are_cited`: as in Review Focus.
-  - `test_analyze_end_phases`: the `EndPhases ==` line lists exactly `command_stops`, `not_found`, `cannot_value`, `reported`.
+  - `test_analyze_end_phases`: the `EndPhases ==` line lists exactly `command_stops`, `not_found`, `cannot_value`, `crashed`, `reported`.
 
 - [ ] **Step 2: Write `analyze.tla`.** The header comment `(* One ticker through one run of `bot analyze` ... *)`, then `VARIABLES`, `vars`, `FlagNames`, `EndPhases`, `MarginVerdict(m)` (mirrors `margin_verdict`), `ThresholdVerdict(m)` (CONTEXT.md bands), `Init`, the actions in the order above, `Done`, `Next` (one action per `\/` line, ending with `Done`), `Spec`, then the twelve rules. Every action lists all the other variables in `UNCHANGED << ... >>`.
 
@@ -224,6 +225,13 @@ Technical decisions taken during grilling. Each satisfies the issue, and the rej
 7. **`Done` has no `phase'` pair**: `_transitions` in `tests/unit/test_pipeline_models.py` skips `Done`, as in `site.tla`.
 8. **`cannot_value` sits in analyze-dcf** and is entered from the story and assumptions groups. #164 allows a node from another group's board, linked to its own board (`test_neighbour_nodes_link_their_subboard`; `docs/pipeline/site-scan.d2` line 30).
 
+9. **Every CASE has an `OTHER` arm** (`MarginVerdict`, `ThresholdVerdict` → `"none"`), as in `site.tla`, so TLC never aborts on `margin = "unread"` whatever its evaluation order.
+10. **An acronym is expanded in every label that uses it**: a chart label is read alone, and `site.view.js` expands MoS in each of its margin labels.
+11. **`test_analyze_actions_are_cited` exempts `Done`**, as `_transitions` does; `Done` cites nothing in the code (`site.tla` precedent).
+12. **Rule k is expected to break.** `TheOverrideFileIsNotYaml` models what the code does with a malformed YAML override: an uncaught `yaml.YAMLError` ends the batch. When TLC reports the break, Task 2 follows the protocol: a replay test `tests/unit/test_analyze_model_replay.py` (committed, because it proves a bug), a `bug` issue, `\* broken: #n` above k, k removed from the `.cfg`, and a README row. The rule is not weakened. Twelve rules minus k still leaves eleven that hold, at least 8.
+13. **The dcf board attaches no store**: in `docs/pipeline/analyze.d2` its edges come only from the assumptions and the inputs, so its 17 model steps fit under 24.
+
 ## Grilling
 
-Round 1: 18 questions. Sources: ISSUE 5, CODE 9, DOC 2, NO SOURCE 7 → technical assumptions 6 (listed above), out of scope 1 (#178), spec ambiguities 0. Changes: `TheArgumentsAreRefused` was added and rule k widened; the reachability check against `chart.mmd` and a budget of six CI cycles were added; the citations were completed.
+Round 1: 18 questions. Sources: ISSUE 5, CODE 9, DOC 2, NO SOURCE 7 → technical assumptions 6 (listed above), out of scope 1 (#178), spec ambiguities 0. Round 2: 15 questions. Sources: CODE 9 (order `analysis.py:662-720`; every stop is a `ValueError` caught by `cli.py:479`; `_load_override` is called in `resolve_assumptions` (`assumptions.py:735`), after `classify` (`analysis.py:651`); an unknown label is warned and passed through (`assumptions.py:737-743`, `analysis.py:660`); a missing override file gives `{}` (`assumptions.py:654`); `on: [push, workflow_dispatch]` has no filter), DOC 2 (CONTEXT.md "Verdict": `>=1.3` / `>=1.0` / `<1.0` / `n/a`; README conventions, no type invariant required), NO SOURCE 4 → technical assumptions 9-11 and 13. Finding: a malformed YAML override crashes the batch. It is modelled as `TheOverrideFileIsNotYaml` (assumption 12, broken rule protocol); it is not a separate follow-up.
+Round 1 changes: `TheArgumentsAreRefused` was added and rule k widened; the reachability check against `chart.mmd` and a budget of six CI cycles were added; the citations were completed.
