@@ -35,16 +35,23 @@ for tla in "$DIR"/*.tla; do
     errors+=("error  $stem: $stem.view.js is missing")
     continue
   fi
-  if ! "$STATECHART" "$tla" --config "$cfg" --view "$view" --out "$OUT_DIR/$stem"; then
-    errors+=("error  $stem: the launcher failed")
-    continue
-  fi
+  # The launcher prints its report to stdout; keep that off ours.
+  code=0
+  "$STATECHART" "$tla" --config "$cfg" --view "$view" --out "$OUT_DIR/$stem" >&2 || code=$?
   if [ ! -f "$report" ]; then
-    errors+=("error  $stem: the launcher wrote no report.md")
+    if [ "$code" -ne 0 ]; then
+      errors+=("error  $stem: the launcher failed (exit $code)")
+    else
+      errors+=("error  $stem: the launcher wrote no report.md")
+    fi
     continue
   fi
   if heading="$(grep -E -m1 '^## (.+ breaks|Rules not checked|TLC stopped)$' "$report")"; then
     errors+=("error  $stem: report has '$heading'")
+    continue
+  fi
+  if [ "$code" -ne 0 ]; then
+    errors+=("error  $stem: the launcher failed (exit $code)")
     continue
   fi
   if ! grep -q '^## Rules that hold$' "$report"; then

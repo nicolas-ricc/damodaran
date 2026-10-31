@@ -77,7 +77,7 @@ def _launcher(tmp_path: Path) -> Path:
         'while [ $# -gt 0 ]; do if [ "$1" = --out ]; then out=$2; fi; shift; done\n'
         'mkdir -p "$out"\n'
         'report="$FAKE_DIR/$stem.md"\n'
-        'if [ -f "$report" ]; then cp "$report" "$out/report.md"; fi\n'
+        'if [ -f "$report" ]; then cp "$report" "$out/report.md"; cat "$report"; fi\n'
         'code="$FAKE_DIR/$stem.exit"\n'
         'if [ -f "$code" ]; then exit "$(cat "$code")"; fi\n'
         "exit 0\n"
@@ -118,6 +118,12 @@ def _run(
     )
 
 
+def _only_summary_lines(result: subprocess.CompletedProcess[str]) -> None:
+    """The launcher prints its report to stdout; check.sh must not pass that on."""
+    for line in result.stdout.splitlines():
+        assert line.startswith(("error  ", "models | ")), line
+
+
 def _calls(tmp_path: Path) -> list[str]:
     log = tmp_path / "launcher.log"
     return log.read_text().splitlines() if log.exists() else []
@@ -128,6 +134,7 @@ def test_check_passes_on_rules_that_hold(tmp_path: Path) -> None:
     result = _run(tmp_path, work, {"site": _HOLDS})
     assert result.returncode == 0, result.stdout + result.stderr
     assert result.stdout.splitlines()[-1] == "models | 1 models, 3 rules, 0 errors"
+    _only_summary_lines(result)
     out = tmp_path / "out"
     assert _calls(tmp_path) == [
         f"{work}/site.tla --config {work}/site.cfg --view {work}/site.view.js --out {out}/site"
@@ -138,6 +145,7 @@ def test_check_passes_on_rules_that_hold(tmp_path: Path) -> None:
     ("report", "code"),
     [
         pytest.param("# site\n\n## A breaks\n0. x\n\n## Rules that hold\nB\n", 1, id="breaks"),
+        pytest.param("# site\n\n## A breaks\n0. x\n", 1, id="breaks-exit-1"),
         pytest.param(
             "# site\n\n## Rules that hold\nB\n\n## Rules not checked\nA\n", 0, id="not-checked"
         ),
@@ -154,6 +162,7 @@ def test_check_fails(tmp_path: Path, report: str | None, code: int) -> None:
     assert result.returncode == 1, result.stdout + result.stderr
     assert "error  site: " in result.stdout
     assert result.stdout.splitlines()[-1].endswith(", 1 errors")
+    _only_summary_lines(result)
 
 
 @pytest.mark.parametrize(
