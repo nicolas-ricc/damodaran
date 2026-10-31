@@ -28,7 +28,9 @@ import yaml
 from bot.portfolio import events as events_mod
 from bot.portfolio.events import EventType, Position
 from bot.portfolio.marks import HoldingMark
+from bot.reference.currencies import CurrencyRates
 from bot.reporting.analysis_report import margin_verdict
+from bot.screener.engine import CoverageReason
 from bot.screener.ranking import RankingWeights
 from bot.screener.rules import registered_rules
 from bot.screener.types import CompanyData, IndustryBenchmarks
@@ -94,7 +96,6 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.ingest.damodaran.merge_industry_datasets",
         "bot.ingest.damodaran.derive_industry_columns",
         "bot.ingest.damodaran.parse_country_tax_rates",
-        "bot.ingest.damodaran.parse_preheader_scalar",
         "bot.ingest.universe.refresh_universe",
         "bot.ingest.universe.refresh_prices",
         "bot.ingest.universe.refresh_fx",
@@ -113,11 +114,15 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.ingest.fmp",
         "bot.ingest.industry_mapping.load_industry_mapping",
         "bot.reference.industries",
+        "bot.reference.currencies.load_currency_table",
         "bot.utils.fx.import_fx_rates",
     },
     "screen": {
         "bot.cli.screen",
         "bot.screener.engine.run_screen",
+        "bot.screener.engine.CoverageReason",
+        "bot.screener.engine.format_coverage_counts",
+        "bot.reference.currencies.load_currency_table",
         "bot.screener.engine.build_company_data",
         "bot.screener.engine.evaluate_company",
         "bot.screener.engine._quality_metric",
@@ -150,6 +155,8 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.valuator.story_types._cagr",
         "bot.valuator.story_types._earnings_cv",
         "bot.valuator.assumptions.resolve_assumptions",
+        "bot.valuator.assumptions.load_assumption_inputs",
+        "bot.reference.currencies.load_currency_table",
         "bot.valuator.assumptions._resolve_revenue_growth",
         "bot.valuator.assumptions._resolve_operating_margin",
         "bot.valuator.assumptions._resolve_weights",
@@ -273,19 +280,26 @@ _REQUIRED_FILES: dict[str, set[str]] = {
         "scripts/daily.sh",
         "scripts/weekly.sh",
         "scripts/price_fill.sh",
+        "config/currencies.yaml",
     },
     "screen": {
         "config/presets/damodaran_value.yaml",
         "config/presets/deep_value.yaml",
         "config/presets/qarp.yaml",
+        "config/currencies.yaml",
     },
     # config/assumptions/<TICKER>.yaml is a pattern: its directory is cited.
     "analyze": {
         "config/assumptions",
         "config/assumptions/_EXAMPLE.yaml.example",
         "src/bot/reporting/templates/analysis.md.j2",
+        "config/currencies.yaml",
     },
-    "portfolio": {"scripts/daily.sh", "config/presets/damodaran_value.yaml"},
+    "portfolio": {
+        "scripts/daily.sh",
+        "config/presets/damodaran_value.yaml",
+        "config/currencies.yaml",
+    },
     "site": {
         "scripts/publish_site.sh",
         ".github/workflows/site.yml",
@@ -324,7 +338,6 @@ _REQUIRED_CONSTS: dict[str, set[str]] = {
         "bot.valuator.story_types._DECLINE_CAGR",
         "bot.valuator.assumptions._HORIZON",
         "bot.valuator.assumptions._MIN_CYCLE_YEARS",
-        "bot.valuator.assumptions._DEFAULT_GDP_NOMINAL",
         "bot.valuator.assumptions._DEFAULT_TAX_RATE",
         "bot.valuator.analysis.MIN_PLAUSIBLE_SHARES",
         "bot.valuator.analysis.MAX_PLAUSIBLE_SHARES",
@@ -365,6 +378,7 @@ _REQUIRED_ENUMS: dict[str, set[str]] = {
         "bot.valuator.narrative_flags.FlagColor",
         "bot.valuator.sensitivity.SensitivityAxis",
     },
+    "screen": {"bot.screener.engine.CoverageReason"},
     "portfolio": {"bot.portfolio.events.EventType"},
     "site": {"bot.web.views.Verdict"},
 }
@@ -738,7 +752,7 @@ _REFRESH_NODES: list[tuple[str, str]] = (
         ("damodaran.merge", "step"),
         ("damodaran.derive", "step"),
         ("damodaran.country", "step"),
-        ("damodaran.country.risk_free", "gap"),
+        ("damodaran.country.risk_free", "note"),
         ("damodaran.empty_rows", "decision"),
         ("damodaran.write", "step"),
         ("damodaran.write.us_only", "gap"),
@@ -832,6 +846,15 @@ def test_refresh_gap_notes() -> None:
     assert "ADR 0005" in _refresh_block("damodaran.write.us_only")
     assert "risk-free" in _refresh_block("damodaran.country.risk_free")
     assert "Financial Modeling Prep" in _refresh_block("fx.fetch.no_op")
+    assert "ADR 0005 (Implemented)" in _refresh_block("damodaran.write.us_only")
+    assert "config/currencies.yaml" in _refresh_block("damodaran.country.risk_free")
+
+
+def test_refresh_country_rows_carry_no_risk_free_rate() -> None:
+    country = _refresh_block("damodaran.country")
+    assert "wacc.xls" not in country.split("risk_free:")[0]
+    edge = _edge_line(_refresh(), "damodaran.write", "duckdb.damodaran_country")
+    assert edge is not None and "risk-free" not in edge
 
 
 def _edge_line(board: str, src: str, dst: str) -> str | None:
@@ -909,7 +932,7 @@ def _class_at_line(text: str, line: int) -> str | None:
 
 _SCREEN_NODES: list[tuple[str, str]] = (
     [("cli", "step"), ("cli.options", "note"), ("analyze_stage", "step")]
-    + [(f, "file") for f in ("damodaran_value", "deep_value", "qarp", "assumptions")]
+    + [(f, "file") for f in ("damodaran_value", "deep_value", "qarp", "assumptions", "currencies_yaml")]
     + [("report_md", "output"), ("report_csv", "output")]
     + [(f"duckdb.{t}", "store") for t in sorted(_REQUIRED_TABLES["screen"])]
     + [
@@ -966,7 +989,17 @@ _SCREEN_TEXT: dict[str, list[str]] = {
     "snapshot.region": ["China, India, Japan", "grouping", "US"],
     "snapshot.usd": ["rate_to_usd", "on or before"],
     "snapshot.benchmark": ["newest", "(industry, region)"],
-    "coverage_gate.gate": ["coverage_gate", "leaves the universe", "before any rule runs"],
+    "coverage_gate.gate": [
+        "industry_unmapped",
+        "benchmark_missing",
+        "currency_uncovered",
+        "leaves the universe",
+        "before any rule runs",
+        "one reason",
+        "missing, or not in config/currencies.yaml",
+    ],
+    "currencies_yaml": ["absent or malformed", "every currency uncovered"],
+    "persist_and_report.report": ["coverage gate exclusions per reason"],
     "quality_gates.exclude_sectors": ["financial services", "exact match", "bank", "insurance"],
     "quality_gates.max_net_debt_to_ebitda": ["net debt ≤ 0: passes"],
     "quality_gates.min_interest_coverage": ["interest expense ≤ 0: passes"],
@@ -997,7 +1030,9 @@ _SCREEN_TEXT: dict[str, list[str]] = {
     "ranking.weights.bounds": ["sum", "no ceiling"],
     "ranking.first_pass": ["0.5"],
     "ranking.top_n": ["--top"],
-    "ranking.second_pass": ["intrinsic value ÷ price", "config/assumptions/TICKER.yaml"],
+    "ranking.second_pass": [
+        "intrinsic value ÷ price", "config/assumptions/TICKER.yaml", "config/currencies.yaml",
+    ],
     "ranking.valued": ["0.5"],
     "ranking.rescore": ["percentiles kept"],
     "persist_and_report.persist": ["passed = true", "passed = false"],
@@ -1136,7 +1171,16 @@ def test_screen_dcf_seam_and_rejections() -> None:
     assert _edge_line(board, "ranking.second_pass", "analyze_stage") is not None
     assert _edge_line(board, "analyze_stage", "ranking.valued") is not None
     assert _edge_line(board, "coverage_gate.gate", "persist_and_report.persist") is not None
+    assert _edge_line(board, "currencies_yaml", "coverage_gate.gate") is not None
+    assert _edge_line(board, "currencies_yaml", "ranking.second_pass") is not None
     assert _edge_line(board, "persist_and_report.persist", "duckdb.screener_candidates")
+
+
+def test_screen_coverage_reasons_in_precedence_order() -> None:
+    gate = _screen_block("coverage_gate.gate")
+    order = ["industry_unmapped", "benchmark_missing", "currency_uncovered"]
+    assert [gate.index(r) for r in order] == sorted(gate.index(r) for r in order)
+    assert [r.value for r in CoverageReason] == order
 
 
 def test_pipeline_links_the_screen_board() -> None:
@@ -1165,7 +1209,7 @@ _FLAGS = (
 
 _ANALYZE_NODES: list[tuple[str, str]] = (
     [("cli", "step"), ("cli.errors", "note"), ("tickers", "decision"), ("override", "decision")]
-    + [(f, "file") for f in ("override_yaml", "example_yaml", "template")]
+    + [(f, "file") for f in ("override_yaml", "example_yaml", "template", "currencies_yaml")]
     + [(f"duckdb.{t}", "store") for t in sorted(_REQUIRED_TABLES["analyze"])]
     + [(o, "output") for o in ("report_md", "report_html", "report_json")]
     + [
@@ -1227,7 +1271,9 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
     "tickers": ["--from-screen", "latest", "by rank", "exit code 2"],
     "override": ["--override", "exactly one ticker", "config/assumptions/TICKER.yaml"],
     "cli.errors": ["exit code 2", "exit code 1", "worst"],
-    "inputs.load": ["non-restated", "oldest-first", "pe, ev_sales, op_margin, beta_levered"],
+    "inputs.load": [
+        "non-restated", "oldest-first", "pe, ev_sales, op_margin, beta_levered", "valuation currency",
+    ],
     "inputs.derived": [
         "net debt = total debt - cash",
         "EBIT ÷ interest expense",
@@ -1254,7 +1300,8 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "story_pattern",
         "historical_average",
         "rule_based",
-        "4%",
+        "nominal GDP growth of the valuation currency",
+        "unresolved",
         "(revenue_t - revenue_t-1) ÷ revenue_t-1",
     ],
     "assumptions.margin": [
@@ -1267,7 +1314,13 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
     "assumptions.sales_to_capital": ["manual", "sector label", "unresolved"],
     "assumptions.discount_rates": ["cost of equity", "pre-tax cost of debt", "unresolved"],
     "assumptions.weights": ["D/E ÷ (1 + D/E)", "1 - it", "sum to 1", "1 - debt weight"],
-    "assumptions.terminal_growth": ["min(risk-free rate, nominal GDP growth 4%)", "rule_based"],
+    "assumptions.terminal_growth": [
+        "min(risk-free rate, nominal GDP growth)",
+        "valuation currency",
+        "config/currencies.yaml",
+        "rule_based",
+        "unresolved",
+    ],
     "assumptions.tax": ["sector label", "country tax_rate", "sector_default_damodaran", "25%"],
     "assumptions.bankruptcy": ["manual", "else 0 → rule_based"],
     "dcf.guard": ["1,000,000 ≤ diluted shares ≤ 100,000,000,000", "exit code 1"],
@@ -1457,6 +1510,8 @@ def _valuation_input(shares: float) -> Any:
             country=None,
             sector=resolve._SectorRow(0.08, 0.09, 0.05, 0.1, 2.0, 0.25, 0.5),
             historical_growth_path=None,
+            valuation_currency="USD",
+            currency_rates=CurrencyRates(0.0395, 0.04, "s", "g", date(2026, 1, 1)),
         ),
     )
 
@@ -1475,6 +1530,17 @@ def test_analyze_share_bounds_are_inclusive(shares: float, valued: bool) -> None
     else:
         with pytest.raises(ValueError, match="implausible diluted share count"):
             analyze("T", conn, company=_valuation_input(shares))
+
+
+def test_analyze_has_no_gdp_constant() -> None:
+    assert "4%" not in _check().visible(_analyze())
+
+
+def test_analyze_terminal_growth_reads_the_currency_table() -> None:
+    board = _analyze()
+    assert _edge_line(board, "currencies_yaml", "assumptions.terminal_growth") is not None
+    assert _edge_line(board, "duckdb.damodaran_country", "assumptions.terminal_growth") is None
+    assert _edge_line(board, "inputs.load", "assumptions") is not None
 
 
 def test_analyze_terminal_growth_must_stay_below_wacc() -> None:
@@ -1629,7 +1695,10 @@ _PORTFOLIO_TEXT: dict[str, list[str]] = {
         "naive Coordinated Universal Time (UTC)",
     ],
     "marks.held": ["≠ 0"],
-    "marks.valuation": ["config/assumptions/TICKER.yaml", "red narrative flags", "unknown"],
+    "marks.valuation": [
+        "config/assumptions/TICKER.yaml", "red narrative flags", "unknown",
+        "config/currencies.yaml", "once per run",
+    ],
     "marks.gates": ["skipped rule does not count", "sector WACC"],
     "marks.persist.unknowns": ["never fires", "counts as empty"],
     "events.window": ["per ticker across accounts", "never a recomputation"],
@@ -1786,7 +1855,7 @@ def test_portfolio_cli_order_matches_code() -> None:
 
 
 _PORTFOLIO_GAPS: dict[str, list[str]] = {
-    "sync.value.adr_0005": ["ADR 0005 (Not implemented)"],
+    "sync.value.adr_0005": ["ADR 0005 (Implemented)", "§1\u2013§3", "US-only"],
     "sync.corporate_actions.unverified": ["not yet verified against a real pull", "issue 110"],
     "events.split.other_actions": ["mergers", "fire no event"],
     "events.new_filing.no_auto_analyze": [
@@ -1814,7 +1883,8 @@ def _collapsed(text: str) -> str:
 def test_portfolio_adr_0005_gap_is_current() -> None:
     adr = next((_ROOT / "docs" / "adr").glob("0005-*.md")).read_text(encoding="utf-8")
     status = adr[adr.index("## Status") :].split("\n## ", 1)[0]
-    unimplemented = "Not implemented" in _collapsed(status)
+    # §4 is implemented (#109); the gap stays while §1-§3 are not.
+    unimplemented = "still not implemented" in _collapsed(status)
     assert _has_gap("sync.value.adr_0005") == unimplemented
 
 
