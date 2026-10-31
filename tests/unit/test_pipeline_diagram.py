@@ -293,6 +293,35 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.screener.ranking._percentiles",
         "bot.screener.persist.persist_candidates",
     },
+    "analyze-inputs": {
+        "bot.valuator.analysis.load_valuation_input",
+        "bot.cli.analyze",
+        "bot.reference.regions.dataset_region",
+    },
+    "analyze-story": {
+        "bot.valuator.story_types.classify",
+        "bot.valuator.story_types._earnings_cv",
+        "bot.valuator.story_types._cagr",
+    },
+    "analyze-assumptions": {
+        "bot.valuator.assumptions.resolve_assumptions",
+        "bot.valuator.assumptions._resolve_revenue_growth",
+        "bot.valuator.assumptions._resolve_operating_margin",
+        "bot.valuator.assumptions._resolve_weights",
+        "bot.valuator.assumptions._resolve_terminal_growth",
+        "bot.valuator.assumptions._resolve_tax_rate",
+    },
+    "analyze-dcf": {"bot.valuator.dcf.dcf", "bot.valuator.dcf._wacc"},
+    "analyze-sensitivity": {"bot.valuator.sensitivity.tornado", "bot.valuator.sensitivity.grid_2d"},
+    "analyze-flags": {
+        "bot.valuator.narrative_flags.narrative_flags",
+        "bot.valuator.narrative_flags.country_exposure_flag",
+    },
+    "analyze-verdict": {
+        "bot.reporting.analysis_report.margin_verdict",
+        "bot.valuator.analysis._sanity_check",
+        "bot.reporting.analysis_json.render_analysis_json",
+    },
 }
 # Derived from schema.sql, so a new table cannot go undrawn on the overview.
 _REQUIRED_TABLES: dict[str, set[str]] = {
@@ -346,6 +375,11 @@ _REQUIRED_TABLES: dict[str, set[str]] = {
     },
     "screen-coverage": {"damodaran_industry"},
     "screen-ranking": {"screener_candidates"},
+    "analyze-inputs": {
+        "screener_candidates", "companies", "financials_annual", "prices_daily",
+        "damodaran_industry", "damodaran_country",
+    },
+    "analyze-assumptions": {"damodaran_industry", "damodaran_country"},
 }
 _REQUIRED_FILES: dict[str, set[str]] = {
     "pipeline": {
@@ -403,6 +437,9 @@ _REQUIRED_FILES: dict[str, set[str]] = {
         "config/currencies.yaml",
         "docs/adr/0006-unmeasurable-companies-leave-the-universe.md",
     },
+    "analyze-story": {"config/assumptions"},
+    "analyze-assumptions": {"config/assumptions", "config/currencies.yaml"},
+    "analyze-verdict": {"src/bot/reporting/templates/analysis.md.j2"},
 }
 # Derived from the rule registry and the preset, so a new rule or parameter
 # cannot go undrawn on the screen board.
@@ -510,6 +547,43 @@ _REQUIRED_CONSTS: dict[str, set[str]] = {
     "screen-snapshot": {"bot.screener.engine.DEFAULT_REGION", "bot.screener.engine.DEFAULT_TAX_RATE"},
     "screen-quality": {"bot.screener.rules.DEFAULT_EXCLUDED_SECTORS"},
     "screen-ranking": {"bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY"},
+    "analyze-story": {
+        "bot.valuator.story_types._DISTRESS_ALTMAN_Z",
+        "bot.valuator.story_types._DISTRESS_INTEREST_COVERAGE",
+        "bot.valuator.story_types._CYCLICAL_EARNINGS_CV",
+        "bot.valuator.story_types._HIGH_GROWTH_CAGR",
+        "bot.valuator.story_types._MATURE_AGE_YEARS",
+        "bot.valuator.story_types._DECLINE_CAGR",
+    },
+    "analyze-assumptions": {
+        "bot.valuator.assumptions._HORIZON",
+        "bot.valuator.assumptions._MIN_CYCLE_YEARS",
+        "bot.valuator.assumptions._DEFAULT_TAX_RATE",
+    },
+    "analyze-dcf": {
+        "bot.valuator.analysis.MIN_PLAUSIBLE_SHARES",
+        "bot.valuator.analysis.MAX_PLAUSIBLE_SHARES",
+        "bot.valuator.assumptions._HORIZON",
+    },
+    "analyze-sensitivity": {
+        "bot.valuator.sensitivity._TORNADO_LOW",
+        "bot.valuator.sensitivity._TORNADO_HIGH",
+        "bot.valuator.sensitivity._GRID_MULTIPLIERS",
+    },
+    "analyze-flags": {
+        "bot.valuator.narrative_flags._TERMINAL_VALUE_SHARE_CEILING",
+        "bot.valuator.narrative_flags._FOREIGN_REVENUE_MAJORITY",
+        "bot.valuator.narrative_flags._ERP_GAP_THRESHOLD",
+        "bot.valuator.narrative_flags._DEFENSIVE_BETA",
+        "bot.valuator.narrative_flags._HIGH_OPERATING_LEVERAGE",
+        "bot.valuator.narrative_flags._HIGH_FINANCIAL_LEVERAGE",
+        "bot.valuator.narrative_flags._STRETCHED_REINVESTMENT_RATE",
+    },
+    "analyze-verdict": {
+        "bot.web.views.MOS_UNDERVALUED",
+        "bot.web.views.MOS_FAIR",
+        "bot.reporting.analysis_json.SCHEMA_VERSION",
+    },
 }
 _REQUIRED_ENUMS: dict[str, set[str]] = {
     "pipeline": {"bot.web.views.Verdict"},
@@ -524,6 +598,10 @@ _REQUIRED_ENUMS: dict[str, set[str]] = {
     "site": {"bot.web.views.Verdict"},
     "site-views": {"bot.web.views.Verdict"},
     "screen-coverage": {"bot.screener.engine.CoverageReason"},
+    "analyze-story": {"bot.valuator.story_types.StoryType"},
+    "analyze-assumptions": {"bot.valuator.assumptions.AssumptionSource"},
+    "analyze-sensitivity": {"bot.valuator.sensitivity.SensitivityAxis"},
+    "analyze-flags": {"bot.valuator.narrative_flags.FlagColor"},
 }
 
 _REQUIRED: dict[str, dict[str, set[str]]] = {

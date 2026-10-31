@@ -1,0 +1,63 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: turn the resolved assumptions into an intrinsic value per share with a two-stage discounted cash flow (DCF), or stop when the company cannot be valued. | {class: note}
+back: |md back to the analyze board | {
+  class: note
+  link: "./analyze.svg"
+}
+
+# States
+# @symbol bot.valuator.analysis.analyze
+ready: "tax and bankruptcy odds are set" {class: decision}
+# @symbol bot.valuator.analysis.analyze
+shares_ok: "the diluted shares are plausible" {class: step}
+# @symbol bot.valuator.analysis.analyze
+resolved: "every assumption has a source" {class: step}
+# @symbol bot.valuator.analysis.analyze
+cannot_value: "the ticker cannot be valued (exit code 1)" {class: step}  # No outgoing edge: the run of this ticker ends here
+# @symbol bot.valuator.dcf._wacc
+wacc_computed: "the weighted average cost of capital (WACC) is computed" {class: decision}
+# @symbol bot.valuator.dcf.dcf
+projected: "the years are projected\nper year: earnings before interest and taxes (EBIT), net operating profit after tax (NOPAT), free cash flow to the firm (FCFF)" {class: step}
+# @symbol bot.valuator.dcf.dcf
+terminal_valued: "the terminal value is computed" {class: step}
+# @symbol bot.valuator.dcf.dcf
+ev_found: "the enterprise value is found\nenterprise value (EV): the value of the whole company" {class: step}
+# @symbol bot.valuator.dcf.dcf
+equity_found: "the equity value is found" {class: step}
+# @symbol bot.valuator.dcf.dcf
+valued: "the company has an intrinsic value" {class: step}
+
+# Neighbours
+# @symbol bot.valuator.assumptions._resolve_terminal_growth
+tg_set: "terminal growth is sourced" {class: step; link: "./analyze-assumptions.svg"}  # No incoming edge: the flow enters from analyze-assumptions
+# @symbol bot.valuator.story_types.classify
+classified: "the classifier has named a story type" {class: decision; link: "./analyze-story.svg"}  # No incoming edge: the flow enters from analyze-story
+# @symbol bot.valuator.assumptions.resolve_assumptions
+scalars_set: "the capital scalars are sourced" {class: decision; link: "./analyze-assumptions.svg"}  # No incoming edge: the flow enters from analyze-assumptions
+# @symbol bot.valuator.sensitivity.tornado
+tornado_done: "the one-at-a-time sensitivity is done" {class: step; link: "./analyze-sensitivity.svg"}  # No outgoing edge: the flow goes on in analyze-sensitivity
+
+out: "Comes out:\nthe intrinsic value per share, EV, equity value = intrinsic value per share × diluted shares, terminal value share, WACC and the year table" {class: output; link: "./analyze-sensitivity.svg"}
+
+# Edges
+tg_set -> ready: "tax rate and bankruptcy odds are set [manual, sector, country, or 25%; bankruptcy manual or 0]"  # @const bot.valuator.assumptions._DEFAULT_TAX_RATE @symbol bot.valuator.assumptions._resolve_tax_rate
+classified -> cannot_value: "the ticker cannot be valued, exit code 1 [the override file is not a mapping or has an unknown key]"
+scalars_set -> cannot_value: "the ticker cannot be valued, exit code 1 [both weights set by hand and not summing to 1]"
+ready -> cannot_value: "the ticker cannot be valued, exit code 1 [no revenue in the newest year]"
+ready -> cannot_value: "the ticker cannot be valued, exit code 1 [diluted shares missing or outside 1,000,000 to 100,000,000,000]"  # @const bot.valuator.analysis.MIN_PLAUSIBLE_SHARES @const bot.valuator.analysis.MAX_PLAUSIBLE_SHARES
+ready -> shares_ok: "the diluted shares are plausible\n[shares present and inside the plausible range]"
+shares_ok -> cannot_value: "the ticker cannot be valued, exit code 1 [an assumption is unresolved]"
+shares_ok -> resolved: "every assumption has a source"
+resolved -> cannot_value: "the ticker cannot be valued, exit code 1 [sales-to-capital at most 0, or an empty growth path]"
+resolved -> wacc_computed: "the weighted average cost of capital (WACC) is computed\nWACC = equity weight × cost of equity + debt weight × pre-tax cost of debt × (1 − tax)"  # @symbol bot.valuator.dcf._wacc
+wacc_computed -> cannot_value: "the ticker cannot be valued, exit code 1 [terminal growth at or above the weighted average cost of capital (WACC)]"
+wacc_computed -> projected: "the years are projected [terminal growth below the weighted average cost of capital (WACC)]\nfor t = 1 … N, N = length of the growth path, 5 unless a manual list differs\nrevenue_t = revenue_t−1 × (1 + g_t), revenue_0 = latest revenue\nEBIT_t = revenue_t × margin_t\nNOPAT_t = EBIT_t × (1 − tax)\nreinvestment_t = (revenue_t − revenue_t−1) ÷ sales-to-capital\nFCFF_t = NOPAT_t − reinvestment_t\npresent value_t = FCFF_t ÷ (1 + WACC)^t"  # @symbol bot.valuator.dcf.dcf @const bot.valuator.assumptions._HORIZON
+projected -> terminal_valued: "the terminal value is computed\nterminal year N + 1: revenue = revenue_N × (1 + g_terminal), margin_N; FCFF_N+1 by the same formulas\nterminal value = FCFF_N+1 ÷ (WACC − g_terminal)\npresent value of terminal value = terminal value ÷ (1 + WACC)^N"  # @symbol bot.valuator.dcf.dcf
+terminal_valued -> ev_found: "the enterprise value is summed\nEV = Σ present value_t + present value of terminal value\nterminal value share = present value of terminal value ÷ EV (0 when EV = 0)"  # @symbol bot.valuator.dcf.dcf
+ev_found -> equity_found: "equity and the going-concern value per share are found\nequity = EV − net debt + adjustments\ngoing-concern value per share = equity ÷ diluted shares"  # @symbol bot.valuator.dcf.dcf
+equity_found -> valued: "the intrinsic value per share blends going concern and distress\nintrinsic value per share = (1 − p) × going-concern value per share + p × distress value per share, p = bankruptcy odds"  # @symbol bot.valuator.dcf.dcf
+valued -> tornado_done: "each assumption is moved to 0.8 and 1.2 times, one at a time"  # @const bot.valuator.sensitivity._TORNADO_LOW @const bot.valuator.sensitivity._TORNADO_HIGH
+valued -> out: "the value, its parts and the year table go on to the sensitivity [always]"

@@ -1,14 +1,14 @@
 # Pipeline boards
 
-Six d2 boards and fifteen sub-boards document the investment-bot pipeline.
+Six d2 boards and twenty-two sub-boards document the investment-bot pipeline.
 `classes.d2` holds the nine node classes and is not a board. Every board starts with
 `...@classes` and imports nothing else.
 
 Boards: `pipeline.svg` (overview: cron schedules, the five stages, external services, DuckDB
 tables, outputs), `refresh.svg`, `screen.svg`, `analyze.svg`, `portfolio.svg`, `site.svg` (one per
 stage). Reading order: `pipeline.svg` first; its stage nodes link the stage boards in the order
-refresh, screen, analyze, portfolio, site. The `site`, `refresh` and `screen` boards link four, five
-and six sub-boards, `<stage>-<sub>.svg`, one per model group (`models/<stage>.view.js`).
+refresh, screen, analyze, portfolio, site. The `site`, `refresh`, `screen` and `analyze` boards
+link four, five, six and seven sub-boards, `<stage>-<sub>.svg`, one per model group (`models/<stage>.view.js`).
 
 ## Commands
 

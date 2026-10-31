@@ -389,3 +389,103 @@ def test_screen_subboard_text(stem: str) -> None:
     visible = _visible(stem)
     missing = [p for p in _SCREEN_TEXT[stem] if _check().normalize(p) not in visible]
     assert missing == []
+
+
+# Analyze sub-boards (#170).
+_ANALYZE_SUBBOARDS = {
+    "analyze-inputs", "analyze-story", "analyze-assumptions", "analyze-dcf",
+    "analyze-sensitivity", "analyze-flags", "analyze-verdict",
+}
+# What a reader must find on each board (issue #170 acceptance criteria); the DCF lines are
+# the arithmetic of src/bot/valuator/dcf.py.
+_ANALYZE_TEXT: dict[str, list[str]] = {
+    "analyze-inputs": [
+        "--from-screen",
+        "config/assumptions/TICKER.yaml",
+        "China, India, Japan",
+        "net debt = total debt \u2212 cash",
+        "interest coverage = EBIT \u00f7 interest expense",
+    ],
+    "analyze-story": [
+        "first match wins",
+        "Altman Z < 1.81",
+        "coefficient of variation = standard deviation \u00f7 |mean| of net income",
+        "CAGR = (last \u00f7 first)^(1 \u00f7 (years \u2212 1)) \u2212 1",
+    ],
+    "analyze-assumptions": [
+        "story_pattern",
+        "historical_average",
+        "sector_default_damodaran_cross_region",
+        "min(risk-free rate, nominal GDP growth)",
+        "debt weight = D/E \u00f7 (1 + D/E)",
+        "config/currencies.yaml",
+    ],
+    "analyze-dcf": [
+        "WACC = equity weight \u00d7 cost of equity + debt weight \u00d7 pre-tax cost of debt"
+        " \u00d7 (1 \u2212 tax)",
+        "revenue_t = revenue_t\u22121 \u00d7 (1 + g_t)",
+        "EBIT_t = revenue_t \u00d7 margin_t",
+        "NOPAT_t = EBIT_t \u00d7 (1 \u2212 tax)",
+        "reinvestment_t = (revenue_t \u2212 revenue_t\u22121) \u00f7 sales-to-capital",
+        "FCFF_t = NOPAT_t \u2212 reinvestment_t",
+        "present value_t = FCFF_t \u00f7 (1 + WACC)^t",
+        "terminal value = FCFF_N+1 \u00f7 (WACC \u2212 g_terminal)",
+        "present value of terminal value = terminal value \u00f7 (1 + WACC)^N",
+        "EV = \u03a3 present value_t + present value of terminal value",
+        "equity = EV \u2212 net debt + adjustments",
+        "going-concern value per share = equity \u00f7 diluted shares",
+        "intrinsic value per share = (1 \u2212 p) \u00d7 going-concern value per share"
+        " + p \u00d7 distress value per share",
+    ],
+    "analyze-sensitivity": [
+        "swing = |intrinsic value at \u00d7 1.2 \u2212 intrinsic value at \u00d7 0.8|",
+        "two widest",
+        "cell = intrinsic value \u00f7 price",
+    ],
+    "analyze-flags": ["always unknown", "300 bps", "operating leverage = %\u0394EBIT \u00f7 %\u0394Revenue"],
+    "analyze-verdict": [
+        "potentially undervalued",
+        "around fair value",
+        "potentially overvalued",
+        "n/a",
+        "decides nothing",
+        "reports/YYYY-MM-DD/analysis/TICKER.json",
+    ],
+}
+# The gap notes a sub-board repeats because they change what the reader sees in the flow.
+_ANALYZE_GAPS = {"analyze-story": "Altman Z", "analyze-flags": "always unknown"}
+
+
+def test_analyze_has_seven_subboards() -> None:
+    assert {s for s, (stage, _) in subboards().items() if stage == "analyze"} == _ANALYZE_SUBBOARDS
+
+
+@pytest.mark.parametrize("stem", sorted(_ANALYZE_TEXT))
+def test_analyze_subboard_text(stem: str) -> None:
+    visible = _visible(stem)
+    missing = [p for p in _ANALYZE_TEXT[stem] if _check().normalize(p) not in visible]
+    assert missing == []
+
+
+def test_analyze_verdict_outputs() -> None:
+    from tests.unit.test_pipeline_models import _map
+
+    text = _text("analyze-verdict")
+    nodes = node_labels(text)
+    reported = _map("analyze", "states")["reported"]
+    outputs = {p for p, (_, cls, _) in nodes.items() if cls == "output" and p != "out"}
+    assert len(outputs) == 3
+    fed = {dst for _, src, dst, _ in edges(text) if first_line(nodes.get(src, (0, None, ""))[2]) == reported}
+    assert outputs <= fed
+    json_outputs = [p for p in outputs if ".json" in nodes[p][2]]
+    assert len(json_outputs) == 1
+    assert _link(_block(text, json_outputs[0]) or "") == "./site.svg"
+
+
+@pytest.mark.parametrize("stem", sorted(_ANALYZE_SUBBOARDS))
+def test_analyze_gap_notes(stem: str) -> None:
+    gaps = [label for _, cls, label in node_labels(_text(stem)).values() if cls == "gap"]
+    if stem in _ANALYZE_GAPS:
+        assert any(g.startswith("Gap:") and _ANALYZE_GAPS[stem] in g for g in gaps), gaps
+    else:
+        assert gaps == []

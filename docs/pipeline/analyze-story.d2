@@ -1,0 +1,55 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: name the company's story type with the first rule that matches, then let the override file replace it. | {class: note}
+back: |md back to the analyze board | {
+  class: note
+  link: "./analyze.svg"
+}
+
+# States
+# @symbol bot.valuator.story_types.classify
+not_distressed: "the company is not distressed" {class: decision}
+# @symbol bot.valuator.story_types.classify
+not_cyclical: "the company is not cyclical" {class: decision}
+# @symbol bot.valuator.story_types.classify
+not_high_growth: "the company is not high-growth" {class: decision}
+# @symbol bot.valuator.story_types.classify @enum bot.valuator.story_types.StoryType
+classified: "the classifier has named a story type\nfirst match wins, in this order\ndistressed\ncyclical\nhigh-growth\nmature-decline\nmature-stable" {class: decision}
+# @symbol bot.cli.analyze
+crashed: "the command crashes (exit code 1)" {class: step}  # No outgoing edge: the run of this ticker ends here
+# @symbol bot.valuator.assumptions.resolve_assumptions
+story_set: "the story type is settled" {class: decision}
+altman: |md Gap: Altman Z is read by the classifier but computed nowhere, and analyze never passes it; only interest coverage can make a company distressed. | {class: gap}
+
+# Neighbours
+# @symbol bot.valuator.analysis.analyze @symbol bot.reference.sectors.is_cyclical
+signals: "the signals are derived" {class: decision; link: "./analyze-inputs.svg"}  # No incoming edge: the flow enters from analyze-inputs
+# @symbol bot.valuator.analysis.analyze
+cannot_value: "the ticker cannot be valued (exit code 1)" {class: step; link: "./analyze-dcf.svg"}  # No outgoing edge: the run of this ticker ends here
+# @symbol bot.valuator.assumptions.resolve_assumptions
+sector_read: "the sector row is read" {class: step; link: "./analyze-assumptions.svg"}  # No outgoing edge drawn: the flow goes on in analyze-assumptions
+
+# Files
+override_yaml: "config/assumptions/TICKER.yaml, manual overrides" {class: file}  # @file config/assumptions @symbol bot.valuator.assumptions.conventional_override_path
+
+out: "Comes out:\nthe story type the assumptions will follow, and the classifier's own type for the report" {class: output; link: "./analyze-assumptions.svg"}
+
+# Edges
+signals -> classified: "the classifier says distressed [interest coverage at most 1.0]\nor Altman Z < 1.81, which analyze never supplies"  # @const bot.valuator.story_types._DISTRESS_INTEREST_COVERAGE @const bot.valuator.story_types._DISTRESS_ALTMAN_Z
+signals -> not_distressed: "not distressed [interest coverage above 1.0 or unknown]"  # @const bot.valuator.story_types._DISTRESS_INTEREST_COVERAGE
+not_distressed -> classified: "the classifier says cyclical [cyclical sector and earnings variation at least 0.50]\ncoefficient of variation = standard deviation ÷ |mean| of net income\n(population standard deviation; fewer than two years or mean 0: not cyclical)"  # @symbol bot.valuator.story_types._earnings_cv @const bot.valuator.story_types._CYCLICAL_EARNINGS_CV
+not_distressed -> not_cyclical: "not cyclical [otherwise]"
+not_cyclical -> classified: "the classifier says high-growth [revenue growth at least 15% a year and age at most 25 years or unknown]\nrevenue compound annual growth rate (CAGR)\nCAGR = (last ÷ first)^(1 ÷ (years − 1)) − 1\nunknown age counts as young\nfewer than two years, or first or last ≤ 0: mature-stable"  # @symbol bot.valuator.story_types._cagr @const bot.valuator.story_types._HIGH_GROWTH_CAGR @const bot.valuator.story_types._MATURE_AGE_YEARS
+not_cyclical -> not_high_growth: "not high-growth [otherwise]"
+not_high_growth -> classified: "the classifier says mature-decline [revenue growth at most −1% a year]\nCAGR ≤ −1%"  # @const bot.valuator.story_types._DECLINE_CAGR
+not_high_growth -> classified: "the classifier says mature-stable [every other company]"
+classified -> crashed: "the command crashes, exit code 1 [the override file is not valid YAML, or a value is empty or a list where a number is expected]"
+classified -> cannot_value: "the ticker cannot be valued, exit code 1 [the override file is not a mapping or has an unknown key]"
+classified -> story_set: "the classifier's story type stands [no story type in the override file]"
+classified -> story_set: "the override file's story type replaces it [story type set in the file; an unknown label drives no branch]"
+override_yaml -> classified: "story_type key, read with every other override"
+story_set -> sector_read: "the sector row is found [its region's, else another region's]"
+story_set -> sector_read: "no sector row [industry absent from every region]"
+story_set -> out: "the story type goes on to the assumptions [always]"
