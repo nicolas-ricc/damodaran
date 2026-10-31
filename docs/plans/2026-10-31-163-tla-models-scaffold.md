@@ -102,7 +102,7 @@ Phases, groups and actions (`from → to`, effect; code to cite in a `(* *)` com
 | site-publish | nothing_new, push_failed, on_master | (end, end, see ci) |
 | site-ci | — | from on_master: DependenciesInstall → installed / DependencyInstallFails → ci_failed (`failed' = "sync"`); both set `workflowRan' = TRUE` (`site.yml` on push to master) |
 | site-ci | installed / linted / typed | RuffPasses → linted / RuffFails; MypyPasses → typed / MypyFails; PytestPasses → tested / PytestFails (each Fails → ci_failed with `failed'` = "ruff" / "mypy" / "pytest") |
-| site-ci | tested, ci_failed | BotSiteNormalisesTheBaseUrl → base_url_set, `baseUrl' = "normalised"` (`build` first line); ci_failed end |
+| site-ci | tested | BotSiteNormalisesTheBaseUrl → base_url_set, `baseUrl' = "normalised"` (`build` first line). `ci_failed` is an end phase: no action leaves it. |
 | site-scan | base_url_set | TheOutputDirIsUnsafe → out_refused, `failed' = "site"` (`_prepare_out_dir` raises); TheOutputDirIsReady → out_ready, `wrote' = TRUE` (marker written) |
 | site-scan | out_ready | TheFolderIsNotADate / TheStemIsNotATicker / TheSchemaVersionIsWrong / TheTickerDoesNotMatch → skipped with that `skip'` (`index.scan`, `read_sidecar`); TheSidecarIsUsable → usable |
 | site-scan | usable | TheAnalysisLacksAField → skipped, `skip' = "not renderable"` (`_renderable`); TheAnalysisHasEveryField → renderable |
@@ -133,7 +133,8 @@ Rules (INVARIANT, reader's sentence as `\*` comment directly above):
   - `test_model_files_sit_together`: `.cfg` and `.view.js` exist; first line of `.tla` matches `---- MODULE <stem> ----` (any run of 4+ dashes).
   - `test_cfg_has_spec_and_invariants`: `SPECIFICATION Spec` line; ≥1 `INVARIANT` line.
   - `test_tla_has_next_and_done`: lines starting `Next ==`, `Done ==`, `Spec ==`; `Done` body has `phase \in EndPhases` and `UNCHANGED vars`.
-  - `test_next_names_every_step`: the `\/`-separated names in `Next` equal the keys of `steps`.
+  - `test_next_names_every_step`: the `\/`-separated names in the `Next ==` body (which may span lines, up to the next blank line) equal the keys of `steps`. `Done` is a key of `steps` with a label ("the run ends"), as the skill asks; it stays in one chart state, so the chart does not draw it.
+  - `test_labels_name_no_code`: no `states`/`steps` label contains a `steps` key, a variable name declared in `VARIABLES`, or an underscore.
   - `test_view_maps_and_exports`: `const states|steps|groups = {` each present; `export const` names exactly `{state, step, group, colors, title}`; the three function lines verbatim as in the issue.
   - `test_groups_are_stage_subboards`: every `groups` value matches `^<stem>-[a-z][a-z-]*$`; every `colors` key is a `groups` value and vice versa; colors in the seven allowed.
   - `test_states_and_groups_keys_match`.
@@ -150,12 +151,29 @@ Rules (INVARIANT, reader's sentence as `\*` comment directly above):
 - Create: `docs/pipeline/models/README.md`
 - Modify: `docs/pipeline/README.md` (new `## Models` paragraph pointing at `models/README.md`), `CONTEXT.md` ("Source of truth": bullet after the pipeline boards bullet)
 
-- [ ] **Step 1: Tests fail:** `test_models_readme` (names `docs/pipeline/models/check.sh`, `pipeline-models`, `## Known broken rules` with a table header `| Stage | Rule | Reader's sentence | Issue |`), `test_models_folder_holds_only_ours` (the folder's files equal the eight listed in Global Constraints), `test_pipeline_readme_points_at_models` (`models/README.md` in `docs/pipeline/README.md`), `test_context_lists_the_models` (`docs/pipeline/models/` appears in CONTEXT.md after the `docs/pipeline/` boards bullet).
+- [ ] **Step 1: Tests fail:** `test_models_readme` (names `docs/pipeline/models/check.sh`, `pipeline-models`, `## Known broken rules` with a table header `| Stage | Rule | Reader's sentence | Issue |`), `test_models_folder_holds_only_ours` (every git-tracked file in the folder is one of `check.sh`, `README.md`, `TLA_VERSION`, `TLA_SHA256`, `STATECHART_COMMIT`, or `<stem>.tla|.cfg|.view.js`; the eight site/scaffold files are present; no `.ts`, no `SKILL.md`), `test_pipeline_readme_points_at_models` (`models/README.md` in `docs/pipeline/README.md`), `test_context_lists_the_models` (`docs/pipeline/models/` appears in CONTEXT.md after the `docs/pipeline/` boards bullet).
 - [ ] **Step 2: Write** the README: what the models are (one per stage, one unit through one run), layout, the conventions (including the two declared decisions above), labelling rules in a few lines, the command (CI job and the local `TLA2TOOLS=… STATECHART=… docs/pipeline/models/check.sh /tmp/out`), how to read the artifact, the broken-rule protocol, empty "Known broken rules" table.
 - [ ] **Step 3: Run** `uv run pytest -q tests/unit/test_pipeline_models.py` → PASS.
 - [ ] **Step 4: Commit** `docs(#163): models README and pointers`.
 
 ### Task 5: TLC in CI (controller, not a subagent)
 
+- [ ] Stopping rule: at most five push/watch rounds. If the `models` job is still red after the fifth, comment the stage and the report on #163 and stop with an error (the job only lands on the story branch through a green PR, so no red job reaches it).
 - [ ] Push the branch; `gh run watch` the `pipeline-diagram` run; download `pipeline-models`; read `site/report.md`. Fix the model or the view until `check.sh` exits 0 with ≥6 rules holding and no breaks/unchecked/stopped. If the checksum step fails, take the hash of the real release asset and record it in the PR. A broken rule follows the broken-rule protocol of the issue (replay pytest, `bug` issue, `\* broken: #n`, README table); pipeline code never changes.
 - [ ] Full suite, lint, `python3 docs/pipeline/check.py` → `0 errors`.
+
+## Assumptions
+
+- View maps are plain `const` (not exported), because the skill's `checkView` rejects other exports (`scripts/frontends/view.ts:58,72` at the pinned commit). Rejected alternative: `export const states` as the issue's text writes it, which makes the launcher exit 2.
+- "INVARIANT-shaped" is defined by the plan, because the issue does not define it: a `\*` line comment directly above a definition is reserved for rules. Rejected alternative: matching definition names, which is fragile across models.
+- An orphan `.cfg`/`.view.js` without a `.tla` is not an error, because the issue's `check.sh` loops over `*.tla`. Rejected alternative: failing on orphans.
+- `Done` gets a step label rather than `null`, as the skill's SKILL.md asks ("give it a label in `step()`"). Rejected alternative: `null`.
+- Rule (c) cannot break in the model by construction: it records the reset/clean/copy of `publish_site.sh:40-45` as a checked statement for the sub-board. Rejected alternative: a nondeterministic dirty worktree, which the code rules out.
+- The CI loop is capped at five rounds. Rejected alternative: unbounded iteration.
+
+## Grilling
+
+- Rounds: 1 (the revisions tightened tests and fixed one table row; no step was added or removed and no seam changed, so no second round).
+- Questions: 18. Sources: ISSUE 7, CODE 9, DOC 1, NO SOURCE 4. The four unsourced questions all landed in the technical-assumption bucket; there are no spec ambiguities and none was out of scope.
+- Assumptions: see `## Assumptions`.
+- Issues opened: none.
