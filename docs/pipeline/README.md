@@ -42,14 +42,12 @@ top-level nodes at the edge of the flow, never a container.
 - A state is a `decision` when two or more steps leaving it carry a [condition], else a `step`.
   Every edge leaving a decision has a [condition]; an edge whose label has no [condition] gets one
   on its second line.
-- A step drawn on two boards (it crosses groups) appears on both. The far end is a neighbour node,
-  with a trailing comment `No incoming edge` or `No outgoing edge`, as is a terminal state. A
-  neighbour node carries `link:` to its own sub-board.
-- Every step and decision node carries a directive.
+- A step that crosses groups is drawn on both boards. Its far end is a neighbour node that links
+  its own sub-board; a `step` neighbour or terminal state carries `No incoming edge` or `No
+  outgoing edge` as a trailing comment.
+- Every step and decision node carries a directive. Gap notes stay on the stage board.
 - At most 24 edges per board, aim for 20. Over that, split the group in the model (groups and
-  colours only, not the TLA+ logic).
-- Gap notes stay on the stage board.
-- Tests: `tests/unit/test_pipeline_subboards.py`.
+  colours only, not the TLA+ logic). Tests: `tests/unit/test_pipeline_subboards.py`.
 
 ## Models
 

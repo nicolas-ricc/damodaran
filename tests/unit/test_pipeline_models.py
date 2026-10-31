@@ -519,3 +519,22 @@ def test_subboard_state_classes(stage: str) -> None:
         if first in expected and cls != expected[first]
     ]
     assert wrong == []
+
+
+@pytest.mark.parametrize("stage", _SUBBOARDED)
+def test_neighbour_nodes_link_their_subboard(stage: str) -> None:
+    """A state drawn on another group's sub-board links the sub-board it belongs to."""
+    from tests.unit.test_pipeline_diagram import _block
+    from tests.unit.test_pipeline_subboards import _link
+
+    groups = _map(stage, "groups")
+    group_of = {label: groups[key] for key, label in _map(stage, "states").items()}
+    wrong = []
+    for stem, text in _stage_boards(stage).items():
+        for path, (_, first) in _drawn_nodes(text).items():
+            group = group_of.get(first)
+            if group and group != stem:
+                link = _link(_block(text, path) or "")
+                if link != f"./{group}.svg":
+                    wrong.append(f"{stem} {path}: link {link}, expected ./{group}.svg")
+    assert wrong == []

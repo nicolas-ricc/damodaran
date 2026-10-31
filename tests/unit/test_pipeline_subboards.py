@@ -7,6 +7,7 @@ A sub-board is the stage's checked statechart drawn in d2: see docs/pipeline/REA
 from __future__ import annotations
 
 import re
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -27,7 +28,6 @@ _STORES = {"store", "file", "external"}
 _MD_RE = re.compile(r":\s*\|+[^\w\s|]*md\s(.*?)\s*\|")
 _QUOTED_RE = re.compile(r':\s*"((?:[^"\\]|\\.)*)"')
 _EDGE_RE = re.compile(r'^\s*([\w.]+)\s*->\s*([\w.]+)\s*:\s*"((?:[^"\\]|\\.)*)"')
-_GROUP_RE = re.compile(r'^\s+\w+: "([^"]+)",?$')
 
 
 def subboards() -> dict[str, tuple[str, str]]:
@@ -42,19 +42,11 @@ def subboards() -> dict[str, tuple[str, str]]:
 
 def group_order(stage: str) -> list[str]:
     """The groups of models/<stage>.view.js, in order of first appearance."""
-    path = _MODELS / f"{stage}.view.js"
-    if not path.exists():
+    from tests.unit.test_pipeline_models import _map
+
+    if not (_MODELS / f"{stage}.view.js").exists():
         return []
-    lines = path.read_text(encoding="utf-8").splitlines()
-    start = lines.index("const groups = {")
-    order: list[str] = []
-    for line in lines[start + 1 :]:
-        if line.strip() == "};":
-            break
-        m = _GROUP_RE.match(line)
-        if m and m.group(1) not in order:
-            order.append(m.group(1))
-    return order
+    return [g for g in dict.fromkeys(_map(stage, "groups").values()) if g]
 
 
 def node_labels(text: str) -> dict[str, tuple[int, str | None, str]]:
@@ -98,9 +90,15 @@ def _next_link(stem: str) -> str:
     return f"./{order[i + 1]}.svg" if i + 1 < len(order) else f"./{stage}.svg"
 
 
-def _hrefs(stem: str) -> set[str]:
+def _anchors(stem: str) -> Counter[str]:
+    """Target -> number of `<a href>` in the rendered SVG: d2 writes one per `link:`."""
     svg = _PIPELINE / f"{stem}.svg"
-    return set(re.findall(r'href="([^"]+)"', svg.read_text(encoding="utf-8"))) if svg.exists() else set()
+    text = svg.read_text(encoding="utf-8") if svg.exists() else ""
+    return Counter(re.findall(r'<a href="([^"]+)"', text))
+
+
+def _hrefs(stem: str) -> set[str]:
+    return set(_anchors(stem))
 
 
 _SUBBOARDS = sorted(subboards())
@@ -228,3 +226,9 @@ def test_subboard_svg_hrefs(stem: str) -> None:
     hrefs = _hrefs(stem)
     assert f"./{stage}.svg" in hrefs
     assert _next_link(stem) in hrefs
+
+
+@pytest.mark.parametrize("stem", _SUBBOARDS + _SUBBOARDED_STAGES)
+def test_svg_keeps_every_link(stem: str) -> None:
+    """A link dropped by d2 cannot hide behind another node linking the same target."""
+    assert _anchors(stem) == Counter(target for target, _ in _check().links(_text(stem)))
