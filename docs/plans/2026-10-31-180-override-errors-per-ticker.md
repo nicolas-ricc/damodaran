@@ -4,7 +4,7 @@
 
 **Goal:** Every malformed `config/assumptions/<TICKER>.yaml` makes that ticker exit "cannot value" (code 1) and lets `bot analyze` go on with the rest of the batch, instead of crashing the whole command.
 
-**Architecture:** `_load_override` in `src/bot/valuator/assumptions.py` becomes the one gate of the override surface. It turns `yaml.YAMLError` into `ValueError`, sorts unknown keys by their `str` so a non-string key is reported instead of crashing `sorted`, and checks every numeric key's value up front with a new `_check_override_values`. Every refusal is a `ValueError` naming the file and the key. `_analyze_one` (`src/bot/cli.py:453`) already maps `ValueError` to "cannot value", exit 1, and continues. The screener's second pass (`src/bot/screener/engine.py:142-147`) and holding marks (`src/bot/portfolio/marks.py:146`) already catch `ValueError` too, so the same fix covers them with no change there.
+**Architecture:** `_load_override` in `src/bot/valuator/assumptions.py` becomes the one gate of the override surface. It turns `yaml.YAMLError` into `ValueError`, sorts unknown keys by their `str` so a non-string key is reported instead of crashing `sorted`, and checks every numeric key's value up front with a new `_check_override_values`. Every refusal is a `ValueError` naming the file and the key. `_analyze_one` (`src/bot/cli.py:453`) already maps `ValueError` to "cannot value", exit 1, and continues. Its `try` encloses `run_analysis` (`src/bot/cli.py:472-481`), which reaches `resolve_assumptions` (`src/bot/valuator/analysis.py:653`). The screener's second pass (`src/bot/screener/engine.py:142-147`) and holding marks (`src/bot/portfolio/marks.py:146`) also catch `ValueError`, so they benefit with no change. They aren't part of #180's rule, so this plan adds no test for them.
 
 **Tech Stack:** Python 3, PyYAML (`yaml.safe_load`), typer, pytest, mypy --strict, ruff.
 
@@ -33,6 +33,10 @@
 
 - Values are checked eagerly in `_load_override`, not lazily in `_override_scalar` / `_override_path_field`: one gate, and a bad value is refused even for a key a given resolution path happens not to read (for example `probability_of_bankruptcy` on a non-distressed company), so the file is either valid or not.
 - `tests/unit/test_analyze_model_replay.py` and `docs/pipeline/models/analyze.cfg` exist only on `feature/161-pipeline-subboards` (#169 merged there). This branch targets `master` (#180 has no parent issue), so it cannot delete `test_a_malformed_override_raises_out_of_the_batch`, remove the strict `xfail`, or restore the rule in `analyze.cfg`. Instead, Task 3 adds the replay's three cases (plus the Review Focus ones) as CLI batch tests on master. When `master` is merged into the feature branch, the pinned-behaviour test will fail and the strict xfail will XPASS, which is the signal to do the cleanup the issue describes there.
+- `float()` decides which strings are numbers (so `'1_000'` is accepted). Rejected: a stricter string grammar, which no source asks for and which could refuse files that work today.
+- One refusal at a time: the first failing check raises, the same way the existing non-mapping and unknown-key checks behave (`src/bot/valuator/assumptions.py:659-668`). Rejected: collecting every error.
+- A non-string key that YAML builds from a word (`yes:` → `True`, `null:` → `None`) is an unknown key, refused like `1:`. Covered by the same `key=str` sort.
+- `story_type` and `notes` stay unchecked. A non-string `story_type` is turned into a string and, being no valid label, logs a warning and falls back (`src/bot/valuator/assumptions.py:737-743,795-797`).
 - A list of the wrong length for a path key (`revenue_growth: [0.1]`) is not refused: today it runs, and the issue doesn't ask for a length rule.
 
 ## File Structure
@@ -103,6 +107,7 @@ Run: `uv run pytest tests/unit/test_valuator_assumptions.py -q -k "not_yaml or n
         pytest.param("cost_of_equity: high\n", "cost_of_equity", id="word"),
         pytest.param("terminal_growth: .nan\n", "terminal_growth", id="nan"),
         pytest.param("terminal_growth: .inf\n", "terminal_growth", id="inf"),
+        pytest.param("terminal_growth: 'nan'\n", "terminal_growth", id="string-nan"),
         pytest.param("operating_margin: []\n", "operating_margin", id="empty-path"),
         pytest.param("revenue_growth: [0.1, null]\n", "revenue_growth", id="null-in-path"),
         pytest.param("revenue_growth: [0.1, [0.2]]\n", "revenue_growth", id="list-in-path"),
@@ -177,3 +182,11 @@ Run: `uv run pytest tests/unit/test_cli_analyze.py -q -k malformed_override`
 - [ ] **Step 4: Full suite and lint:** `uv run pytest -q && uv run ruff check . && uv run mypy src`, all green.
 
 - [ ] **Step 5: Commit** `test(#180): analyze batch survives a malformed override`
+
+## Grilling
+
+- Rounds: 1 (the revisions add one test case and some notes, not a new step or seam, so there was no second round). Griller model: fable.
+- Questions: 18. Sources: CODE 13, ISSUE 2, NO SOURCE 7 (some answers cite more than one source).
+- Technical assumptions added: `float()` decides which strings count as numbers; one refusal at a time; word-built keys (`yes`, `null`) are unknown keys; `story_type`/`notes` stay unchecked; the error message names the key (wording only, since a non-numeric string already exits 1 today).
+- Plan changes: a string `'nan'` case in Task 2; the screener/marks claim narrowed (no test, not part of the rule).
+- Out of scope, issues opened: #183 (the #169 replay/`analyze.cfg` cleanup on `feature/161`), #184 (an unreadable override file, `OSError`, escapes the batch), #185 (a rendering error after `run_analysis` escapes the batch).
