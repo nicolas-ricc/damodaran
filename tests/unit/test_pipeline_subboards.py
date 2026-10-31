@@ -477,9 +477,9 @@ def test_analyze_verdict_outputs() -> None:
     assert len(outputs) == 3
     fed = {dst for _, src, dst, _ in edges(text) if first_line(nodes.get(src, (0, None, ""))[2]) == reported}
     assert outputs <= fed
-    json = [p for p in outputs if ".json" in nodes[p][2]]
-    assert len(json) == 1
-    assert _link(_block(text, json[0]) or "") == "./site.svg"
+    json_outputs = [p for p in outputs if ".json" in nodes[p][2]]
+    assert len(json_outputs) == 1
+    assert _link(_block(text, json_outputs[0]) or "") == "./site.svg"
 
 
 @pytest.mark.parametrize("stem", sorted(_ANALYZE_SUBBOARDS))
