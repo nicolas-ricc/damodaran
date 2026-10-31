@@ -13,13 +13,13 @@
 ## Global Constraints
 
 - New files: `docs/pipeline/refresh-damodaran.d2`, `refresh-fundamentals.d2`, `refresh-facts.d2`, `refresh-prices.d2`, `refresh-fx.d2`. Their `.svg` files and `rendered.sha256` come only from the CI artifact `pipeline-render`; never edit an SVG or the hash by hand.
-- Every sub-board starts with `...@classes`, a blank line, `direction: down`. `class:` is a node's first attribute. Expand every acronym at its first use on each board (SEC, EDGAR, FX, EBIT, EBITDA, D/E, SIC, FMP, ADR). The expansion must be on the line of the first use or before it, in file order (nodes come before edges). No all-caps token outside `_ACRONYMS` / `_ACRONYMS_EXEMPT`.
+- Every sub-board starts with `...@classes`, a blank line, `direction: down`. `class:` is a node's first attribute. Expand every acronym at its first use on each board (SEC, EDGAR, FX, EBIT, EBITDA, D/E, SIC, FMP). The expansion must be on the line of the first use or before it, in file order (nodes come before edges). No all-caps token outside `_ACRONYMS` / `_ACRONYMS_EXEMPT`.
 - Every number other than 0, 1 and 100 on a node or edge label is cited by `@const`/`@param` on that line; otherwise write it as a word ("eight files", "three or more").
 - At most 24 edges per sub-board; aim for 20.
 - A node that is a model state has that state's `states` label as the exact first line of its label. An edge that is a model step has that step's `steps` label as the exact first line, and it joins the two states that the `.tla` action joins.
 - A state is `decision` when two or more of its model steps carry a `[condition]`, otherwise `step`. This includes neighbours. Every edge leaving a decision has a `[...]` somewhere in its label. A model label without one gets the condition on its second line.
 - Every step and decision node has a directive (`@symbol`, `@const`, `@table`, `@file`, ...) on its line or the line before.
-- Neighbour `step` nodes carry `# No incoming edge: the flow enters from refresh-<sub>` or `# No outgoing edge: the flow goes on in refresh-<sub>`; a terminal state carries `# No outgoing edge: the run ends here`.
+- Neighbour `decision` nodes carry no comment (the edge audit reads `step` nodes only), but every edge drawn out of one still needs a `[...]`. Neighbour `step` nodes carry `# No incoming edge: the flow enters from refresh-<sub>` or `# No outgoing edge: the flow goes on in refresh-<sub>`; a terminal state carries `# No outgoing edge: the run ends here`.
 - No `#`, `{`, `}`, `|` or `"` inside a quoted label. Write `×`, `÷`, `−`, `≤` as on `refresh.d2`.
 - `refresh.d2` gains five `link:` lines and nothing else. `pipeline.d2` does not change. No file under `src/` changes. The TLA+ logic (`refresh.tla`, `refresh.cfg`) does not change.
 - Formulas, thresholds, names and paths are copied from the code, and each is cited. `refresh.d2` already carries most of them with their citations: reuse its wording and directives.
@@ -55,6 +55,14 @@ Two actions that share a label and a pair of states are drawn as one edge: `TheC
    A child link inside a linked container renders in d2 v0.9.0: `site.d2` does this with `build.rows`, and `test_svg_keeps_every_link` passes on `site.svg`.
 6. **README.** `docs/pipeline/README.md` is at 88 lines, with a cap of 90. The sentence naming the site sub-boards is rewritten in place to name the five refresh sub-boards too. The line count stays at 89 or under.
 7. **`site` workflow.** It runs only on a push to master (#164 assumption A2), so it cannot be green on a PR into the feature branch. Its commands are run locally on the head, and the PR says so as a manual verification.
+
+## Assumptions (from the plan grilling; decided, with the rejected alternative)
+
+- A1. **Extra `status` node.** The issue allows it: "Extra nodes beyond the model's states are allowed for the how (one rule, one formula, one lookup), as long as every model state and step of the group is present." It hangs off the flow as a side branch and never replaces a model edge. Rejected: putting the thresholds only in the `out` label, where the reader would not see them as a decision.
+- A2. **Cron defaults in words** on the daily edge ("ten rounds, an hour apart"), cited with `@file scripts/daily.sh`. Rejected: digits, which no `@const` can cite.
+- A3. **Concept precedence is cited** with `@symbol bot.ingest.sec_edgar._collect_period_rows`, as `refresh.d2` does. Rejected: `ANNUAL_CONCEPT_MAP`, which `check.py`'s symbol index does not hold.
+- A4. **Red intermediate pushes.** Pushes before the SVG commit fail the "committed render is current" step and the SVG tests; the issue expects this ("fails once, on the push before the SVGs are committed"). Only the final head must be green. Rejected: none; d2 runs only in CI.
+- A5. **All SVGs are copied from the artifact**, including the unchanged boards (issue rendering step 4). The hash covers the `.d2` sources only, so layout noise in an unrelated SVG cannot fail a check.
 
 ## Review Focus
 
@@ -98,6 +106,7 @@ Done in the evals stage, before any board exists. The new tests fail.
     - `refresh-facts`: `bot.ingest.sec_edgar.ANNUAL_SPAN_DAYS`, `QUARTERLY_SPAN_DAYS`, `_QUARTER_DAYS`, `_SHARE_SCALE_FACTORS`, `_MIN_SHARE_COMPARATORS`, `_SHARE_SCALE_TOLERANCE` (full dotted paths)
     - `refresh-prices`: `bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE`, `bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE`, `bot.ingest.edgar_base._FRESH_DAYS`
     - `refresh-fx`: `bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE`, `bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE`
+    - `refresh-fundamentals`: `bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE`, `bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE`
 - [ ] **Step 3:** In `test_pipeline_subboards.py`, add:
   - `test_refresh_has_five_subboards`: the refresh stems equal the five names above.
   - `test_refresh_subboard_crons`: for each refresh sub-board, the set of `@file` arguments cited on `cron`-class nodes equals:
@@ -168,7 +177,18 @@ Done in the evals stage, before any board exists. The new tests fail.
   - Neighbours as in decision 1.
   - Stores: `companies` (written by `facts_parsed -> companies`, condition "[written in either case, in one transaction with the financials and filings_log rows]") and `refresh_log` (`ticker_counted -> refresh_log`: one row per ticker, source = provider name; one summary row, source = provider name + _universe).
   - `out`: "Comes out:" per ticker one outcome, and for each fetched ticker its company facts, read fact by fact in refresh-facts. `link: "./refresh-facts.svg"`. Fed from `ticker_counted`.
-  - Edges: 15 model or cross steps (see the model facts; the two merged pairs give one edge each), plus 5 source edges, 2 store edges and 1 out edge = 23.
+  - Edges (23). These are the 15 model edges, neighbours included:
+    - `damodaran_written -> mapping_loading` and `damodaran_failed -> mapping_loading`
+    - `mapping_loading -> mapping_refused` and `mapping_loading -> ticker_checked`
+    - `ticker_checked -> ticker_counted`, twice: skipped, and deferred (a merged pair)
+    - `ticker_checked -> fetching` (a merged pair)
+    - `fetching -> ticker_counted`, twice: rate limit, and fails
+    - `fetching -> fact_read`
+    - `fact_in_row -> facts_parsed` and `fact_dropped -> facts_parsed`
+    - `facts_parsed -> ticker_counted`, twice: mapped, and unmapped
+    - `ticker_counted -> price_listing`
+
+    Then 5 source edges, 2 store edges and 1 edge into `out`.
   - `fetching -> fact_read` "the facts of the ticker are read one by one" gets `[the company facts arrive]` on its second line.
 - [ ] **Step 2:** Run the tests as in Task 2. Expected: same as Task 2, for this stem.
 - [ ] **Step 3:** Commit `docs(#166): refresh-fundamentals sub-board`.
@@ -185,7 +205,7 @@ Done in the evals stage, before any board exists. The new tests fail.
     - `facts_parsed` (decision, link fundamentals).
   - States, with their how lines:
     - `fact_read`: duration facts by their own start and end; the filing's fy and fp never pick the period.
-    - `fact_in_period`: concept precedence per column and period end, e.g. revenue: Revenues, then RevenueFromContractWithCustomerExcludingAssessedTax, ...; is_restated when a fact used comes from an amendment.
+    - `fact_in_period` (cite `@symbol bot.ingest.sec_edgar._collect_period_rows`; the module-level `ANNUAL_CONCEPT_MAP` is not in check.py's symbol index): concept precedence per column and period end, e.g. revenue: Revenues, then RevenueFromContractWithCustomerExcludingAssessedTax, ...; is_restated when a fact used comes from an amendment.
     - `fact_chosen`
     - `fact_derived`: EBITDA = EBIT + depreciation, free cash flow = operating cash flow − capex, working capital = current assets − current liabilities; a reported aggregate is never overwritten. Expand EBIT on this line.
     - `row_labelled`
@@ -221,7 +241,7 @@ Done in the evals stage, before any board exists. The new tests fail.
 - [ ] **Step 1:** Write the board.
   - `objective`: "Objective: bring each ticker's end-of-day price bars up to date, stalest first, and give the newest bar its market cap."
   - Sources:
-    - crons `daily` and `price_fill` → `price_listing`. daily: "bot refresh --prices, repeated while tickers are deferred (BOT_PRICE_ROUNDS, default 10 rounds, BOT_PRICE_RETRY_PAUSE, default 3600 s apart)". Digits 10 and 3600 have no Python constant, so write them in words or drop them; they are on `refresh.d2`'s cron edge only.
+    - crons `daily` and `price_fill` → `price_listing`. daily: "bot refresh --prices, repeated while tickers are deferred (BOT_PRICE_ROUNDS, default 10 rounds, BOT_PRICE_RETRY_PAUSE, default 3600 s apart)". The defaults are in words, "ten rounds, an hour apart by default", cited by `@file scripts/daily.sh` (lines 29 and 32 set them).
     - external `tiingo` ("Tiingo, default source; Stooq the alternative") → `bars_fetched`
     - `edgar` (SEC EDGAR shares outstanding) → `bars_fetched`
     - store `prices_daily` → `price_listed` ("newest bar per ticker")
@@ -265,7 +285,7 @@ Done in the evals stage, before any board exists. The new tests fail.
     - `fx_done`
   - Neighbour `price_counted` (step, link prices, No incoming edge).
   - `fx_requested -> currencies`: "rate_to_usd per currency and date; a later read uses the nearest prior date". Cite `@symbol bot.utils.fx.import_fx_rates`.
-  - Extra `status` node (decision 3): `fx_requested -> status` ("each currency counted: imported, failed or deferred; a rate limit defers this and every later currency"), `status -> refresh_log`, `status -> fx_done`.
+  - Extra `status` node (decision 3): `fx_requested -> status` ("each currency counted: imported, failed or deferred; a rate limit defers this and every later currency") and `status -> refresh_log`. The model edge `fx_requested -> fx_done` stays drawn directly; `status` is a side branch, not a split of it.
   - `fx_done -> out`: "the run ends".
   - `out`: "Comes out:" currencies rows (rate_to_usd per currency and date), one run status, and the exit code of the command (the worst source). `link: "./refresh.svg"`.
   - Edges, about 12.
@@ -284,3 +304,28 @@ Done in the evals stage, before any board exists. The new tests fail.
 - [ ] **Step 3:** Push. Watch `pipeline-diagram` with `gh run watch`. Fix any d2 error from `--log-failed` and repeat.
 - [ ] **Step 4:** Download `pipeline-render`, copy every `*.svg` and `rendered.sha256` into `docs/pipeline/`, and commit `docs(#166): render refresh sub-boards`. Push.
 - [ ] **Step 5:** Run `uv run pytest -q`, `uv run ruff check . && uv run mypy src`, and `python3 docs/pipeline/check.py` (`0 errors`). Watch the run on the final head until both jobs (`render`, `models`) are green.
+
+## Grilling
+
+One round, 18 questions, griller model `fable`. Answers by source: ISSUE 7, CODE 14, DOC 3 (several cite more than one source). Two had no source and became technical assumptions (A2, A4). No spec ambiguity, no out-of-scope issue opened.
+
+1. Extra node → ISSUE: "Extra nodes beyond the model's states are allowed for the how …". The plan put `status` in the middle of the fx flow, which broke `fx_requested -> fx_done` (TheProviderHasNoRates, CODE `tests/unit/test_pipeline_models.py:492-507`). Fixed: the model edge stays and `status` is a side branch (A1).
+2. Fundamentals edges → CODE: `_transitions("refresh")` (test_pipeline_models.py:431-441). They are now listed in Task 3. The 15 already include the six neighbour edges.
+3. 10-K, 20-F → CODE `tests/unit/test_pipeline_diagram.py` `_NUMBER_RE` `(?![\w/.]|-\w)` skips a digit followed by `-letter`; DOC `docs/pipeline/README.md`: "except … digits inside words (10-K)".
+4. Acronyms → CODE test_pipeline_diagram.py `_ACRONYMS` (SIC, EBITDA, EBIT, FMP, D/E, FX, SEC, EDGAR) and `_ACRONYMS_EXEMPT` (US, USD, CSV). The tokenizer is `\b[A-Z][A-Z0-9]+\b`: a single `N` does not match. In `BOT_PRICE_ROUNDS` the underscore is a word character, so neither `BOT` nor `PRICE` sits on a word boundary (`refresh.d2` already shows `BOT_STOOQ_DIR`). `ERPs` has no boundary after `ERP`. EBITDA is expanded inside the model step label TheAggregatesAreDerived (`refresh.view.js`). ADR is dropped from the list.
+5. Shown values → CODE `docs/pipeline/check.py:148-170` `renderings`/`shown`. A tuple needs every member shown. An integer shows as `n` or `f"{n:,}"`. A float that is a whole number shows as an integer (2.0 → "2"). A fraction shows as `value×100` "%" (0.05 → "5%"). Values: `ANNUAL_SPAN_DAYS=(350, 380)`, `_SHARE_SCALE_FACTORS=(1_000_000, 1_000)`, `_SHARE_SCALE_TOLERANCE=2.0` (`src/bot/ingest/sec_edgar.py:29-35`), `SUCCESS_MAX_FAILURE_RATE=0.05` (`src/bot/ingest/universe.py:71`).
+6. View label → ISSUE task 7: "change the view module's labels or groups (not the TLA+ logic) and re-check in CI; both must land green together". "1 to 4" appears in neither `refresh.tla` nor `refresh.cfg` (grep). The models job (`check.sh`) checks rules, not label text. The label match compares the view against the boards only.
+7. Fundamentals thresholds → there was no test. Added a `_REQUIRED_CONSTS["refresh-fundamentals"]` entry in Task 1.
+8. `periods` → CODE `docs/pipeline/refresh.d2:128` `periods:` inside `fundamentals`. `test_stage_svg_links_its_subboards` reads every `<a href>` of the stage SVG (`tests/unit/test_pipeline_subboards.py:100-101,217-220`). Precedent: `site.d2:87` puts a child link inside a linked container.
+9. `site` → ISSUE acceptance: "`pipeline-diagram` (both jobs) and `site` are green on the PR's head commit". `site.yml` runs on a push to master only. Its commands (`ruff check .`, `mypy src`, `pytest -q`, `bot site`) are run locally (decision 7).
+10. Helpers → CODE test_pipeline_subboards.py:52-61 `node_labels` (class and label per node). `_check().directives(text)` gives `.line/.kind/.argument` (used at :179). No new helper is needed.
+11. Label match → CODE test_pipeline_models.py:480-488: each step label must be present at least once across the stage's boards. `_transitions` skips `Done` (:435), so `fx_done -> out` needs no exception.
+12. Red intermediate head → ISSUE rendering step 5: "fails once, on the push before the SVGs are committed; that is expected." d2 does not resolve `link:` targets; `check.py` does. (A4)
+13. Determinism → ISSUE #161 plan decision 11: "Not promised: byte-identical SVGs across renders". DOC README: "`rendered.sha256` is the hash of the `.d2` sources". (A5)
+14. Expected failures in Task 1 → CODE: the `_SUBBOARDED` tests (test_pipeline_models.py:462-546) fail where no board exists (`subboards_are_the_groups`, `state_labels_are_drawn`, `step_labels_are_drawn`, `edges_join`). `state_classes` and `neighbour_nodes` pass when there is no board. `test_required_citations_present` (symbol/table/file/const) also fails. The exact list is recorded in the stage-3 comment.
+15. Precedence citation → CODE `src/bot/ingest/sec_edgar.py:183` `ANNUAL_CONCEPT_MAP`, which is not in the `check.indice()` symbol index (verified). Cite `_collect_period_rows`, whose docstring states the rule (A3).
+16. Cron defaults → CODE `scripts/daily.sh:29,32`: `${BOT_PRICE_ROUNDS:-10}`, `${BOT_PRICE_RETRY_PAUSE:-3600}`. Written in words (A2).
+17. Decision neighbours → CODE test_pipeline_diagram.py `test_every_step_has_purpose_and_edges` skips any class other than `step`. `test_decision_edges_carry_a_condition` covers every drawn edge out of a decision. Precedent: `site-ci.d2` `base_url_set`. Added to Global Constraints.
+18. `out` chain → ISSUE: "`link: "./<stage>-<next sub>.svg"` to the next sub-board"; DOC README: "The order is the order of the groups in the model's view." CODE test_pipeline_subboards.py:86-90 `_next_link` uses `group_order`, and :223-228 checks that exact href.
+
+Result: `ok`.
