@@ -1,0 +1,57 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: decide whether the company can be measured at all, and if not, remove it from the universe with exactly one reason. | {class: note}
+back: |md back to the screen board | {
+  class: note
+  link: "./screen.svg"
+}
+
+# States
+# @symbol bot.screener.benchmarks.load_industry_benchmarks
+benchmark_looked: "its sector benchmark is looked up\nnewest-year damodaran_industry row for (industry, region)\nindustry = industry_damodaran, else the provider industry\n(no industry_damodaran: the coverage gate drops it as industry_unmapped)\nlooked up once per pair" {class: decision}
+# @symbol bot.screener.engine.run_screen
+benchmarked: "it has a sector benchmark with a weighted average cost of capital (WACC)" {class: decision}
+# @symbol bot.screener.engine.run_screen @enum bot.screener.engine.CoverageReason @symbol bot.screener.engine.CoverageReason
+rejected_coverage: "it leaves the universe with one reason\nthe first reason that applies, in this order:\nindustry_unmapped: no Damodaran industry (industry_damodaran)\nbenchmark_missing: no sector benchmark row, or one without a WACC\ncurrency_uncovered: valuation currency (currency of the newest non-restated financials_annual row) missing, or not in config/currencies.yaml" {  # @file config/currencies.yaml
+  class: step
+  adr: |md
+    Architecture decision record (ADR):
+    ADR 0006 (Implemented): a company that cannot be measured leaves the universe before any rule runs.
+    | {class: note}  # @file docs/adr/0006-unmeasurable-companies-leave-the-universe.md
+}
+# @symbol bot.screener.engine.run_screen
+measured: "it is measured\nevery rule of the three layers runs" {class: step}
+
+# Neighbours
+# @symbol bot.screener.engine._market_cap_usd
+cap_in_usd: "its market cap is in US dollars (USD), or empty" {class: decision; link: "./screen-snapshot.svg"}
+# @symbol bot.screener.engine.evaluate_company
+quality_passed: "every quality gate passed" {class: decision; link: "./screen-quality.svg"}
+# @symbol bot.screener.engine.evaluate_company
+quality_failed: "a quality gate failed" {class: decision; link: "./screen-quality.svg"}
+# @symbol bot.screener.persist.persist_candidates
+rejected_saved: "its rejected row is saved" {class: step; link: "./screen-ranking.svg"}  # No outgoing edge: the flow goes on in screen-ranking
+
+# Stores
+damodaran_industry: {class: store}  # @table damodaran_industry
+currencies_yaml: "config/currencies.yaml" {class: file}  # @file config/currencies.yaml
+
+out: "Comes out:\na measured company with its sector benchmark (medians and WACC), or one rejected row with one reason" {class: output; link: "./screen-quality.svg"}
+
+# Edges
+cap_in_usd -> benchmark_looked: "the screen finds the newest sector benchmark row [it has a weighted average cost of capital (WACC)]"
+cap_in_usd -> benchmark_looked: "the screen finds a sector benchmark row [its WACC is empty]"
+cap_in_usd -> benchmark_looked: "the screen finds no sector benchmark row [none for the industry and region]"
+benchmark_looked -> rejected_coverage: "the gate rejects it as industry unmapped [no Damodaran industry]"
+benchmark_looked -> rejected_coverage: "the gate rejects it as benchmark missing [no row, or no WACC]"
+benchmark_looked -> benchmarked: "the gate accepts its sector benchmark [a Damodaran industry and a WACC]"
+benchmarked -> rejected_coverage: "the gate rejects it as currency uncovered [its valuation currency has no rates]"
+benchmarked -> measured: "the gate lets it in [its valuation currency has rates]"
+measured -> quality_passed: "the seven quality gates pass"
+measured -> quality_failed: "a quality gate fails [a figure misses its threshold, or is missing]"
+rejected_coverage -> rejected_saved: "the run saves its rejected row"
+damodaran_industry -> benchmark_looked: "newest-year industry row"
+currencies_yaml -> benchmarked: "covered currencies"
+measured -> out: "the measured company goes on to the quality gates [always: every measured company runs them]"

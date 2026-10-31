@@ -1,0 +1,72 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: drop a company that looks cheap for a reason, then decide whether it survives all three layers. | {class: note}
+back: |md back to the screen board | {
+  class: note
+  link: "./screen.svg"
+}
+
+# States
+# @symbol bot.screener.engine.evaluate_company
+traps_passed: "every trap detector passed" {class: decision}
+# @symbol bot.screener.engine.evaluate_company
+traps_failed: "a trap detector failed\nevery failed detector is recorded" {class: step}
+# @symbol bot.screener.engine.run_screen
+rejected_rules: "it is rejected by the rules\nfailed rules of every layer recorded" {class: step}
+
+# Neighbours
+# @symbol bot.screener.engine.evaluate_company
+value_passed: "a value indicator passed" {class: step; link: "./screen-value.svg"}  # No incoming edge: the flow enters from screen-value
+# @symbol bot.screener.engine.evaluate_company
+value_failed: "no value indicator passed" {class: step; link: "./screen-value.svg"}  # No incoming edge: the flow enters from screen-value
+# @symbol bot.screener.engine.evaluate_company
+value_skipped: "every value indicator was skipped" {class: step; link: "./screen-value.svg"}  # No incoming edge: the flow enters from screen-value
+# @symbol bot.screener.engine.run_screen
+survivor: "it passed all three layers" {class: step; link: "./screen-ranking.svg"}
+# @symbol bot.screener.persist.persist_candidates
+rejected_saved: "its rejected row is saved" {class: step; link: "./screen-ranking.svg"}  # No outgoing edge: the flow goes on in screen-ranking
+
+# Rules
+revenue_not_declining: "revenue_not_declining\naverage revenue growth over the last 3 years > −5%\naverage growth = mean of\n(current − previous) ÷ previous\nuses the last four revenues (window + 1)\nfewer, or growth undefined through a base ≤ 0: fails" {  # @rule revenue_not_declining @param revenue_not_declining.max_decline @param revenue_not_declining.window @symbol bot.screener.rules._avg_growth_rate
+  class: decision
+}
+operating_margin_not_contracting: "operating_margin_not_contracting\noperating margin change (last − first) ≥ −200 basis points\nover up to the last 3 years (the last four margins)\nfewer than two margins: fails" {  # @rule operating_margin_not_contracting @param operating_margin_not_contracting.max_contraction_bps @param operating_margin_not_contracting.window
+  class: decision
+}
+roic_above_sector_wacc: "roic_above_sector_wacc\nreturn on invested capital (ROIC) >\nsector weighted average cost of capital (WACC)\nROIC missing: fails\nsector WACC missing: skipped (never after the coverage gate)\na skipped detector counts as failed" {  # @rule roic_above_sector_wacc @symbol bot.screener.engine.evaluate_company
+  class: decision
+}
+sloan_accruals_below: "sloan_accruals_below\nSloan ratio = (net income − operating cash flow)\n÷ total assets < 0.1\nmissing figure or total assets ≤ 0: fails" {  # @rule sloan_accruals_below @param sloan_accruals_below.maximum
+  class: decision
+}
+share_count_not_diluting: "share_count_not_diluting\naverage diluted share count growth ≤ 5% a year\nfewer than two counts, or a base ≤ 0\n(growth undefined): fails" {  # @rule share_count_not_diluting @param share_count_not_diluting.max_annual_growth @symbol bot.screener.rules._avg_growth_rate
+  class: decision
+}
+
+out: "Comes out:\na survivor with its value, quality and growth inputs, or a rejected company with its failed rules" {class: output; link: "./screen-ranking.svg"}
+
+# Edges
+value_passed -> traps_passed: "the five trap detectors pass"
+value_failed -> traps_passed: "the five trap detectors pass"
+value_skipped -> traps_passed: "the five trap detectors pass"
+value_passed -> traps_failed: "a trap detector fails"
+value_failed -> traps_failed: "a trap detector fails"
+value_skipped -> traps_failed: "a trap detector fails"
+traps_passed -> rejected_rules: "it is rejected [a quality gate failed, no value indicator passed, or a trap detector failed]"
+traps_failed -> rejected_rules: "it is rejected [a quality gate failed, no value indicator passed, or a trap detector failed]"
+revenue_not_declining -> traps_passed: "[pass]"
+revenue_not_declining -> traps_failed: "[fail]"
+operating_margin_not_contracting -> traps_passed: "[pass]"
+operating_margin_not_contracting -> traps_failed: "[fail]"
+roic_above_sector_wacc -> traps_passed: "[pass]"
+roic_above_sector_wacc -> traps_failed: "[fail]"
+roic_above_sector_wacc -> traps_failed: "[skipped]\na skipped detector counts as failed"
+sloan_accruals_below -> traps_passed: "[pass]"
+sloan_accruals_below -> traps_failed: "[fail]"
+share_count_not_diluting -> traps_passed: "[pass]"
+share_count_not_diluting -> traps_failed: "[fail]"
+traps_passed -> survivor: "it survives [all three layers passed]"
+rejected_rules -> rejected_saved: "the run saves its rejected row"
+survivor -> out: "on to the ranking [always: only survivors are ranked]"

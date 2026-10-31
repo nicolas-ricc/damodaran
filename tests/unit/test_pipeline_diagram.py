@@ -79,6 +79,27 @@ def _preset_params() -> dict[str, Any]:
     return params
 
 
+# Rule layer of the preset -> the screen sub-board that draws its rules (#168).
+_SCREEN_LAYER_BOARDS = {
+    "quality_gates": "screen-quality",
+    "value_indicators": "screen-value",
+    "trap_detection": "screen-traps",
+}
+
+
+def _preset_layer_rules(section: str) -> set[str]:
+    preset = yaml.safe_load(_PRESET.read_text(encoding="utf-8"))
+    return {rule["name"] for rule in preset[section]["rules"]}
+
+
+def _preset_layer_params(section: str) -> set[str]:
+    """The `<rule>.<param>` keys of one preset section; `ranking` gives the weights."""
+    if section == "ranking":
+        return {k for k in _preset_params() if k.startswith("ranking.")}
+    rules = _preset_layer_rules(section)
+    return {k for k in _preset_params() if k.partition(".")[0] in rules}
+
+
 # Required citations, per board stem. Stage issues append their own entries.
 _REQUIRED_SYMBOLS: dict[str, set[str]] = {
     "pipeline": {
@@ -253,6 +274,25 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.ingest.universe._last_weekday_before",
     },
     "refresh-fx": {"bot.ingest.universe.refresh_fx"},
+    "screen-snapshot": {
+        "bot.screener.engine.build_company_data",
+        "bot.screener.engine._resolve_region",
+        "bot.screener.engine._resolve_tax_rate",
+        "bot.screener.engine._market_cap_usd",
+    },
+    "screen-coverage": {
+        "bot.screener.engine.CoverageReason",
+        "bot.screener.benchmarks.load_industry_benchmarks",
+    },
+    "screen-quality": {"bot.screener.engine.evaluate_company"},
+    "screen-value": {"bot.screener.engine.evaluate_company", "bot.screener.rules._value_score"},
+    "screen-traps": {"bot.screener.engine.evaluate_company"},
+    "screen-ranking": {
+        "bot.screener.ranking.rank",
+        "bot.screener.ranking.rescore_with_margins",
+        "bot.screener.ranking._percentiles",
+        "bot.screener.persist.persist_candidates",
+    },
 }
 # Derived from schema.sql, so a new table cannot go undrawn on the overview.
 _REQUIRED_TABLES: dict[str, set[str]] = {
@@ -301,6 +341,11 @@ _REQUIRED_TABLES: dict[str, set[str]] = {
     "refresh-facts": {"financials_annual", "financials_quarterly"},
     "refresh-prices": {"prices_daily", "refresh_log"},
     "refresh-fx": {"companies", "currencies", "refresh_log"},
+    "screen-snapshot": {
+        "companies", "financials_annual", "prices_daily", "damodaran_country", "currencies",
+    },
+    "screen-coverage": {"damodaran_industry"},
+    "screen-ranking": {"screener_candidates"},
 }
 _REQUIRED_FILES: dict[str, set[str]] = {
     "pipeline": {
@@ -354,11 +399,22 @@ _REQUIRED_FILES: dict[str, set[str]] = {
     },
     "refresh-prices": {"scripts/daily.sh", "scripts/price_fill.sh"},
     "refresh-fx": {"scripts/daily.sh"},
+    "screen-coverage": {
+        "config/currencies.yaml",
+        "docs/adr/0006-unmeasurable-companies-leave-the-universe.md",
+    },
 }
 # Derived from the rule registry and the preset, so a new rule or parameter
 # cannot go undrawn on the screen board.
-_REQUIRED_RULES: dict[str, set[str]] = {"screen": set(registered_rules())}
-_REQUIRED_PARAMS: dict[str, set[str]] = {"screen": set(_preset_params())}
+_REQUIRED_RULES: dict[str, set[str]] = {
+    "screen": set(registered_rules()),
+    **{board: _preset_layer_rules(layer) for layer, board in _SCREEN_LAYER_BOARDS.items()},
+}
+_REQUIRED_PARAMS: dict[str, set[str]] = {
+    "screen": set(_preset_params()),
+    **{board: _preset_layer_params(layer) for layer, board in _SCREEN_LAYER_BOARDS.items()},
+    "screen-ranking": _preset_layer_params("ranking"),
+}
 _REQUIRED_CONSTS: dict[str, set[str]] = {
     "pipeline": {"bot.web.views.MOS_UNDERVALUED", "bot.web.views.MOS_FAIR"},
     "refresh": {
@@ -451,6 +507,9 @@ _REQUIRED_CONSTS: dict[str, set[str]] = {
         "bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE",
         "bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE",
     },
+    "screen-snapshot": {"bot.screener.engine.DEFAULT_REGION", "bot.screener.engine.DEFAULT_TAX_RATE"},
+    "screen-quality": {"bot.screener.rules.DEFAULT_EXCLUDED_SECTORS"},
+    "screen-ranking": {"bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY"},
 }
 _REQUIRED_ENUMS: dict[str, set[str]] = {
     "pipeline": {"bot.web.views.Verdict"},
@@ -464,6 +523,7 @@ _REQUIRED_ENUMS: dict[str, set[str]] = {
     "portfolio": {"bot.portfolio.events.EventType"},
     "site": {"bot.web.views.Verdict"},
     "site-views": {"bot.web.views.Verdict"},
+    "screen-coverage": {"bot.screener.engine.CoverageReason"},
 }
 
 _REQUIRED: dict[str, dict[str, set[str]]] = {

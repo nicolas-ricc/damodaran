@@ -12,12 +12,15 @@ from pathlib import Path
 
 import pytest
 
+from bot.screener.rules import registered_rules
 from tests.unit.test_pipeline_diagram import (
+    _SCREEN_LAYER_BOARDS,
     _STAGES,
     _block,
     _check,
     _cited_values,
     _nodes,
+    _preset_rule_layers,
     _uncited_numbers,
 )
 
@@ -296,3 +299,93 @@ def test_refresh_subboard_text(stem: str) -> None:
 def test_refresh_damodaran_objective_names_the_eight_files() -> None:
     _, _, label = node_labels(_text("refresh-damodaran"))["objective"]
     assert "eight files" in label
+
+
+# Screen sub-boards (#168).
+_SCREEN_SUBBOARDS = {
+    "screen-snapshot", "screen-coverage", "screen-quality", "screen-value", "screen-traps",
+    "screen-ranking",
+}
+# What a reader must find on each board (issue #168 acceptance criteria).
+_SCREEN_TEXT: dict[str, list[str]] = {
+    "screen-snapshot": [
+        "ROE = net income \u00f7 total equity",
+        "EV \u00f7 EBITDA = (market cap + net debt) \u00f7 EBITDA",
+        "ROIC = EBIT \u00d7 (1 \u2212 tax) \u00f7 (total debt + total equity)",
+        "free cash flow yield = free cash flow \u00f7 market cap",
+        "21%",
+    ],
+    "screen-coverage": ["ADR 0006 (Implemented)", "config/currencies.yaml"],
+    "screen-quality": ["100M", "\u2264 4", "\u2265 2", "\u2264 0.5"],
+    "screen-value": [
+        "0.7 \u00d7 sector median",
+        "8%",
+        "value metric = highest score among passing indicators",
+    ],
+    "screen-traps": ["\u22125%", "\u2212200 basis points", "< 0.1", "\u2264 5%"],
+    "screen-ranking": [
+        "0.40 \u00d7 value",
+        "0.30 \u00d7 quality",
+        "0.20 \u00d7 growth",
+        "0.10 \u00d7 margin of safety",
+        "ties share a percentile",
+        "--top",
+        "0.5",
+    ],
+}
+_COVERAGE_ORDER = ("industry_unmapped", "benchmark_missing", "currency_uncovered")
+# A skipped value indicator neither passes nor fails; a skipped trap detector fails.
+_SKIP_TARGETS = {
+    "screen-value": "every value indicator was skipped",
+    "screen-traps": "a trap detector failed",
+}
+
+
+def _visible(stem: str) -> str:
+    return _check().normalize(_check().visible(_text(stem)).replace("\\n", " "))
+
+
+def test_screen_has_six_subboards() -> None:
+    assert {s for s, (stage, _) in subboards().items() if stage == "screen"} == _SCREEN_SUBBOARDS
+
+
+def _rule_boards(rule: str) -> set[str]:
+    """Screen sub-boards with a decision node citing `@rule <rule>` on its line or the one before."""
+    found = set()
+    for stem in sorted(_SCREEN_SUBBOARDS & set(subboards())):
+        text = _text(stem)
+        cited = {d.line for d in _check().directives(text) if d.kind == "rule" and d.argument == rule}
+        decisions = [i for i, cls, _ in node_labels(text).values() if cls == "decision"]
+        if any(i + 1 in cited or i in cited for i in decisions):
+            found.add(stem)
+    return found
+
+
+def test_screen_preset_holds_every_registered_rule() -> None:
+    assert set(_preset_rule_layers()) == set(registered_rules())
+
+
+@pytest.mark.parametrize("rule", sorted(_preset_rule_layers()))
+def test_screen_rules_sit_on_their_layer_subboard(rule: str) -> None:
+    assert _rule_boards(rule) == {_SCREEN_LAYER_BOARDS[_preset_rule_layers()[rule]]}
+
+
+@pytest.mark.parametrize("stem", sorted(_SKIP_TARGETS))
+def test_screen_skip_branches(stem: str) -> None:
+    text = _text(stem)
+    nodes = node_labels(text)
+    targets = {first_line(nodes[dst][2]) for _, _, dst, label in edges(text) if "[skipped]" in label}
+    assert targets == {_SKIP_TARGETS[stem]}
+
+
+def test_screen_coverage_reasons_in_order() -> None:
+    _, _, label = node_labels(_text("screen-coverage"))["rejected_coverage"]
+    positions = [label.find(reason) for reason in _COVERAGE_ORDER]
+    assert -1 not in positions and positions == sorted(positions)
+
+
+@pytest.mark.parametrize("stem", sorted(_SCREEN_TEXT))
+def test_screen_subboard_text(stem: str) -> None:
+    visible = _visible(stem)
+    missing = [p for p in _SCREEN_TEXT[stem] if _check().normalize(p) not in visible]
+    assert missing == []

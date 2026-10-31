@@ -1,0 +1,64 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: drop the company if any of the seven quality gates fails; every gate runs, so every failure is recorded. | {class: note}
+back: |md back to the screen board | {
+  class: note
+  link: "./screen.svg"
+}
+
+# States
+# @symbol bot.screener.engine.evaluate_company
+quality_passed: "every quality gate passed\nno gate failed, so no quality rule is recorded as failed" {class: decision}
+# @symbol bot.screener.engine.evaluate_company
+quality_failed: "a quality gate failed\nthe company is rejected, and every failed gate is recorded" {class: decision}
+
+# Neighbours
+# @symbol bot.screener.engine.run_screen
+measured: "it is measured\nevery rule of the three layers runs" {class: step; link: "./screen-coverage.svg"}  # No incoming edge: the flow enters from screen-coverage
+
+# Rules
+min_market_cap: "min_market_cap\nmarket cap in US dollars (USD) ≥ 100M\nmissing: fails" {  # @rule min_market_cap @param min_market_cap.minimum_usd
+  class: decision
+}
+min_years_history: "min_years_history\nannual rows ≥ 5" {  # @rule min_years_history @param min_years_history.minimum_years
+  class: decision
+}
+exclude_sectors: "exclude_sectors\nfails when the Damodaran industry is a financial services label\n(exact match), or the industry contains bank or insurance (any case)" {  # @rule exclude_sectors @param exclude_sectors.excluded @const bot.screener.rules.DEFAULT_EXCLUDED_SECTORS @symbol bot.reference.sectors.is_financial_services
+  class: decision
+}
+max_net_debt_to_ebitda: "max_net_debt_to_ebitda\nearnings before interest, taxes, depreciation and amortization (EBITDA)\nnet debt ÷ EBITDA ≤ 4\nnet debt or EBITDA missing: fails (checked first)\nnet debt ≤ 0: passes\nEBITDA ≤ 0 with positive net debt: fails" {  # @rule max_net_debt_to_ebitda @param max_net_debt_to_ebitda.maximum
+  class: decision
+}
+min_interest_coverage: "min_interest_coverage\nearnings before interest and taxes (EBIT) ÷ interest expense ≥ 2\nEBIT missing: fails\ninterest expense ≤ 0: passes\ninterest expense missing:\npasses if total debt is missing or 0, else fails" {  # @rule min_interest_coverage @param min_interest_coverage.minimum
+  class: decision
+}
+positive_operating_cashflow: "positive_operating_cashflow\noperating cash flow > 0 in ≥ 4 of the last 5 years\nfewer than 5 years: fails" {  # @rule positive_operating_cashflow @param positive_operating_cashflow.min_positive @param positive_operating_cashflow.window
+  class: decision
+}
+max_goodwill_to_assets: "max_goodwill_to_assets\ngoodwill ÷ total assets ≤ 0.5\ntotal assets ≤ 0: fails\nmissing: fails" {  # @rule max_goodwill_to_assets @param max_goodwill_to_assets.maximum
+  class: decision
+}
+
+out: "Comes out:\nthe company with its failed quality gates (none or several), on to the value indicators whatever the result" {class: output; link: "./screen-value.svg"}
+
+# Edges
+measured -> quality_passed: "the seven quality gates pass"
+measured -> quality_failed: "a quality gate fails [a figure misses its threshold, or is missing]"
+min_market_cap -> quality_passed: "[pass]"
+min_market_cap -> quality_failed: "[fail]"
+min_years_history -> quality_passed: "[pass]"
+min_years_history -> quality_failed: "[fail]"
+exclude_sectors -> quality_passed: "[pass]"
+exclude_sectors -> quality_failed: "[fail]"
+max_net_debt_to_ebitda -> quality_passed: "[pass]"
+max_net_debt_to_ebitda -> quality_failed: "[fail]"
+min_interest_coverage -> quality_passed: "[pass]"
+min_interest_coverage -> quality_failed: "[fail]"
+positive_operating_cashflow -> quality_passed: "[pass]"
+positive_operating_cashflow -> quality_failed: "[fail]"
+max_goodwill_to_assets -> quality_passed: "[pass]"
+max_goodwill_to_assets -> quality_failed: "[fail]"
+quality_passed -> out: "on to the value indicators [always: every layer runs]"
+quality_failed -> out: "on to the value indicators [always: every layer runs]"

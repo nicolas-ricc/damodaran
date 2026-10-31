@@ -1,0 +1,82 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: rank the survivors, keep the best N, value them by discounted cash flow (DCF) and re-rank with their real margin of safety. | {class: note}
+back: |md back to the screen board | {
+  class: note
+  link: "./screen.svg"
+}
+
+# States
+# @symbol bot.screener.engine.run_screen
+survivor: "it passed all three layers" {class: step}
+# @symbol bot.screener.engine._quality_metric @symbol bot.screener.engine._growth_metric @symbol bot.utils.finance.cagr
+metrics: "its value, quality and growth are measured\nvalue = highest passing value indicator score\nquality = (return on invested capital (ROIC) − sector weighted average cost of capital (WACC)) + return on equity (ROE)\na missing ROE counts 0\ngrowth = revenue compound annual growth rate (CAGR) = (last ÷ first)^(1 ÷ (years − 1)) − 1\ngrowth = 0 when fewer than two years or first ≤ 0" {class: step}
+# @symbol bot.screener.ranking._percentiles
+percentiles: "it is ranked among the survivors\npercentile of each metric over all survivors\npercentile = 0-based rank among distinct values ÷ (distinct values − 1)\nties share a percentile\none survivor or all values equal: 1" {class: step}
+first_ranked: "it has a first-pass score\nscore = 100 × (0.40 × value + 0.30 × quality + 0.20 × growth + 0.10 × margin of safety)\nvalue, quality, growth: the percentiles\nfirst pass: margin of safety 0.5\nbest first, ties by ticker" {  # @symbol bot.screener.ranking.rank @symbol bot.screener.ranking.RankingWeights @param ranking.value @param ranking.quality @param ranking.growth @param ranking.margin_of_safety @const bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY
+  class: decision
+}
+# @symbol bot.screener.engine.run_screen
+kept: "it is on the shortlist\n--top N keeps the best N; without --top every survivor stays\nthe percentiles stay those of all survivors" {class: step}
+# @symbol bot.screener.engine.run_screen
+cut: "it is cut by the top N\nnot written to the database or the report" {class: step}  # No outgoing edge: the run ends here
+# @symbol bot.screener.engine._batch_dcf_margins
+valued: "it is valued by discounted cash flow (DCF)\nmargin of safety = intrinsic value ÷ price" {class: step}
+# @symbol bot.screener.engine.run_screen
+unvalued: "it cannot be valued\nunknown ticker, missing data or incomplete assumptions: keeps margin of safety 0.5" {  # @const bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY
+  class: step
+}
+# @symbol bot.screener.ranking.rescore_with_margins
+rescored: "its score is re-blended\npercentiles kept from the first pass over all survivors\nre-sorted best first" {class: step}
+# @symbol bot.screener.persist.persist_candidates
+saved: "its shortlist row is saved\none new run id and the preset\nrank, score, value, quality and growth scores, margin of safety, passed and failed rules, passed = true" {class: step}
+# @symbol bot.reporting.screen_report.render_markdown @symbol bot.reporting.screen_report.render_csv @symbol bot.screener.engine.format_coverage_counts
+reported: "it is in the report\nmarkdown and CSV with the same columns\nmarkdown header: companies screened, shortlist size, coverage gate exclusions per reason\nrank, ticker, name, sector, score, the four sub-scores, market cap, pe, ev_ebitda, pbv, roe, roic, fcf_yield" {class: step}
+# @symbol bot.screener.persist.persist_candidates
+rejected_saved: "its rejected row is saved\nrank empty, passed = false, with its failed rules, or its one coverage reason" {class: step}
+
+# Neighbours
+# @symbol bot.screener.engine.evaluate_company
+traps_passed: "every trap detector passed" {class: decision; link: "./screen-traps.svg"}
+# @symbol bot.screener.engine.run_screen
+rejected_coverage: "it leaves the universe with one reason" {class: step; link: "./screen-coverage.svg"}  # No incoming edge: the flow enters from screen-coverage
+# @symbol bot.screener.engine.run_screen
+rejected_rules: "it is rejected by the rules" {class: step; link: "./screen-traps.svg"}  # No incoming edge: the flow enters from screen-traps
+
+# The analyze hand-off
+# @symbol bot.screener.engine._batch_dcf_margins
+analyze: "the analyze stage values the ticker by DCF, see the analyze board" {class: step; link: "./analyze.svg"}
+assumptions: "config/assumptions/TICKER.yaml" {class: file}  # @symbol bot.valuator.assumptions.conventional_override_path
+
+# Stores and outputs
+screener_candidates: {class: store}  # @table screener_candidates
+report: "reports/YYYY-MM-DD/screen/<preset>.md and .csv" {class: output}
+
+out: "Comes out:\nthe shortlist rows of the run in screener_candidates and the shortlist report; rejected rows with their reasons" {class: output; link: "./screen.svg"}
+
+# Edges
+traps_passed -> survivor: "it survives [all three layers passed]"
+survivor -> metrics: "the screen measures value, quality and growth"
+metrics -> percentiles: "each metric becomes a percentile among all survivors"
+percentiles -> first_ranked: "the first pass scores it with margin of safety (MoS) 0.5"  # @const bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY
+first_ranked -> kept: "it stays on the shortlist [no top N given]"
+first_ranked -> kept: "it stays on the shortlist [among the best N]"
+first_ranked -> cut: "it is cut [below the best N]"
+kept -> valued: "the second pass values it by discounted cash flow (DCF)\nthrough the analyze stage"
+kept -> unvalued: "the second pass cannot value it [unknown ticker, missing data or incomplete assumptions]"
+valued -> rescored: "the score is re-blended with its margin of safety"
+unvalued -> rescored: "the score is re-blended with its margin of safety"
+rescored -> saved: "the run saves its shortlist row"
+saved -> reported: "the report lists it"
+rejected_coverage -> rejected_saved: "the run saves its rejected row"
+rejected_rules -> rejected_saved: "the run saves its rejected row"
+kept -> analyze: "ticker and override file"
+assumptions -> analyze: "manual overrides"
+analyze -> valued: "margin of safety = intrinsic value ÷ price"
+analyze -> unvalued: "an error, so no margin of safety"
+saved -> screener_candidates: "candidate rows of the run"
+rejected_saved -> screener_candidates: "rejected rows of the run"
+reported -> report: "markdown and CSV report"
+reported -> out: "the run ends"

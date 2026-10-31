@@ -1,16 +1,14 @@
 # Pipeline boards
 
-Six d2 boards and nine sub-boards document the investment-bot pipeline.
+Six d2 boards and fifteen sub-boards document the investment-bot pipeline.
 `classes.d2` holds the nine node classes and is not a board. Every board starts with
 `...@classes` and imports nothing else.
 
 Boards: `pipeline.svg` (overview: cron schedules, the five stages, external services, DuckDB
 tables, outputs), `refresh.svg`, `screen.svg`, `analyze.svg`, `portfolio.svg`, `site.svg` (one per
 stage). Reading order: `pipeline.svg` first; its stage nodes link the stage boards in the order
-refresh, screen, analyze, portfolio, site. The `site` board links four sub-boards
-(`site-publish.svg`, `site-ci.svg`, `site-scan.svg`, `site-views.svg`); the `refresh` board links
-five (`refresh-damodaran.svg`, `refresh-fundamentals.svg`, `refresh-facts.svg`,
-`refresh-prices.svg`, `refresh-fx.svg`).
+refresh, screen, analyze, portfolio, site. The `site`, `refresh` and `screen` boards link four, five
+and six sub-boards, `<stage>-<sub>.svg`, one per model group (`models/<stage>.view.js`).
 
 ## Commands
 
@@ -46,7 +44,9 @@ top-level nodes at the edge of the flow, never a container.
   on its second line.
 - A step that crosses groups is drawn on both boards. Its far end is a neighbour node that links
   its own sub-board; a `step` neighbour or terminal state carries `No incoming edge` or `No
-  outgoing edge` as a trailing comment.
+  outgoing edge` as a trailing comment. Exception: when the cap leaves no room (the screen rule
+  layers), the step is drawn only on the board of the state it enters, and the board it leaves
+  sends its states to `out`.
 - Every step and decision node carries a directive. Gap notes stay on the stage board.
 - At most 24 edges per board, aim for 20. Over that, split the group in the model (groups and
   colours only, not the TLA+ logic). Tests: `tests/unit/test_pipeline_subboards.py`.

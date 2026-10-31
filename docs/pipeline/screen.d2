@@ -43,6 +43,7 @@ report_csv: "reports/YYYY-MM-DD/screen/<preset>.csv" {class: output}
 
 # Layer 1: snapshot
 snapshot: "1. snapshot per company" {
+  link: "./screen-snapshot.svg"
   load: "load every company of companies\nits non-restated financials_annual rows, oldest first\n(latest row = newest fiscal year)\nnewest prices_daily close and newest market cap,\neach from its own newest non-empty row" {  # @symbol bot.screener.engine.run_screen
     class: step
     plano_restated: |md Gap: plano sec card says the screener always uses the latest (corrected) statement; screen and analyze read only rows with is_restated false. | {class: gap}
@@ -87,6 +88,7 @@ snapshot: "1. snapshot per company" {
 
 # Layer 2: coverage gate
 coverage_gate: "2. coverage gate" {
+  link: "./screen-coverage.svg"
   gate: "can the company be measured? the first reason that applies:\nindustry_unmapped: no Damodaran industry (industry_damodaran)\nbenchmark_missing: no sector benchmark row, or one without a weighted average cost of capital (WACC)\ncurrency_uncovered: valuation currency (currency of the newest non-restated financials_annual row)\nmissing, or not in config/currencies.yaml\nany reason: the company leaves the universe before any rule runs,\nrecorded as rejected with that one reason\n(architecture decision record (ADR) 0006 (Implemented))" {  # @symbol bot.screener.engine.run_screen @enum bot.screener.engine.CoverageReason @symbol bot.screener.engine.CoverageReason @file config/currencies.yaml @file docs/adr/0006-unmeasurable-companies-leave-the-universe.md
     class: decision
     plano_caveat: |md Gap: plano damodaran card says the engine still resolves missing benchmarks layer by layer; the coverage gate removes the company before any rule runs (ADR 0006 (Implemented)). | {class: gap}
@@ -96,6 +98,7 @@ coverage_gate: "2. coverage gate" {
 
 # Layer 3: quality gates
 quality_gates: "3. quality gates: every gate must pass" {
+  link: "./screen-quality.svg"
   plano_bounds: |md Gap: plano g-cap, g-debt, g-cover and g-gw cards state strict bounds (more than USD 100M, below 4, above 2, under 50% of assets); the code passes at equality (market cap ≥ 100M, net debt ÷ EBITDA ≤ 4, interest coverage ≥ 2, goodwill ÷ total assets ≤ 0.5). | {class: gap}  # @param min_market_cap.minimum_usd @param max_net_debt_to_ebitda.maximum @param min_interest_coverage.minimum @param max_goodwill_to_assets.maximum
   min_market_cap: "market cap in USD ≥ 100M\nmissing: fails" {  # @rule min_market_cap @param min_market_cap.minimum_usd
     class: decision
@@ -126,6 +129,7 @@ quality_gates: "3. quality gates: every gate must pass" {
 
 # Layer 4: value indicators
 value_indicators: "4. value indicators: at least one must pass" {
+  link: "./screen-value.svg"
   pe_below_industry_multiple: "P/E < 0.7 × sector median P/E\nskipped: median or company P/E missing or ≤ 0" {  # @rule pe_below_industry_multiple @param pe_below_industry_multiple.multiple
     class: decision
   }
@@ -148,6 +152,7 @@ value_indicators: "4. value indicators: at least one must pass" {
 
 # Layer 5: trap detection
 trap_detection: "5. trap detection: every detector must pass" {
+  link: "./screen-traps.svg"
   growth_rate: "average growth = mean of (current − previous) ÷ previous\nover consecutive years\nundefined through a base ≤ 0" {  # @symbol bot.screener.rules._avg_growth_rate
     class: step
   }
@@ -176,6 +181,7 @@ trap_detection: "5. trap detection: every detector must pass" {
 
 # Layer 6: ranking
 ranking: "6. ranking of the survivors" {
+  link: "./screen-ranking.svg"
   metrics: "survivor metrics\nvalue = highest passing value indicator score\nquality = (ROIC − sector WACC) + ROE; a missing ROE counts 0\ngrowth = revenue compound annual growth rate (CAGR)\n= (last ÷ first)^(1 ÷ (years − 1)) − 1\ngrowth = 0 when fewer than two years or first ≤ 0" {  # @symbol bot.screener.engine._quality_metric @symbol bot.screener.engine._growth_metric @symbol bot.utils.finance.cagr
     class: step
     spec_scores: |md Gap: spec §6.5 puts margin stability in the quality score and free cash flow growth in the growth score; the code uses (ROIC − WACC) + ROE and revenue CAGR only. | {class: gap}
