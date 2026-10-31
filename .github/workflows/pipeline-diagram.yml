@@ -39,3 +39,29 @@ jobs:
             echo "the render (SVGs or rendered.sha256) is not committed" >&2
             exit 1
           fi
+
+  models:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: install tlc
+        run: |
+          curl -fsSL -o /tmp/tla2tools.jar "https://github.com/tlaplus/tlaplus/releases/download/v$(cat docs/pipeline/models/TLA_VERSION)/tla2tools.jar"
+          echo "$(cat docs/pipeline/models/TLA_SHA256)  /tmp/tla2tools.jar" | sha256sum -c
+      - name: install statechart skill
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/cursor/plugins /tmp/plugins && git -C /tmp/plugins sparse-checkout set pstack/skills/statechart && git -C /tmp/plugins checkout "$(cat docs/pipeline/models/STATECHART_COMMIT)"
+      - name: check models
+        run: TLA2TOOLS=/tmp/tla2tools.jar STATECHART=/tmp/plugins/pstack/skills/statechart/scripts/statechart docs/pipeline/models/check.sh /tmp/models
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pipeline-models
+          path: /tmp/models
