@@ -463,7 +463,7 @@ def test_context_lists_the_models() -> None:
 
 
 # Sub-boards drawn from the models (#164): the stages whose groups are drawn as sub-boards.
-_SUBBOARDED = ("site", "refresh", "screen")
+_SUBBOARDED = ("site", "refresh", "screen", "analyze")
 _PHASES_RE = re.compile(r"phase = \"(\w+)\".*?phase' = \"(\w+)\"", re.S)
 
 
