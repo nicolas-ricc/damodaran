@@ -1,0 +1,61 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: follow one fact of one ticker's company facts into the annual or quarterly row it belongs to, or out of the import. | {class: note}
+back: |md back to the refresh board | {
+  class: note
+  link: "./refresh.svg"
+}
+
+# States
+# @symbol bot.ingest.sec_edgar._accepted_entries @symbol bot.ingest.sec_edgar._collect_period_rows
+fact_read: "one fact of the ticker is read\nduration facts take their own start and end; the filing's fy and fp never pick the period" {class: decision}
+# @symbol bot.ingest.sec_edgar._collect_period_rows
+fact_in_period: "the fact belongs to a year or quarter row\nconcept precedence per column and period end: the first concept in the list with an accepted fact wins\nlater concepts fill only empty ends\ne.g. revenue: Revenues, then RevenueFromContractWithCustomerExcludingAssessedTax, ...\nis_restated when a fact used for the period comes from an amendment" {class: decision}
+# @symbol bot.ingest.sec_edgar._collect_period_rows
+fact_chosen: "the fact fills its column for that period end\none value per column and period end" {class: step}
+# @symbol bot.ingest.sec_edgar._derive_financial_fields
+fact_derived: "the aggregates of the row are derived\nonly when not reported, and a reported aggregate is never overwritten\nearnings before interest, taxes, depreciation and amortization (EBITDA) = earnings before interest and taxes (EBIT) + depreciation\nfree cash flow = operating cash flow − capex\nworking capital = current assets − current liabilities" {class: decision}
+# @symbol bot.ingest.sec_edgar._label_rows @symbol bot.ingest.sec_edgar._fiscal_quarter_key
+row_labelled: "the row has its fiscal year\nan annual row takes the year of its end; a quarter also gets its number" {class: decision}
+# @symbol bot.ingest.sec_edgar._rescale_shares_diluted
+fact_in_row: "the row of the fact is ready to write\nannual share counts are corrected" {class: step}
+# @symbol bot.ingest.sec_edgar.parse_company_facts
+fact_dropped: "the fact is dropped\nthe import goes on without it" {class: step}
+
+# Neighbours
+# @symbol bot.ingest.universe._refresh_one
+fetching: "the company facts and submissions of the ticker are fetched from SEC EDGAR (the Securities and Exchange Commission (SEC) Electronic Data Gathering, Analysis, and Retrieval system)" {class: decision; link: "./refresh-fundamentals.svg"}
+# @symbol bot.ingest.universe.import_company
+facts_parsed: "the facts of the ticker are parsed into rows" {class: decision; link: "./refresh-fundamentals.svg"}
+
+# Stores
+financials_annual: {class: store}  # @table financials_annual
+financials_quarterly: {class: store}  # @table financials_quarterly
+
+out: "Comes out:\nannual rows, one per fiscal_year, to financials_annual\nquarterly rows, one per (fiscal_year, fiscal_quarter), to financials_quarterly\nshare counts corrected" {class: output; link: "./refresh-prices.svg"}
+
+# Edges
+fetching -> fact_read: "the facts of the ticker are read one by one\n[the company facts arrive]"
+fact_read -> fact_in_period: "the fact counts for a year [a duration of 350 to 380 days from a 10-K or 10-K/A]"  # @const bot.ingest.sec_edgar.ANNUAL_SPAN_DAYS
+fact_read -> fact_in_period: "the fact counts for a quarter [a duration of 80 to 100 days from a 10-Q or 10-Q/A, in a column stored quarterly]"  # @const bot.ingest.sec_edgar.QUARTERLY_SPAN_DAYS
+fact_read -> fact_in_period: "the fact joins the row ending on its date [an instant on a year or quarter end]"
+fact_read -> fact_dropped: "the fact is dropped [any other span, form or date]"
+fact_in_period -> fact_chosen: "its concept fills the column [the first concept in the list with a fact for that end]"
+fact_in_period -> fact_dropped: "the fact is not used [an earlier concept already fills that end]"
+fact_chosen -> fact_derived: "earnings before interest, taxes, depreciation and amortization (EBITDA), free cash flow and working capital are derived [when not reported and their inputs exist]"
+fact_derived -> row_labelled: "the row takes the calendar year of its end [a year row]\nfiscal year = calendar year of its end"
+fact_derived -> row_labelled: "the quarter is numbered from the nearest year end [a year end within 380 days]\nquarter number = fourth quarter minus whole 91.3-day steps (days to the year end ÷ 91.3, rounded); year end limit = top of the 350 to 380 day annual span"  # @const bot.ingest.sec_edgar._QUARTER_DAYS @const bot.ingest.sec_edgar.ANNUAL_SPAN_DAYS
+fact_derived -> row_labelled: "the quarter takes the label of the filing that first reported it [no year end near it, or a quarter number outside one to four]"
+fact_derived -> fact_dropped: "the row is dropped [a quarter with no usable year end and no filing label]"
+fact_derived -> fact_dropped: "the row is dropped [a later period end has the same label]\nthe later period end is kept"
+row_labelled -> fact_in_row: "the diluted share count is multiplied by a million or a thousand [a whole scale off the median of three or more other counts]\nratio = median of the other positive annual counts ÷ count\nfactors 1,000,000 then 1,000; kept when factor ÷ 2 ≤ ratio ≤ factor × 2\nneeds ≥ 3 other counts"  # @const bot.ingest.sec_edgar._SHARE_SCALE_FACTORS @const bot.ingest.sec_edgar._SHARE_SCALE_TOLERANCE @const bot.ingest.sec_edgar._MIN_SHARE_COMPARATORS
+row_labelled -> fact_in_row: "the share count is kept [in scale with three or more other counts]"
+row_labelled -> fact_in_row: "the share count is kept [fewer than three other counts]"
+row_labelled -> fact_in_row: "the quarter row is kept as is [a quarter row]"
+fact_in_row -> facts_parsed: "parsing goes on with the row"
+fact_dropped -> facts_parsed: "parsing goes on without the fact"
+fact_in_row -> financials_annual: "annual row, one per fiscal_year\nwritten by refresh-fundamentals in its one transaction"
+fact_in_row -> financials_quarterly: "quarterly row, one per (fiscal_year, fiscal_quarter)\nwritten by refresh-fundamentals in its one transaction"
+fact_in_row -> out: "the rows of the ticker"

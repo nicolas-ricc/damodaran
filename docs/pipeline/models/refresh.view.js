@@ -69,7 +69,7 @@ const steps = {
   TheAggregatesAreDerived: "earnings before interest, taxes, depreciation and amortization (EBITDA), free cash flow and working capital are derived [when not reported and their inputs exist]",
   TheYearIsLabelled: "the row takes the calendar year of its end [a year row]",
   TheQuarterIsCounted: "the quarter is numbered from the nearest year end [a year end within 380 days]",
-  TheQuarterTakesItsFilingLabel: "the quarter takes the label of the filing that first reported it [no year end near it, or a quarter number outside 1 to 4]",
+  TheQuarterTakesItsFilingLabel: "the quarter takes the label of the filing that first reported it [no year end near it, or a quarter number outside one to four]",
   TheQuarterHasNoLabel: "the row is dropped [a quarter with no usable year end and no filing label]",
   TwoRowsShareALabel: "the row is dropped [a later period end has the same label]",
   TheShareCountIsRescaled: "the diluted share count is multiplied by a million or a thousand [a whole scale off the median of three or more other counts]",
