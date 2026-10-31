@@ -40,7 +40,7 @@ scalars_set: "the capital scalars are sourced" {class: decision; link: "./analyz
 # @symbol bot.valuator.sensitivity.tornado
 tornado_done: "the one-at-a-time sensitivity is done" {class: step; link: "./analyze-sensitivity.svg"}  # No outgoing edge: the flow goes on in analyze-sensitivity
 
-out: "Comes out:\nthe intrinsic value per share, EV, equity, terminal value share, WACC and the year table" {class: output; link: "./analyze-sensitivity.svg"}
+out: "Comes out:\nthe intrinsic value per share, EV, equity value = intrinsic value per share × diluted shares, terminal value share, WACC and the year table" {class: output; link: "./analyze-sensitivity.svg"}
 
 # Edges
 tg_set -> ready: "tax rate and bankruptcy odds are set [manual, sector, country, or 25%; bankruptcy manual or 0]"  # @const bot.valuator.assumptions._DEFAULT_TAX_RATE @symbol bot.valuator.assumptions._resolve_tax_rate

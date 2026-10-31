@@ -29,7 +29,7 @@ signals: "the signals are derived" {class: decision; link: "./analyze-inputs.svg
 # @symbol bot.valuator.analysis.analyze
 cannot_value: "the ticker cannot be valued (exit code 1)" {class: step; link: "./analyze-dcf.svg"}  # No outgoing edge: the run of this ticker ends here
 # @symbol bot.valuator.assumptions.resolve_assumptions
-sector_read: "the sector row is read" {class: step; link: "./analyze-assumptions.svg"}  # No outgoing edge: the run of this ticker ends here
+sector_read: "the sector row is read" {class: step; link: "./analyze-assumptions.svg"}  # No outgoing edge drawn: the flow goes on in analyze-assumptions
 
 # Files
 override_yaml: "config/assumptions/TICKER.yaml, manual overrides" {class: file}  # @file config/assumptions @symbol bot.valuator.assumptions.conventional_override_path

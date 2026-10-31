@@ -19,7 +19,7 @@ chosen: "the ticker is chosen\neach ticker of the batch in turn" {class: decisio
 override_picked: "the override file is settled\n--override path (only with exactly one ticker)\nelse config/assumptions/TICKER.yaml when it exists, else none" {class: step}
 # @symbol bot.cli.analyze
 not_found: "the ticker is skipped (exit code two)\nthe batch goes on with the next ticker" {class: step}  # No outgoing edge: the run of this ticker ends here
-# @symbol bot.valuator.analysis.load_valuation_input
+# @symbol bot.valuator.analysis.load_valuation_input @symbol bot.valuator.assumptions.load_assumption_inputs
 loaded: "the company and its figures are loaded\ncompanies row (name, country, currency, industry_damodaran, ipo_date)\nthe newest non-restated financials_annual row\noldest-first revenue, net income and earnings before interest and taxes (EBIT) histories, empty years dropped\nnewest prices_daily close\nsector pe, ev_sales, op_margin, beta_levered from the newest damodaran_industry row of (industry, region)\nvaluation currency = currency of that newest non-restated row" {class: decision}
 # @symbol bot.reference.regions.dataset_region
 region_set: "the dataset region is set\nChina, India, Japan: their own dataset region\nelse from the country's grouping in its newest damodaran_country row\nunknown: US" {class: step}
