@@ -1,0 +1,71 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: check the alert channel, then copy today's positions, cash, corporate actions and new fills from Interactive Brokers into the database. | {class: note}
+back: |md back to the portfolio board | {
+  class: note
+  link: "./portfolio.svg"
+}
+
+# States
+# @symbol bot.cli.portfolio @file config/presets/damodaran_value.yaml
+started: "bot portfolio starts\npreset damodaran_value.yaml missing: exit code two, before anything else" {class: decision}
+# @symbol bot.notifier.build_notifier
+channel_misconfigured: "the run ends with exit code two before any sync" {class: step}  # No outgoing edge: the run ends here
+# @symbol bot.notifier.build_notifier
+channel_checked: "the notifier channel is valid" {class: step}
+# @symbol bot.ingest.ibkr.IbkrClient
+tws_unreachable: "the run ends with exit code 1 before the snapshot" {class: step}  # No outgoing edge: the run ends here
+# @symbol bot.portfolio.sync.sync_portfolio
+tws_reached: "Trader Workstation (TWS) answers" {class: decision}
+snapshot_stored: "today's snapshot and cash are stored\nidempotent per (snapshot_date, account): that day's rows of the account are deleted, then inserted" {class: step}  # @symbol bot.portfolio.sync.sync_portfolio
+# @symbol bot.ingest.ibkr_flex.import_corporate_actions
+actions_synced: "the corporate actions are fetched, skipped or failed" {class: step}
+# @symbol bot.ingest.ibkr.IbkrClient
+tws_lost: "the run ends with exit code 1 after the snapshot" {class: step}  # No outgoing edge: the run ends here
+# @symbol bot.portfolio.trades.sync_trades
+trades_synced: "the new fills are stored" {class: decision}
+
+# Neighbours
+# @symbol bot.portfolio.marks.mark_holdings
+holding: "it is a holding today" {class: decision; link: "./portfolio-marks.svg"}  # No outgoing edge drawn: its branches are on portfolio-marks
+# @symbol bot.portfolio.events.detect_concentration
+concentration_checked: "its mark events and concentration are settled" {class: decision; link: "./portfolio-mark-events.svg"}  # No outgoing edge drawn: its branches are on portfolio-mark-events
+
+# Services and stores
+tws: "Interactive Brokers (IBKR) Trader Workstation (TWS)\nor the Interactive Brokers Gateway, read-only socket through ib_async\nBOT_IBKR_HOST, BOT_IBKR_PORT, BOT_IBKR_CLIENT_ID" {class: external}  # @symbol bot.ingest.ibkr.IbkrClient
+flex: "IBKR Flex Web Service: an Activity Flex Query,\na send request, then polls until the statement is ready" {class: external}  # @symbol bot.ingest.ibkr_flex.import_corporate_actions
+prices_daily: {class: store}  # @table prices_daily
+currencies: {class: store}  # @table currencies
+portfolio_snapshots: {class: store}  # @table portfolio_snapshots
+cash_balances: {class: store}  # @table cash_balances
+corporate_actions: {class: store}  # @table corporate_actions
+trades: {class: store}  # @table trades
+
+out: "Comes out:\ntoday's snapshot rows (positions with a market value or unpriced), cash by currency, new corporate actions and new fills" {class: output; link: "./portfolio-marks.svg"}
+
+# Edges
+started -> channel_misconfigured: "the notifier check fails [a missing setting, or a password in cleartext]\nBOT_NOTIFIER email needs BOT_SMTP_HOST, BOT_SMTP_FROM, BOT_SMTP_TO; telegram needs BOT_TELEGRAM_BOT_TOKEN, BOT_TELEGRAM_CHAT_ID"
+started -> channel_checked: "the notifier check passes [no channel, or every setting present]\nBOT_NOTIFIER none sends nothing; email and telegram need their settings"
+channel_checked -> tws_unreachable: "Interactive Brokers (IBKR) Trader Workstation (TWS) cannot be reached [connection error or timeout]"
+channel_checked -> tws_reached: "TWS answers"
+tws_reached -> snapshot_stored: "its position is stored with a market value [a close, converted when its currency differs]\nmarket value = quantity × latest close, in the position's currency; close × rate_to_usd of the listing currency ÷ rate_to_usd of the position's currency when they differ"  # @symbol bot.portfolio.sync.value_positions
+tws_reached -> snapshot_stored: "its position is stored unpriced [no close, a close of 0 or less, or a missing rate]\nthe market value is left empty"
+tws_reached -> snapshot_stored: "the snapshot is stored without it [no account holds it any more]"
+snapshot_stored -> actions_synced: "no corporate action is fetched [Flex token or query id not set]\nonly when BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID are set"
+snapshot_stored -> actions_synced: "new corporate actions are stored from the IBKR Flex Web Service\ndividend cash transactions → dividend, action_id ct:id; forward and reverse splits → split; any other type kept lower-cased, action_id ca:id; inserted de-duplicated on action_id"
+snapshot_stored -> actions_synced: "the corporate actions step fails and a warning is logged\nthe run goes on"
+actions_synced -> tws_lost: "TWS cannot be reached for the trades [connection error or timeout]"
+actions_synced -> trades_synced: "the fills at or after the newest stored one are added\nwatermark = newest executed_at stored for the account; inserted de-duplicated on exec_id; timestamps stored as naive Coordinated Universal Time (UTC)"
+trades_synced -> holding: "it is held today [its summed quantity is not 0]"
+trades_synced -> concentration_checked: "it is neither marked nor weighed [no longer held]"
+tws -> tws_reached: "accounts, positions, cash"
+prices_daily -> snapshot_stored: "latest close and its currency"
+currencies -> snapshot_stored: "rates to USD"
+snapshot_stored -> portfolio_snapshots: "positions with market value"
+snapshot_stored -> cash_balances: "cash by currency"
+flex -> actions_synced: "statement"
+actions_synced -> corporate_actions: "new actions"
+trades_synced -> trades: "[always: the new fills are stored]\nnew fills"
+trades_synced -> out: "[always: the sync is done]"
