@@ -1,7 +1,8 @@
 ---- MODULE screen ----
 (* One company, from the companies table through the coverage gate, the quality, value and trap
    rules, the ranking and the second pass, to the screener_candidates table and the shortlist report,
-   in one run of `bot screen`. *)
+   in one run of `bot screen`. The rule counts and rule (l) are those of the default preset,
+   config/presets/damodaran_value.yaml, as on the screen board. *)
 VARIABLES phase, mapped, currency, capInUsd, bench, reasons, layersRun, qualityFailed,
           valueOutcome, trapsOutcome, recorded, inPercentiles, kept, dcf, margin, row, reported,
           outcomes
@@ -82,7 +83,9 @@ RegionDefaultsToUs ==
   /\ phase' = "region_set"
   /\ UNCHANGED << mapped, currency, capInUsd, bench, reasons, layersRun, qualityFailed, valueOutcome, trapsOutcome, recorded, inPercentiles, kept, dcf, margin, row, reported, outcomes >>
 
-(* src/bot/screener/engine.py: _resolve_tax_rate returns the country rate when it is within 0 to 1 *)
+(* src/bot/screener/engine.py: _resolve_tax_rate returns the country rate when it is within 0 to 1;
+   build_company_data calls it only when return on invested capital (ROIC) can be computed.
+   The model keeps the order of the screen board; the step changes only phase. *)
 TaxFromItsCountry ==
   /\ phase = "region_set"
   /\ phase' = "tax_set"
@@ -100,7 +103,8 @@ TheRatiosAreComputed ==
   /\ phase' = "ratios"
   /\ UNCHANGED << mapped, currency, capInUsd, bench, reasons, layersRun, qualityFailed, valueOutcome, trapsOutcome, recorded, inPercentiles, kept, dcf, margin, row, reported, outcomes >>
 
-(* src/bot/screener/engine.py: _market_cap_usd calls bot.utils.fx.to_usd *)
+(* src/bot/screener/engine.py: _market_cap_usd calls bot.utils.fx.to_usd, or passes the cap through
+   unchanged when it has no currency or no date *)
 TheCapIsConvertedToUsd ==
   /\ phase = "ratios"
   /\ phase' = "cap_in_usd"
@@ -418,7 +422,7 @@ OneCoverageReason ==
 (* Cites: evaluate_company: the quality, value and trap loops all run and append each failed rule to failed_gates. *)
 \* Every layer runs on a measured company, even after a failed gate, so the failed rules of every layer are recorded.
 EveryLayerRecorded ==
-  "traps" \in layersRun =>
+  ("traps" \in layersRun \/ "rejected_by_rules" \in outcomes \/ phase = "survivor" \/ inPercentiles) =>
     (layersRun = Layers /\ (qualityFailed => "quality" \in recorded)
       /\ (valueOutcome = "failed" => "value" \in recorded)
       /\ (trapsOutcome = "failed" => "traps" \in recorded))
