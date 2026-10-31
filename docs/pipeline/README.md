@@ -5,8 +5,8 @@ is not a board. Every board starts with `...@classes` and imports nothing else.
 
 Boards: `pipeline.svg` (overview: cron schedules, the five stages, external services, DuckDB
 tables, outputs), `refresh.svg`, `screen.svg`, `analyze.svg`, `portfolio.svg`, `site.svg` (one per
-stage). Reading order: `pipeline.svg` first; its stage nodes link the stage boards in the order refresh,
-screen, analyze, portfolio, site.
+stage). Reading order: `pipeline.svg` first; its stage nodes link the stage boards in the order
+refresh, screen, analyze, portfolio, site.
 
 ## Commands
 

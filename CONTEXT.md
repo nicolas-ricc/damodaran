@@ -35,7 +35,7 @@ Current version: US-only (S&P 500).
 - **The two plans**: `docs/plano/` — `plano.html` explains how the system is meant to work; `estado.html` says how much of it exists today. Read `estado.html` before starting a stage and update both when finishing one. See `docs/plano/README.md`.
 - **The lesson**: `docs/leccion/` — `index.html` teaches the Damodaran pipeline chapter by chapter and points at the code; `check.py` fails when it cites a symbol that no longer exists. See `docs/leccion/README.md`.
 - **The pipeline boards**: `docs/pipeline/` — d2 diagrams of the whole pipeline, cron to published site, drawn from the code. `check.py` fails when a board cites a table, file or symbol that no longer exists. See `docs/pipeline/README.md`.
-- **The pipeline models**: `docs/pipeline/models/` — TLA+ models of the stages, one unit through one run, checked by TLC in CI. A rule that breaks becomes an issue and a row in the table. See `docs/pipeline/models/README.md`.
+- **The pipeline models**: `docs/pipeline/models/` — TLA+ models of the stages, one unit through one run, checked by TLC in CI. A rule that breaks becomes an issue and a row in the Known broken rules table of `docs/pipeline/models/README.md`. See `docs/pipeline/models/README.md`.
 
 ## Working with the plans
 
