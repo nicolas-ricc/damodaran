@@ -1,0 +1,52 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: get each new analysis sidecar onto master, where the site workflow picks it up; nothing else from this checkout is committed. | {class: note}
+back: |md back to the site board | {
+  class: note
+  link: "./site.svg"
+}
+
+# Sources
+sidecars: "reports/YYYY-MM-DD/analysis/TICKER.json\none per company and analysis day" {class: file}  # @symbol bot.reporting.analysis_json.render_analysis_json
+weekly: "scripts/weekly.sh, runs the publish script\nonly when the analyses before it succeeded" {class: cron}  # @file scripts/weekly.sh
+master: "GitHub repository, branch master" {class: external}
+
+# States
+# @symbol bot.reporting.analysis_json.render_analysis_json
+written: "the analysis sidecar (its JSON file) is written\nbot analyze writes it under reports/" {class: step}
+# @file scripts/publish_site.sh
+found: "the publish script finds the sidecar\nfind reports/*/analysis/*.json\nnone found: exit 0, nothing is published" {class: step}
+# @file scripts/publish_site.sh
+in_worktree: "the sidecar is copied into a clean checkout of master\ndetached worktree .cache/site-publish, reset to origin/master and cleaned on every run;\nonly the sidecars are copied in" {class: step}
+# @file scripts/publish_site.sh
+committed: "the commit is made\ngit add -- reports\ncommit message chore(site): publish analyses YYYY-MM-DD" {class: step}
+# @file scripts/publish_site.sh
+nothing_new: "nothing new to publish\nnothing staged: no commit, exit 0" {class: step}  # No outgoing edge: the run ends here
+# @file scripts/publish_site.sh
+push_failed: "the push is refused\nexit 1; the next run rebuilds the commit from origin/master" {class: step}  # No outgoing edge: the run ends here
+# @file scripts/publish_site.sh
+on_master: "the sidecar is on master\nthe push to origin master succeeded" {class: step}
+
+# Neighbours
+# @file .github/workflows/site.yml
+installed: "the dependencies are installed" {class: step; link: "./site-ci.svg"}  # No outgoing edge: the flow goes on in site-ci
+# @file .github/workflows/site.yml
+ci_failed: "the workflow stops with an error" {class: step; link: "./site-ci.svg"}  # No outgoing edge: the flow goes on in site-ci
+
+out: "Comes out:\none commit on master that holds only reports/*/analysis/*.json" {class: output; link: "./site-ci.svg"}
+
+# Edges
+sidecars -> written: "sidecar file"
+weekly -> found: "runs scripts/publish_site.sh"
+master -> in_worktree: "origin/master tip"
+written -> found: "the script finds the sidecar"
+found -> in_worktree: "the script copies the sidecar into a clean checkout of master"
+in_worktree -> nothing_new: "the script finds nothing to commit [the sidecar is already on master]"
+in_worktree -> committed: "the script commits the sidecar"
+committed -> push_failed: "the push fails [master refuses it or cannot be reached]"
+committed -> on_master: "the push succeeds"
+on_master -> installed: "the site continuous integration (CI) workflow starts and installs the dependencies"
+on_master -> ci_failed: "the install fails [a dependency cannot be installed]"
+on_master -> out: "the commit"
