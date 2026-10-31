@@ -18,7 +18,7 @@ import csv
 import io
 from datetime import date
 
-from bot.screener.engine import ScreenedCompany, ScreenResult
+from bot.screener.engine import ScreenedCompany, ScreenResult, format_coverage_counts
 
 _DASH = "—"
 
@@ -119,8 +119,9 @@ def render_markdown(result: ScreenResult, *, generated_on: date | None = None) -
         f"# Screen — {result.preset}",
         "",
         f"Generated: {stamp}  ·  Screened {result.screened} companies  ·  "
-        f"Shortlist {len(result.shortlist)}  ·  "
-        f"Excluded (no sector benchmark, ADR 0006): {len(result.no_coverage)}",
+        f"Shortlist {len(result.shortlist)}",
+        "",
+        format_coverage_counts(result),
         "",
     ]
     if not result.shortlist:

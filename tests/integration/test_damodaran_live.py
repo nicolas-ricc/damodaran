@@ -22,12 +22,11 @@ from bot.storage.db import apply_schema, connect
 
 _UNAVAILABLE_EVENTS = {
     "damodaran.country_tax_sheet.unavailable",
-    "damodaran.risk_free_rate.unavailable",
 }
 
 
 @pytest.mark.live
-def test_published_files_still_carry_country_tax_and_risk_free_rates(tmp_path: Path) -> None:
+def test_published_files_still_carry_country_tax_rates(tmp_path: Path) -> None:
     industry_path = download_dataset(INDUSTRY_WACC_URL, tmp_path / "wacc.xls")
     country_path = download_dataset(COUNTRY_RISK_URL, tmp_path / "ctryprem.xls")
     conn = connect(":memory:")
@@ -45,12 +44,11 @@ def test_published_files_still_carry_country_tax_and_risk_free_rates(tmp_path: P
     assert result.is_success(), result.error_message
     assert not _UNAVAILABLE_EVENTS & {entry["event"] for entry in logs}
     us = conn.execute(
-        "SELECT tax_rate, risk_free_rate FROM damodaran_country WHERE country = 'United States'"
+        "SELECT tax_rate FROM damodaran_country WHERE country = 'United States'"
     ).fetchone()
     assert us is not None
-    tax_rate, risk_free_rate = us
+    (tax_rate,) = us
     assert tax_rate is not None and 0 < tax_rate < 1
-    assert risk_free_rate is not None and 0 < risk_free_rate < 0.15
     counts = conn.execute("SELECT COUNT(*), COUNT(tax_rate) FROM damodaran_country").fetchone()
     assert counts is not None
     total, with_tax = counts

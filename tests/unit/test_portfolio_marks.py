@@ -77,9 +77,9 @@ def _seed_company(
             "INSERT INTO financials_annual "
             "(ticker, fiscal_year, revenue, ebit, ebitda, interest_expense, net_income, "
             "total_assets, total_debt, cash, total_equity, goodwill, operating_cashflow, "
-            "free_cashflow, shares_diluted, is_restated, source) "
+            "free_cashflow, shares_diluted, is_restated, source, currency) "
             "VALUES (?, ?, 1000.0, 200.0, 300.0, 10.0, 150.0, 2000.0, 0.0, 100.0, "
-            "1000.0, 100.0, 250.0, 200.0, 100.0, FALSE, 'fmp')",
+            "1000.0, 100.0, 250.0, 200.0, 100.0, FALSE, 'fmp', 'USD')",
             [ticker, 2020 + offset],
         )
     conn.execute(
@@ -245,7 +245,10 @@ def test_mark_holdings_values_with_the_conventional_override(
     seen: dict[str, Path | None] = {}
 
     def fake_analyze(
-        ticker: str, _conn: duckdb.DuckDBPyConnection, override_path: Path | None = None
+        ticker: str,
+        _conn: duckdb.DuckDBPyConnection,
+        override_path: Path | None = None,
+        **_kwargs: object,
     ) -> _Analysis:
         seen[ticker] = override_path
         return _Analysis(ticker, _DCF(1.0), current_price=1.0)

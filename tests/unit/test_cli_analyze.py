@@ -28,9 +28,9 @@ def _seed(conn: duckdb.DuckDBPyConnection, ticker: str = "AAPL") -> None:
         [ticker, f"{ticker} Inc", "United States", "USD", "Computers/Peripherals", "sec_edgar"],
     )
     conn.execute(
-        "INSERT INTO damodaran_country (country, year, erp, risk_free_rate, tax_rate, region) "
-        "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
-        ["United States", 2026, 0.045, 0.04, 0.21, "US"],
+        "INSERT INTO damodaran_country (country, year, erp, tax_rate, region) "
+        "VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING",
+        ["United States", 2026, 0.045, 0.21, "US"],
     )
     conn.execute(
         "INSERT INTO damodaran_industry "
@@ -44,8 +44,8 @@ def _seed(conn: duckdb.DuckDBPyConnection, ticker: str = "AAPL") -> None:
         conn.execute(
             "INSERT INTO financials_annual "
             "(ticker, fiscal_year, revenue, ebit, net_income, total_debt, cash, "
-            "shares_diluted, is_restated, source) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "shares_diluted, is_restated, source, currency) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
             [ticker, year, revenue * _MILLIONS, revenue * 0.30 * _MILLIONS,
              100_000.0 * _MILLIONS, 110_000.0 * _MILLIONS, 60_000.0 * _MILLIONS,
              15_500.0 * _MILLIONS, False, "sec_edgar"],

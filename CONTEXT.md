@@ -14,7 +14,7 @@ Current version: US-only (S&P 500).
 - **Value indicators**: filters checking cheapness relative to sector medians (Damodaran datasets).
 - **Trap detection**: filters that flag companies that *look* cheap but are cheap for a reason.
 - **Sector benchmark**: the Damodaran medians for one `(industry, region, year)`, against which a company's cheapness and quality are judged.
-- **Coverage gate**: the eliminatory filter that removes a company with no usable sector benchmark from the universe. See [ADR 0006](docs/adr/0006-unmeasurable-companies-leave-the-universe.md).
+- **Coverage gate**: the eliminatory filter that removes a company it cannot measure from the universe, with exactly one reason, in precedence order: `industry_unmapped` (no Damodaran industry), `benchmark_missing` (no sector benchmark, or a NULL `wacc`), `currency_uncovered` (see **Uncovered currency**). See [ADR 0006](docs/adr/0006-unmeasurable-companies-leave-the-universe.md).
 - **Measured company**: one that has every input its screening and ranking require. Only measured companies enter the ranking percentiles.
 - **Fiscal year** (`fiscal_year`): the calendar year of the period's end date. An annual row is a duration fact of 350–380 days; Best Buy's year ending 2014-02-01 is fiscal_year 2014. A quarter belongs to the fiscal year it falls in, numbered by its position in it. Never the SEC `fy` field, which names the filing, nor `frame`.
 - **Capas A/B/C**: see spec §3 — data / mechanical screener / interpretive analysis.
@@ -22,6 +22,8 @@ Current version: US-only (S&P 500).
   _Avoid_: currency, local currency, trading currency.
 - **Reporting currency**: the currency a company publishes its financial statements in. Belongs to the financial statements.
   _Avoid_: currency, reported currency, functional currency.
+- **Uncovered currency**: a valuation currency with no row in `config/currencies.yaml` (or an unknown, NULL one). The company leaves the universe with reason `currency_uncovered`.
+  _Avoid_: missing currency.
 - **Valuation currency**: the currency a company is valued in — its reporting currency. Cash flows and discount rate are always expressed in it. See [ADR 0005](docs/adr/0005-currency-handling-and-valuation-currency.md).
 
 ## Source of truth

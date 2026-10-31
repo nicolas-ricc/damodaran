@@ -10,8 +10,11 @@ being absent simply ``delenv`` it.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.fixture(autouse=True)
@@ -28,6 +31,12 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
     for item in items:
         if item.get_closest_marker("live") is not None:
             item.add_marker(skip)
+
+
+@pytest.fixture(autouse=True)
+def _currencies_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point the CLI at the repo's currency file, whatever the CWD (#109)."""
+    monkeypatch.setenv("BOT_CURRENCIES_PATH", str(REPO_ROOT / "config" / "currencies.yaml"))
 
 
 @pytest.fixture(autouse=True)

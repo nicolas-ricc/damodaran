@@ -76,8 +76,8 @@ def _financials(
         conn.execute(
             "INSERT INTO financials_annual "
             "(ticker, fiscal_year, revenue, ebit, net_income, interest_expense, total_debt, "
-            "cash, shares_diluted, total_equity, is_restated, source) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "cash, shares_diluted, total_equity, is_restated, source, currency) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
             [ticker, year, revenue, ebit, 100.0, 10.0, 300.0, 50.0, 100.0, 900.0, restated, "t"],
         )
 
@@ -92,12 +92,12 @@ def _price(
 
 
 def _country(
-    conn: duckdb.DuckDBPyConnection, country: str, year: int, region: str, rate: float
+    conn: duckdb.DuckDBPyConnection, country: str, year: int, region: str, erp: float
 ) -> None:
     conn.execute(
-        "INSERT INTO damodaran_country (country, year, region, risk_free_rate, erp, tax_rate) "
-        "VALUES (?, ?, ?, ?, ?, ?)",
-        [country, year, region, rate, rate + 0.01, 0.21],
+        "INSERT INTO damodaran_country (country, year, region, erp, tax_rate) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [country, year, region, erp, 0.21],
     )
 
 
@@ -164,6 +164,12 @@ def test_bulk_assumption_inputs_match_per_ticker(conn: duckdb.DuckDBPyConnection
     bulk = bulk_load_assumption_inputs(conn, VALUABLE + ABSENT)
     known = [*VALUABLE, "NOFIN"]  # NOFIN has a companies row, so it has assumption inputs.
     assert bulk == {t: load_assumption_inputs(conn, t) for t in known}
+    # The valuation currency and its rates are part of that equality (#109).
+    for t in VALUABLE:
+        assert bulk[t].valuation_currency == "USD"
+        assert bulk[t].currency_rates is not None
+    assert bulk["NOFIN"].valuation_currency is None
+    assert bulk["NOFIN"].currency_rates is None
 
 
 def test_bulk_assumption_inputs_log_cross_region_substitution(

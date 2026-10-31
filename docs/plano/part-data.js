@@ -251,8 +251,8 @@ assumptions:{role:"valua",titulo:"Los seis supuestos",lead:"Acá vive casi todo 
 "a-g":{role:"valua",titulo:"Crecimiento terminal",lead:"El menor entre la tasa libre de riesgo y el PBI nominal.",
  idea:["El supuesto más peligroso disfrazado del más aburrido. Va en el denominador de la perpetuidad, así que acercarlo al WACC hace explotar el valor.",
   "El tope no es arbitrario. Una empresa que crece para siempre a una tasa mayor que la economía se come la economía; y la tasa libre de riesgo de largo plazo es, en la práctica, una aproximación del crecimiento nominal esperado. Por eso el default toma el menor de los dos y casi nunca se toca."],
- code:{where:[["origen","rule_based"],["insumo","damodaran_country.risk_free_rate"]],
-  notes:["Un detalle que conviene tener presente: la tasa libre de riesgo correcta es la de la <em>moneda</em> en la que se valúa, no la del país donde la empresa está listada. Hoy se busca por país, porque el dataset por moneda todavía no se importa."]}},
+ code:{where:[["origen","rule_based"],["insumo","config/currencies.yaml: risk_free_rate, nominal_gdp_growth"]],
+  notes:["Un detalle que conviene tener presente: la tasa libre de riesgo correcta es la de la <em>moneda</em> en la que se valúa, no la del país donde la empresa está listada. Y así se hace: la moneda de valuación es la de la última fila anual no reexpresada, y su tasa y su PBI salen de <code>config/currencies.yaml</code>, una tabla curada a mano. Si la moneda no está en la tabla, el crecimiento terminal queda sin resolver y la empresa sale del universo (<code>currency_uncovered</code>)."]}},
 
 "a-default":{role:"valua",titulo:"Probabilidad de quiebra",lead:"Cero por defecto, y hoy también en distressed.",
  idea:["Para una empresa que pasó los quality gates (deuda dentro de capacidad, intereses cubiertos, caja operativa positiva) suponer cero es razonable y evita agregar un parámetro más que nadie puede estimar bien.",
