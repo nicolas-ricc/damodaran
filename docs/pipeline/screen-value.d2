@@ -26,10 +26,10 @@ quality_failed: "a quality gate failed" {class: decision; link: "./screen-qualit
 pe_below_industry_multiple: "pe_below_industry_multiple\nprice-to-earnings (P/E) < 0.7 × sector median P/E\nskipped: median or company P/E missing or ≤ 0" {  # @rule pe_below_industry_multiple @param pe_below_industry_multiple.multiple
   class: decision
 }
-ev_ebitda_below_industry_multiple: "ev_ebitda_below_industry_multiple\nenterprise value (EV) ÷ earnings before interest, taxes, depreciation and amortization (EBITDA) < 0.7 × sector median EV/EBITDA\nskipped: median or company EV/EBITDA missing or ≤ 0" {  # @rule ev_ebitda_below_industry_multiple @param ev_ebitda_below_industry_multiple.multiple
+ev_ebitda_below_industry_multiple: "ev_ebitda_below_industry_multiple\nenterprise value (EV)\nearnings before interest, taxes, depreciation and amortization (EBITDA)\nEV/EBITDA < 0.7 × sector median EV/EBITDA\nskipped: median or company EV/EBITDA missing or ≤ 0" {  # @rule ev_ebitda_below_industry_multiple @param ev_ebitda_below_industry_multiple.multiple
   class: decision
 }
-pbv_below_industry_multiple_with_roe_above_median: "pbv_below_industry_multiple_with_roe_above_median\nprice-to-book-value (P/BV) < 0.7 × sector median P/BV and return on equity (ROE) > sector median ROE\nskipped: sector P/BV median ≤ 0, or a median or company figure missing, or company P/BV ≤ 0" {  # @rule pbv_below_industry_multiple_with_roe_above_median @param pbv_below_industry_multiple_with_roe_above_median.multiple
+pbv_below_industry_multiple_with_roe_above_median: "pbv_below_industry_multiple_with_roe_above_median\nprice-to-book-value (P/BV) < 0.7 × sector median P/BV\nand return on equity (ROE) > sector median ROE\nskipped: sector P/BV median ≤ 0,\na median or company figure missing,\nor company P/BV ≤ 0" {  # @rule pbv_below_industry_multiple_with_roe_above_median @param pbv_below_industry_multiple_with_roe_above_median.multiple
   class: decision
 }
 fcf_yield_above: "fcf_yield_above\nfree cash flow yield > 8%\nskipped: yield missing; no sector benchmark needed" {  # @rule fcf_yield_above @param fcf_yield_above.minimum

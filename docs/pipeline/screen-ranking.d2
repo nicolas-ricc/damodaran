@@ -31,9 +31,9 @@ unvalued: "it cannot be valued\nunknown ticker, missing data or incomplete assum
 # @symbol bot.screener.ranking.rescore_with_margins
 rescored: "its score is re-blended\npercentiles kept from the first pass over all survivors\nre-sorted best first" {class: step}
 # @symbol bot.screener.persist.persist_candidates
-saved: "its shortlist row is saved\none new run id\nrank, score, value, quality and growth scores, margin of safety, passed and failed rules, passed = true" {class: step}
+saved: "its shortlist row is saved\none new run id and the preset\nrank, score, value, quality and growth scores, margin of safety, passed and failed rules, passed = true" {class: step}
 # @symbol bot.reporting.screen_report.render_markdown @symbol bot.reporting.screen_report.render_csv @symbol bot.screener.engine.format_coverage_counts
-reported: "it is in the report\nmarkdown and CSV with the same columns\nrank, ticker, name, sector, score, the four sub-scores, market cap, pe, ev_ebitda, pbv, roe, roic, fcf_yield" {class: step}
+reported: "it is in the report\nmarkdown and CSV with the same columns\nmarkdown header: companies screened, shortlist size, coverage gate exclusions per reason\nrank, ticker, name, sector, score, the four sub-scores, market cap, pe, ev_ebitda, pbv, roe, roic, fcf_yield" {class: step}
 # @symbol bot.screener.persist.persist_candidates
 rejected_saved: "its rejected row is saved\nrank empty, passed = false, with its failed rules, or its one coverage reason" {class: step}
 
@@ -64,7 +64,7 @@ percentiles -> first_ranked: "the first pass scores it with margin of safety (Mo
 first_ranked -> kept: "it stays on the shortlist [no top N given]"
 first_ranked -> kept: "it stays on the shortlist [among the best N]"
 first_ranked -> cut: "it is cut [below the best N]"
-kept -> valued: "the second pass values it by discounted cash flow (DCF)"
+kept -> valued: "the second pass values it by discounted cash flow (DCF)\nthrough the analyze stage"
 kept -> unvalued: "the second pass cannot value it [unknown ticker, missing data or incomplete assumptions]"
 valued -> rescored: "the score is re-blended with its margin of safety"
 unvalued -> rescored: "the score is re-blended with its margin of safety"

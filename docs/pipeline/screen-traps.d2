@@ -29,19 +29,19 @@ survivor: "it passed all three layers" {class: step; link: "./screen-ranking.svg
 rejected_saved: "its rejected row is saved" {class: step; link: "./screen-ranking.svg"}  # No outgoing edge: the flow goes on in screen-ranking
 
 # Rules
-revenue_not_declining: "revenue_not_declining\naverage revenue growth over the last 3 years > −5%\naverage growth = mean of (current − previous) ÷ previous\nuses the last four revenues (window + 1); fewer, or growth undefined through a base ≤ 0: fails" {  # @rule revenue_not_declining @param revenue_not_declining.max_decline @param revenue_not_declining.window @symbol bot.screener.rules._avg_growth_rate
+revenue_not_declining: "revenue_not_declining\naverage revenue growth over the last 3 years > −5%\naverage growth = mean of\n(current − previous) ÷ previous\nuses the last four revenues (window + 1)\nfewer, or growth undefined through a base ≤ 0: fails" {  # @rule revenue_not_declining @param revenue_not_declining.max_decline @param revenue_not_declining.window @symbol bot.screener.rules._avg_growth_rate
   class: decision
 }
-operating_margin_not_contracting: "operating_margin_not_contracting\noperating margin change (last − first) over up to the last 3 years (the last four margins) ≥ −200 basis points\nfewer than two margins: fails" {  # @rule operating_margin_not_contracting @param operating_margin_not_contracting.max_contraction_bps @param operating_margin_not_contracting.window
+operating_margin_not_contracting: "operating_margin_not_contracting\noperating margin change (last − first) ≥ −200 basis points\nover up to the last 3 years (the last four margins)\nfewer than two margins: fails" {  # @rule operating_margin_not_contracting @param operating_margin_not_contracting.max_contraction_bps @param operating_margin_not_contracting.window
   class: decision
 }
-roic_above_sector_wacc: "roic_above_sector_wacc\nreturn on invested capital (ROIC) > sector weighted average cost of capital (WACC)\nROIC missing: fails\nsector WACC missing: skipped (never after the coverage gate), and a skipped detector counts as failed" {  # @rule roic_above_sector_wacc @symbol bot.screener.engine.evaluate_company
+roic_above_sector_wacc: "roic_above_sector_wacc\nreturn on invested capital (ROIC) >\nsector weighted average cost of capital (WACC)\nROIC missing: fails\nsector WACC missing: skipped (never after the coverage gate)\na skipped detector counts as failed" {  # @rule roic_above_sector_wacc @symbol bot.screener.engine.evaluate_company
   class: decision
 }
-sloan_accruals_below: "sloan_accruals_below\nSloan ratio (net income − operating cash flow) ÷ total assets < 0.1\nmissing figure or total assets ≤ 0: fails" {  # @rule sloan_accruals_below @param sloan_accruals_below.maximum
+sloan_accruals_below: "sloan_accruals_below\nSloan ratio = (net income − operating cash flow)\n÷ total assets < 0.1\nmissing figure or total assets ≤ 0: fails" {  # @rule sloan_accruals_below @param sloan_accruals_below.maximum
   class: decision
 }
-share_count_not_diluting: "share_count_not_diluting\naverage diluted share count growth ≤ 5% a year\nfewer than two counts or a base ≤ 0 (growth undefined): fails" {  # @rule share_count_not_diluting @param share_count_not_diluting.max_annual_growth @symbol bot.screener.rules._avg_growth_rate
+share_count_not_diluting: "share_count_not_diluting\naverage diluted share count growth ≤ 5% a year\nfewer than two counts, or a base ≤ 0\n(growth undefined): fails" {  # @rule share_count_not_diluting @param share_count_not_diluting.max_annual_growth @symbol bot.screener.rules._avg_growth_rate
   class: decision
 }
 

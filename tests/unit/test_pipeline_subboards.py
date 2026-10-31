@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from bot.screener.rules import registered_rules
 from tests.unit.test_pipeline_diagram import (
     _SCREEN_LAYER_BOARDS,
     _STAGES,
@@ -321,7 +322,7 @@ _SCREEN_TEXT: dict[str, list[str]] = {
         "8%",
         "value metric = highest score among passing indicators",
     ],
-    "screen-traps": ["\u22125%", "\u2212200 basis points", "< 0.1", "5%"],
+    "screen-traps": ["\u22125%", "\u2212200 basis points", "< 0.1", "\u2264 5%"],
     "screen-ranking": [
         "0.40 \u00d7 value",
         "0.30 \u00d7 quality",
@@ -360,6 +361,10 @@ def _rule_boards(rule: str) -> set[str]:
     return found
 
 
+def test_screen_preset_holds_every_registered_rule() -> None:
+    assert set(_preset_rule_layers()) == set(registered_rules())
+
+
 @pytest.mark.parametrize("rule", sorted(_preset_rule_layers()))
 def test_screen_rules_sit_on_their_layer_subboard(rule: str) -> None:
     assert _rule_boards(rule) == {_SCREEN_LAYER_BOARDS[_preset_rule_layers()[rule]]}
@@ -374,8 +379,8 @@ def test_screen_skip_branches(stem: str) -> None:
 
 
 def test_screen_coverage_reasons_in_order() -> None:
-    visible = _visible("screen-coverage")
-    positions = [visible.find(reason) for reason in _COVERAGE_ORDER]
+    _, _, label = node_labels(_text("screen-coverage"))["rejected_coverage"]
+    positions = [label.find(reason) for reason in _COVERAGE_ORDER]
     assert -1 not in positions and positions == sorted(positions)
 
 
