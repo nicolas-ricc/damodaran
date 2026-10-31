@@ -59,7 +59,7 @@ TheLatestScreenListsIt ==
   /\ phase' = "chosen"
   /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
 
-(* src/bot/cli.py: analyze, argument checks (lines 405-415) raise typer.Exit(code=2) before the loop *)
+(* src/bot/cli.py: analyze, argument checks raise typer.Exit(code=2) before the loop *)
 TheArgumentsAreRefused ==
   /\ phase = "asked"
   /\ phase' = "command_stops"
@@ -145,7 +145,7 @@ ItIsDistressed ==
   /\ storyTypes' = {"classifier"}
   /\ UNCHANGED << batch, exitCode, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
 
-(* src/bot/valuator/story_types.py: classify, the `if` chain (lines 186-202) *)
+(* src/bot/valuator/story_types.py: classify, the `if` chain *)
 ItIsNotDistressed ==
   /\ phase = "signals"
   /\ phase' = "not_distressed"
@@ -158,7 +158,7 @@ ItIsCyclical ==
   /\ storyTypes' = {"classifier"}
   /\ UNCHANGED << batch, exitCode, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
 
-(* src/bot/valuator/story_types.py: classify, the `if` chain (lines 186-202) *)
+(* src/bot/valuator/story_types.py: classify, the `if` chain *)
 ItIsNotCyclical ==
   /\ phase = "not_distressed"
   /\ phase' = "not_cyclical"
@@ -171,7 +171,7 @@ ItIsHighGrowth ==
   /\ storyTypes' = {"classifier"}
   /\ UNCHANGED << batch, exitCode, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
 
-(* src/bot/valuator/story_types.py: classify, the `if` chain (lines 186-202) *)
+(* src/bot/valuator/story_types.py: classify, the `if` chain *)
 ItIsNotHighGrowth ==
   /\ phase = "not_cyclical"
   /\ phase' = "not_high_growth"
@@ -184,7 +184,7 @@ ItIsInDecline ==
   /\ storyTypes' = {"classifier"}
   /\ UNCHANGED << batch, exitCode, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
 
-(* src/bot/valuator/story_types.py: classify, the `if` chain (lines 186-202) *)
+(* src/bot/valuator/story_types.py: classify, the `if` chain *)
 ItIsMatureStable ==
   /\ phase = "not_high_growth"
   /\ phase' = "classified"
