@@ -18,7 +18,7 @@ grid_done: "the two-way grid is done" {class: decision}
 # @symbol bot.valuator.analysis.analyze
 valued: "the company has an intrinsic value" {class: step; link: "./analyze-dcf.svg"}  # No incoming edge: the flow enters from analyze-dcf
 # @symbol bot.valuator.narrative_flags.story_margin_flag
-story_margin_checked: "the story margin is checked" {class: decision; link: "./analyze-flags.svg"}  # No outgoing edge drawn: its branches are on analyze-flags
+story_margin_checked: "the story margin flag is set" {class: decision; link: "./analyze-flags.svg"}  # No outgoing edge drawn: its branches are on analyze-flags
 
 out: "Comes out:\nthe tornado bars, widest first, and the five by five grid of margins of safety" {class: output; link: "./analyze-flags.svg"}
 
