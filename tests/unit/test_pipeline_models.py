@@ -656,3 +656,132 @@ def test_rules_cite_the_code(stem: str) -> None:
         while lines[j].lstrip().startswith("\\*"):
             j -= 1
         assert lines[j].lstrip().startswith("(* Cites:"), f"{stem}.tla {rule} cites no code"
+
+# The analyze model (#169): one ticker through `bot analyze`.
+_ANALYZE_GROUPS = {
+    "analyze-inputs",
+    "analyze-story",
+    "analyze-assumptions",
+    "analyze-dcf",
+    "analyze-sensitivity",
+    "analyze-flags",
+    "analyze-verdict",
+}
+_ANALYZE_RULES = {
+    "VerdictOnlyIfValued",
+    "UnresolvedNeverValued",
+    "TerminalGrowthAtTheWaccStops",
+    "ImplausibleSharesStop",
+    "OneStoryType",
+    "UncoveredCurrencyLeavesTerminalGrowthUnresolved",
+    "VerdictFromTheMargin",
+    "FlagsAfterTheDcfNotInTheVerdict",
+    "ReportsTogetherOnlyWhenValued",
+    "UnknownTickerSkippedBatchGoesOn",
+    "OnlyTheCommandStopsTheBatch",
+    "CannotValueMeansNoReport",
+}
+_ANALYZE_END = {"command_stops", "not_found", "cannot_value", "crashed", "reported"}
+
+
+def _analyze_defined() -> dict[str, list[str]]:
+    """Rule name -> its `\\*` comments, for every definition of analyze.tla."""
+    return {name: comments for name, comments, _ in _definitions("analyze")}
+
+
+def test_analyze_model_exists() -> None:
+    assert "analyze" in _STEMS
+
+
+def test_analyze_groups() -> None:
+    assert set(_map("analyze", "groups").values()) == _ANALYZE_GROUPS
+    assert len(_invariants("analyze")) >= 8
+
+
+def test_analyze_rules() -> None:
+    """Every rule is checked, or kept in the .tla and marked broken."""
+    checked = set(_invariants("analyze"))
+    defined = _analyze_defined()
+    for rule in _ANALYZE_RULES:
+        assert rule in defined, rule
+        broken = any(re.fullmatch(r"\\\* broken: #\d+", c) for c in defined[rule])
+        assert (rule in checked) != broken, rule
+
+
+def test_analyze_end_phases() -> None:
+    line = next(ln for ln in _text("analyze", ".tla").splitlines() if ln.startswith("EndPhases =="))
+    assert set(re.findall(r'"(\w+)"', line)) == _ANALYZE_END
+
+
+def test_analyze_every_phase_is_reachable() -> None:
+    edges = _transitions("analyze")
+    seen, todo = {"asked"}, ["asked"]
+    while todo:
+        here = todo.pop()
+        for src, dst in edges.values():
+            if src == here and dst not in seen:
+                seen.add(dst)
+                todo.append(dst)
+    assert seen == set(_map("analyze", "states"))
+
+
+def test_analyze_end_phases_have_no_step_out() -> None:
+    assert not [a for a, (src, _) in _transitions("analyze").items() if src in _ANALYZE_END]
+
+
+@pytest.mark.parametrize(
+    "assignment",
+    [
+        "gVsWacc' = \"at or above\"",
+        "shares' = \"implausible\"",
+        "unresolved' = TRUE",
+        "currency' = \"uncovered\"",
+        "batch' = \"stopped\"",
+        "overrideStory' = \"given\"",
+        "tgSource' = \"manual\"",
+        "valued' = TRUE",
+        "margin' = \"no price\"",
+        "margin' = \"below 1.0\"",
+        "margin' = \"1.0 to under 1.3\"",
+        "margin' = \"1.3 or more\"",
+    ],
+)
+def test_analyze_rule_antecedents_are_set(assignment: str) -> None:
+    assert assignment in _text("analyze", ".tla")
+
+
+def test_analyze_groups_fit_a_subboard() -> None:
+    groups = _map("analyze", "groups")
+    edges = _transitions("analyze").values()
+    for group in _ANALYZE_GROUPS:
+        steps = sum(1 for s, t in edges if groups[s] == group or groups[t] == group)
+        assert steps <= 20, f"{group}: {steps} steps"
+
+
+def test_analyze_avoids_what_sany_export_rejects() -> None:
+    text = _text("analyze", ".tla")
+    assert "EXTENDS" not in text
+    assert "Cardinality" not in text
+    assert "<=>" not in text
+
+
+def test_analyze_actions_are_cited() -> None:
+    lines = _text("analyze", ".tla").splitlines()
+    missing = []
+    for action in _map("analyze", "steps"):
+        if action == "Done":
+            continue
+        i = lines.index(f"{action} ==")
+        if not lines[i - 1].rstrip().endswith("*)"):
+            missing.append(action)
+    assert missing == []
+
+
+def test_analyze_rules_are_cited() -> None:
+    lines = _text("analyze", ".tla").splitlines()
+    for rule in _ANALYZE_RULES:
+        i = lines.index(f"{rule} ==")
+        j = i - 1
+        while lines[j].lstrip().startswith("\\*"):
+            j -= 1
+        assert lines[j].rstrip().endswith("*)") and "Cites:" in "\n".join(lines[j - 3 : j + 1]), rule
