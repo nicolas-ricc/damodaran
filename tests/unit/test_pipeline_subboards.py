@@ -232,3 +232,70 @@ def test_subboard_svg_hrefs(stem: str) -> None:
 def test_svg_keeps_every_link(stem: str) -> None:
     """A link dropped by d2 cannot hide behind another node linking the same target."""
     assert _anchors(stem) == Counter(target for target, _ in _check().links(_text(stem)))
+
+
+# Refresh sub-boards (#166).
+_REFRESH_SUBBOARDS = {
+    "refresh-damodaran", "refresh-fundamentals", "refresh-facts", "refresh-prices", "refresh-fx",
+}
+# Scheduled entry points appear only on the sub-board they enter.
+_REFRESH_CRONS: dict[str, set[str]] = {
+    "refresh-damodaran": {"scripts/weekly.sh"},
+    "refresh-fundamentals": set(),
+    "refresh-facts": set(),
+    "refresh-prices": {"scripts/daily.sh", "scripts/price_fill.sh"},
+    "refresh-fx": {"scripts/daily.sh"},
+}
+# What a reader must find on each board (issue #166 acceptance criteria).
+_REFRESH_TEXT: dict[str, list[str]] = {
+    "refresh-damodaran": [
+        "the earlier file wins a shared column",
+        "D/E = w ÷ (1 - w)",  # normalize() reads the minus sign as a hyphen
+        "beta_unlevered = beta_levered ÷ (1 + (1 - tax) \u00d7 D/E)",
+    ],
+    "refresh-fundamentals": ["5%", "25%", "deferred, not failed"],
+    "refresh-facts": [
+        "350 to 380 days",
+        "80 to 100 days",
+        "the first concept in the list",
+        "calendar year of its end",
+        "91.3",
+        "1,000,000",
+        "financials_annual",
+        "financials_quarterly",
+    ],
+    "refresh-prices": ["5%", "25%", "deferred, not failed", "stalest first"],
+    "refresh-fx": ["5%", "25%", "deferred"],
+}
+
+
+def test_refresh_has_five_subboards() -> None:
+    assert {s for s, (stage, _) in subboards().items() if stage == "refresh"} == _REFRESH_SUBBOARDS
+
+
+@pytest.mark.parametrize("stem", sorted(_REFRESH_CRONS))
+def test_refresh_subboard_crons(stem: str) -> None:
+    text = _text(stem) if (_PIPELINE / f"{stem}.d2").exists() else ""
+    cron_lines = {i + 1 for i, cls, _ in node_labels(text).values() if cls == "cron"}
+    cited = {
+        d.argument
+        for d in _check().directives(text)
+        if d.kind == "file" and d.line in cron_lines
+    }
+    assert cited == _REFRESH_CRONS[stem]
+
+
+@pytest.mark.parametrize("stem", sorted(_REFRESH_TEXT))
+def test_refresh_subboard_text(stem: str) -> None:
+    text = _text(stem) if (_PIPELINE / f"{stem}.d2").exists() else ""
+    visible = _check().normalize(_check().visible(text).replace("\\n", " "))
+    missing = [p for p in _REFRESH_TEXT[stem] if _check().normalize(p) not in visible]
+    assert missing == []
+
+
+def test_refresh_damodaran_objective_names_the_eight_files() -> None:
+    path = _PIPELINE / "refresh-damodaran.d2"
+    _, _, label = node_labels(path.read_text(encoding="utf-8") if path.exists() else "").get(
+        "objective", (0, None, "")
+    )
+    assert "eight files" in label

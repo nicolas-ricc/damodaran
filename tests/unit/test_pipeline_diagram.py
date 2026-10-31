@@ -230,6 +230,29 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.web.site._renderable",
     },
     "site-views": {"bot.web.views.verdict_of", "bot.web.views.row_view", "bot.web.views.filter_sort"},
+    "refresh-damodaran": {
+        "bot.ingest.damodaran.import_damodaran",
+        "bot.ingest.damodaran.merge_industry_datasets",
+        "bot.ingest.damodaran.derive_industry_columns",
+    },
+    "refresh-fundamentals": {
+        "bot.ingest.universe.import_company",
+        "bot.ingest.universe._should_skip",
+        "bot.ingest.industry_mapping.load_industry_mapping",
+        "bot.ingest.universe._run_bulk_refresh",
+    },
+    "refresh-facts": {
+        "bot.ingest.sec_edgar._collect_period_rows",
+        "bot.ingest.sec_edgar._rescale_shares_diluted",
+        "bot.ingest.sec_edgar._fiscal_quarter_key",
+        "bot.ingest.sec_edgar._derive_financial_fields",
+    },
+    "refresh-prices": {
+        "bot.ingest.universe.refresh_prices",
+        "bot.ingest.universe._stale_first",
+        "bot.ingest.universe._last_weekday_before",
+    },
+    "refresh-fx": {"bot.ingest.universe.refresh_fx"},
 }
 # Derived from schema.sql, so a new table cannot go undrawn on the overview.
 _REQUIRED_TABLES: dict[str, set[str]] = {
@@ -273,6 +296,11 @@ _REQUIRED_TABLES: dict[str, set[str]] = {
         "prices_daily",
         "currencies",
     },
+    "refresh-damodaran": {"damodaran_industry", "damodaran_country", "refresh_log"},
+    "refresh-fundamentals": {"companies", "filings_log", "refresh_log"},
+    "refresh-facts": {"financials_annual", "financials_quarterly"},
+    "refresh-prices": {"prices_daily", "refresh_log"},
+    "refresh-fx": {"companies", "currencies", "refresh_log"},
 }
 _REQUIRED_FILES: dict[str, set[str]] = {
     "pipeline": {
@@ -319,6 +347,13 @@ _REQUIRED_FILES: dict[str, set[str]] = {
     "site-publish": {"scripts/publish_site.sh", "scripts/weekly.sh"},
     "site-ci": {".github/workflows/site.yml"},
     "site-views": {".github/workflows/site.yml"},
+    "refresh-damodaran": {"scripts/weekly.sh"},
+    "refresh-fundamentals": {
+        "src/bot/ingest/industry_mapping.csv",
+        "src/bot/ingest/universe_default.csv",
+    },
+    "refresh-prices": {"scripts/daily.sh", "scripts/price_fill.sh"},
+    "refresh-fx": {"scripts/daily.sh"},
 }
 # Derived from the rule registry and the preset, so a new rule or parameter
 # cannot go undrawn on the screen board.
@@ -394,6 +429,27 @@ _REQUIRED_CONSTS: dict[str, set[str]] = {
         "bot.web.views.FILTERS",
         "bot.web.views.SORTS",
         "bot.web.views.DIRECTIONS",
+    },
+    "refresh-fundamentals": {
+        "bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE",
+        "bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE",
+    },
+    "refresh-facts": {
+        "bot.ingest.sec_edgar.ANNUAL_SPAN_DAYS",
+        "bot.ingest.sec_edgar.QUARTERLY_SPAN_DAYS",
+        "bot.ingest.sec_edgar._QUARTER_DAYS",
+        "bot.ingest.sec_edgar._SHARE_SCALE_FACTORS",
+        "bot.ingest.sec_edgar._MIN_SHARE_COMPARATORS",
+        "bot.ingest.sec_edgar._SHARE_SCALE_TOLERANCE",
+    },
+    "refresh-prices": {
+        "bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE",
+        "bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE",
+        "bot.ingest.edgar_base._FRESH_DAYS",
+    },
+    "refresh-fx": {
+        "bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE",
+        "bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE",
     },
 }
 _REQUIRED_ENUMS: dict[str, set[str]] = {
