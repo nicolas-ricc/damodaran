@@ -57,13 +57,13 @@ Init ==
   /\ fxCalled = FALSE
   /\ fxStatus = "none"
 
-(* src/bot/ingest/damodaran.py: import_damodaran, _import_files_into_run: every download_dataset call (wacc.xls, ctryprem.xls and the six others) returns a file *)
+(* src/bot/ingest/damodaran.py: import_damodaran: every download_dataset call (wacc.xls, ctryprem.xls and the six others) returns a file *)
 AllEightFilesDownload ==
   /\ phase = "started"
   /\ phase' = "downloaded"
   /\ UNCHANGED << stagesDone, dDegraded, dCoreFailed, dIndustry, dCountry, dEmpty, dStatus, mappingInvalid, force, latestStored, fRateLimit, fLater, fOutcome, companyWritten, financialsWritten, industryDamodaran, unmapped, factKind, rowKind, fiscalYear, otherCounts, sharesRescaled, factInRow, barCurrent, requested, newestAge, shares, marketCap, pRateLimit, pLater, pOutcome, fxCurrencies, fxCalled, fxStatus >>
 
-(* src/bot/ingest/damodaran.py: _import_files_into_run: `except` around a download of one of the six others, `unavailable.append(dataset.key)`; the run goes on degraded *)
+(* src/bot/ingest/damodaran.py: import_damodaran: `except` around a download of one of the six others, `unavailable.append(dataset.key)`; the run goes on degraded *)
 AnotherFileFailsToDownload ==
   /\ phase = "started"
   /\ phase' = "downloaded"
@@ -212,7 +212,7 @@ TheRunHasForce ==
   /\ force' = TRUE
   /\ UNCHANGED << stagesDone, dDegraded, dCoreFailed, dIndustry, dCountry, dEmpty, dStatus, mappingInvalid, latestStored, fRateLimit, fLater, fOutcome, companyWritten, financialsWritten, industryDamodaran, unmapped, factKind, rowKind, fiscalYear, otherCounts, sharesRescaled, factInRow, barCurrent, requested, newestAge, shares, marketCap, pRateLimit, pLater, pOutcome, fxCurrencies, fxCalled, fxStatus >>
 
-(* src/bot/ingest/universe.py: _should_skip re-raises ProviderRateLimitError; _run_bulk_refresh sets `rate_limited`; refresh_run re-raises it *)
+(* src/bot/ingest/universe.py: _should_skip re-raises ProviderRateLimitError; _refresh_one re-raises it (`except ProviderRateLimitError: raise`); _run_bulk_refresh sets `rate_limited` *)
 TheCheckIsRateLimited ==
   /\ phase = "ticker_checked"
   /\ phase' = "ticker_counted"
@@ -239,7 +239,7 @@ TheFetchIsRateLimited ==
   /\ fOutcome' = "deferred"
   /\ UNCHANGED << stagesDone, dDegraded, dCoreFailed, dIndustry, dCountry, dEmpty, dStatus, mappingInvalid, force, latestStored, companyWritten, financialsWritten, industryDamodaran, unmapped, factKind, rowKind, fiscalYear, otherCounts, sharesRescaled, factInRow, barCurrent, requested, newestAge, shares, marketCap, pRateLimit, pLater, pOutcome, fxCurrencies, fxCalled, fxStatus >>
 
-(* src/bot/ingest/universe.py: _refresh_one: `except Exception` on the fetch counts a failure and the loop goes on *)
+(* src/bot/ingest/universe.py: import_company folds a fetch error into a non-success result, which _refresh_one maps to "failed" (`if result.is_success() ... else`); the loop goes on *)
 TheFetchFails ==
   /\ phase = "fetching"
   /\ phase' = "ticker_counted"
@@ -384,7 +384,7 @@ TheQuarterHasNoLabel ==
   /\ phase' = "fact_dropped"
   /\ UNCHANGED << stagesDone, dDegraded, dCoreFailed, dIndustry, dCountry, dEmpty, dStatus, mappingInvalid, force, latestStored, fRateLimit, fLater, fOutcome, companyWritten, financialsWritten, industryDamodaran, unmapped, factKind, rowKind, fiscalYear, otherCounts, sharesRescaled, factInRow, barCurrent, requested, newestAge, shares, marketCap, pRateLimit, pLater, pOutcome, fxCurrencies, fxCalled, fxStatus >>
 
-(* src/bot/ingest/sec_edgar.py: _label_rows keeps one row per label: a later period end with the same label is dropped *)
+(* src/bot/ingest/sec_edgar.py: _label_rows keeps one row per label: `by_key[key] = end` in sorted order keeps the later end, so a row is dropped when a later period end has the same label *)
 TwoRowsShareALabel ==
   /\ phase = "fact_derived"
   /\ phase' = "fact_dropped"
@@ -460,7 +460,7 @@ TheTickerIsListed ==
   /\ phase' = "price_listed"
   /\ UNCHANGED << stagesDone, dDegraded, dCoreFailed, dIndustry, dCountry, dEmpty, dStatus, mappingInvalid, force, latestStored, fRateLimit, fLater, fOutcome, companyWritten, financialsWritten, industryDamodaran, unmapped, factKind, rowKind, fiscalYear, otherCounts, sharesRescaled, factInRow, barCurrent, requested, newestAge, shares, marketCap, pRateLimit, pLater, pOutcome, fxCurrencies, fxCalled, fxStatus >>
 
-(* src/bot/ingest/universe.py: _refresh_one_price, newest stored bar on or after _last_weekday_before(today): skipped without a request *)
+(* src/bot/ingest/universe.py: refresh_prices, newest stored bar `d >= cutoff` with `cutoff = _last_weekday_before(today)`: the ticker is current and skipped without a request *)
 TheNewestBarIsCurrent ==
   /\ phase = "price_listed"
   /\ phase' = "price_counted"
@@ -484,7 +484,7 @@ ThePriceFetchIsRateLimited ==
   /\ pOutcome' = "deferred"
   /\ UNCHANGED << stagesDone, dDegraded, dCoreFailed, dIndustry, dCountry, dEmpty, dStatus, mappingInvalid, force, latestStored, fRateLimit, fLater, fOutcome, companyWritten, financialsWritten, industryDamodaran, unmapped, factKind, rowKind, fiscalYear, otherCounts, sharesRescaled, factInRow, barCurrent, newestAge, shares, marketCap, fxCurrencies, fxCalled, fxStatus >>
 
-(* src/bot/ingest/universe.py: refresh_prices: after a rate limit every later ticker is deferred without a request *)
+(* src/bot/ingest/universe.py: _run_bulk_refresh, `if rate_limited:` defers every later ticker without a request *)
 AnEarlierPriceFetchHitTheLimit ==
   /\ phase = "price_queued"
   /\ phase' = "price_counted"
@@ -493,7 +493,7 @@ AnEarlierPriceFetchHitTheLimit ==
   /\ pOutcome' = "deferred"
   /\ UNCHANGED << stagesDone, dDegraded, dCoreFailed, dIndustry, dCountry, dEmpty, dStatus, mappingInvalid, force, latestStored, fRateLimit, fLater, fOutcome, companyWritten, financialsWritten, industryDamodaran, unmapped, factKind, rowKind, fiscalYear, otherCounts, sharesRescaled, factInRow, barCurrent, requested, newestAge, shares, marketCap, fxCurrencies, fxCalled, fxStatus >>
 
-(* src/bot/ingest/universe.py: _refresh_one_price: `except Exception` on the fetch counts a failure and the loop goes on *)
+(* src/bot/ingest/universe.py: the price refresh_run folds a fetch error into a non-success result, which _refresh_one_price maps to "failed"; the loop goes on *)
 ThePriceFetchFails ==
   /\ phase = "price_queued"
   /\ phase' = "price_counted"
@@ -576,7 +576,7 @@ AnotherCurrencyIsListed ==
   /\ fxCalled' = TRUE
   /\ UNCHANGED << stagesDone, dDegraded, dCoreFailed, dIndustry, dCountry, dEmpty, dStatus, mappingInvalid, force, latestStored, fRateLimit, fLater, fOutcome, companyWritten, financialsWritten, industryDamodaran, unmapped, factKind, rowKind, fiscalYear, otherCounts, sharesRescaled, factInRow, barCurrent, requested, newestAge, shares, marketCap, pRateLimit, pLater, pOutcome, fxStatus >>
 
-(* src/bot/ingest/edgar_base.py: fx_rates returns [] for any currency; src/bot/ingest/fx.py import_fx_rates: `if not rates` stores nothing and counts a success *)
+(* src/bot/ingest/edgar_base.py: fx_rates returns [] for any currency; src/bot/utils/fx.py upsert_fx_rates: `if not rates` stores nothing and import_fx_rates counts a success *)
 TheProviderHasNoRates ==
   /\ phase = "fx_requested"
   /\ phase' = "fx_done"
@@ -700,7 +700,7 @@ AnnualRowHasAFiscalYear ==
 RescaleNeedsThreeOtherCounts ==
   sharesRescaled => otherCounts = "three or more"
 
-(* Cites: universe.py: _refresh_one_price skips a ticker whose newest bar is on or after _last_weekday_before(today). *)
+(* Cites: universe.py: refresh_prices keeps out of the request list a ticker whose newest bar `d >= cutoff`, cutoff = _last_weekday_before(today). *)
 \* A ticker whose newest bar is on or after the last weekday is not requested.
 CurrentTickerIsNotRequested ==
   barCurrent => ~requested
