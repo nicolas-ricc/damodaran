@@ -14,12 +14,12 @@
 
 - New files: `docs/pipeline/analyze-inputs.d2`, `analyze-story.d2`, `analyze-assumptions.d2`, `analyze-dcf.d2`, `analyze-sensitivity.d2`, `analyze-flags.d2`, `analyze-verdict.d2`. Their `.svg` files and `rendered.sha256` come only from the CI artifact `pipeline-render`; never edit an SVG or the hash by hand.
 - Every sub-board starts with `...@classes`, a blank line, `direction: down`. `class:` is a node's first attribute. Node keys are lower-case. Expand every acronym at its first use on each board, on that line or before it in file order (nodes before edges): DCF, WACC, MoS, EBIT, NOPAT, FCFF, EV, GDP, D/E, CAGR, ERP, P/E, EPS as they appear. No all-caps token outside `_ACRONYMS` / `_ACRONYMS_EXEMPT` (YAML, JSON, HTML, US, TICKER, YYYY, MM, DD are exempt).
-- Every number other than 0, 1 and 100 on a node or edge label (quoted or one-line `|md`) is cited by `@const`/`@param` on that source line; counts are words ("five by five").
+- Every number other than 0, 1 and 100 on a node or edge label (quoted or one-line `|md`) is cited by `@const`/`@param` on that source line; counts are words ("five by five", "fewer than two years").
 - At most 24 edges per sub-board; aim for 20. Every edge is one line `a -> b: "label"`.
 - A node that is a model state has that state's `states` label as its exact first line. An edge that is a model step has that step's `steps` label as its exact first line and joins the two states the `.tla` action joins.
 - A state is `decision` when two or more of its model steps carry a `[condition]`, else `step`; this holds for neighbours too. Every edge leaving a decision has a `[...]`; a model label without one gets the condition on its second line.
 - Every step and decision node has a directive on its line or the line before. A neighbour or terminal `step` node with no incoming (outgoing) edge carries `# No incoming edge: the flow enters from analyze-<sub>` (`# No outgoing edge: ...`) as a trailing comment.
-- No `#`, `{`, `}`, `|` or `"` inside a quoted label. Write `×`, `÷`, `−`, `≤`, `≥`, `Σ` as on `analyze.d2`.
+- No `#`, `{`, `}` or `"` inside a quoted label; `|` is allowed in a quoted label (as `analyze.d2`'s `|mean|` and `swing = |...|`), never in a one-line `|md` note. Write `×`, `÷`, `−`, `≤`, `≥`, `Σ` as on `analyze.d2`.
 - `analyze.d2` gains seven `link:` lines and nothing else. `pipeline.d2` does not change. No file under `src/` changes. `analyze.tla` and `analyze.cfg` do not change.
 - Formulas, thresholds, names and paths are copied from the code and cited. `analyze.d2` carries all of them with their directives and is pinned by `_ANALYZE_TEXT` and the direction tests: reuse its wording and directives.
 
@@ -47,10 +47,10 @@ Steps per group (source → target):
 2. **Every cross-group step is drawn on both boards** (no screen-style exception is needed: the largest board is 23 edges). Its far end is a neighbour node with `link:` to its sub-board.
 3. **`Done` drawn once**, `reported -> out: "the run of this ticker ends"` (screen A3). The other end states (`command_stops`, `not_found`, `crashed`, `cannot_value`) carry `# No outgoing edge: the run of this ticker ends here`.
 4. **Neighbours per board.**
-   - inputs: `classified` (decision, link story; no outgoing edge drawn), `not_distressed` (decision, link story).
+   - inputs: `classified` (decision, link story; trailing comment `# No outgoing edge drawn: its branches are on analyze-story`), `not_distressed` (decision, link story).
    - story: `signals` (decision, link inputs), `cannot_value` (step, link dcf, no outgoing edge), `sector_read` (step, link assumptions, no outgoing edge).
    - assumptions: `story_set` (decision, link story), `cannot_value` (step, link dcf, no outgoing edge), `ready` (decision, link dcf).
-   - dcf: `tg_set` (step, link assumptions, no incoming edge), `classified`, `scalars_set` (decision, link story / assumptions), `tornado_done` (step, link sensitivity, no outgoing edge).
+   - dcf: `tg_set` (step, link assumptions, no incoming edge), `classified`, `scalars_set` (decision, link story / assumptions; trailing comment `# No incoming edge: the flow enters from analyze-<sub>`), `tornado_done` (step, link sensitivity, no outgoing edge).
    - sensitivity: `valued` (step, link dcf, no incoming edge), `story_margin_checked` (decision, link flags).
    - flags: `grid_done` (decision, link sensitivity), `verdict_given` (step, link verdict, no outgoing edge).
    - verdict: `country_checked` (decision, link flags).
@@ -86,7 +86,7 @@ Done in the evals stage, before any board exists. The new tests fail.
   - enums: `analyze-story`: `bot.valuator.story_types.StoryType`; `analyze-assumptions`: `bot.valuator.assumptions.AssumptionSource`; `analyze-flags`: `bot.valuator.narrative_flags.FlagColor`; `analyze-sensitivity`: `bot.valuator.sensitivity.SensitivityAxis`.
 - [ ] **Step 3:** In `test_pipeline_subboards.py`, a section `# Analyze sub-boards (#170).`:
   - `test_analyze_has_seven_subboards`: analyze stems equal the seven names.
-  - `test_analyze_subboard_text` (parametrized over `_ANALYZE_TEXT`), normalized visible text contains:
+  - `test_analyze_subboard_text` (parametrized over a new `_ANALYZE_TEXT` in `test_pipeline_subboards.py`, a module-level constant separate from the stage-board `_ANALYZE_TEXT` of `test_pipeline_diagram.py`, as `_SCREEN_TEXT` already is), normalized visible text contains:
     - `analyze-inputs`: `"--from-screen"`, `"config/assumptions/TICKER.yaml"`, `"China, India, Japan"`, `"net debt = total debt − cash"`, `"interest coverage = EBIT ÷ interest expense"`
     - `analyze-story`: `"first match wins"`, `"Altman Z < 1.81"`, `"coefficient of variation = standard deviation ÷ |mean| of net income"`, `"CAGR = (last ÷ first)^(1 ÷ (years − 1)) − 1"`
     - `analyze-assumptions`: `"story_pattern"`, `"historical_average"`, `"sector_default_damodaran_cross_region"`, `"min(risk-free rate, nominal GDP growth)"`, `"debt weight = D/E ÷ (1 + D/E)"`, `"config/currencies.yaml"`
@@ -119,7 +119,7 @@ Done in the evals stage, before any board exists. The new tests fail.
 - [ ] **Step 1:** Write the board.
   - `objective`: "Objective: name the company's story type with the first rule that matches, then let the override file replace it."
   - States `not_distressed`, `not_cyclical`, `not_high_growth`, `classified` (lists the five story types, `@symbol bot.valuator.story_types.classify @enum bot.valuator.story_types.StoryType`; "first match wins"), `crashed`, `story_set` (`@symbol bot.valuator.assumptions.resolve_assumptions`). Neighbours per decision 4.
-  - Classifier edges carry the thresholds on line 2+, from `analyze.d2`'s `story_type.*`: distressed (interest coverage ≤ 1.0, Altman Z < 1.81, both consts); cyclical (coefficient of variation formula, population standard deviation, fewer than 2 years or mean 0: not cyclical, `_CYCLICAL_EARNINGS_CV`); high-growth (CAGR formula, ≥ 15%, age ≤ 25 years, unknown age counts as young); mature-decline (CAGR ≤ −1%).
+  - Classifier edges carry the thresholds on line 2+, from `analyze.d2`'s `story_type.*`: distressed (interest coverage ≤ 1.0, Altman Z < 1.81, both consts); cyclical (coefficient of variation formula, population standard deviation, fewer than two years or mean 0: not cyclical, `_CYCLICAL_EARNINGS_CV`); high-growth (CAGR formula, ≥ 15%, age ≤ 25 years, unknown age counts as young); mature-decline (CAGR ≤ −1%).
   - The Altman Z gap note: top-level node `altman`, class `gap`, one-line `|md`: "Gap: Altman Z is read by the classifier but computed nowhere, and analyze never passes it; only interest coverage can make a company distressed." with no digit on it.
   - File `override_yaml` (`@file config/assumptions @symbol bot.valuator.assumptions.conventional_override_path`) `→ classified` ("story_type key, read with every other override").
   - `out`: "Comes out:" the story type the assumptions will follow, and the classifier's own type for the report. `link: "./analyze-assumptions.svg"`.
@@ -196,3 +196,19 @@ Done in the evals stage, before any board exists. The new tests fail.
 - [ ] **Step 1:** Add the links and README edits; run the three test files: everything passes except the SVG-dependent tests.
 - [ ] **Step 2:** Commit `docs(#170): link the analyze sub-boards`; push; render loop until `pipeline-diagram` (both jobs) is green on the head with the committed SVGs.
 - [ ] **Step 3:** Full suite, `uv run ruff check . && uv run mypy src`, `python3 docs/pipeline/check.py` (`0 errors`), and the `site` workflow's commands locally.
+- [ ] **Step 4:** The PR body lists, per sub-board, the four answers (objective, how, criteria, what comes out) read from that board alone (issue acceptance criterion 4).
+
+## Assumptions (from the plan grilling; decided, with the rejected alternative)
+
+- A1. **"exit code two" in the view** (decision 1). No constant holds an exit code and 2 is not exempt from the digit test. Rejected: citing an unrelated constant whose value is 2 (misleading), exempting exit codes in the generic test (weakens a test other stages rely on).
+- A2. **Decision neighbours with a missing side** (`classified` on inputs, `classified`/`scalars_set` on dcf) carry a trailing `No outgoing edge drawn` / `No incoming edge` comment though no test requires it on a decision (`test_every_step_has_purpose_and_edges` checks `step` nodes only). Rejected: drawing every branch of the neighbour (pushes inputs over the cap).
+- A3. **Step nodes with two outgoing edges** (`override_picked`, `shares_ok`, `resolved`) stay `step`: the class rule counts bracketed model labels only, and the bracketed edge tells the reader when the other branch is not taken, as screen-ranking's `kept`. Rejected: an extra `[otherwise]` line (the screen boards do not use it).
+- A4. **The view labels are checked by TLC in CI only.** The sandbox cannot run Java (parent plan decision 11); locally `test_labels_name_no_code` and the label-match tests check them. If the `models` job fails, the label is fixed and pushed again.
+- A5. **Pushing waits for Task 9** (screen A5): intermediate commits are red by design (evals, boards without SVGs); only the final head must be green. `build.sh` runs under `set -e`, so a failing board yields no hash; SVGs are copied only from a run whose render step succeeded.
+
+## Grilling
+
+- Rounds: 1 (the revisions changed wording, comments and one PR-body step, not the task list or the seam).
+- Questions: 18. Sources: CODE 15 (`tests/unit/test_pipeline_diagram.py` `_uncited_numbers`/`_NUMBER_RE`/`_UNITS` L2355-2391 and `test_every_step_has_purpose_and_edges` L2394-2418; `tests/unit/test_pipeline_models.py` `_stage_boards` L500-509, `_transitions`/`_moves` skip `Done` L474/L491, `test_subboard_state_classes` L566-583; `tests/unit/test_pipeline_subboards.py` `test_decision_edges_carry_a_condition`; `docs/pipeline/check.py` `_scan` keeps md block text visible; `docs/pipeline/analyze.d2` container keys and the five symbols already cited; `docs/pipeline/screen-ranking.d2` `out` is `class: output`; `docs/pipeline/screen-snapshot.d2` `[always]` into `out`; `docs/pipeline/build.sh` `set -euo pipefail`), ISSUE 1 (Q11, task list and acceptance criteria), NO SOURCE 2 (Q7, Q16: technical assumptions A2, A4).
+- Fixes: `|` allowed in quoted labels; "fewer than 2 years" → "fewer than two years"; `_ANALYZE_TEXT` file named; decision-neighbour comments; the four-answers self-check added to Task 9.
+- Assumptions: A1–A5. Issues opened: none.
