@@ -275,7 +275,7 @@ def test_refresh_has_five_subboards() -> None:
 
 @pytest.mark.parametrize("stem", sorted(_REFRESH_CRONS))
 def test_refresh_subboard_crons(stem: str) -> None:
-    text = _text(stem) if (_PIPELINE / f"{stem}.d2").exists() else ""
+    text = _text(stem)
     cron_lines = {i + 1 for i, cls, _ in node_labels(text).values() if cls == "cron"}
     cited = {
         d.argument
@@ -287,15 +287,12 @@ def test_refresh_subboard_crons(stem: str) -> None:
 
 @pytest.mark.parametrize("stem", sorted(_REFRESH_TEXT))
 def test_refresh_subboard_text(stem: str) -> None:
-    text = _text(stem) if (_PIPELINE / f"{stem}.d2").exists() else ""
+    text = _text(stem)
     visible = _check().normalize(_check().visible(text).replace("\\n", " "))
     missing = [p for p in _REFRESH_TEXT[stem] if _check().normalize(p) not in visible]
     assert missing == []
 
 
 def test_refresh_damodaran_objective_names_the_eight_files() -> None:
-    path = _PIPELINE / "refresh-damodaran.d2"
-    _, _, label = node_labels(path.read_text(encoding="utf-8") if path.exists() else "").get(
-        "objective", (0, None, "")
-    )
+    _, _, label = node_labels(_text("refresh-damodaran"))["objective"]
     assert "eight files" in label
