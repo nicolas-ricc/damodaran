@@ -56,6 +56,7 @@ Format: `Action: from → to (variable changes) — "step label" — code citati
 **analyze-inputs** (phases `asked`, `command_stops`, `chosen`, `override_picked`, `not_found`, `loaded`, `region_set`, `signals`)
 - `TheTickersAreGiven`: asked → chosen — "the ticker is named on the command line" — `cli.analyze`: `tickers` argument.
 - `TheLatestScreenListsIt`: asked → chosen — "the latest screen lists it as a passed candidate [--from-screen]" — `cli.analyze`: `SELECT ticker ... WHERE passed AND run_id = ? ORDER BY rank`.
+- `TheArgumentsAreRefused`: asked → command_stops (batch' = "stopped", exitCode' = "2") — "the command stops, exit code 2 [tickers with --from-screen, neither, or --override without exactly one ticker]" — `cli.analyze` lines 405-415.
 - `TheScreenLeftNoCandidate`: asked → command_stops (batch' = "stopped", exitCode' = "2") — "the command stops, exit code 2 [--from-screen, and no screen run or no passed candidate]" — `cli.analyze`: `latest_run is None` / `not rows` → `typer.Exit(code=2)`.
 - `TheOverrideFlagNamesTheFile`: chosen → override_picked — "the override file is the one --override names [exactly one ticker]" — `cli.analyze` `override` option; `_analyze_one`.
 - `TheTickersFileExists`: chosen → override_picked — "the override file is config/assumptions/TICKER.yaml [it exists]" — `assumptions.conventional_override_path`.
@@ -144,7 +145,7 @@ Format: `Action: from → to (variable changes) — "step label" — code citati
 | h | `FlagsAfterTheDcfNotInTheVerdict` | The narrative flags are computed after the DCF, and the verdict reads the margin of safety alone. | `(flags # {} => valued) /\ (verdict # "none" => (flags = FlagNames /\ verdict = ThresholdVerdict(margin)))` |
 | i | `ReportsTogetherOnlyWhenValued` | The markdown, HTML and JSON reports are written together, and only for a valued company. | `reports # {} => (reports = {"markdown", "HTML", "JSON"} /\ valued /\ verdict # "none")` |
 | j | `UnknownTickerSkippedBatchGoesOn` | An unknown ticker, or one without annual financials, ends before any valuation with exit code 2, and the batch goes on. | `phase = "not_found" => (exitCode = "2" /\ ~valued /\ storyTypes = {} /\ batch = "going")` |
-| k | `OnlyAnEmptyScreenStopsTheBatch` | Only an empty screen stops the whole command; a failing ticker never does. | `batch = "stopped" => (phase = "command_stops" /\ storyTypes = {})` |
+| k | `OnlyTheCommandStopsTheBatch` | Only refused arguments or an empty screen stop the whole command; a failing ticker never does. | `batch = "stopped" => (phase = "command_stops" /\ storyTypes = {})` |
 | l | `CannotValueMeansNoReport` | A company that cannot be valued exits with code 1 and gets no report. | `phase = "cannot_value" => (exitCode = "1" /\ ~valued /\ reports = {} /\ verdict = "none")` |
 
 Citations, as `(* Cites: ... *)` above each rule's sentence: a `cli._analyze_one` (`render_*` only after `run_analysis` returns) and `analysis.analyze` (`margin_of_safety` built from `dcf_result`); b `to_dcf_assumptions` / `_require`; c `dcf.dcf` `terminal_growth >= wacc` raises; d `analysis.analyze` share bounds; e `_resolve_story_type` and `analyze` (`story_type = assumptions.story_type or auto_story.value`); f `_resolve_terminal_growth`; g `margin_verdict`, `views.MOS_UNDERVALUED` / `MOS_FAIR`; h `analyze` (`narrative_flags` after `dcf`, `margin_of_safety` from `dcf_result` and the price only); i `_analyze_one` (three writes in a row, after a successful `run_analysis`); j `_analyze_one` `except LookupError: return 2` inside the `for ticker` loop of `cli.analyze`; k `cli.analyze` (`typer.Exit(code=2)` only before the loop, `max` of exit codes inside it); l `_analyze_one` `except ValueError: return 1` before any write.
@@ -167,7 +168,7 @@ inputs 8; story 7; assumptions about 50 (`unresolved` × `currency` × `tgSource
 
 **Files:**
 - Create: `docs/pipeline/models/analyze.tla`, `docs/pipeline/models/analyze.cfg`, `docs/pipeline/models/analyze.view.js`
-- Test: `tests/unit/test_pipeline_models.py` (the generic tests already apply to every `*.tla` stem; the analyze evals are added in the evals stage)
+- Test: `tests/unit/test_pipeline_models.py`. The generic tests already apply to every `*.tla` stem. The analyze evals are written and committed by the pipeline's evals stage (`test(#169): evals`) before Task 1 starts, so Step 1 collects them and they fail on the missing files: a real FAIL, not exit 5.
 
 **Interfaces:**
 - Consumes: the helpers `_map`, `_definitions`, `_invariants`, `_transitions`, `_text` in `tests/unit/test_pipeline_models.py`.
@@ -201,6 +202,28 @@ inputs 8; story 7; assumptions about 50 (`unresolved` × `currency` × `tgSource
 - Consumes: Task 1's files; the `models` job; the artifact `pipeline-models`.
 
 - [ ] **Step 1: Push and watch.** `git push -u origin HEAD`. Then run `id=$(gh run list --repo nicolas-ricc/damodaran --branch "$(git branch --show-current)" --workflow pipeline-diagram --limit 1 --json databaseId --jq '.[0].databaseId')` and `gh run watch "$id" --repo nicolas-ricc/damodaran --exit-status || true`, both in the foreground.
-- [ ] **Step 2: Read the artifact.** Run `gh run download "$id" --repo nicolas-ricc/damodaran -n pipeline-models -D /tmp/models-<n>`. Then read `analyze/report.md` and `analyze/chart.mmd`, and `analyze/tlc.out` on an error. Expected: `## Rules that hold` lists at least 8 rules, there is no `breaks`, `Rules not checked` or `TLC stopped` section, `chart.mmd` exists, and the state count is at most 500.
-- [ ] **Step 3: Fix and repeat.** A parse error or an unreachable phase means the model is wrong: fix it, run the tests, commit `fix(#169): ...`, and go back to Step 1. A broken rule follows the protocol in `docs/pipeline/models/README.md`: replay it as a pytest against the real code; if the code behaves as the path shows, open a `bug` issue, move the rule to `\* broken: #n`, and add a row to the README table.
+- [ ] **Step 2: Read the artifact.** If `gh run list` returns no id yet, run it again until the push's run shows up. `models` uploads `pipeline-models` with `if: always()` (`.github/workflows/pipeline-diagram.yml`), so a red job still has the artifact. Check that the report's line `TLC reached N states` has N ≤ 500, and that every `states` label of `analyze.view.js` appears in `chart.mmd`: this confirms TLC itself reached every phase, which the regex reachability test, blind to guards, cannot.
+- [ ] **Step 2b:** Run `gh run download "$id" --repo nicolas-ricc/damodaran -n pipeline-models -D /tmp/models-<n>`. Then read `analyze/report.md` and `analyze/chart.mmd`, and `analyze/tlc.out` on an error. Expected: `## Rules that hold` lists at least 8 rules, there is no `breaks`, `Rules not checked` or `TLC stopped` section, `chart.mmd` exists, and the state count is at most 500.
+- [ ] **Step 3: Fix and repeat.** A parse error or an unreachable phase means the model is wrong: fix it, run the tests, commit `fix(#169): ...`, and go back to Step 1. Budget: six push-watch-fix cycles. After that the stage is declared stuck and documented on the issue. A broken rule follows the protocol in `docs/pipeline/models/README.md`: replay it as a pytest against the real code; if the code behaves as the path shows, open a `bug` issue, move the rule to `\* broken: #n`, and add a row to the README table.
 - [ ] **Step 4: Done** when the run on the head commit is green in both jobs (`render` and `models`).
+
+## Citations for steps listed without one above
+
+`ItIsNotDistressed`, `ItIsNotCyclical`, `ItIsNotHighGrowth`, `ItIsMatureStable`: `story_types.classify` (the `if` chain at lines 186-202). `MarginIsUnresolved`: `_resolve_operating_margin` (`sector_margin is None` → UNRESOLVED). `AScalarIsUnresolved`: `_resolve_sector_scalar` (`value is None` → UNRESOLVED). `WeightsAreUnresolved`: `_resolve_weights`, last return. `TheSharesArePlausible`: `analysis.analyze` (the share bounds pass). `EveryAssumptionHasASource`: `Assumptions.to_dcf_assumptions` returns. `TheTerminalValueIsComputed`, `TheEnterpriseValueIsSummed`, `TheEquityIsFound`, `TheValueIsBlended`: `dcf.dcf` body after the yearly loop (terminal year, `enterprise_value`, equity per share, the `probability_of_bankruptcy` blend).
+
+## Assumptions
+
+Technical decisions taken during grilling. Each satisfies the issue, and the rejected alternative is named.
+
+1. **Story recorded by who set it, not by which type** (rejected: all five types). Keeping the five types would multiply later states by 6 and break the 500-state chart budget. Story-dependent sources stay as unguarded steps, with their condition in brackets.
+2. **Over-approximations accepted.** Rejected alternative: a variable per data presence, which would multiply states. The sector row, the history and the override file are not variables. So `MarginIsUnresolved`, `AScalarIsUnresolved` and `WeightsAreUnresolved` can follow a found sector row, which the code allows (a NULL column in a found row). `GrowthIsUnresolved` is guarded by the uncovered currency only, and the manual actions are always enabled. No rule's antecedent becomes reachable only through a path the code cannot take: `unresolved` is reachable through `TerminalGrowthIsUnresolved`, which follows the code exactly.
+3. **Rules c, d, j, k and l hold by construction today.** They are kept as regression guards against later model edits, and as the sentences the sub-boards show. For example, c breaks if `TerminalGrowthReachesTheWacc` stops setting the exit code, or if a later edit lets `projected` follow it. Rejected alternative: dropping them, but the issue asks for c and d by name.
+4. **`MarginVerdict` (mirrors the code, in descending `>=` order) and `ThresholdVerdict` (CONTEXT.md bands as a lookup) are written separately.** With string bands they agree by construction. Rule g checks that each verdict action uses the band it names and that `n/a` goes with no price only. Rejected alternative: integer margins, which need `EXTENDS Naturals` and risk the SANY export.
+5. **`storyTypes` is a set**, so the rule can say "exactly one" literally (a singleton), and a model edit that unions instead of replacing breaks it. Rejected alternative: a string, which cannot hold two types at all.
+6. **File-system failures are left out**, as in the site model. A failed write is follow-up #178.
+7. **`Done` has no `phase'` pair**: `_transitions` in `tests/unit/test_pipeline_models.py` skips `Done`, as in `site.tla`.
+8. **`cannot_value` sits in analyze-dcf** and is entered from the story and assumptions groups. #164 allows a node from another group's board, linked to its own board (`test_neighbour_nodes_link_their_subboard`; `docs/pipeline/site-scan.d2` line 30).
+
+## Grilling
+
+Round 1: 18 questions. Sources: ISSUE 5, CODE 9, DOC 2, NO SOURCE 7 → technical assumptions 6 (listed above), out of scope 1 (#178), spec ambiguities 0. Changes: `TheArgumentsAreRefused` was added and rule k widened; the reachability check against `chart.mmd` and a budget of six CI cycles were added; the citations were completed.
