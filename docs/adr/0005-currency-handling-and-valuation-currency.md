@@ -6,7 +6,7 @@ Accepted (2026-08-11). §4 Implemented (2026-10-28, #109): the per-currency
 table lives in `config/currencies.yaml` (loaded by `bot.reference.currencies`),
 the valuator resolves it by valuation currency in `valuator/assumptions.py`, and
 the coverage gate in `screener/engine.py` excludes companies whose currency it
-does not cover. §1–§3 are still not implemented: `companies.currency` remains one
+does not cover. §1–§3: Not implemented. `companies.currency` remains one
 ambiguous column, and the price is not yet converted from listing currency into
 the valuation currency. Under the current US-only scope (S&P 500 universe,
 listing currency = reporting currency = USD) their consequences do not manifest —

@@ -92,7 +92,7 @@ assumptions: "3. assumptions: the first source that yields a value wins; paths o
   sector_row: "sector row: newest damodaran_industry row\nfor (industry, region)\nnone: the newest row of that industry in any region\nsector label = sector_default_damodaran,\nor sector_default_damodaran_cross_region\nwhen another region's row is used" {  # @symbol bot.valuator.assumptions._load_sector_with_fallback
     class: step
   }
-  growth: "revenue growth g_t, a 5-year path\n1. manual: list, or one value repeated → manual\n2. high-growth with history: straight line from the mean historical growth\nto nominal gross domestic product (GDP) growth 4% → story_pattern\n3. mean historical growth, repeated → historical_average\n4. nominal GDP growth 4% each year → rule_based\nhistorical growth = mean of (revenue_t − revenue_t−1) ÷ revenue_t−1,\nzero bases skipped, at least two years" {  # @symbol bot.valuator.assumptions._resolve_revenue_growth @const bot.valuator.assumptions._DEFAULT_GDP_NOMINAL
+  growth: "revenue growth g_t, a 5-year path\n1. manual: list, or one value repeated → manual\n2. high-growth with history: straight line from the mean historical growth\nto the valuation currency's nominal gross domestic product (GDP) growth → story_pattern\n3. mean historical growth, repeated → historical_average\n4. that currency's nominal GDP growth each year → rule_based\n5. currency not in config/currencies.yaml → unresolved\nhistorical growth = mean of (revenue_t − revenue_t−1) ÷ revenue_t−1,\nzero bases skipped, at least two years" {  # @symbol bot.valuator.assumptions._resolve_revenue_growth
     class: step
     consensus: |md Gap: spec §7.3 starts revenue growth from analyst consensus converging to nominal GDP by year 10; there is no consensus layer (AssumptionSource has no analyst_consensus) and the horizon is 5 years. | {class: gap}
   }
@@ -110,7 +110,7 @@ assumptions: "3. assumptions: the first source that yields a value wins; paths o
     class: step
     company: |md Gap: spec §7.3 builds the discount rate from the company's capital structure and the country equity risk premium; the code uses the sector's D/E and the sector cost of equity. | {class: gap}
   }
-  terminal_growth: "terminal growth g_terminal\n1. manual → manual\n2. country risk-free rate known:\nmin(risk-free rate, nominal GDP growth 4%) → rule_based\n3. else nominal GDP growth 4% → rule_based" {  # @symbol bot.valuator.assumptions._resolve_terminal_growth @const bot.valuator.assumptions._DEFAULT_GDP_NOMINAL
+  terminal_growth: "terminal growth g_terminal\n1. manual → manual\n2. valuation currency in config/currencies.yaml:\nmin(its risk-free rate, its nominal GDP growth) → rule_based\n3. else unresolved (no USD fallback)" {  # @symbol bot.valuator.assumptions._resolve_terminal_growth
     class: step
   }
   tax: "tax rate\n1. manual → manual\n2. sector tax_rate → sector label\n3. country tax_rate (newest damodaran_country row)\n→ sector_default_damodaran\n4. else 25% → rule_based" {  # @symbol bot.valuator.assumptions._resolve_tax_rate @const bot.valuator.assumptions._DEFAULT_TAX_RATE
@@ -257,7 +257,9 @@ override_yaml -> story_type.manual: "story_type key"
 story_type.manual -> assumptions: "story type"
 override_yaml -> assumptions: "manual values"
 duckdb.damodaran_industry -> assumptions.sector_row: "sector rows"
-duckdb.damodaran_country -> assumptions.terminal_growth: "risk-free rate"
+currencies_yaml: "config/currencies.yaml\nrisk-free rate and nominal GDP growth per currency" {class: file}  # @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table
+currencies_yaml -> assumptions.terminal_growth: "risk-free rate, nominal GDP growth"
+currencies_yaml -> assumptions.growth: "nominal GDP growth"
 duckdb.damodaran_country -> assumptions.tax: "country tax rate"
 duckdb.financials_annual -> assumptions.growth: "revenue history"
 duckdb.financials_annual -> assumptions.margin: "EBIT and revenue history"

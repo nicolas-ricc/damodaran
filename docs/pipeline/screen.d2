@@ -85,7 +85,7 @@ snapshot: "1. snapshot per company" {
 
 # Layer 2: coverage gate
 coverage_gate: "2. coverage gate" {
-  gate: "sector benchmark row for (industry, region)\nwith a weighted average cost of capital (WACC)?\nno: the company leaves the universe before any rule runs,\nrecorded as rejected with coverage_gate\n(architecture decision record (ADR) 0006 (Implemented))" {  # @symbol bot.screener.engine.run_screen @file docs/adr/0006-unmeasurable-companies-leave-the-universe.md
+  gate: "sector benchmark row for (industry, region)\nwith a weighted average cost of capital (WACC),\nand reporting currency in config/currencies.yaml?\nno: the company leaves the universe before any rule runs,\nrecorded as rejected with coverage_gate and one reason,\nindustry_unmapped > benchmark_missing > currency_uncovered\n(architecture decision record (ADR) 0006 (Implemented))" {  # @symbol bot.screener.engine.run_screen @file docs/adr/0006-unmeasurable-companies-leave-the-universe.md
     class: decision
     plano_caveat: |md Gap: plano damodaran card says the engine still resolves missing benchmarks layer by layer; the coverage gate removes the company before any rule runs (ADR 0006 (Implemented)). | {class: gap}
     plano_wacc: |md Gap: plano a-wacc card says the sector WACC's only consumer is roic_above_sector_wacc; the coverage gate requires it too, and the portfolio's sector_recalibrated event diffs it. | {class: gap}
@@ -238,6 +238,8 @@ snapshot.tax -> snapshot.ratios: "tax rate"
 snapshot.ratios -> snapshot.usd: "ratios and market cap"
 snapshot.usd -> snapshot.benchmark: "industry and region"
 snapshot.benchmark -> coverage_gate.gate: "sector benchmark, or none"
+currencies_yaml: "config/currencies.yaml\nthe currencies the valuation covers" {class: file}  # @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table
+currencies_yaml -> coverage_gate.gate: "covered currencies"
 
 # Edges: coverage gate and quality gates
 coverage_gate.gate -> quality_gates: "yes: measured, every rule runs"

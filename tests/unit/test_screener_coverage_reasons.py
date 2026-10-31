@@ -13,9 +13,9 @@ from pathlib import Path
 
 import duckdb
 import pytest
-from bot.reference.currencies import CurrencyRates, CurrencyTable, load_currency_table
 from structlog.testing import capture_logs
 
+from bot.reference.currencies import CurrencyRates, CurrencyTable, load_currency_table
 from bot.reporting.screen_report import render_markdown
 from bot.screener.config import ScreenerConfig, load_screener_config
 from bot.screener.engine import CoverageReason, RejectedCompany, ScreenResult, run_screen
