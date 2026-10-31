@@ -48,6 +48,7 @@ cli: "bot portfolio [--history] [--concentration]\nsync the account, mark every 
 
 # Section 1-3: sync
 sync: "1–3. sync the account" {  # @symbol bot.portfolio.command.run_portfolio
+  link: "./portfolio-sync.svg"
   snapshot: "1. snapshot: every managed account's open positions\nand cash by currency\nidempotent per (snapshot_date, account):\ndelete that day's rows of the account,\nthen insert into portfolio_snapshots and cash_balances;\nother accounts' rows of the day untouched" {  # @symbol bot.portfolio.sync.sync_portfolio
     class: step
   }
@@ -66,6 +67,7 @@ sync: "1–3. sync the account" {  # @symbol bot.portfolio.command.run_portfolio
 
 # Section 4a: marks
 marks: "4a. mark every holding" {  # @symbol bot.portfolio.marks.mark_holdings
+  link: "./portfolio-marks.svg"
   held: "holdings = tickers whose summed quantity ≠ 0 on the snapshot date" {
     class: step
   }
@@ -83,6 +85,7 @@ marks: "4a. mark every holding" {  # @symbol bot.portfolio.marks.mark_holdings
 
 # Section 4b: events
 events: "4b. diff two snapshots into events" {  # @symbol bot.portfolio.events.compute_events @enum bot.portfolio.events.EventType
+  link: "./portfolio-events.svg"
   window: "previous snapshot = newest snapshot_date before today; none on the first run\npositions summed per ticker across accounts\nderived events diff the two persisted marks, never a recomputation" {  # @symbol bot.portfolio.marks.load_marks
     class: step
   }
@@ -112,18 +115,23 @@ events: "4b. diff two snapshots into events" {  # @symbol bot.portfolio.events.c
   }
   intrinsic_value_crossed_price: "intrinsic_value_crossed_price\n(intrinsic value − price) < 0 before and > 0 now, or > 0 before and < 0 now\nequality is not a cross\nno previous mark, or any of the four values unknown: nothing" {  # @symbol bot.portfolio.events.detect_intrinsic_value_cross
     class: decision
+    link: "./portfolio-mark-events.svg"
   }
   new_red_flag: "new_red_flag: one per narrative flag red now\nand not red in the previous mark\nno previous mark or unknown previous flags: counts as none red\nunknown flags now: nothing" {  # @symbol bot.portfolio.events.detect_new_red_flags
     class: decision
+    link: "./portfolio-mark-events.svg"
   }
   below_quality_gate: "below_quality_gate: one per gate failing now and not failing before\nfailed gates unknown on either side, or no previous mark: nothing" {  # @symbol bot.portfolio.events.detect_below_quality_gate
     class: decision
+    link: "./portfolio-mark-events.svg"
   }
   sector_recalibrated: "sector_recalibrated: |sector WACC now − sector WACC before| > 100 bps\nexactly 100 bps: no event; either unknown: nothing" {  # @symbol bot.portfolio.events.detect_sector_recalibration @const bot.portfolio.events.DEFAULT_WACC_RECALIBRATION_BPS
     class: decision
+    link: "./portfolio-mark-events.svg"
   }
   concentration: "concentration: market value ÷ total market value > 15%, exactly 15%: no event\ntotal over positions with a market value > 0\nnot a diff: fires on every run while above" {  # @symbol bot.portfolio.events.detect_concentration @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
     class: decision
+    link: "./portfolio-mark-events.svg"
   }
   not_events: |md Not events, by design (spec §8.3): price moves and news. | {class: note}
   persist: "append every event to events_log:\nevent_type, ticker, previous and current snapshot dates, details" {  # @symbol bot.portfolio.events.persist_events
@@ -134,6 +142,7 @@ events: "4b. diff two snapshots into events" {  # @symbol bot.portfolio.events.c
 
 # Section 5: reports
 reports: "5. reports, written to reports/YYYY-MM-DD/" {
+  link: "./portfolio-alerts.svg"
   portfolio: "portfolio.md, the full state: positions, profit and loss (P&L), concentration,\nsuggested reviews\nP&L = market value − quantity × average cost; unpriced: P&L unknown\nconcentration weight = market value ÷ total of positions with a market value > 0;\nflagged above 15%\nsuggested review: each flagged position, consider trimming\n--history: P&L per snapshot; --concentration: the breakdown list" {  # @symbol bot.portfolio.report.build_report @symbol bot.portfolio.report.render_portfolio @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
     class: step
   }
@@ -144,6 +153,7 @@ reports: "5. reports, written to reports/YYYY-MM-DD/" {
 
 # Section 6: notify
 notify: "6. notify: channel checked first, alerts sent after the run" {
+  link: "./portfolio-alerts.svg"
   channel: "which channel? BOT_NOTIFIER\nnone: nothing is sent\nemail: needs BOT_SMTP_HOST, BOT_SMTP_FROM, BOT_SMTP_TO\ntelegram: needs BOT_TELEGRAM_BOT_TOKEN, BOT_TELEGRAM_CHAT_ID\na missing setting, or a password in cleartext:\nexit code 2, before the sync" {  # @symbol bot.notifier.build_notifier
     class: decision
   }

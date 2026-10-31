@@ -1,0 +1,62 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: diff today's mark against the previous one into the mark events, then weigh the holding for concentration. | {class: note}
+back: |md back to the portfolio board | {
+  class: note
+  link: "./portfolio.svg"
+}
+
+# States
+# @symbol bot.portfolio.marks.load_marks @symbol bot.portfolio.events.compute_events @symbol bot.portfolio.events.detect_intrinsic_value_cross
+marks_read: "the previous mark is read, or there is none\nnext, event intrinsic_value_crossed_price: decided on the pair of marks" {class: decision}
+# @symbol bot.portfolio.events.detect_new_red_flags
+cross_checked: "intrinsic value and price are compared\nnext, event new_red_flag: decided on the pair of marks" {class: decision}
+# @symbol bot.portfolio.events.detect_below_quality_gate
+flags_checked: "its red flags are compared\nnext, event below_quality_gate: decided on the pair of marks" {class: decision}
+# @symbol bot.portfolio.events.detect_sector_recalibration @const bot.portfolio.events.DEFAULT_WACC_RECALIBRATION_BPS
+gates_checked: "its failed gates are compared\nnext, event sector_recalibrated: decided on the sector weighted average cost of capital (WACC) of the pair of marks, threshold 100 bps" {class: decision}
+# @symbol bot.portfolio.events.detect_concentration @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
+recal_checked: "its sector WACC is compared\nits weight = market value ÷ total market value, against 15%" {class: decision}
+# @symbol bot.portfolio.events.detect_concentration @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
+weighed: "its weight in the portfolio is known\nnext, event concentration: decided on its weight, threshold 15%" {class: decision}
+# @symbol bot.portfolio.events.compute_events
+concentration_checked: "its mark events and concentration are settled" {class: decision}
+
+# Neighbours
+# @symbol bot.portfolio.trades.sync_trades
+trades_synced: "the new fills are stored" {class: decision; link: "./portfolio-sync.svg"}  # No incoming edge: the flow enters from portfolio-sync
+# @symbol bot.portfolio.marks.persist_marks
+marked: "today's mark is stored" {class: decision; link: "./portfolio-marks.svg"}  # No incoming edge: the flow enters from portfolio-marks
+# @symbol bot.portfolio.events.compute_events
+window: "the previous snapshot is read, or there is none" {class: decision; link: "./portfolio-events.svg"}  # No outgoing edge drawn: its branches are on portfolio-events
+
+# Stores
+holding_marks: {class: store}  # @table holding_marks
+portfolio_snapshots: {class: store}  # @table portfolio_snapshots
+
+out: "Comes out:\nthis holding's mark events (zero to five kinds) and its concentration verdict, handed to the snapshot diff" {class: output; link: "./portfolio-events.svg"}
+
+# Edges
+trades_synced -> concentration_checked: "it is neither marked nor weighed [no longer held]"
+marked -> marks_read: "the previous mark is read [it was marked then]"
+marked -> marks_read: "there is no previous mark [first run, or not marked then]"
+marks_read -> cross_checked: "intrinsic value crossed price fires [the gap changed sign]\n(intrinsic value − price) < 0 before and > 0 now, or > 0 before and < 0 now; equality is not a cross"
+marks_read -> cross_checked: "no cross [same sign, a zero gap, no previous mark, or a value unknown]\nany of the four values unknown: nothing"
+cross_checked -> flags_checked: "new red flag fires [red now, not red in the previous mark]\none event per narrative flag red now and not red in the previous mark"
+cross_checked -> flags_checked: "no new red flag [none red now, already red before, or flags unknown]\nno previous mark or unknown previous flags counts as none red; unknown flags now: nothing"
+flags_checked -> gates_checked: "below quality gate fires [a gate fails now that passed before]\none event per gate failing now and not failing before"
+flags_checked -> gates_checked: "no new failed gate [none new, no previous mark, or gates unknown]\nfailed gates unknown on either side: nothing"
+gates_checked -> recal_checked: "sector recalibrated fires [the sector WACC moved more than 100 basis points]\n|sector WACC now − sector WACC before| > 100 bps"  # @const bot.portfolio.events.DEFAULT_WACC_RECALIBRATION_BPS
+gates_checked -> recal_checked: "no recalibration [100 basis points or less, no previous mark, or a WACC unknown]\nexactly 100 bps: no event; either WACC unknown: nothing"  # @const bot.portfolio.events.DEFAULT_WACC_RECALIBRATION_BPS
+recal_checked -> weighed: "its weight is computed [above 15% of the portfolio]\nmarket value ÷ total market value > 15%"  # @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
+recal_checked -> weighed: "its weight is computed [15% or less, or unpriced]\ntotal over positions with a market value > 0"  # @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
+weighed -> concentration_checked: "concentration fires [above 15%]\nnot a diff: fires on every run while above"  # @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
+weighed -> concentration_checked: "no concentration [15% or less]\nexactly 15%: no event"  # @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
+concentration_checked -> window: "there is no earlier snapshot [first run]"
+concentration_checked -> window: "the previous snapshot is read [it held it]"
+concentration_checked -> window: "the previous snapshot is read [it did not hold it]"
+holding_marks -> marks_read: "previous and current marks"
+portfolio_snapshots -> recal_checked: "this snapshot's market values"
+concentration_checked -> out: "[always]"

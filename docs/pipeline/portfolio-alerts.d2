@@ -1,0 +1,63 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: log every event, write the two reports, and send today's alerts when there is a channel and something to say. | {class: note}
+back: |md back to the portfolio board | {
+  class: note
+  link: "./portfolio.svg"
+}
+
+# States
+# @symbol bot.portfolio.events.persist_events
+logged: "its events are in the events log\nthe events log keeps every event, so a same-day re-run appends the same events again" {class: step}
+# @symbol bot.portfolio.report.render_portfolio @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
+portfolio_written: "portfolio.md is written\nprofit and loss (P&L) and concentration are in it\nP&L = market value − quantity × average cost; unpriced: P&L unknown\nconcentration weight = market value ÷ total of positions with a market value > 0; flagged above 15%\n--history: P&L per snapshot; --concentration: the breakdown list\nsuggested review: each flagged position, consider trimming" {class: decision}
+# @symbol bot.portfolio.report.render_alerts
+alerts_written: "alerts.md is written\nalways written; an empty file when there are no events" {class: decision}
+# @symbol bot.notifier.notify_alerts
+not_sent: "the run ends with exit code 0, nothing sent" {class: step}
+# @symbol bot.notifier.notify_alerts
+sent: "the run ends with exit code 0, alerts sent" {class: step}
+# @symbol bot.notifier.notify_alerts
+send_failed: "the run ends with exit code 1, the send failed" {class: step}
+
+# Neighbours
+# @symbol bot.portfolio.events.detect_new_filings
+filings_checked: "its filings are checked" {class: step; link: "./portfolio-events.svg"}  # No incoming edge: the flow enters from portfolio-events
+
+# Stores
+events_log: {class: store}  # @table events_log
+portfolio_snapshots: {class: store}  # @table portfolio_snapshots
+cash_balances: {class: store}  # @table cash_balances
+
+# Files
+portfolio_template: "src/bot/reporting/templates/portfolio.md.j2" {class: file}  # @file src/bot/reporting/templates/portfolio.md.j2
+alerts_template: "src/bot/reporting/templates/alerts.md.j2" {class: file}  # @file src/bot/reporting/templates/alerts.md.j2
+
+# Outputs
+portfolio_md: "reports/YYYY-MM-DD/portfolio.md" {class: output}
+alerts_md: "reports/YYYY-MM-DD/alerts.md" {class: output}
+channels: "email or Telegram" {class: external}
+out: "Comes out:\nreports/YYYY-MM-DD/portfolio.md, reports/YYYY-MM-DD/alerts.md, the alert message when sent, and the exit code" {class: output; link: "./portfolio.svg"}
+
+# Edges
+filings_checked -> logged: "every event fired is appended to the events log\nevent_type, ticker, previous and current snapshot dates, details"
+logged -> portfolio_written: "portfolio.md is written with positions, profit and loss (P&L) and concentration"
+portfolio_written -> alerts_written: "alerts.md lists today's events [a holding had an event]\ntoday's events only: type, ticker, details"
+portfolio_written -> alerts_written: "alerts.md is written empty [no holding had an event]"
+alerts_written -> not_sent: "nothing is sent [no channel]\nBOT_NOTIFIER is none"
+alerts_written -> not_sent: "nothing is sent [a channel, but alerts.md is blank]"
+alerts_written -> sent: "the alerts are sent by email or Telegram\n[a channel, and alerts.md has text]\na same-day re-run sends the same alerts again"
+alerts_written -> send_failed: "the send fails [email or Telegram error]\nexit code 1"
+logged -> events_log: "every event fired"
+portfolio_snapshots -> portfolio_written: "positions and history"
+cash_balances -> portfolio_written: "cash"
+portfolio_template -> portfolio_written: "layout"
+alerts_template -> alerts_written: "layout"
+portfolio_written -> portfolio_md: "markdown file [always]"
+alerts_written -> alerts_md: "markdown file [always]"
+sent -> channels: "the text of alerts.md, when not blank"
+not_sent -> out: "the run ends\nexit code 0"
+sent -> out: "the run ends\nexit code 0"
+send_failed -> out: "the run ends\nexit code 1"

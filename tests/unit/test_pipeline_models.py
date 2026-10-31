@@ -463,7 +463,8 @@ def test_context_lists_the_models() -> None:
 
 
 # Sub-boards drawn from the models (#164): the stages whose groups are drawn as sub-boards.
-_SUBBOARDED = ("site", "refresh", "screen", "analyze")
+# Every stage since #172: test_every_stage_has_a_model_and_subboards holds it to _STAGES.
+_SUBBOARDED = ("refresh", "screen", "analyze", "portfolio", "site")
 _PHASES_RE = re.compile(r"phase = \"(\w+)\".*?phase' = \"(\w+)\"", re.S)
 
 
@@ -513,6 +514,15 @@ def _drawn_nodes(text: str) -> dict[str, tuple[str | None, str]]:
     from tests.unit.test_pipeline_subboards import first_line, node_labels
 
     return {p: (cls, first_line(label)) for p, (_, cls, label) in node_labels(text).items()}
+
+
+def test_every_stage_has_a_model_and_subboards() -> None:
+    from tests.unit.test_pipeline_diagram import _STAGES
+
+    assert _SUBBOARDED == _STAGES
+    for stage in _STAGES:
+        assert (_MODELS / f"{stage}.tla").exists(), stage
+        assert _stage_boards(stage), stage
 
 
 @pytest.mark.parametrize("stage", _SUBBOARDED)

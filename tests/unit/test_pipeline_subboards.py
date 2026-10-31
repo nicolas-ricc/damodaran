@@ -12,6 +12,7 @@ from pathlib import Path
 
 import pytest
 
+from bot.portfolio.events import EventType
 from bot.screener.rules import registered_rules
 from tests.unit.test_pipeline_diagram import (
     _SCREEN_LAYER_BOARDS,
@@ -489,3 +490,109 @@ def test_analyze_gap_notes(stem: str) -> None:
         assert any(g.startswith("Gap:") and _ANALYZE_GAPS[stem] in g for g in gaps), gaps
     else:
         assert gaps == []
+
+
+# Portfolio sub-boards (#172).
+_PORTFOLIO_SUBBOARDS = {
+    "portfolio-sync", "portfolio-marks", "portfolio-mark-events", "portfolio-events",
+    "portfolio-alerts",
+}
+# What a reader must find on each board (issue #172 acceptance criteria); the formulas are
+# those of portfolio.d2, pinned there against src/bot/portfolio.
+_PORTFOLIO_TEXT: dict[str, list[str]] = {
+    "portfolio-sync": [
+        "exit code two",
+        "market value = quantity \u00d7 latest close",
+        "close \u00d7 rate_to_usd of the listing currency \u00f7 rate_to_usd of the position's currency",
+        "BOT_IBKR_FLEX_TOKEN",
+        "exec_id",
+        "watermark",
+    ],
+    "portfolio-marks": [
+        "summed quantity",
+        "config/assumptions/TICKER.yaml",
+        "a skipped rule does not count",
+        "config/presets/damodaran_value.yaml",
+        "unknown values stored empty",
+    ],
+    "portfolio-mark-events": [
+        "equality is not a cross",
+        "100 bps",
+        "market value \u00f7 total market value > 15%",
+        "fires on every run while above",
+        "counts as none red",
+    ],
+    "portfolio-events": [
+        "exactly 10%: no event",
+        "first run: every position",
+        "(ticker, filing type, filing date)",
+    ],
+    "portfolio-alerts": [
+        "P&L = market value \u2212 quantity \u00d7 average cost",
+        "always written",
+        "a same-day re-run sends the same alerts again",
+        "email or Telegram",
+        "reports/YYYY-MM-DD/portfolio.md",
+        "reports/YYYY-MM-DD/alerts.md",
+    ],
+}
+# The events each board decides: the five mark diffs, then the seven snapshot diffs.
+_MARK_EVENTS = {
+    "intrinsic_value_crossed_price", "new_red_flag", "below_quality_gate", "sector_recalibrated",
+    "concentration",
+}
+
+
+def test_portfolio_has_five_subboards() -> None:
+    assert {
+        s for s, (stage, _) in subboards().items() if stage == "portfolio"
+    } == _PORTFOLIO_SUBBOARDS
+
+
+@pytest.mark.parametrize("stem", sorted(_PORTFOLIO_TEXT))
+def test_portfolio_subboard_text(stem: str) -> None:
+    visible = _visible(stem)
+    missing = [p for p in _PORTFOLIO_TEXT[stem] if _check().normalize(p) not in visible]
+    assert missing == []
+
+
+def _decided_events(stem: str) -> set[str]:
+    """EventType values named, as whole words, in the labels of the board's own decision nodes.
+
+    Only lines after the first count: the first line is the model's state label and may say
+    "concentration" without deciding it. Neighbours (nodes linking another sub-board) are skipped.
+    """
+    if not (_PIPELINE / f"{stem}.d2").exists():
+        return set()
+    text = _text(stem)
+    labels = [
+        label.partition("\\n")[2].replace("\\n", " ")
+        for path, (_, cls, label) in node_labels(text).items()
+        if cls == "decision" and _link(_block(text, path) or "") is None
+    ]
+    return {
+        e.value
+        for e in EventType
+        if any(re.search(rf"(?<!\w){e.value}(?!\w)", label) for label in labels)
+    }
+
+
+def test_portfolio_events_cover_every_event_type() -> None:
+    marks, snapshots = _decided_events("portfolio-mark-events"), _decided_events("portfolio-events")
+    assert marks | snapshots == {e.value for e in EventType}
+    assert marks == _MARK_EVENTS
+    assert snapshots == {e.value for e in EventType} - _MARK_EVENTS
+
+
+def test_portfolio_marks_hands_off_to_analyze() -> None:
+    from tests.unit.test_pipeline_models import _map
+
+    text = _text("portfolio-marks")
+    nodes = node_labels(text)
+    valuation_done = _map("portfolio", "states")["valuation_done"]
+    linked = {p for p in nodes if _link(_block(text, p) or "") == "./analyze.svg"}
+    assert linked
+    assert any(
+        src in linked and first_line(nodes.get(dst, (0, None, ""))[2]) == valuation_done
+        for _, src, dst, _ in edges(text)
+    )
