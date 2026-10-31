@@ -1,0 +1,64 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: keep the company only if it is cheap on at least one value indicator against its sector, and score how cheap. | {class: note}
+back: |md back to the screen board | {
+  class: note
+  link: "./screen.svg"
+}
+
+# States
+# @symbol bot.screener.engine.evaluate_company @symbol bot.screener.rules._value_score @param pe_below_industry_multiple.multiple
+value_passed: "a value indicator passed\nscore = (threshold − value) ÷ threshold, clipped to [0, 1]\n(threshold = 0.7 × sector median)\nfree cash flow yield: score = min(1, yield ÷ minimum)\nvalue metric = highest score among passing indicators" {class: step}
+# @symbol bot.screener.engine.evaluate_company
+value_failed: "no value indicator passed\nthe company is rejected, and every failed indicator is recorded" {class: step}
+# @symbol bot.screener.engine.evaluate_company
+value_skipped: "every value indicator was skipped\nthe company is rejected, and a skip records no failed rule" {class: step}
+
+# Neighbours
+# @symbol bot.screener.engine.evaluate_company
+quality_passed: "every quality gate passed" {class: decision; link: "./screen-quality.svg"}
+# @symbol bot.screener.engine.evaluate_company
+quality_failed: "a quality gate failed" {class: decision; link: "./screen-quality.svg"}
+
+# Rules
+pe_below_industry_multiple: "pe_below_industry_multiple\nprice-to-earnings (P/E) < 0.7 × sector median P/E\nskipped: median or company P/E missing or ≤ 0" {  # @rule pe_below_industry_multiple @param pe_below_industry_multiple.multiple
+  class: decision
+}
+ev_ebitda_below_industry_multiple: "ev_ebitda_below_industry_multiple\nenterprise value (EV) ÷ earnings before interest, taxes, depreciation and amortization (EBITDA) < 0.7 × sector median EV/EBITDA\nskipped: median or company EV/EBITDA missing or ≤ 0" {  # @rule ev_ebitda_below_industry_multiple @param ev_ebitda_below_industry_multiple.multiple
+  class: decision
+}
+pbv_below_industry_multiple_with_roe_above_median: "pbv_below_industry_multiple_with_roe_above_median\nprice-to-book-value (P/BV) < 0.7 × sector median P/BV and return on equity (ROE) > sector median ROE\nskipped: sector P/BV median ≤ 0, or a median or company figure missing, or company P/BV ≤ 0" {  # @rule pbv_below_industry_multiple_with_roe_above_median @param pbv_below_industry_multiple_with_roe_above_median.multiple
+  class: decision
+}
+fcf_yield_above: "fcf_yield_above\nfree cash flow yield > 8%\nskipped: yield missing; no sector benchmark needed" {  # @rule fcf_yield_above @param fcf_yield_above.minimum
+  class: decision
+}
+
+out: "Comes out:\nthe company with its value metric and its failed indicators, on to the trap detectors whatever the result" {class: output; link: "./screen-traps.svg"}
+
+# Edges
+quality_passed -> value_passed: "a value indicator passes; its score is the value metric\n[a value indicator passes and none fails]"
+quality_failed -> value_passed: "a value indicator passes; its score is the value metric\n[a value indicator passes and none fails]"
+quality_passed -> value_passed: "a value indicator passes and another fails; the failure is recorded\n[a value indicator passes and another fails]"
+quality_failed -> value_passed: "a value indicator passes and another fails; the failure is recorded\n[a value indicator passes and another fails]"
+quality_passed -> value_failed: "no value indicator passes [one fails, the others fail or are skipped]"
+quality_failed -> value_failed: "no value indicator passes [one fails, the others fail or are skipped]"
+quality_passed -> value_skipped: "all four value indicators are skipped [a median or a company figure is missing]"
+quality_failed -> value_skipped: "all four value indicators are skipped [a median or a company figure is missing]"
+pe_below_industry_multiple -> value_passed: "[pass]"
+pe_below_industry_multiple -> value_failed: "[fail]"
+pe_below_industry_multiple -> value_skipped: "[skipped]"
+ev_ebitda_below_industry_multiple -> value_passed: "[pass]"
+ev_ebitda_below_industry_multiple -> value_failed: "[fail]"
+ev_ebitda_below_industry_multiple -> value_skipped: "[skipped]"
+pbv_below_industry_multiple_with_roe_above_median -> value_passed: "[pass]"
+pbv_below_industry_multiple_with_roe_above_median -> value_failed: "[fail]"
+pbv_below_industry_multiple_with_roe_above_median -> value_skipped: "[skipped]"
+fcf_yield_above -> value_passed: "[pass]"
+fcf_yield_above -> value_failed: "[fail]"
+fcf_yield_above -> value_skipped: "[skipped]"
+value_passed -> out: "on to the trap detectors [always: every layer runs]"
+value_failed -> out: "on to the trap detectors [always: every layer runs]"
+value_skipped -> out: "on to the trap detectors [always: every layer runs]"
