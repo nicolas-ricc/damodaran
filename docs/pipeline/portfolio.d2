@@ -53,7 +53,7 @@ sync: "1–3. sync the account" {  # @symbol bot.portfolio.command.run_portfolio
   }
   value: "market value = quantity × latest close, expressed in the position's currency\nlatest close = newest prices_daily close on or before the snapshot date,\nin its listing currency; when that differs from the position's currency:\nclose × rate_to_usd of the listing currency ÷ rate_to_usd of the position's currency,\nnearest prior rates from currencies\neither currency unknown: close used as is\nno close, close ≤ 0, or a missing or non-positive rate:\nmarket value empty (unpriced)" {  # @symbol bot.portfolio.sync.value_positions
     class: step
-    adr_0005: |md Gap: ADR 0005 (Not implemented) stores money as reported and converts at the point of calculation; the universe is US-only, so every close in prices_daily is in USD and no real data exercises the cross-currency branch today. | {class: gap}  # @file docs/adr/0005-currency-handling-and-valuation-currency.md
+    adr_0005: |md Gap: ADR 0005 (Implemented) is implemented in its §4 only; its §1–§3 (one currency column per concept, prices converted into the valuation currency) are still not implemented. The universe is US-only, so every close in prices_daily is in USD and no real data exercises the cross-currency branch today. | {class: gap}  # @file docs/adr/0005-currency-handling-and-valuation-currency.md
   }
   corporate_actions: "2. corporate actions, best effort\nonly when BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID are set\ndividend cash transactions → dividend, action_id ct:<id>\nforward and reverse splits → split; any other type kept lower-cased,\naction_id ca:<id>\ninserted de-duplicated on action_id\nany failure: a warning, the run goes on" {  # @symbol bot.ingest.ibkr_flex.import_corporate_actions
     class: step
@@ -69,7 +69,7 @@ marks: "4a. mark every holding" {  # @symbol bot.portfolio.marks.mark_holdings
   held: "holdings = tickers whose summed quantity ≠ 0 on the snapshot date" {
     class: step
   }
-  valuation: "valuation: the analyze stage with config/assumptions/TICKER.yaml when present\n→ intrinsic value per share, latest close, red narrative flags\ncannot value: all three unknown" {  # @symbol bot.valuator.analysis.analyze
+  valuation: "valuation: the analyze stage with config/assumptions/TICKER.yaml when present\n→ intrinsic value per share, latest close, red narrative flags\ncannot value: all three unknown\ncurrency table from config/currencies.yaml, loaded once per run" {  # @symbol bot.valuator.analysis.analyze @file config/currencies.yaml @symbol bot.portfolio.marks.mark_holdings
     class: step
   }
   gates: "gates: screener inputs built as the screen builds them\n(companies, financials_annual, prices_daily, currencies,\ndamodaran_industry, damodaran_country)\nfailed gates = the gates that fail; a skipped rule does not count\nsector weighted average cost of capital (WACC) from the sector benchmark\nno sector benchmark row: sector WACC unknown, gates judged without it\nticker not in companies: failed gates and sector WACC unknown" {  # @symbol bot.screener.engine.load_holding_inputs

@@ -3,10 +3,10 @@ from typing import Any
 
 import duckdb
 import pytest
-from bot.reference.currencies import load_currency_table
 
 from bot.ingest import damodaran
 from bot.ingest.damodaran import import_damodaran_from_files
+from bot.reference.currencies import load_currency_table
 from bot.screener.engine import _resolve_tax_rate as screener_tax_rate
 from bot.storage.db import apply_schema, connect
 from bot.valuator.assumptions import AssumptionSource, resolve_assumptions

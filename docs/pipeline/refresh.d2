@@ -81,16 +81,16 @@ damodaran: "1. Damodaran datasets" {
     class: step
     tax: |md A missing tax rate counts as 0. beta_unlevered is empty when D/E is empty. | {class: note}
   }
-  country: "country rows\nsheet 'ERPs by country', parsing stops at the second (unrated) table\ntax rate: sheet 'Country Tax Rates', kept only within [0, 1]\nrisk-free rate: wacc.xls cell 'Long Term Treasury bond rate ='" {  # @symbol bot.ingest.damodaran.parse_country_tax_rates @symbol bot.ingest.damodaran.parse_preheader_scalar
+  country: "country rows\nsheet 'ERPs by country', parsing stops at the second (unrated) table\ntax rate: sheet 'Country Tax Rates', kept only within [0, 1]\nkept per country: total equity risk premium, country risk premium, rating, region" {  # @symbol bot.ingest.damodaran.parse_country_tax_rates
     class: step
-    risk_free: |md Gap: the US risk-free rate is written into every country row; architecture decision record (ADR) 0005 (Not implemented) asks for one rate per currency. | {class: gap}
+    risk_free: |md No risk-free rate is imported: it comes per currency from config/currencies.yaml, curated by hand (architecture decision record (ADR) 0005 (Implemented)). | {class: note}  # @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table
   }
   empty_rows: "no industry rows\nor no country rows?\nyes: status partial; an empty side\nkeeps its old rows (upsert returns before it deletes)" {  # @symbol bot.ingest.damodaran._import_files_into_run
     class: decision
   }
   write: "write both tables in one transaction\nreplace the (region, year) rows of damodaran_industry\nreplace the year rows of damodaran_country\nregion = --region, year = --year or the current year" {  # @symbol bot.ingest.damodaran.upsert_industry_rows @symbol bot.ingest.damodaran.upsert_country_rows
     class: step
-    us_only: |md Gap: only the US Damodaran dataset is ingested (ADR 0005 (Not implemented)); --region other than US is refused. | {class: gap}  # @file docs/adr/0005-currency-handling-and-valuation-currency.md
+    us_only: |md Gap: only the US Damodaran dataset is ingested (ADR 0005 (Implemented)); --region other than US is refused. | {class: gap}  # @file docs/adr/0005-currency-handling-and-valuation-currency.md
   }
 }
 
@@ -224,7 +224,7 @@ damodaran.derive -> damodaran.country: "industry rows with D/E and beta_unlevere
 damodaran.country -> damodaran.empty_rows: "industry rows and country rows"
 damodaran.empty_rows -> damodaran.write: "rows to write; an empty side makes the run partial"
 damodaran.write -> duckdb.damodaran_industry: "industry benchmarks"
-damodaran.write -> duckdb.damodaran_country: "country risk, tax rate, risk-free rate"
+damodaran.write -> duckdb.damodaran_country: "country risk, tax rate"
 damodaran.write -> duckdb.refresh_log: "one row, source damodaran, status success or partial"
 
 # Fundamentals flow
