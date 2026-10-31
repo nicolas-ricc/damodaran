@@ -17,8 +17,8 @@ cross_checked: "intrinsic value and price are compared\nevent new_red_flag: deci
 flags_checked: "its red flags are compared\nevent below_quality_gate: decided on the pair of marks" {class: decision}
 # @symbol bot.portfolio.events.detect_sector_recalibration @const bot.portfolio.events.DEFAULT_WACC_RECALIBRATION_BPS
 gates_checked: "its failed gates are compared\nevent sector_recalibrated: decided on the sector weighted average cost of capital (WACC) of the pair of marks, threshold 100 bps" {class: decision}
-# @symbol bot.portfolio.events.detect_concentration
-recal_checked: "its sector WACC is compared" {class: decision}
+# @symbol bot.portfolio.events.detect_concentration @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
+recal_checked: "its sector WACC is compared\nits weight = market value ÷ total market value, against 15%" {class: decision}
 # @symbol bot.portfolio.events.detect_concentration @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
 weighed: "its weight in the portfolio is known\nevent concentration: decided on its weight, threshold 15%" {class: decision}
 # @symbol bot.portfolio.events.compute_events
@@ -26,9 +26,9 @@ concentration_checked: "its mark events and concentration are settled" {class: d
 
 # Neighbours
 # @symbol bot.portfolio.trades.sync_trades
-trades_synced: "the new fills are stored" {class: decision; link: "./portfolio-sync.svg"}  # No outgoing edge drawn: its other branch is on portfolio-sync
+trades_synced: "the new fills are stored" {class: decision; link: "./portfolio-sync.svg"}  # No incoming edge: the flow enters from portfolio-sync
 # @symbol bot.portfolio.marks.persist_marks
-marked: "today's mark is stored" {class: decision; link: "./portfolio-marks.svg"}  # No outgoing edge drawn: its branches are on portfolio-marks
+marked: "today's mark is stored" {class: decision; link: "./portfolio-marks.svg"}  # No incoming edge: the flow enters from portfolio-marks
 # @symbol bot.portfolio.marks.load_marks
 window: "the previous snapshot is read, or there is none" {class: decision; link: "./portfolio-events.svg"}  # No outgoing edge drawn: its branches are on portfolio-events
 
