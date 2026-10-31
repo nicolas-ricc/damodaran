@@ -10,7 +10,7 @@ back: |md back to the site board | {
 
 # Sources
 sidecars: "reports/YYYY-MM-DD/analysis/TICKER.json\none per company and analysis day" {class: file}  # @symbol bot.reporting.analysis_json.render_analysis_json
-weekly: "scripts/weekly.sh, runs the publish script\nonly when the analyses before it succeeded" {class: cron}  # @file scripts/weekly.sh
+weekly: "scripts/weekly.sh, runs the publish script\nonly when every step before it succeeded" {class: cron}  # @file scripts/weekly.sh
 master: "GitHub repository, branch master" {class: external}
 
 # States

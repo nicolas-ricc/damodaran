@@ -40,6 +40,6 @@ linted -> typed: "the type check passes"
 linted -> ci_failed: "the type check fails [a type error]"
 typed -> tested: "the tests pass"
 typed -> ci_failed: "the tests fail [a test breaks]"
-tested -> base_url_set: "the build normalises the base address of the site\nbot site --out site --base-url /<repo>/"  # @symbol bot.cli.site
+tested -> base_url_set: "the build normalises the base address of the site\nuv run bot site --out site --base-url /<repo>/"  # @symbol bot.cli.site
 tested -> out: "the commit"
 site_yml -> installed: "the workflow steps"
