@@ -160,7 +160,7 @@ def test_workflow_renders_uploads_checks_and_gates_staleness() -> None:
     assert wf["permissions"] == {"contents": "read"}
     assert wf["concurrency"]["cancel-in-progress"] is True
     assert "github.ref" in wf["concurrency"]["group"]
-    assert list(wf["jobs"]) == ["render"]
+    assert list(wf["jobs"]) == ["render", "models"]
     job = wf["jobs"]["render"]
     assert job["runs-on"] == "ubuntu-latest"
     steps = job["steps"]
@@ -195,3 +195,43 @@ def test_workflow_renders_uploads_checks_and_gates_staleness() -> None:
     assert "docs/pipeline/rendered.sha256" in ls_files
     assert checkout < install < tala < build < upload < checker < current == len(steps) - 1
     assert not any("uv" in u for u in uses)
+
+
+def test_workflow_checks_models() -> None:
+    wf = yaml.safe_load(_WORKFLOW.read_text())
+    job = wf["jobs"]["models"]
+    assert job["runs-on"] == "ubuntu-latest"
+    steps = job["steps"]
+    runs = [s.get("run", "") for s in steps]
+
+    def at(pred: object) -> int:
+        return next(i for i, s in enumerate(steps) if pred(s))  # type: ignore[operator]
+
+    checkout = at(lambda s: s.get("uses") == "actions/checkout@v4")
+    java = at(lambda s: s.get("uses") == "actions/setup-java@v4")
+    assert steps[java]["with"] == {"distribution": "temurin", "java-version": "21"}
+    node = at(lambda s: s.get("uses") == "actions/setup-node@v4")
+    assert steps[node]["with"] == {"node-version": "24"}
+    download = at(lambda s: "tla2tools.jar" in s.get("run", "") and "curl -fsSL" in s.get("run", ""))
+    assert (
+        "https://github.com/tlaplus/tlaplus/releases/download/"
+        "v$(cat docs/pipeline/models/TLA_VERSION)/tla2tools.jar"
+    ) in runs[download]
+    assert "-o /tmp/tla2tools.jar" in runs[download]
+    checksum = at(lambda s: "sha256sum -c" in s.get("run", ""))
+    assert "$(cat docs/pipeline/models/TLA_SHA256)  /tmp/tla2tools.jar" in runs[checksum]
+    skill = at(lambda s: "cursor/plugins" in s.get("run", ""))
+    assert (
+        "git clone --filter=blob:none --no-checkout https://github.com/cursor/plugins /tmp/plugins"
+    ) in runs[skill]
+    assert "sparse-checkout set pstack/skills/statechart" in runs[skill]
+    assert 'checkout "$(cat docs/pipeline/models/STATECHART_COMMIT)"' in runs[skill]
+    check = at(lambda s: "docs/pipeline/models/check.sh /tmp/models" in s.get("run", ""))
+    assert "TLA2TOOLS=/tmp/tla2tools.jar" in runs[check]
+    assert "STATECHART=/tmp/plugins/pstack/skills/statechart/scripts/statechart" in runs[check]
+    upload = at(lambda s: s.get("uses") == "actions/upload-artifact@v4")
+    assert steps[upload]["if"] == "always()"
+    assert steps[upload]["with"] == {"name": "pipeline-models", "path": "/tmp/models"}
+    assert checkout < java < check and checkout < node < check
+    assert download <= checksum < check and skill < check
+    assert upload == len(steps) - 1
