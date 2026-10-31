@@ -17,7 +17,7 @@ Fixed files:
 - `README.md`: this file.
 
 Per stage, `<stem>.tla`, `<stem>.cfg` and `<stem>.view.js`: the model, its constants and
-`INVARIANT` list, and the labels for the chart. `site`, `refresh`, `screen` and `portfolio` are modelled.
+`INVARIANT` list, and the labels for the chart. `site`, `refresh`, `screen`, `analyze` and `portfolio` are modelled.
 
 ## Conventions
 
