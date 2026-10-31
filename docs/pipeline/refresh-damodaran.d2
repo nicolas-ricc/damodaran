@@ -1,0 +1,66 @@
+...@classes
+
+direction: down
+
+objective: |md Objective: refresh the Damodaran industry and country benchmarks for one (region, year); the unit is the run of eight files, not a company. | {class: note}
+back: |md back to the refresh board | {
+  class: note
+  link: "./refresh.svg"
+}
+
+# Sources
+weekly: "weekly.sh\nruns bot refresh --all" {class: cron}  # @file scripts/weekly.sh
+damodaran_data: "Damodaran datasets\npages.stern.nyu.edu/~adamodar/pc/datasets/" {class: external}
+
+# States
+# @symbol bot.ingest.damodaran.import_damodaran
+started: "the refresh command starts with --all\nwacc.xls, ctryprem.xls, then the six others into --download-dir\na failure of one of the first two stops the downloads" {class: decision}
+# @symbol bot.ingest.damodaran.import_damodaran
+downloaded: "the Damodaran files are downloaded\nthe files that arrived go on to be read" {class: decision}
+# @symbol bot.ingest.damodaran._import_files_into_run
+industry_read: "the industry files are read\neach sheet is picked by keywords; columns are read by exact header" {class: step}
+# @symbol bot.ingest.damodaran.merge_industry_datasets
+merged: "one row per industry\nouter join on industry name; the earlier file wins, a later file fills only empty columns\nrows without an industry name are dropped" {class: step}
+# @symbol bot.ingest.damodaran.parse_country_xls
+country_read: "the country rows are read\nsheet picked by keyword: ERPs by country" {class: step}
+# @symbol bot.ingest.damodaran.derive_industry_columns @symbol bot.ingest.damodaran.parse_country_tax_rates
+derived: "the derived columns are filled in\ndebt to equity (D/E): D/E = w ÷ (1 − w), with w = D/(D+E); empty unless 0 ≤ w < 1\nbeta_unlevered = beta_levered ÷ (1 + (1 − tax) × D/E), tax = the industry's tax rate; a missing tax counts as 0; empty when D/E is empty\ncountry tax rate: sheet 'Country Tax Rates', rows outside [0, 1] are skipped" {class: decision}
+# @symbol bot.ingest.damodaran.upsert_industry_rows @symbol bot.ingest.damodaran.upsert_country_rows
+damodaran_written: "the Damodaran tables are written\nreplaces the (region, year) rows of damodaran_industry and the year rows of damodaran_country\none refresh_log row, status success or partial" {class: step}
+# @table refresh_log
+damodaran_failed: "the Damodaran run fails and writes nothing\none refresh_log row, status error, with the message" {class: step}
+
+# Neighbours
+# @symbol bot.ingest.industry_mapping.load_industry_mapping
+mapping_loading: "the fundamentals stage loads the industry mapping" {class: step; link: "./refresh-fundamentals.svg"}  # No outgoing edge: the flow goes on in refresh-fundamentals
+
+# Stores
+damodaran_industry: {class: store}  # @table damodaran_industry
+damodaran_country: {class: store}  # @table damodaran_country
+refresh_log: {class: store}  # @table refresh_log
+
+out: "Comes out:\none damodaran_industry row per industry for (region, year), with D/E and beta_unlevered, and one damodaran_country row per country for the year" {class: output; link: "./refresh-fundamentals.svg"}
+
+# Edges
+weekly -> started: "bot refresh --all"
+damodaran_data -> started: "eight .xls files, one request each"
+started -> downloaded: "the eight files download\n[every download succeeds]"  # @symbol bot.ingest.damodaran.import_damodaran
+started -> downloaded: "the files download without one of the six others [its download fails]\nthe run is partial, without that file's columns"
+started -> damodaran_failed: "the run stops [wacc.xls or ctryprem.xls fails to download]"
+downloaded -> industry_read: "the industry files are read\n[every file can be read]"
+downloaded -> industry_read: "the industry files are read without one of the six others [it cannot be read]\nthe run is partial, without that file's columns"
+downloaded -> damodaran_failed: "the run stops [wacc.xls cannot be read]"
+industry_read -> merged: "the industry files are joined on the industry name [the earlier file wins a shared column]"  # @symbol bot.ingest.damodaran.merge_industry_datasets
+merged -> country_read: "the country risk sheet is read"
+merged -> damodaran_failed: "the run stops [ctryprem.xls cannot be read]"
+country_read -> derived: "debt-to-equity, unlevered beta and country tax rates are filled in"  # @symbol bot.ingest.damodaran.derive_industry_columns
+derived -> damodaran_written: "both tables are replaced for the year in one transaction [industry and country rows exist]"
+derived -> damodaran_written: "only the country table is replaced, the run is partial [no industry rows]"
+derived -> damodaran_written: "only the industry table is replaced, the run is partial [no country rows]"
+damodaran_written -> mapping_loading: "the fundamentals stage starts"
+damodaran_failed -> mapping_loading: "the fundamentals stage starts [a Damodaran failure does not stop the command]"
+damodaran_written -> damodaran_industry: "industry benchmarks"
+damodaran_written -> damodaran_country: "country risk, tax rate"
+damodaran_written -> refresh_log: "one row, source damodaran, status success or partial"
+damodaran_failed -> refresh_log: "one row, status error, with the message"
+damodaran_written -> out: "the rows of the year"

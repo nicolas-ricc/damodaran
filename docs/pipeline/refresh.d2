@@ -52,6 +52,7 @@ duckdb: "DuckDB (bot.duckdb)" {
 
 # Sub-flow 1: Damodaran datasets
 damodaran: "1. Damodaran datasets" {
+  link: "./refresh-damodaran.svg"
   download: "download the eight files into --download-dir\nwacc.xls, ctryprem.xls, then the six others" {  # @symbol bot.ingest.damodaran.import_damodaran
     class: step
     plano_hash: |md Gap: plano damodaran and a-download cards refresh by a monthly hash and reimport only a changed file; the code downloads and reimports every file on each run, with no hash. | {class: gap}
@@ -96,6 +97,7 @@ damodaran: "1. Damodaran datasets" {
 
 # Sub-flow 2: fundamentals
 fundamentals: "2. fundamentals" {
+  link: "./refresh-fundamentals.svg"
   mapping: "load the industry mapping once per run\nprovider industry label → companies.industry_damodaran\nEDGAR label: Standard Industrial Classification (SIC) description\nmatching folds case, collapses spaces\nand treats dash variants alike" {  # @symbol bot.ingest.industry_mapping.load_industry_mapping
     class: step
     unmapped: |md
@@ -127,6 +129,7 @@ fundamentals: "2. fundamentals" {
   }
   periods: "which facts become a row?\nannual: a duration of 350 to 380 days from a 10-K or 10-K/A\nquarterly: a duration of 80 to 100 days from a 10-Q or 10-Q/A,\nfor a column stored quarterly\nan instant fact joins the row with the same period end\nany other fact is dropped" {  # @symbol bot.ingest.sec_edgar._collect_period_rows @const bot.ingest.sec_edgar.ANNUAL_SPAN_DAYS @const bot.ingest.sec_edgar.QUARTERLY_SPAN_DAYS
     class: decision
+    link: "./refresh-facts.svg"
   }
   precedence: "which concept fills a column?\nper column and period end, the first concept in the list\nwith an accepted fact wins; later concepts fill only empty ends\ne.g. revenue: Revenues, then\nRevenueFromContractWithCustomerExcludingAssessedTax, ...\nis_restated: a fact used for the period comes from an amendment" {  # @symbol bot.ingest.sec_edgar._collect_period_rows
     class: decision
@@ -156,6 +159,7 @@ fundamentals: "2. fundamentals" {
 
 # Sub-flow 3: end-of-day prices
 prices: "3. prices" {
+  link: "./refresh-prices.svg"
   only_missing: "--only-missing?\nyes: only tickers with no stored price are requested,\nso no quota is spent on priced ones" {  # @symbol bot.ingest.universe.refresh_prices
     class: decision
   }
@@ -191,6 +195,7 @@ prices: "3. prices" {
 
 # Sub-flow 4: foreign exchange rates
 fx: "4. foreign exchange rates" {
+  link: "./refresh-fx.svg"
   currencies: "list the currencies to refresh\ndistinct non-USD listing currencies in companies;\nnone: no provider call, status success" {  # @symbol bot.ingest.universe.refresh_fx
     class: step
   }
