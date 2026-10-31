@@ -37,6 +37,13 @@
 8. **README line cap.** `test_readme_has_build_and_check_commands` caps `docs/pipeline/README.md` at 60 lines, and the file is already at 60. The new section needs room, so the cap goes to 90.
 9. **"`site` green on the PR's head commit".** `site.yml` runs only on a push to master, so it does not run on a PR to the feature branch. Its four commands (`ruff check .`, `mypy src`, `pytest -q`, `bot site --out <tmp> --base-url /damodaran/`) are run locally on the head instead. The PR states this as manual verification.
 
+## Assumptions (from the plan grilling; decided, with the rejected alternative)
+
+- A1. **README cap 90** rather than the exact new length. This leaves headroom for the four later sub-board children, which will append to the same section. Rejected: setting the cap to the exact length, which each later child would have to bump.
+- A2. **The `site` workflow is not runnable on the PR.** `.github/workflows/site.yml:2-4` triggers only on `push` to `master`. Its commands are run locally on the head as evidence, and the PR flags this. Rejected: adding `workflow_dispatch` or a PR trigger to `site.yml`, which would change CI behaviour outside this issue's scope.
+- A3. **`link:` on a d2 container** (`publish`, `ci`, `build`, `serve`) and on a child (`build.rows`) inside a linked container. Nothing in the repository shows that d2 v0.9.0 renders both. The CI render is the proof: `test_stage_svg_links_its_subboards` reads the committed `site.svg`. If a container link is dropped, the fallback is to put the link on the container's first child step, and the PR says so. Rejected: guessing without a render.
+- A4. **Edges to `out` and their conditions.** The issue requires `out` to have an incoming edge and every edge out of a decision to carry a [condition]. So `renderable→out` on site-scan carries `[the analysis is kept]`. It matches no model step. That is allowed, because the label match only requires every model step to be drawn, not every edge to be a model step. Rejected: making `out`'s source the neighbour `row`, which would leave `out` hanging off a node of the next board.
+
 ## Review Focus
 
 1. **The SVG drops a link.** d2 can drop `link:` (README: "d2 v0.9.0 drops `link: <stage>.svg` on a board that has a node keyed `<stage>`"). Expected: every link a reader needs is in the rendered SVG. Test: `test_subboard_svg_hrefs` and `test_stage_svg_links_its_subboards` read the committed SVGs.
@@ -71,6 +78,7 @@ Reuse `_nodes`, `_block`, `_cited_values`, `_uncited_numbers` and `_STAGES` from
   - `test_objective_note`: node `objective` has class `note`. Its label is one line and starts with `Objective:`.
   - `test_back_note`: node `back` has class `note`, label `back to the <stage> board`, and `link: "./<stage>.svg"` in its block.
   - `test_out_node`: node `out` has class `output`, its label starts with `Comes out:`, and at least one edge ends at `out`. Its link is `./<stage>-<next>.svg` for the next sub in `group_order`, or `./<stage>.svg` for the last one.
+  - `test_every_edge_line_is_parsed`: every visible line containing `->` is matched by `edges()`. No unlabelled, chained or block edge can hide from the cap or from the label match.
   - `test_edge_cap`: `len(edges(text)) <= 24`.
   - `test_decision_edges_carry_a_condition`: every edge whose src has class `decision` has a label matching `\[[^\]]+\]`.
   - `test_step_and_decision_nodes_carry_a_directive`: for each node of class `step` or `decision`, some `check.directives(text)` entry has `d.line == decl_line + 1`.
@@ -83,7 +91,7 @@ Reuse `_nodes`, `_block`, `_cited_values`, `_uncited_numbers` and `_STAGES` from
   - `test_subboards_are_the_groups`: the set of `subboards()` stems of the stage equals the set of `groups` values.
   - `test_state_labels_are_drawn`: for each state with group `g`, `states[k]` equals `first_line` of some node label in `docs/pipeline/<g>.d2`.
   - `test_step_labels_are_drawn`: every non-null `steps` label equals `first_line` of some edge label across the stage's sub-boards.
-  - `test_subboard_edges_join_the_model_states`: for each action whose body has `phase = "a"` and `phase' = "b"`, some edge on some sub-board of the stage has that step label as its first line, a src node whose first line is `states[a]`, and a dst node whose first line is `states[b]`.
+  - `test_subboard_edges_join_the_model_states`: for each action whose body has `phase = "a"` and `phase' = "b"` (an action other than `Done` without that form fails the test; it is not skipped), some edge on some sub-board of the stage has that step label as its first line, a src node whose first line is `states[a]`, and a dst node whose first line is `states[b]`.
   - `test_subboard_state_classes`: every node whose first line is a `states` label has class `decision` if and only if at least two actions leaving that state have a step label containing `[`.
 - [ ] **Step 3: Edit `test_pipeline_diagram.py`.**
   - `_REQUIRED_SYMBOLS`: `"site-publish": {"bot.reporting.analysis_json.render_analysis_json"}`, `"site-ci": {"bot.cli.site"}`, `"site-scan": {"bot.web.site.build", "bot.web.index.scan", "bot.web.index.read_sidecar", "bot.web.site._prepare_out_dir", "bot.web.site._renderable"}`, `"site-views": {"bot.web.views.verdict_of", "bot.web.views.row_view", "bot.web.views.filter_sort"}`.
@@ -237,3 +245,13 @@ The node and edge layout below is fixed. The wording of the "how" lines is the i
 - [ ] Push. Get the latest run id with `gh run list --branch agent/164-site-subboards --workflow pipeline-diagram --limit 1`, then `gh run watch <id> --exit-status`. On a d2 error, read `gh run view <id> --log-failed`, fix and push again.
 - [ ] Run `gh run download <id> -n pipeline-render -D /tmp/render` and copy `*.svg` and `rendered.sha256` into `docs/pipeline/`. Look at the PNGs of the four sub-boards. If a board has more than 24 edges or an unreadable label, apply step 7 of the issue (change the view labels or groups, never the TLA+ logic). Commit `docs(#164): render site sub-boards`, push.
 - [ ] The run on the final head is green in both jobs. `uv run pytest -q`, `uv run ruff check . && uv run mypy src` and `python3 docs/pipeline/check.py` (`0 errors`) all pass locally.
+
+## Grilling
+
+- Rounds: one. The revisions were additive (one test, one stricter parse rule, an Assumptions section) and changed no seam or step, so no second round was run.
+- Griller model: fable. It asked 18 questions.
+- Sources used for the answers:
+  - ISSUE: 8 (Q1 via the view labels quoted in the issue context, Q5, Q12, Q13, Q15, Q17, Q18, and Q8 for the CI loop's expected red run);
+  - CODE: 15 (several questions cite both);
+  - NO SOURCE: 4 (Q10, Q14, Q15 workaround, Q16). All four are technical assumptions: A1 to A3 above, plus `test_every_edge_line_is_parsed`.
+- Spec ambiguities: none. Out of scope: none. No issues opened.
