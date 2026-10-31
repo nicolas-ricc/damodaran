@@ -432,7 +432,7 @@ def _transitions(stem: str) -> dict[str, tuple[str, str]]:
             continue
         body = {name: body for name, _, body in _definitions(stem)}[action]
         m = _PHASES_RE.search(body)
-        assert m, f"{stem}.tla {action}: no `phase = \"a\"` ... `phase' = \"b\"`"
+        assert m, f'{stem}.tla {action}: no `phase = "a"` ... `phase\' = "b"`'
         out[action] = (m.group(1), m.group(2))
     return out
 
@@ -477,7 +477,9 @@ def test_state_labels_are_drawn(stage: str) -> None:
 def test_step_labels_are_drawn(stage: str) -> None:
     from tests.unit.test_pipeline_subboards import edges, first_line
 
-    drawn = {first_line(label) for text in _stage_boards(stage).values() for *_, label in edges(text)}
+    drawn = {
+        first_line(label) for text in _stage_boards(stage).values() for *_, label in edges(text)
+    }
     missing = [label for label in _map(stage, "steps").values() if label and label not in drawn]
     assert missing == []
 
@@ -538,3 +540,67 @@ def test_neighbour_nodes_link_their_subboard(stage: str) -> None:
                 if link != f"./{group}.svg":
                     wrong.append(f"{stem} {path}: link {link}, expected ./{group}.svg")
     assert wrong == []
+
+
+_REFRESH_GROUPS = {
+    "refresh-damodaran",
+    "refresh-fundamentals",
+    "refresh-facts",
+    "refresh-prices",
+    "refresh-fx",
+}
+# Issue #165 rules (a)-(m) plus the prices rate limit: checked, or marked broken.
+_REFRESH_RULES = {
+    "CoreFileFailureWritesNothing",
+    "EmptySideKeepsItsRows",
+    "StoredFilingIsSkipped",
+    "UnmappedIndustryStillImported",
+    "InvalidMappingImportsNothing",
+    "RateLimitDefersTheRest",
+    "FactOutsideAPeriodIsDropped",
+    "AnnualRowHasAFiscalYear",
+    "RescaleNeedsThreeOtherCounts",
+    "CurrentTickerIsNotRequested",
+    "MarketCapNeedsAFreshBarAndShares",
+    "UsdOnlyFxCallsNoProvider",
+    "StagesRunInOrder",
+    "PriceRateLimitDefersTheRest",
+}
+
+
+def test_refresh_groups() -> None:
+    assert set(_map("refresh", "groups").values()) == _REFRESH_GROUPS
+
+
+def test_refresh_title() -> None:
+    assert 'export const title = "refresh: one ticker through bot refresh";' in _text(
+        "refresh", ".view.js"
+    )
+
+
+def test_refresh_rules_are_all_present() -> None:
+    defs = {name: comments for name, comments, _ in _definitions("refresh")}
+    checked = set(_invariants("refresh"))
+    for rule in _REFRESH_RULES:
+        assert rule in defs, f"refresh.tla does not define {rule}"
+        broken = any(re.fullmatch(r"\\\* broken: #\d+", c) for c in defs[rule])
+        assert rule in checked or broken, f"{rule} is neither checked nor marked broken"
+    assert len(checked) >= 10
+
+
+def test_refresh_ends_and_handovers() -> None:
+    tla = _text("refresh", ".tla")
+    assert 'EndPhases == {"mapping_refused", "fx_done"}' in tla
+    assert 'phase = "started"' in tla
+
+
+@pytest.mark.parametrize("stem", _STEMS)
+def test_rules_cite_the_code(stem: str) -> None:
+    """A `(* Cites: ... *)` line sits directly above each rule's `\\*` sentence."""
+    lines = _text(stem, ".tla").splitlines()
+    for rule in _invariants(stem):
+        i = next(n for n, ln in enumerate(lines) if re.match(rf"^{rule} ==", ln))
+        j = i - 1
+        while lines[j].lstrip().startswith("\\*"):
+            j -= 1
+        assert lines[j].lstrip().startswith("(* Cites:"), f"{stem}.tla {rule} cites no code"
