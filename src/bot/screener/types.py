@@ -38,6 +38,7 @@ class CompanyData:
     years_of_financials: int = 0
     is_financial_services: bool = False
     net_debt: float | None = None
+    total_debt: float | None = None
     ebitda: float | None = None
     ebit: float | None = None
     interest_expense: float | None = None
