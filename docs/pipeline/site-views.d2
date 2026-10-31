@@ -14,11 +14,11 @@ github_pages: "GitHub Pages\nhttps://<owner>.github.io/<repo>/" {class: external
 
 # States
 # @symbol bot.web.views.row_view @symbol bot.web.views.verdict_of
-row: "the company has its verdict\nlist row fields: ticker, name, verdict, margin of safety (MoS), price, intrinsic value, story type, red and yellow flags, analysis date, value line;\nlist rows read the verdict text the sidecar carries,\nthe value line and the grid cells recompute it from their own MoS" {class: step}
-# @symbol bot.web.views.filter_sort @const bot.web.views.FILTERS @const bot.web.views.SORTS @const bot.web.views.DIRECTIONS
+row: "the company has its verdict\nmargin of safety (MoS) = intrinsic value ÷ price;\nlist row fields: ticker, name, verdict, MoS, price, intrinsic value, story type, red and yellow flags, analysis date, value line;\nlist rows read the verdict text the sidecar carries,\nthe value line and the grid cells recompute it from their own MoS" {class: step}
+# @symbol bot.web.views.filter_sort @symbol bot.web.site.build @const bot.web.views.FILTERS @const bot.web.views.SORTS @const bot.web.views.DIRECTIONS
 listed: "the company is on the list pages\nverdict counts: all = every company, then one per verdict;\nfilters all, undervalued, fair, overvalued, na;\nsorts ticker, mos, date;\ndirections asc, desc;\nties by ticker ascending, and rows without a MoS last when sorted by MoS" {class: step}
 # @symbol bot.web.site._write_company
-pages: "the company pages are written\nc/TICKER.html and c/TICKER/YYYY-MM-DD.html, the list page with the detail;\nf/TICKER.html and f/TICKER/YYYY-MM-DD.html, the detail alone" {class: step}
+pages: "the company pages are written\nc/TICKER.html for the newest analysis and c/TICKER/YYYY-MM-DD.html for each analysis, the list page with the detail;\nf/ holds the same paths, the detail alone" {class: step}
 # @file .github/workflows/site.yml
 live: "the site is live\nthe site folder is uploaded as the Pages artifact,\nthen the deploy job runs after the build job" {class: step}
 
