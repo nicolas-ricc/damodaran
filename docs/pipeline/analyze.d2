@@ -28,7 +28,7 @@ override: "which override file?\n--override path (only with exactly one ticker)\
 # Files
 override_yaml: "config/assumptions/TICKER.yaml, manual overrides" {class: file}  # @file config/assumptions @symbol bot.valuator.assumptions.conventional_override_path
 example_yaml: "config/assumptions/_EXAMPLE.yaml.example, every override key" {class: file}  # @file config/assumptions/_EXAMPLE.yaml.example
-currencies_yaml: "config/currencies.yaml, risk-free rate and nominal gross domestic product (GDP) growth per currency\nabsent or malformed: empty table, every currency uncovered" {class: file}  # @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table
+currencies_yaml: "config/currencies.yaml, risk-free rate and nominal gross domestic product (GDP) growth per currency\nabsent or malformed: empty table, every currency uncovered\na rate out of range: the command stops with an error" {class: file}  # @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table
 template: "src/bot/reporting/templates/analysis.md.j2" {class: file}  # @file src/bot/reporting/templates/analysis.md.j2
 
 # Database

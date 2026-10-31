@@ -19,7 +19,7 @@ deep_value: "config/presets/deep_value.yaml" {class: file}  # @file config/prese
 qarp: "config/presets/qarp.yaml" {class: file}  # @file config/presets/qarp.yaml
 assumptions: "config/assumptions/TICKER.yaml, manual overrides" {class: file}  # @symbol bot.valuator.assumptions.conventional_override_path
 
-currencies_yaml: "config/currencies.yaml, risk-free rate and nominal gross domestic product (GDP) growth per currency\nabsent or malformed: empty table, every currency uncovered" {class: file}  # @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table
+currencies_yaml: "config/currencies.yaml, risk-free rate and nominal gross domestic product (GDP) growth per currency\nabsent or malformed: empty table, every currency uncovered\na rate out of range: the command stops with an error" {class: file}  # @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table
 
 # Database
 duckdb: "DuckDB (bot.duckdb)" {
@@ -80,7 +80,7 @@ snapshot: "1. snapshot per company" {
   usd: "market cap in USD\n= market cap × rate_to_usd of its listing currency,\nthe rate on or before the market-cap date (from currencies)\nno rate: empty, so min_market_cap fails\nno listing currency: taken as USD" {  # @symbol bot.screener.engine._market_cap_usd
     class: decision
   }
-  benchmark: "sector benchmark for the company\nnewest-year damodaran_industry row for (industry, region)\nindustry = industry_damodaran, else the provider industry\nlooked up once per pair" {  # @symbol bot.screener.benchmarks.load_industry_benchmarks
+  benchmark: "sector benchmark for the company\nnewest-year damodaran_industry row for (industry, region)\nindustry = industry_damodaran, else the provider industry\n(no industry_damodaran: the coverage gate drops it as industry_unmapped)\nlooked up once per pair" {  # @symbol bot.screener.benchmarks.load_industry_benchmarks
     class: step
   }
 }

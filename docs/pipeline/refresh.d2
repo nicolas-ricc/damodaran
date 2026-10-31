@@ -83,7 +83,7 @@ damodaran: "1. Damodaran datasets" {
   }
   country: "country rows\nsheet 'ERPs by country', parsing stops at the second (unrated) table\ntax rate: sheet 'Country Tax Rates', kept only within [0, 1]\nkept per country: total equity risk premium, country risk premium, rating, region" {  # @symbol bot.ingest.damodaran.parse_country_tax_rates
     class: step
-    risk_free: |md No risk-free rate is imported: it comes per currency from config/currencies.yaml, curated by hand (architecture decision record: ADR 0005 (Implemented)). | {class: note}  # @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table
+    risk_free: |md No risk-free rate is imported: it comes per currency from config/currencies.yaml, curated by hand (architecture decision record (ADR) 0005 (Implemented)). | {class: note}  # @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table
   }
   empty_rows: "no industry rows\nor no country rows?\nyes: status partial; an empty side\nkeeps its old rows (upsert returns before it deletes)" {  # @symbol bot.ingest.damodaran._import_files_into_run
     class: decision
