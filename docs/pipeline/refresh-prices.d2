@@ -11,7 +11,7 @@ back: |md back to the refresh board | {
 # Sources
 daily: "daily.sh\nweekdays" {class: cron}  # @file scripts/daily.sh
 price_fill: "price_fill.sh\nhourly, until every company has a price" {class: cron}  # @file scripts/price_fill.sh
-tiingo: "Tiingo\nend-of-day prices, default source\nStooq is the alternative" {class: external}  # @symbol bot.ingest.edgar_tiingo @symbol bot.ingest.edgar_stooq
+tiingo: "Tiingo\nend-of-day prices, default source\nStooq is the alternative\nFinancial Modeling Prep (FMP) when BOT_DATA_PROVIDER=fmp" {class: external}  # @symbol bot.ingest.edgar_tiingo @symbol bot.ingest.edgar_stooq
 edgar: "Securities and Exchange Commission (SEC)\nElectronic Data Gathering, Analysis, and Retrieval (EDGAR)\nshares outstanding" {class: external}  # @symbol bot.ingest.sec_edgar.SecEdgarClient.shares_outstanding
 prices_daily: {class: store}  # @table prices_daily
 
@@ -26,7 +26,7 @@ price_queued: "the ticker waits its turn, stalest first\nnever priced first, the
 bars_fetched: "the new daily bars of the ticker arrive\nmarket cap = close × shares outstanding, newest bar only, when it is at most 7 days old" {class: decision}
 # @symbol bot.ingest.universe._refresh_one_price
 price_counted: "the prices stage is done with the ticker\nprices_daily.currency = companies.currency" {class: step}
-# @symbol bot.ingest.universe._run_bulk_refresh @symbol bot.ingest.universe._resolve_status @const bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE @const bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE
+# @symbol bot.cli._refresh_prices @symbol bot.ingest.universe._run_bulk_refresh @symbol bot.ingest.universe._resolve_status @const bot.ingest.universe.SUCCESS_MAX_FAILURE_RATE @const bot.ingest.universe.PARTIAL_MAX_FAILURE_RATE
 status: "status of the run\nfailure rate = failed ÷ attempted; deferred are left out\nat most 5%: success; at most 25%: partial; above 25%: error\nnot success: exit code two" {class: step}
 
 # Neighbours
@@ -42,13 +42,13 @@ out: "Comes out:\nnew prices_daily bars per ticker, the newest with market cap w
 
 # Edges
 ticker_counted -> price_listing: "the prices stage starts"
-daily -> price_listing: "bot refresh --prices, repeated while tickers are deferred\nten rounds, an hour apart by default"  # @file scripts/daily.sh
+daily -> price_listing: "bot refresh --prices, repeated while tickers are deferred\nten rounds, an hour apart by default\na failing round stops the loop"  # @file scripts/daily.sh
 price_fill -> price_listing: "bot refresh --prices --only-missing, hourly"
 price_listing -> price_counted: "the ticker is left out, no request [--only-missing and it already has a price]"
 price_listing -> price_listed: "the ticker is listed [no --only-missing, or no price yet]"
 price_listed -> price_counted: "the ticker is skipped, no request [its newest bar is on or after the last weekday before today]"
 price_listed -> price_queued: "the ticker is queued [no bar yet, or an older newest bar]"
-price_queued -> price_counted: "the ticker and every later one are deferred, not failed [the rate limit is hit, by this or an earlier ticker]\nthe rest skip the request; deferred tickers are left out of the failure rate; daily.sh runs another round"  # @file scripts/daily.sh
+price_queued -> price_counted: "the ticker and every later one are deferred, not failed [the rate limit is hit, by this or an earlier ticker]\nthe rest skip the request; deferred tickers are left out of the failure rate; daily.sh runs another round if this one succeeded"  # @file scripts/daily.sh
 price_queued -> price_counted: "the ticker fails and the run goes on [the bars cannot be fetched]"
 price_queued -> bars_fetched: "only the bars after the newest stored one are fetched\n[the request succeeds]"
 bars_fetched -> price_counted: "the bars are stored, the newest with market cap = close × shares outstanding [newest bar at most 7 days old, shares found]"  # @const bot.ingest.edgar_base._FRESH_DAYS
@@ -61,5 +61,5 @@ edgar -> bars_fetched: "newest reported common shares outstanding"
 prices_daily -> price_listed: "newest bar per ticker"
 price_counted -> prices_daily: "bars with close, volume, market cap"
 price_counted -> status: "the outcome of each ticker"
-status -> refresh_log: "one summary row for the run"
+status -> refresh_log: "one summary row for the run\none row per requested ticker, source = provider name + _prices"
 status -> out: "the status of the run"
