@@ -843,7 +843,6 @@ def test_refresh_text(key: str) -> None:
 
 
 def test_refresh_gap_notes() -> None:
-    assert "ADR 0005" in _refresh_block("damodaran.write.us_only")
     assert "risk-free" in _refresh_block("damodaran.country.risk_free")
     assert "Financial Modeling Prep" in _refresh_block("fx.fetch.no_op")
     assert "ADR 0005 (Implemented)" in _refresh_block("damodaran.write.us_only")
