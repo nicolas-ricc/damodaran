@@ -8,7 +8,9 @@ Boards: `pipeline.svg` (overview: cron schedules, the five stages, external serv
 tables, outputs), `refresh.svg`, `screen.svg`, `analyze.svg`, `portfolio.svg`, `site.svg` (one per
 stage). Reading order: `pipeline.svg` first; its stage nodes link the stage boards in the order
 refresh, screen, analyze, portfolio, site. The `site` board links four sub-boards
-(`site-publish.svg`, `site-ci.svg`, `site-scan.svg`, `site-views.svg`).
+(`site-publish.svg`, `site-ci.svg`, `site-scan.svg`, `site-views.svg`); the `refresh` board links
+five (`refresh-damodaran.svg`, `refresh-fundamentals.svg`, `refresh-facts.svg`,
+`refresh-prices.svg`, `refresh-fx.svg`).
 
 ## Commands
 
