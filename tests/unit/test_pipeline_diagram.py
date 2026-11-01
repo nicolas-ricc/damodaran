@@ -2198,10 +2198,9 @@ def test_portfolio_adr_0005_gap_is_current() -> None:
 
 
 def test_portfolio_flex_gap_is_current() -> None:
-    from bot.ingest import ibkr_flex
-
-    unverified = "not yet verified against a real pull" in _collapsed(ibkr_flex.__doc__ or "")
-    assert _has_gap("sync.corporate_actions.unverified") == unverified
+    # The gap stays until `bot flex-capture` has committed a redacted real statement (#141).
+    captured = (_ROOT / "tests" / "fixtures" / "ibkr_flex" / "statement_real_redacted.xml").exists()
+    assert _has_gap("sync.corporate_actions.unverified") == (not captured)
 
 
 def test_portfolio_other_actions_gap_is_current() -> None:
