@@ -10,7 +10,8 @@ from __future__ import annotations
 VCR_CONFIG: dict[str, object] = {
     # FMP authenticates with an ``apikey`` query param; SEC EDGAR wants a
     # contact User-Agent. Neither may land in a cassette.
-    "filter_query_parameters": [("apikey", "SCRUBBED")],
+    # The Flex Web Service token travels as ``t`` (#139).
+    "filter_query_parameters": [("apikey", "SCRUBBED"), ("t", "SCRUBBED")],
     "filter_headers": [("User-Agent", "Tester t@example.com")],
     "record_mode": "none",
 }
@@ -26,6 +27,7 @@ _CASSETTE_SUBDIRS = {
     "test_fmp_": "fmp",
     "test_fx_": "fmp",
     "test_prices_": "fmp",
+    "test_ibkr_flex_": "ibkr_flex",
 }
 
 

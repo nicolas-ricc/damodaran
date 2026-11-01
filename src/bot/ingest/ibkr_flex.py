@@ -7,8 +7,9 @@ into :class:`CorporateActionRecord` rows and upserted into
 ``corporate_actions``, where :func:`bot.portfolio.events.compute_events` reads
 them.
 
-Written from IBKR's documentation against a synthetic fixture and not yet
-verified against a real pull (#110); parser corrections land in #111.
+The parser is validated against the redacted real statement captured by
+``bot flex-capture`` (:mod:`bot.ingest.ibkr_flex_capture`); parser corrections
+are tracked in #111.
 
 Follows the ingest convention: download (:class:`FlexClient`) -> parse
 (:func:`parse_flex_statement`, pure) -> upsert (:func:`upsert_corporate_actions`).
@@ -139,43 +140,54 @@ def _record(
     )
 
 
-def parse_flex_statement(xml: str) -> list[CorporateActionRecord]:
-    """Map a ``FlexQueryResponse`` to corporate-action records (pure).
-
-    Dividend-type cash transactions become ``dividend``; ``FS``/``RS`` corporate
-    actions become ``split``; any other corporate action keeps its raw type,
-    lowercased. Other cash transactions are skipped silently; rows missing a
-    symbol, an id or a parseable date are skipped with a WARNING.
-    """
+def _flex_root(xml: str) -> ET.Element:
+    """Parse *xml* and return its root, which must be a ``FlexQueryResponse``."""
     root = ET.fromstring(xml)
     if root.tag != "FlexQueryResponse":
         raise ValueError(f"expected a FlexQueryResponse, got {root.tag}")
-    records: list[CorporateActionRecord] = []
-    for el in root.iter("CorporateAction"):
+    return root
+
+
+def parse_flex_row(el: ET.Element) -> CorporateActionRecord | None:
+    """Map one ``CorporateAction`` or ``CashTransaction`` element to a record (pure).
+
+    ``CorporateAction``: ``FS``/``RS`` become ``split``; any other type keeps its
+    raw type, lowercased. ``CashTransaction``: only dividend-type rows become
+    ``dividend``; other cash transactions return ``None`` silently. Rows missing a
+    symbol, an id or a parseable date return ``None`` with a WARNING. Any other
+    tag raises :class:`ValueError`.
+    """
+    if el.tag == "CorporateAction":
         flex_type = _attr(el, "type").upper()
-        action_type = "split" if flex_type in _SPLIT_TYPES else flex_type.lower()
-        record = _record(
+        return _record(
             el,
             id_attr="actionID",
             prefix="ca",
-            action_type=action_type,
+            action_type="split" if flex_type in _SPLIT_TYPES else flex_type.lower(),
             dates=("dateTime", "reportDate"),
         )
-        if record is not None:
-            records.append(record)
-    for el in root.iter("CashTransaction"):
+    if el.tag == "CashTransaction":
         if _attr(el, "type") not in _DIVIDEND_TYPES:
-            continue
-        record = _record(
+            return None
+        return _record(
             el,
             id_attr="transactionID",
             prefix="ct",
             action_type="dividend",
             dates=("settleDate", "dateTime"),
         )
-        if record is not None:
-            records.append(record)
-    return records
+    raise ValueError(f"not a Flex row: {el.tag}")
+
+
+def parse_flex_statement(xml: str) -> list[CorporateActionRecord]:
+    """Map a ``FlexQueryResponse`` to corporate-action records (pure).
+
+    All ``CorporateAction`` rows first, then all ``CashTransaction`` rows, each
+    through :func:`parse_flex_row`; rows it returns ``None`` for are dropped.
+    """
+    root = _flex_root(xml)
+    rows = (*root.iter("CorporateAction"), *root.iter("CashTransaction"))
+    return [record for el in rows if (record := parse_flex_row(el)) is not None]
 
 
 def upsert_corporate_actions(
@@ -284,6 +296,17 @@ class FlexClient:
         return text
 
 
+def fetch_flex_statement(
+    token: str,
+    query_id: str,
+    *,
+    transport: httpx.BaseTransport | None = None,
+) -> str:
+    """Return the latest Flex statement XML; raise :class:`FlexError` on any failure."""
+    with FlexClient(token, query_id, transport=transport) as client:
+        return client.fetch_statement()
+
+
 def import_corporate_actions(
     conn: duckdb.DuckDBPyConnection,
     settings: Settings,
@@ -301,8 +324,7 @@ def import_corporate_actions(
     if not token or not query_id:
         log.info("ibkr_flex_not_configured")
         return None
-    with FlexClient(token, query_id, transport=transport) as client:
-        statement = client.fetch_statement()
+    statement = fetch_flex_statement(token, query_id, transport=transport)
     records = parse_flex_statement(statement)
     inserted = upsert_corporate_actions(conn, records)
     log.info("ibkr_flex_imported", records=len(records), inserted=inserted)
