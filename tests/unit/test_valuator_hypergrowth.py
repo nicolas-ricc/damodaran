@@ -450,3 +450,9 @@ def test_scenario_unreachable_target_names_the_scenario() -> None:
             sector_wacc=None,
             financials=CAL_FINANCIALS,
         )
+
+
+def test_parse_scenarios_refuses_the_reserved_base_name() -> None:
+    # "base" is the story itself in the scenario range (#197).
+    with pytest.raises(ValueError, match=r"scenarios\.base.*reserved"):
+        parse_scenarios({"base": {"target_margin": 0.2}}, CAL_STORY, where=_WHERE)

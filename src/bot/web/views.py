@@ -218,14 +218,21 @@ class DetailView:
     dcf_rows: tuple[tuple[str, ...], ...]
     dcf_totals: tuple[LabelledValue, ...]
     history: tuple[dt.date, ...]
+    #: Haircut the margin of safety is measured after (#197); 0 in older sidecars.
+    governance_discount: float = 0.0
+    intrinsic_after_governance: float | None = None
 
     @property
     def mos_note(self) -> str:
         """One sentence that turns the margin of safety into its verdict."""
         if self.price is None:
             return "No price, so no margin of safety and no verdict."
+        label, value = "Intrinsic value", self.intrinsic
+        if self.governance_discount > 0 and self.intrinsic_after_governance is not None:
+            label = f"Intrinsic value after the {self.governance_discount:.1%} governance discount"
+            value = self.intrinsic_after_governance
         return (
-            f"Intrinsic value {fmt_per_share(self.intrinsic)} is {self.mos} the price of "
+            f"{label} {fmt_per_share(value)} is {self.mos} the price of "
             f"{fmt_per_share(self.price)}. At or above {MOS_UNDERVALUED:.1f}\u00d7 reads as "
             f"undervalued, between {MOS_FAIR:.1f}\u00d7 and {MOS_UNDERVALUED:.1f}\u00d7 as fair, "
             f"below {MOS_FAIR:.1f}\u00d7 as overvalued."
@@ -409,6 +416,8 @@ def detail_view(entry: CompanyEntry, ref: AnalysisRef) -> DetailView:
         ),
         dcf_totals=_dcf_totals(dcf, analysis["financials"]),
         history=tuple(r.date for r in entry.history),
+        governance_discount=float(analysis.get("governance_discount", 0.0)),
+        intrinsic_after_governance=analysis.get("intrinsic_value_after_governance"),
     )
 
 

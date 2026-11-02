@@ -17,7 +17,7 @@ import duckdb
 import pytest
 
 from bot.reporting.analysis_json import render_analysis_json
-from bot.reporting.analysis_report import render_analysis
+from bot.reporting.analysis_report import analysis_summary, render_analysis
 from bot.reporting.html import render_analysis_html
 from bot.storage.db import apply_schema, connect
 from bot.valuator.analysis import Analysis
@@ -65,11 +65,12 @@ def test_markdown_scenario_table_sits_under_the_tornado(analysis: Analysis) -> N
 
 def test_html_shows_the_hypergrowth_sections(analysis: Analysis) -> None:
     html = render_analysis_html(analysis, generated_on=date(2026, 11, 2))
-    for text in ("Scenario range", "worst", "best", "WACC path (story)", "story"):
+    for text in ("Scenario range", "<td>worst</td>", "<td>best</td>", "WACC path (story)"):
         assert text in html, text
     for text in ("after governance discount", "Operating assets after failure risk"):
         assert text in html, text
     assert "Fixed commitments" in html
+    assert "<td>story</td>" in html
     assert '<img' in html and "data:image/png;base64," in html
     assert len(analysis.tornado) == 6
 
@@ -96,3 +97,25 @@ def test_markdown_governance_without_price(tmp_path: Path) -> None:
     assert a.margin_of_safety is None
     assert "after governance discount" in md
     assert "margin of safety cannot be computed" in md
+
+
+def test_cli_summary_measures_the_margin_on_the_discounted_value(analysis: Analysis) -> None:
+    line = analysis_summary(analysis)
+    assert line is not None
+    assert line.startswith(
+        f"Intrinsic after 20.0% governance discount {analysis.intrinsic_value_after_governance:,.2f} "
+    )
+    assert line.endswith(f"margin of safety {analysis.margin_of_safety:.2f}x")
+
+
+def test_web_note_measures_the_margin_on_the_discounted_value(analysis: Analysis) -> None:
+    from bot.web.index import AnalysisRef, CompanyEntry
+    from bot.web.views import detail_view
+
+    payload = json.loads(render_analysis_json(analysis, generated_on=date(2026, 11, 2)))
+    ref = AnalysisRef(ticker="ANTH", date=date(2026, 11, 2), data=payload)
+    detail = detail_view(CompanyEntry(ticker="ANTH", history=(ref,)), ref)
+    after = f"{analysis.intrinsic_value_after_governance:.2f}"
+    assert detail.mos_note.startswith(
+        f"Intrinsic value after the 20.0% governance discount {after} is "
+    )

@@ -475,7 +475,10 @@ def hypergrowth_terminal_roic_flag(
     result: DCFResult,
     context: NarrativeContext,
 ) -> NarrativeFlag:
-    """Flag a terminal ROIC above twice the sector's ROIC (#197)."""
+    """Flag a terminal ROIC above twice the sector's ROIC (#197).
+
+    Unknown when either ROIC is missing, or when the sector ROIC is not positive.
+    """
     name = "hypergrowth_terminal_roic"
     terminal = context.terminal_roic
     sector = context.sector_roic
@@ -484,6 +487,13 @@ def hypergrowth_terminal_roic_flag(
             name=name,
             color=FlagColor.UNKNOWN,
             reason="not evaluated: the terminal ROIC or the sector ROIC is unavailable",
+        )
+    if sector <= 0.0:
+        # A loss-making sector has no multiple to compare against.
+        return NarrativeFlag(
+            name=name,
+            color=FlagColor.UNKNOWN,
+            reason=f"not evaluated: sector ROIC {sector:.1%} is not a usable benchmark",
         )
     limit = _ROIC_SECTOR_MULTIPLE * sector
     if terminal > limit:

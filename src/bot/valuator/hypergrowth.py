@@ -71,6 +71,9 @@ class StoryInputs:
     governance_discount: float = 0.0
 
 
+#: Name of the story itself in the scenario range; a scenario cannot take it.
+BASE_SCENARIO = "base"
+
 #: Years of the explicit forecast: every path has this many values.
 HORIZON: int = 10
 
@@ -160,6 +163,10 @@ def parse_scenarios(
     for name, body in raw.items():
         if not isinstance(name, str):
             raise ValueError(f"{where}: scenarios: each name must be a string, got {name!r}")
+        if name == BASE_SCENARIO:
+            raise ValueError(
+                f"{where}: scenarios.{name} is reserved for the story itself; rename it"
+            )
         if not isinstance(body, Mapping):
             raise ValueError(
                 f"{where}: scenarios.{name} must be a mapping of story keys, got {body!r}"
@@ -346,12 +353,12 @@ def scenario_cases(
     ``financials``. A scenario that cannot be built raises ``ValueError``
     naming it (``scenario <name>: ...``).
     """
-    cases = {"base": (financials, bundle.to_dcf_assumptions())}
+    cases = {BASE_SCENARIO: (financials, bundle.to_dcf_assumptions())}
     for name, scenario in scenarios.items():
         try:
-            applied = apply_story(
+            assumptions = apply_story(
                 bundle, scenario, base_revenue=base_revenue, sector_wacc=sector_wacc
-            )
+            ).to_dcf_assumptions()
         except ValueError as exc:
             raise ValueError(f"scenario {name}: {exc}") from exc
         cases[name] = (
@@ -360,6 +367,6 @@ def scenario_cases(
                 fixed_commitments=scenario.fixed_commitments_pv,
                 extra_cash=scenario.extra_cash,
             ),
-            applied.to_dcf_assumptions(),
+            assumptions,
         )
     return cases

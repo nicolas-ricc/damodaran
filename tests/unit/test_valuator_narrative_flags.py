@@ -615,3 +615,10 @@ def test_narrative_flags_stay_five_for_a_hypergrowth_story() -> None:
         fin, asm, _result(fin, asm), _ctx(story_type="hypergrowth", hypergrowth_signals=True)
     )
     assert len(flags) == 5
+
+
+@pytest.mark.parametrize("sector_roic", [0.0, -0.03])
+def test_terminal_roic_unknown_when_the_sector_roic_is_not_positive(sector_roic: float) -> None:
+    flag = _terminal_roic_flag(terminal_roic=0.15, sector_roic=sector_roic)
+    assert flag.color is FlagColor.UNKNOWN
+    assert "not a usable benchmark" in flag.reason

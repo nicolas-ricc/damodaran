@@ -843,7 +843,7 @@ def analyze(
     scenario_results: tuple[ScenarioResult, ...] = ()
     if assumptions.scenarios:
         base_revenue = inputs.assumption_inputs.latest_revenue
-        if base_revenue is None:
+        if base_revenue is None:  # resolve_assumptions already refused it; narrows the type
             raise ValueError(f"{ticker}: scenarios need the latest revenue — cannot value")
         assumption_sector = inputs.assumption_inputs.sector
         scenario_results = scenario_range(

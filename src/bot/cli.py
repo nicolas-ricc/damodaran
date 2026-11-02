@@ -38,7 +38,7 @@ from bot.notifier import NotificationError, NotifierConfigError, build_notifier,
 from bot.portfolio.command import run_portfolio
 from bot.reference.currencies import CurrencyTable, load_currency_table
 from bot.reporting.analysis_json import render_analysis_json
-from bot.reporting.analysis_report import render_analysis
+from bot.reporting.analysis_report import analysis_summary, render_analysis
 from bot.reporting.html import render_analysis_html
 from bot.reporting.screen_report import render_csv, render_markdown
 from bot.reporting.show import format_company_summary
@@ -503,12 +503,9 @@ def _analyze_one(
     typer.echo(f"Wrote {out_path}")
     typer.echo(f"Wrote {html_path}")
     typer.echo(f"Wrote {json_path}")
-    if analysis.margin_of_safety is not None:
-        typer.echo(
-            f"Intrinsic {analysis.dcf_result.intrinsic_value:,.2f} "
-            f"vs price {analysis.current_price:,.2f} → "
-            f"margin of safety {analysis.margin_of_safety:.2f}x"
-        )
+    summary = analysis_summary(analysis)
+    if summary is not None:
+        typer.echo(summary)
     return 0
 
 
