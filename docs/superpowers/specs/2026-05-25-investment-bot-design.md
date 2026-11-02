@@ -246,7 +246,7 @@ Seis arquetipos, cada uno con patrón distinto de proyección:
 
 Auto-asignación por reglas (crecimiento histórico, edad, σ(earnings), deuda, sector). Override manual en `config/assumptions/<TICKER>.yaml`.
 
-La auto-asignación de `hypergrowth` necesita el archivo de story: las señales del clasificador (crecimiento del último año ≥ 50%, CAGR de ingresos ≥ 40%, margen operativo bajo la mediana sectorial, edad real de 15 años o menos) nunca arrancan el método solas. Con señales y sin archivo, la valuación es `high-growth` y el flag `hypergrowth_story` sale rojo; con archivo y sin señales, se valúa como `hypergrowth` con el flag amarillo (ver [ADR 0009](../../adr/0009-hypergrowth-story-driven-gated-on-story-file.md)).
+La auto-asignación de `hypergrowth` necesita el archivo de story: las señales del clasificador (crecimiento del último año ≥ 50%, CAGR de ingresos ≥ 40%, margen operativo bajo la mediana sectorial, edad real de 15 años o menos, o desconocida (sin `founded_year`)) nunca arrancan el método solas. Con señales y sin archivo, y sin `story_type` manual, la valuación es `high-growth` (un `story_type` manual distinto de `hypergrowth` manda) y el flag `hypergrowth_story` sale rojo en ambos casos; con archivo y sin señales, se valúa como `hypergrowth` con el flag amarillo (ver [ADR 0009](../../adr/0009-hypergrowth-story-driven-gated-on-story-file.md)).
 
 ### 7.2 Modelo DCF de dos etapas
 
@@ -299,11 +299,11 @@ Proxies de "story↔numbers consistency" (verde/amarillo/rojo):
 - **Terminal value share > 80%**: flag amarillo (valuación frágil, depende casi todo de perpetuidad).
 - **Country exposure vs ERP listado**: si revenue mayoritariamente fuera del país de listado y ERP weighted > listado + 300bps, flag rojo.
 
-Con story type `hypergrowth` se suman tres flags más:
+Se suman hasta tres flags más: `hypergrowth_story` aparece cuando disparan las señales del clasificador o cuando el story type es `hypergrowth`; los otros dos, solo cuando el story type es `hypergrowth`:
 
 - **`hypergrowth_story`**: reconcilia las señales del clasificador con el archivo de story. Rojo si hay señales y no hay archivo (la valuación default no es confiable); amarillo si hay archivo y no hay señales; verde si están las dos.
 - **`hypergrowth_revenue_scale`**: si los ingresos del año 10 superan a los de la empresa más grande hoy (~750B), flag amarillo.
-- **`hypergrowth_terminal_roic`**: si el `terminal_roic` supera 2× el ROIC sectorial, flag amarillo; desconocido si falta alguno de los dos.
+- **`hypergrowth_terminal_roic`**: si el `terminal_roic` supera 2× el ROIC sectorial, flag amarillo; desconocido si falta alguno de los dos o si el ROIC sectorial no es positivo.
 
 No entran al ranking — son señales para que el humano lea y decida.
 
