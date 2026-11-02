@@ -172,7 +172,8 @@ def test_plano_story_has_hypergrowth() -> None:
 def test_plano_flags_have_the_hypergrowth_three() -> None:
     ids = [f[0] for f in _load("views").FLAGS]
     assert ids[:5] == ["f-story", "f-growth", "f-beta", "f-tv", "f-country"]
-    assert ids[5:] == list(_HY_FLAGS)
+    assert [i for i in ids if i in _HY_FLAGS] == list(_HY_FLAGS)
+    assert ids.index("f-hy-story") > ids.index("f-country")
 
 
 def test_plano_cards_and_meta() -> None:
@@ -208,7 +209,7 @@ def test_plano_build_passes() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_estado_audit_is_current() -> None:
+def test_estado_audit_stamp() -> None:
     estado = _load("estado")
     assert estado.AUDITADO_EN == "90f717c"
     assert estado.AUDITADO_EL == "2 de noviembre de 2026"

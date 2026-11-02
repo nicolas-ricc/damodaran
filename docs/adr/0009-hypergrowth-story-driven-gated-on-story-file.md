@@ -21,9 +21,9 @@ discount before buying.
 
 The bot could not express that valuation:
 
-- **The classifier made such a company `distressed`.** `classify()` checked distress first,
-  before this change, and negative EBIT puts interest coverage at or below `_DISTRESS_INTEREST_COVERAGE`
-  whatever the cash balance.
+- **The classifier made such a company `distressed`.** Before this change `classify()`
+  checked distress first, and negative EBIT puts interest coverage at or below
+  `_DISTRESS_INTEREST_COVERAGE` whatever the cash balance.
 - **`high-growth` is too broad.** It needs only a 15% CAGR and an age of 25 years or less.
   A TAM-driven story applied to every 15% grower would be wrong.
 - **Age came from the IPO date** (`ipo_date`), so any fresh listing looked young.
@@ -34,8 +34,8 @@ The bot could not express that valuation:
   operating cash flow in four of them and a ROIC above the sector WACC. That is intended.
   They enter only through `bot analyze <TICKER>`.
 
-Every other story type must keep valuing exactly as before. `tests/unit/test_valuator_isolation_golden.py`
-pins that.
+Every other story type must keep valuing exactly as before.
+`tests/unit/test_valuator_isolation_golden.py` pins that.
 
 ## Decision
 
@@ -45,43 +45,46 @@ signals never gate the valuation: they colour the `hypergrowth_story` flag. The 
 never applied automatically.
 
 - **Two keys.** The classifier signals and the story file are separate keys. The classifier
-  assigns `StoryType.HYPERGROWTH` by a rule that runs before distress and
-  needing all four signals: last-year revenue growth of at least 50%
-  (`_HYPERGROWTH_LAST_YEAR_GROWTH`), a revenue CAGR of at least 40% over the available
-  history, two points being enough (`_HYPERGROWTH_CAGR`), an operating margin below the
-  sector median, and a real company age of at most 15 years, or unknown
-  (`_HYPERGROWTH_MAX_AGE_YEARS`). The real age comes from `founded_year`, not from the IPO
-  date, which still feeds the `high-growth` rule. The valuation runs only when the override file sets `story_type: hypergrowth` and has a
+  assigns `StoryType.HYPERGROWTH` by a rule that runs before distress and needs all four
+  signals: last-year revenue growth of at least 50% (`_HYPERGROWTH_LAST_YEAR_GROWTH`), a
+  revenue CAGR of at least 40% over the available history, two points being enough
+  (`_HYPERGROWTH_CAGR`), an operating margin below the sector median, and a real company age
+  of at most 15 years, or unknown (`_HYPERGROWTH_MAX_AGE_YEARS`). The real age comes from
+  `founded_year`, not from the IPO date, which still feeds the `high-growth` rule. The
+  valuation runs only when the override file sets `story_type: hypergrowth` and has a
   `story` section; the signals alone never start it.
-- **Fallback.** A candidate with signals but no story file is valued as `high-growth` and raises a red
-  `hypergrowth_story` flag: the default valuation is not reliable. A story file without
-  signals is valued as hypergrowth, with a yellow flag; both present is green.
-- **Story file.** `config/assumptions/<TICKER>.yaml` gains four keys: `story_type: hypergrowth` (required with `story`), `founded_year`, a
-  `story` mapping and an optional `scenarios` mapping. `story` takes the fields of
-  `StoryInputs`, with these defaults when optional: `year1_growth`, `target_revenue_y10`,
-  `year1_margin`, `target_margin`, `sales_to_capital` and `wacc_start` are required;
-  `margin_converge_year` 5, `regulatory_drag` 0.0, `wacc_terminal` the sector WACC,
-  `effective_tax_rate` 0.0, `terminal_roic` none, `failure_probability` 0.0,
-  `failure_proceeds_pct_of_value` 0.0, `fixed_commitments_pv` 0.0, `extra_cash` 0.0 and
-  `governance_discount` 0.0. Money amounts (`target_revenue_y10`, `fixed_commitments_pv`,
-  `extra_cash`) are in the raw reporting currency of `financials_annual`, not millions.
-  Unknown keys, out-of-range values, `story_type: hypergrowth` without `story`, `story`
-  without `story_type: hypergrowth`, and `scenarios` without `story` are `ValueError`s, so the batch fails that ticker alone.
+- **Fallback.** A candidate with signals but no story file is valued as `high-growth` (unless
+  the override file sets another `story_type`) and raises a red `hypergrowth_story` flag: the
+  default valuation is not reliable. A story file without signals is valued as hypergrowth,
+  with a yellow flag; both present is green.
+- **Story file.** `config/assumptions/<TICKER>.yaml` gains three keys and a new `story_type`
+  value: `story_type: hypergrowth` (required with `story`), `founded_year`, a `story` mapping
+  and an optional `scenarios` mapping. `story` takes the fields of `StoryInputs`, with these
+  defaults when optional: `year1_growth`, `target_revenue_y10`, `year1_margin`,
+  `target_margin`, `sales_to_capital` and `wacc_start` are required; `margin_converge_year` 5,
+  `regulatory_drag` 0.0, `wacc_terminal` the sector WACC, `effective_tax_rate` 0.0,
+  `terminal_roic` none, `failure_probability` 0.0, `failure_proceeds_pct_of_value` 0.0,
+  `fixed_commitments_pv` 0.0, `extra_cash` 0.0 and `governance_discount` 0.0. Money amounts
+  (`target_revenue_y10`, `fixed_commitments_pv`, `extra_cash`) are in the
+  raw reporting currency of `financials_annual`, not millions. Unknown keys, out-of-range values,
+  `story_type: hypergrowth` without `story`, `story` without `story_type: hypergrowth`, and
+  `scenarios` without `story` are `ValueError`s, so the batch fails that ticker alone.
 - **Ten-year paths** (`hypergrowth.HORIZON = 10`), built from the story:
   - Growth: year 1 is `year1_growth`. Years 2 to 5 share one rate, solved by bisection so that
     year-10 revenue equals `target_revenue_y10`. Years 6 to 10 fade linearly to the terminal
     growth.
-  - Margin: `year1_margin` in year 1, then linear to `target_margin - regulatory_drag` by
-    `margin_converge_year`, flat after.
+  - Margin: `year1_margin` in year 1. From year 2 the margin is
+    `year1_margin + (target_margin - regulatory_drag - year1_margin) * t / margin_converge_year`,
+    so it reaches the drag-adjusted target in `margin_converge_year` and stays flat after.
   - WACC: `wacc_start` in years 1 to 5, then linear to `wacc_terminal` (default: the sector
     WACC) in year 10.
   - Tax: `effective_tax_rate` in years 1 to 5, then linear to the marginal rate in year 10.
 - **DCF extensions, all optional.** `wacc_path` replaces the scalar WACC and discounts with a
-  cumulative factor. `tax_rate_path` sets the tax of the explicit years. `terminal_roic` (optional;
-  without it the terminal reinvestment falls back to sales-to-capital) sets
-  the terminal reinvestment to `g / ROIC`. `distress_proceeds_pct` makes the failure blend
-  work on enterprise value. `Financials.fixed_commitments` and `extra_cash` enter the equity
-  bridge. Every default reproduces the old maths bit for bit.
+  cumulative factor. `tax_rate_path` sets the tax of the explicit years. `terminal_roic` sets
+  the terminal reinvestment to `g / ROIC`; without it the terminal reinvestment stays
+  `ΔRevenue / sales_to_capital`. `distress_proceeds_pct` makes the failure blend work on
+  enterprise value. `Financials.fixed_commitments` and `extra_cash` enter the equity bridge.
+  Every default reproduces the old maths bit for bit.
 - **Failure blend on enterprise value.** With `distress_proceeds_pct` set, the enterprise value
   is `(1 - p) * EV + p * proceeds_pct * EV` before the bridge, as Damodaran weights the
   operating assets. `distress_value_per_share` is ignored in that case.
@@ -98,8 +101,8 @@ never applied automatically.
 - **Three flags.** `hypergrowth_story` (above). `hypergrowth_revenue_scale` is yellow when the
   year-10 revenue exceeds the largest company's revenue today (`_LARGEST_COMPANY_REVENUE`,
   750e9). `hypergrowth_terminal_roic` is yellow when the terminal ROIC exceeds twice the
-  sector ROIC (`_ROIC_SECTOR_MULTIPLE`, 2.0), and unknown when either ROIC is missing or the sector ROIC is not positive. The last
-  two run only for the `hypergrowth` story type.
+  sector ROIC (`_ROIC_SECTOR_MULTIPLE`, 2.0), and unknown when either ROIC is missing or the
+  sector ROIC is not positive. The last two run only for the `hypergrowth` story type.
 - **Sensitivity.** The cost-of-equity axis scales `wacc_path` along with the scalar, so the
   tornado and the grid move the whole path. The cost-of-debt axis is skipped when the path is
   set (`active_axes`): the path replaces the built-up WACC.

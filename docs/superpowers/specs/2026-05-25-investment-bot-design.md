@@ -246,7 +246,7 @@ Seis arquetipos, cada uno con patrón distinto de proyección:
 
 Auto-asignación por reglas (crecimiento histórico, edad, σ(earnings), deuda, sector). Override manual en `config/assumptions/<TICKER>.yaml`.
 
-La auto-asignación de `hypergrowth` necesita el archivo de story: las señales del clasificador (crecimiento del último año ≥ 50%, CAGR de ingresos ≥ 40%, margen operativo bajo la mediana sectorial, edad real de 15 años o menos, o desconocida (sin `founded_year`)) nunca arrancan el método solas. Con señales y sin archivo, y sin `story_type` manual, la valuación es `high-growth` (un `story_type` manual distinto de `hypergrowth` manda) y el flag `hypergrowth_story` sale rojo en ambos casos; con archivo y sin señales, se valúa como `hypergrowth` con el flag amarillo (ver [ADR 0009](../../adr/0009-hypergrowth-story-driven-gated-on-story-file.md)).
+La auto-asignación de `hypergrowth` necesita el archivo de story. Las señales del clasificador son cuatro: crecimiento del último año ≥ 50%, CAGR de ingresos ≥ 40%, margen operativo bajo la mediana sectorial y edad real de 15 años o menos, o desconocida si no hay `founded_year`. Esas señales nunca arrancan el método solas. Con señales y sin archivo, la valuación es `high-growth`, salvo que un `story_type` manual distinto de `hypergrowth` mande; en los dos casos el flag `hypergrowth_story` sale rojo; con archivo y sin señales, se valúa como `hypergrowth` con el flag amarillo (ver [ADR 0009](../../adr/0009-hypergrowth-story-driven-gated-on-story-file.md)).
 
 ### 7.2 Modelo DCF de dos etapas
 
