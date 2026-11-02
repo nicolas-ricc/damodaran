@@ -106,8 +106,7 @@ class AssumptionSource(StrEnum):
     #: derived from the company's and the sector's data, not a scalar copied
     #: verbatim. Emitted by the story-type-branched growth and margin resolvers.
     STORY_PATTERN = "story_pattern"
-    #: The value was set by the story section of the override file (emitted only
-    #: for hypergrowth from #196 on; nothing emits it yet).
+    #: The value was set by the story section of the override file.
     STORY = "story"
     #: No layer produced a value. The report shows the gap instead of a number,
     #: and must not attribute the gap to a source it never came from.

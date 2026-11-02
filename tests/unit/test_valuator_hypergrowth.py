@@ -219,7 +219,23 @@ def test_example_file_documents_every_story_key() -> None:
 
     example = (_ROOT / "config" / "assumptions" / "_EXAMPLE.yaml.example").read_text()
     readme = (_ROOT / "config" / "assumptions" / "README.md").read_text()
-    for name in [f.name for f in fields(StoryInputs)] + ["founded_year", "story", "scenarios"]:
+    for name in [f.name for f in fields(StoryInputs)] + ["founded_year", "story:", "scenarios:"]:
         assert name in example, name
-    for word in ("story", "scenarios", "founded_year", "not millions"):
+    for word in ("`story`", "`scenarios`", "`founded_year`", "not millions"):
         assert word in readme, word
+
+
+def test_every_story_field_has_a_rule() -> None:
+    from dataclasses import fields
+
+    from bot.valuator import hypergrowth
+
+    assert list(hypergrowth._RULES) == [f.name for f in fields(StoryInputs)]
+    assert hypergrowth._REQUIRED == (
+        "year1_growth",
+        "target_revenue_y10",
+        "year1_margin",
+        "target_margin",
+        "sales_to_capital",
+        "wacc_start",
+    )

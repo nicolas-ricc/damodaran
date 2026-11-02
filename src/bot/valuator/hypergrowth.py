@@ -15,14 +15,14 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, replace
-from typing import Any
+from dataclasses import MISSING, dataclass, fields, replace
+from typing import Any, TypeGuard
 
 #: Story-type label of a story file. ``StoryType.HYPERGROWTH`` arrives in #195.
 STORY_TYPE = "hypergrowth"
 
 
-def is_finite_number(value: object) -> bool:
+def is_finite_number(value: object) -> TypeGuard[int | float | str]:
     """Whether ``value`` is a finite ``int``/``float`` (never a ``bool``) or numeric ``str``.
 
     Strings count because PyYAML reads ``1e11`` (no dot) as a string.
@@ -85,28 +85,19 @@ _RULES: dict[str, _Rule] = {
 }
 
 #: Keys without a default in :class:`StoryInputs`: the file must give them.
-_REQUIRED = (
-    "year1_growth",
-    "target_revenue_y10",
-    "year1_margin",
-    "target_margin",
-    "sales_to_capital",
-    "wacc_start",
-)
+_REQUIRED = tuple(f.name for f in fields(StoryInputs) if f.default is MISSING)
 
 
 def _check_value(key: str, value: object, *, where: str, prefix: str) -> float | int:
     is_int, in_range, rule = _RULES[key]
     label = f"{prefix}{key}"
     if is_int:
-        ok = isinstance(value, int) and not isinstance(value, bool) and in_range(value)
-        if not ok:
+        if not isinstance(value, int) or isinstance(value, bool) or not in_range(value):
             raise ValueError(f"{where}: {label} must be {rule}, got {value!r}")
-        assert isinstance(value, int)
         return value
-    if not is_finite_number(value) or not in_range(float(value)):  # type: ignore[arg-type]
+    if not is_finite_number(value) or not in_range(float(value)):
         raise ValueError(f"{where}: {label} must be a number {rule}, got {value!r}")
-    return float(value)  # type: ignore[arg-type]
+    return float(value)
 
 
 def _check_keys(
@@ -144,7 +135,7 @@ def parse_scenarios(
     out: dict[str, StoryInputs] = {}
     for name, body in raw.items():
         if not isinstance(name, str):
-            raise ValueError(f"{where}: scenarios names must be strings, got {name!r}")
+            raise ValueError(f"{where}: scenarios: each name must be a string, got {name!r}")
         if not isinstance(body, Mapping):
             raise ValueError(
                 f"{where}: scenarios.{name} must be a mapping of story keys, got {body!r}"

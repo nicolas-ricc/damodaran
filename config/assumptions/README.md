@@ -38,5 +38,7 @@ the batch continues with the others. The rules:
 - `story` and every scenario are validated key by key: unknown keys, missing
   required keys, out-of-range values, non-integer `margin_converge_year`,
   booleans, `NaN` and `inf` are refused, and the message names the key.
+- `scenarios` must not be empty, each scenario name must be a string and each
+  scenario a non-empty mapping.
 
 The story is parsed and validated; the valuation does not read it yet.

@@ -11,25 +11,25 @@
 # probability_of_bankruptcy: 0.15                  # ponderación del escenario distress
 # distress_value_per_share: 4.0                    # valor por acción en el escenario distress
 # story_type: high-growth                          # high-growth | mature-stable | mature-decline | cyclical | distressed | hypergrowth (hypergrowth exige `story`)
-# founded_year: 2021                                # año de fundación, entero 1600..año actual; vale para cualquier story_type
-# story:                                            # solo con story_type: hypergrowth. Montos en moneda de reporte, sin escalar (como financials_annual; no en millones)
-#   year1_growth: 4.00                              # requerido, > -1
-#   target_revenue_y10: 1011491000000               # requerido, > 0; ingresos del año 10
-#   year1_margin: 0.05                              # requerido, < 1; ancla la rampa de margen
-#   target_margin: 0.325                            # requerido, < 1
-#   margin_converge_year: 5                         # entero 1..10, default 5
-#   regulatory_drag: 0.05                           # 0..1, default 0; se resta de target_margin
-#   sales_to_capital: 3.0                           # requerido, > 0
-#   wacc_start: 0.0974                              # requerido, 0 < x < 1; se mantiene hasta el año 5
-#   wacc_terminal: 0.0913                           # opcional, 0 < x < 1; default: el WACC del sector
-#   effective_tax_rate: 0.0                         # 0..1, default 0; años 1-5, luego lineal a la tasa marginal en el año 10
-#   terminal_roic: 0.15                             # opcional, > 0; con valor, reinversión terminal = g / ROIC
-#   failure_probability: 0.10                       # 0..1, default 0
-#   failure_proceeds_pct_of_value: 0.50             # 0..1, default 0
-#   fixed_commitments_pv: 472336000000              # >= 0, default 0; se suma a la deuda
-#   extra_cash: 100000000000                        # >= 0, default 0; p.ej. fondos de un IPO
-#   governance_discount: 0.20                       # 0 <= x < 1, default 0; solo el veredicto, nunca el DCF
-# scenarios:                                        # opcional (exige `story`); nombre -> subconjunto de claves de story
+# founded_year: 2021                               # año de fundación, entero 1600..año actual; vale para cualquier story_type
+# story:                                           # solo con story_type: hypergrowth. Montos en moneda de reporte, sin escalar (como financials_annual; no en millones)
+#   year1_growth: 4.00                             # requerido, > -1
+#   target_revenue_y10: 1011491000000              # requerido, > 0; ingresos del año 10
+#   year1_margin: 0.05                             # requerido, < 1; ancla la rampa de margen
+#   target_margin: 0.325                           # requerido, < 1
+#   margin_converge_year: 5                        # entero 1..10, default 5
+#   regulatory_drag: 0.05                          # 0..1, default 0; se resta de target_margin
+#   sales_to_capital: 3.0                          # requerido, > 0
+#   wacc_start: 0.0974                             # requerido, 0 < x < 1; se mantiene hasta el año 5
+#   wacc_terminal: 0.0913                          # opcional, 0 < x < 1; default: el WACC del sector
+#   effective_tax_rate: 0.0                        # 0..1, default 0; años 1-5, luego lineal a la tasa marginal en el año 10
+#   terminal_roic: 0.15                            # opcional, > 0; con valor, reinversión terminal = g / ROIC
+#   failure_probability: 0.10                      # 0..1, default 0
+#   failure_proceeds_pct_of_value: 0.50            # 0..1, default 0
+#   fixed_commitments_pv: 472336000000             # >= 0, default 0; se suma a la deuda
+#   extra_cash: 100000000000                       # >= 0, default 0; p.ej. fondos de un IPO
+#   governance_discount: 0.20                      # 0 <= x < 1, default 0; solo el veredicto, nunca el DCF
+# scenarios:                                       # opcional (exige `story`); nombre -> subconjunto de claves de story
 #   worst: {target_revenue_y10: 200000000000, target_margin: 0.10, sales_to_capital: 1.0, wacc_start: 0.0988, regulatory_drag: 0.10}
 #   best:  {target_revenue_y10: 1500000000000, target_margin: 0.40, sales_to_capital: 4.0, wacc_start: 0.0779, regulatory_drag: 0.0}
 notes: ejemplo — borrá esta línea

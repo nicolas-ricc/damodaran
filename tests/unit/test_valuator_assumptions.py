@@ -937,32 +937,45 @@ scenarios:
 
 
 @pytest.mark.parametrize(
-    "body",
+    ("body", "fragment"),
     [
-        pytest.param("story_type: hypergrowth\n", id="hypergrowth-without-story"),
-        pytest.param("story_type: high-growth\n" + _VALID_STORY, id="story-with-high-growth"),
-        pytest.param(_VALID_STORY, id="story-without-story-type"),
         pytest.param(
-            "scenarios: {worst: {target_margin: 0.1}}\n", id="scenarios-without-story"
+            "story_type: hypergrowth\n", "requires a story", id="hypergrowth-without-story"
         ),
-        pytest.param("founded_year: 1500\n", id="founded-year-1500"),
-        pytest.param("founded_year: 2021.5\n", id="founded-year-float"),
-        pytest.param("founded_year: true\n", id="founded-year-bool"),
-        pytest.param("story_type: hypergrowth\nstory:\n", id="null-story"),
         pytest.param(
-            "story_type: hypergrowth\nscenarios: 3\n" + _VALID_STORY, id="scenarios-not-mapping"
+            "story_type: high-growth\n" + _VALID_STORY, "story_type", id="story-with-high-growth"
+        ),
+        pytest.param(_VALID_STORY, "story_type", id="story-without-story-type"),
+        pytest.param(
+            "scenarios: {worst: {target_margin: 0.1}}\n",
+            "scenarios",
+            id="scenarios-without-story",
+        ),
+        pytest.param("founded_year: 1500\n", "founded_year", id="founded-year-1500"),
+        pytest.param("founded_year: 2021.5\n", "founded_year", id="founded-year-float"),
+        pytest.param("founded_year: true\n", "founded_year", id="founded-year-bool"),
+        pytest.param("story_type: hypergrowth\nstory:\n", "mapping", id="null-story"),
+        pytest.param(
+            "story_type: hypergrowth\nscenarios: 3\n" + _VALID_STORY,
+            "scenarios",
+            id="scenarios-not-mapping",
         ),
         pytest.param(
             "story_type: hypergrowth\n" + _VALID_STORY.replace("3.0", "0"),
+            "story.sales_to_capital",
             id="story-parsed-at-load",
         ),
     ],
 )
-def test_load_override_rejects_story_file_errors(tmp_path: Path, body: str) -> None:
+def test_load_override_rejects_story_file_errors(
+    tmp_path: Path, body: str, fragment: str
+) -> None:
     path = _write_override(tmp_path, body)
     with pytest.raises(ValueError) as excinfo:
         load_override(path)
-    assert str(path) in str(excinfo.value)
+    message = str(excinfo.value)
+    assert message.startswith(f"{path}: ")
+    assert fragment in message
 
 
 def test_load_override_accepts_founded_year_up_to_this_year(tmp_path: Path) -> None:
