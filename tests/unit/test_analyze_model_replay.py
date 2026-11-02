@@ -1,12 +1,9 @@
 """Replay of the analyze model's rule OnlyTheCommandStopsTheBatch (#169).
 
-The rule was broken until #180 was fixed, and is checked again since #199.
-
-TLC's shortest path before #199: a ticker was chosen, its override file picked, the
-company loaded and classified, then the override file was read and was not valid YAML,
-or held a value float() refused with a TypeError. The model said the command crashed;
-the rule says a failing ticker never stops the batch. #187 fixed the code (#180): the ticker fails
-alone and the batch goes on.
+Broken until #180 was fixed; checked again since #199. TLC's shortest path before #199:
+the override file was read and was not valid YAML, or held a value float() refused with a
+TypeError; the model said the command crashed. The rule says a failing ticker never stops
+the batch. #187 fixed the code (#180): the ticker fails alone and the batch goes on.
 """
 
 from __future__ import annotations
