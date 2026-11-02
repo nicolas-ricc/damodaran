@@ -37,9 +37,9 @@ directly.
 from __future__ import annotations
 
 import itertools
-import math
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, fields
+from datetime import date
 from enum import StrEnum
 from pathlib import Path
 from statistics import fmean
@@ -57,6 +57,7 @@ from bot.reference.currencies import (
 from bot.reference.regions import dataset_region
 from bot.utils.logging import get_logger
 from bot.valuator.dcf import Assumptions as DCFAssumptions
+from bot.valuator.hypergrowth import STORY_TYPE, is_finite_number, story_from_override
 from bot.valuator.story_types import StoryType
 
 log = get_logger(__name__)
@@ -105,6 +106,9 @@ class AssumptionSource(StrEnum):
     #: derived from the company's and the sector's data, not a scalar copied
     #: verbatim. Emitted by the story-type-branched growth and margin resolvers.
     STORY_PATTERN = "story_pattern"
+    #: The value was set by the story section of the override file (emitted only
+    #: for hypergrowth from #196 on; nothing emits it yet).
+    STORY = "story"
     #: No layer produced a value. The report shows the gap instead of a number,
     #: and must not attribute the gap to a source it never came from.
     UNRESOLVED = "unresolved"
@@ -635,6 +639,9 @@ _OVERRIDE_KEYS: frozenset[str] = frozenset(
         "distress_value_per_share",
         "story_type",
         "notes",
+        "founded_year",
+        "story",
+        "scenarios",
     }
 )
 
@@ -643,6 +650,14 @@ _OVERRIDE_PATH_KEYS: frozenset[str] = frozenset({"revenue_growth", "operating_ma
 
 #: Override keys that carry text, not a number.
 _OVERRIDE_TEXT_KEYS: frozenset[str] = frozenset({"story_type", "notes"})
+
+#: Override keys with their own validation in :func:`load_override` (an integer
+#: year, and the story and scenarios mappings), so the generic numeric check skips them.
+_OVERRIDE_STORY_KEYS: frozenset[str] = frozenset({"founded_year", "story", "scenarios"})
+
+#: Earliest ``founded_year`` accepted: no listed company is older than the joint-stock
+#: company era.
+_FOUNDED_YEAR_MIN = 1600
 
 
 def conventional_override_path(assumptions_dir: Path | None, ticker: str) -> Path | None:
@@ -657,7 +672,15 @@ def conventional_override_path(assumptions_dir: Path | None, ticker: str) -> Pat
     return candidate if candidate.exists() else None
 
 
-def _load_override(override_path: Path | None) -> dict[str, Any]:
+def load_override(override_path: Path | None) -> dict[str, Any]:
+    """Load and validate ``config/assumptions/<TICKER>.yaml``; return the raw mapping.
+
+    Returns ``{}`` for no path, a missing file or an empty file. Refuses unknown
+    keys, non-numeric values, a bad ``founded_year``, and an inconsistent story
+    file (``story`` / ``scenarios`` / ``story_type: hypergrowth``), all as
+    ``ValueError`` whose message starts with the path. The story section is parsed
+    here only to validate it; the mapping is returned unchanged.
+    """
     if override_path is None or not override_path.exists():
         return {}
     try:
@@ -676,18 +699,37 @@ def _load_override(override_path: Path | None) -> dict[str, Any]:
             f"Valid keys: {valid}"
         )
     _check_override_values(override_path, loaded)
+    _check_story_file(override_path, loaded)
     return loaded
 
 
-def _is_finite_number(value: object) -> bool:
-    if isinstance(value, bool):
-        return False
-    if not isinstance(value, (int, float, str)):
-        return False
-    try:
-        return math.isfinite(float(value))
-    except (ValueError, OverflowError):
-        return False
+def _check_story_file(override_path: Path, loaded: dict[str, Any]) -> None:
+    """Refuse a bad ``founded_year`` or an inconsistent ``story`` / ``scenarios`` set."""
+    if "founded_year" in loaded:
+        year = loaded["founded_year"]
+        this_year = date.today().year
+        if (
+            not isinstance(year, int)
+            or isinstance(year, bool)
+            or not _FOUNDED_YEAR_MIN <= year <= this_year
+        ):
+            raise ValueError(
+                f"{override_path}: founded_year must be an integer from "
+                f"{_FOUNDED_YEAR_MIN} to {this_year}, got {year!r}"
+            )
+    for key in ("story", "scenarios"):
+        if key in loaded and not isinstance(loaded[key], dict):
+            raise ValueError(f"{override_path}: {key} must be a mapping, got {loaded[key]!r}")
+    story_type = loaded.get("story_type")
+    if story_type == STORY_TYPE and "story" not in loaded:
+        raise ValueError(f"{override_path}: story_type {STORY_TYPE} requires a story section")
+    if "story" in loaded and story_type != STORY_TYPE:
+        raise ValueError(
+            f"{override_path}: story requires story_type: {STORY_TYPE}, got {story_type!r}"
+        )
+    if "scenarios" in loaded and "story" not in loaded:
+        raise ValueError(f"{override_path}: scenarios requires a story section")
+    story_from_override(loaded, where=str(override_path))
 
 
 def _check_override_values(override_path: Path, override: dict[str, Any]) -> None:
@@ -697,16 +739,16 @@ def _check_override_values(override_path: Path, override: dict[str, Any]) -> Non
     instead of surfacing later as a ``TypeError`` or a NaN in the valuation.
     """
     for key, value in override.items():
-        if key in _OVERRIDE_TEXT_KEYS:
+        if key in _OVERRIDE_TEXT_KEYS or key in _OVERRIDE_STORY_KEYS:
             continue
         if key in _OVERRIDE_PATH_KEYS:
             if isinstance(value, list):
-                ok = bool(value) and all(_is_finite_number(x) for x in value)
+                ok = bool(value) and all(is_finite_number(x) for x in value)
             else:
-                ok = _is_finite_number(value)
+                ok = is_finite_number(value)
             expected = "a finite number or a non-empty list of finite numbers"
         else:
-            ok = _is_finite_number(value)
+            ok = is_finite_number(value)
             expected = "a finite number"
         if not ok:
             raise ValueError(f"{override_path}: {key} must be {expected}, got {value!r}")
@@ -775,7 +817,7 @@ def resolve_assumptions(
     sector = _SectorDefaults(
         row=db_inputs.sector, cross_region=db_inputs.sector_is_cross_region
     )
-    override = _load_override(override_path)
+    override = load_override(override_path)
 
     story_label = _resolve_story_type(override, auto_story_type)
     if story_label is not None and story_label not in _STORY_TYPE_VALUES:

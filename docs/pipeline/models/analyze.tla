@@ -191,14 +191,14 @@ ItIsMatureStable ==
   /\ storyTypes' = {"classifier"}
   /\ UNCHANGED << batch, exitCode, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
 
-(* src/bot/valuator/assumptions.py: _load_override raises ValueError; src/bot/cli.py: _analyze_one returns 1 *)
+(* src/bot/valuator/assumptions.py: load_override raises ValueError; src/bot/cli.py: _analyze_one returns 1 *)
 TheOverrideFileIsInvalid ==
   /\ phase = "classified"
   /\ phase' = "cannot_value"
   /\ exitCode' = "1"
   /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
 
-(* src/bot/valuator/assumptions.py: _load_override, yaml.safe_load raises yaml.YAMLError; _override_scalar / _override_path_field, float() of an empty or list value raises TypeError. Neither is a ValueError; _analyze_one catches only LookupError and ValueError, so the error leaves the `for ticker` loop of cli.analyze *)
+(* src/bot/valuator/assumptions.py: load_override, yaml.safe_load raises yaml.YAMLError; _override_scalar / _override_path_field, float() of an empty or list value raises TypeError. Neither is a ValueError; _analyze_one catches only LookupError and ValueError, so the error leaves the `for ticker` loop of cli.analyze *)
 TheOverrideFileIsNotYaml ==
   /\ phase = "classified"
   /\ phase' = "crashed"
