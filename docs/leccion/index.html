@@ -685,11 +685,11 @@ h1 {
     </div>
     <div class="en-codigo"><h3>En el código</h3>
       <ul>
-        <li><code data-symbol="bot.valuator.dcf.Financials">bot.valuator.dcf.Financials</code> · <code class="at">src/bot/valuator/dcf.py:32</code>: de dónde parte el DCF: ventas, deuda neta, acciones diluidas.</li>
-        <li><code data-symbol="bot.valuator.dcf.Assumptions">bot.valuator.dcf.Assumptions</code> · <code class="at">src/bot/valuator/dcf.py:60</code>: las trayectorias de crecimiento y margen (una por año), el impuesto, las ventas por capital, el crecimiento terminal y los componentes de la tasa de descuento.</li>
-        <li><code data-symbol="bot.valuator.dcf.dcf">bot.valuator.dcf.dcf</code> · <code class="at">src/bot/valuator/dcf.py:159</code>: la cuenta, función pura. Falla si el crecimiento terminal es mayor o igual que la tasa de descuento, porque la perpetuidad no converge.</li>
-        <li><code data-symbol="bot.valuator.dcf.DCFResult">bot.valuator.dcf.DCFResult</code> · <code class="at">src/bot/valuator/dcf.py:122</code>: valor por acción, valor de la empresa, valor terminal y su peso (<code>terminal_value_share</code>), tasa y pesos usados.</li>
-        <li><code data-symbol="bot.valuator.dcf.YearProjection">bot.valuator.dcf.YearProjection</code> · <code class="at">src/bot/valuator/dcf.py:108</code>: una fila de la tabla de arriba, por año.</li>
+        <li><code data-symbol="bot.valuator.dcf.Financials">bot.valuator.dcf.Financials</code> · <code class="at">src/bot/valuator/dcf.py:47</code>: de dónde parte el DCF: ventas, deuda neta, acciones diluidas.</li>
+        <li><code data-symbol="bot.valuator.dcf.Assumptions">bot.valuator.dcf.Assumptions</code> · <code class="at">src/bot/valuator/dcf.py:82</code>: las trayectorias de crecimiento y margen (una por año), el impuesto, las ventas por capital, el crecimiento terminal y los componentes de la tasa de descuento.</li>
+        <li><code data-symbol="bot.valuator.dcf.dcf">bot.valuator.dcf.dcf</code> · <code class="at">src/bot/valuator/dcf.py:221</code>: la cuenta, función pura. Falla si el crecimiento terminal es mayor o igual que la tasa de descuento, porque la perpetuidad no converge.</li>
+        <li><code data-symbol="bot.valuator.dcf.DCFResult">bot.valuator.dcf.DCFResult</code> · <code class="at">src/bot/valuator/dcf.py:159</code>: valor por acción, valor de la empresa, valor terminal y su peso (<code>terminal_value_share</code>), tasa y pesos usados.</li>
+        <li><code data-symbol="bot.valuator.dcf.YearProjection">bot.valuator.dcf.YearProjection</code> · <code class="at">src/bot/valuator/dcf.py:145</code>: una fila de la tabla de arriba, por año.</li>
         <li><code data-symbol="bot.valuator.assumptions.AssumptionSource">bot.valuator.assumptions.AssumptionSource</code> · <code class="at">src/bot/valuator/assumptions.py:93</code>: las ocho procedencias.</li>
         <li><code data-symbol="bot.valuator.assumptions.Sourced">bot.valuator.assumptions.Sourced</code> · <code class="at">src/bot/valuator/assumptions.py:117</code>: valor más procedencia.</li>
         <li><code data-symbol="bot.valuator.assumptions.resolve_assumptions">bot.valuator.assumptions.resolve_assumptions</code> · <code class="at">src/bot/valuator/assumptions.py:779</code>: arma todos los supuestos de un ticker. Prioridad: manual, luego lo que corresponda por arquetipo e historia propia, luego el sector, luego las reglas.</li>
@@ -739,8 +739,8 @@ h1 {
     </div>
     <div class="en-codigo"><h3>En el código</h3>
       <ul>
-        <li><code data-symbol="bot.valuator.sensitivity.tornado">bot.valuator.sensitivity.tornado</code> · <code class="at">src/bot/valuator/sensitivity.py:190</code>: siete supuestos, ±20 % cada uno; devuelve las barras de mayor a menor impacto. Si un extremo sale del dominio del modelo (crecimiento terminal que alcanza a la tasa), esa barra queda al final sin impacto.</li>
-        <li><code data-symbol="bot.valuator.sensitivity.grid_2d">bot.valuator.sensitivity.grid_2d</code> · <code class="at">src/bot/valuator/sensitivity.py:233</code>: la grilla de 5×5 con el MoS por celda; la central es el caso base.</li>
+        <li><code data-symbol="bot.valuator.sensitivity.tornado">bot.valuator.sensitivity.tornado</code> · <code class="at">src/bot/valuator/sensitivity.py:214</code>: siete supuestos, ±20 % cada uno; devuelve las barras de mayor a menor impacto. Si un extremo sale del dominio del modelo (crecimiento terminal que alcanza a la tasa), esa barra queda al final sin impacto.</li>
+        <li><code data-symbol="bot.valuator.sensitivity.grid_2d">bot.valuator.sensitivity.grid_2d</code> · <code class="at">src/bot/valuator/sensitivity.py:258</code>: la grilla de 5×5 con el MoS por celda; la central es el caso base.</li>
         <li><code data-symbol="bot.valuator.narrative_flags.story_margin_flag">bot.valuator.narrative_flags.story_margin_flag</code> · <code class="at">src/bot/valuator/narrative_flags.py:134</code></li>
         <li><code data-symbol="bot.valuator.narrative_flags.growth_reinvestment_flag">bot.valuator.narrative_flags.growth_reinvestment_flag</code> · <code class="at">src/bot/valuator/narrative_flags.py:185</code></li>
         <li><code data-symbol="bot.valuator.narrative_flags.beta_business_risk_flag">bot.valuator.narrative_flags.beta_business_risk_flag</code> · <code class="at">src/bot/valuator/narrative_flags.py:239</code></li>

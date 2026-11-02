@@ -25,11 +25,13 @@ from bot.valuator.dcf import Assumptions, Financials, dcf
 from bot.valuator.sensitivity import (
     SensitivityAxis,
     TornadoEntry,
+    active_axes,
     grid_2d,
     scale_axis,
     tornado,
 )
 from tests.unit.test_valuator_analysis import _seed
+from tests.unit.test_valuator_dcf import damodaran_assumptions, damodaran_financials
 
 TOL = 1e-9
 
@@ -388,3 +390,82 @@ def test_grid_centre_matches_the_headline_margin_of_safety(
     assert analysis.grid.cells[2][2].margin_of_safety == pytest.approx(
         analysis.margin_of_safety
     )
+
+
+# --------------------------------------------------------------------------- #
+# WACC and tax paths (#193)                                                   #
+# --------------------------------------------------------------------------- #
+
+
+def test_active_axes_all_seven_without_wacc_path() -> None:
+    assert active_axes(_assumptions()) == tuple(SensitivityAxis)
+
+
+def test_active_axes_drops_cost_of_debt_with_wacc_path() -> None:
+    axes = active_axes(damodaran_assumptions())
+
+    assert axes == tuple(a for a in SensitivityAxis if a is not SensitivityAxis.PRETAX_COST_OF_DEBT)
+    assert len(axes) == 6
+
+
+def test_scale_cost_of_equity_scales_wacc_path() -> None:
+    base = damodaran_assumptions()
+    scaled = scale_axis(base, SensitivityAxis.COST_OF_EQUITY, 1.2)
+
+    assert base.wacc_path is not None
+    assert scaled.wacc_path == pytest.approx(tuple(w * 1.2 for w in base.wacc_path))
+    assert scaled.cost_of_equity == pytest.approx(base.cost_of_equity * 1.2)
+
+
+def test_scale_tax_rate_scales_tax_rate_path() -> None:
+    base = damodaran_assumptions()
+    scaled = scale_axis(base, SensitivityAxis.TAX_RATE, 0.8)
+
+    assert base.tax_rate_path is not None
+    assert scaled.tax_rate_path == pytest.approx(tuple(t * 0.8 for t in base.tax_rate_path))
+    assert scaled.tax_rate == pytest.approx(base.tax_rate * 0.8)
+
+
+def test_scale_without_paths_leaves_them_none() -> None:
+    for axis in (SensitivityAxis.COST_OF_EQUITY, SensitivityAxis.TAX_RATE):
+        scaled = scale_axis(_assumptions(), axis, 1.2)
+        assert scaled.wacc_path is None
+        assert scaled.tax_rate_path is None
+
+
+def test_tornado_over_damodaran_has_six_defined_entries() -> None:
+    entries = tornado(damodaran_financials(), damodaran_assumptions())
+
+    assert len(entries) == 6
+    assert all(entry.impact is not None for entry in entries)
+    assert SensitivityAxis.PRETAX_COST_OF_DEBT not in {entry.axis for entry in entries}
+
+
+def test_safe_intrinsic_none_when_growth_reaches_terminal_wacc_path() -> None:
+    # Terminal growth 0.049 * 1.2 = 0.0588 still below 0.0913, so push the path down:
+    # 0.0913 * 0.5 = 0.04565 sits below the unscaled growth of 0.049.
+    assumptions = scale_axis(damodaran_assumptions(), SensitivityAxis.COST_OF_EQUITY, 0.5)
+    grid = grid_2d(
+        damodaran_financials(),
+        assumptions,
+        SensitivityAxis.REVENUE_GROWTH,
+        SensitivityAxis.OPERATING_MARGIN,
+    )
+
+    assert all(cell.intrinsic_value is None for row in grid.cells for cell in row)
+
+
+def test_grid_2d_with_wacc_path_has_defined_centre() -> None:
+    financials = damodaran_financials()
+    assumptions = damodaran_assumptions()
+    grid = grid_2d(
+        financials,
+        assumptions,
+        SensitivityAxis.REVENUE_GROWTH,
+        SensitivityAxis.OPERATING_MARGIN,
+        reference_price=400.0,
+    )
+
+    expected = dcf(financials, assumptions).intrinsic_value
+    assert grid.cells[2][2].intrinsic_value == pytest.approx(expected, rel=1e-12)
+    assert grid.cells[2][2].margin_of_safety == pytest.approx(expected / 400.0, rel=1e-12)
