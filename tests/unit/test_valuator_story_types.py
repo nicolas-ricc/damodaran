@@ -198,3 +198,89 @@ def test_classification_financials_has_no_unread_field() -> None:
     # debt_to_equity was declared but _is_distressed reads only altman_z and
     # interest_coverage.
     assert "debt_to_equity" not in {f.name for f in fields(ClassificationFinancials)}
+
+
+# --------------------------------------------------------------------------- #
+# hypergrowth (#195): before distress, gated on the story file in analyze      #
+# --------------------------------------------------------------------------- #
+
+#: An AI-lab sector median margin, the issue's reference for Anthropic.
+_AI_SECTOR = SectorContext(is_cyclical=False, operating_margin=0.28)
+
+
+def _anthropic(**overrides: object) -> ClassificationFinancials:
+    """Anthropic at its IPO: revenue x20 in a year, margin -228%, coverage < 1."""
+    base: dict[str, object] = dict(
+        revenue_history=(1_020.0, 20_608.0),
+        earnings_history=(-5_000.0, -40_000.0),
+        age_years=1,
+        interest_coverage=0.1,
+        altman_z=None,
+        operating_margin=-2.2798,
+        founded_age_years=5,
+    )
+    base.update(overrides)
+    return ClassificationFinancials(**base)  # type: ignore[arg-type]
+
+
+def test_anthropic_shaped_is_hypergrowth_not_distressed() -> None:
+    assert classify(_anthropic(), _AI_SECTOR) is StoryType.HYPERGROWTH
+
+
+def test_hypergrowth_with_unknown_founding_age() -> None:
+    assert classify(_anthropic(founded_age_years=None), _AI_SECTOR) is StoryType.HYPERGROWTH
+
+
+def test_decades_old_company_is_not_hypergrowth() -> None:
+    assert classify(_anthropic(founded_age_years=40), _AI_SECTOR) is StoryType.DISTRESSED
+
+
+def test_nvda_shaped_margin_above_sector_is_not_hypergrowth() -> None:
+    fin = _anthropic(
+        revenue_history=(27_000.0, 61_000.0, 130_000.0),
+        earnings_history=(4_000.0, 30_000.0, 73_000.0),
+        operating_margin=0.62,
+        interest_coverage=300.0,
+        founded_age_years=None,
+    )
+    assert classify(fin, _AI_SECTOR) is not StoryType.HYPERGROWTH
+
+
+def test_45pct_last_year_grower_is_not_hypergrowth() -> None:
+    # CAGR 70% clears 40%, but the last year grew only 45%.
+    fin = _anthropic(revenue_history=(100.0, 200.0, 290.0))
+    assert classify(fin, _AI_SECTOR) is not StoryType.HYPERGROWTH
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        pytest.param({"revenue_history": (100.0, 150.0)}, True, id="last-year-growth-0.50"),
+        pytest.param({"revenue_history": (100.0, 98.0, 196.0)}, True, id="cagr-0.40"),
+        pytest.param({"revenue_history": (100.0, 98.0, 195.0)}, False, id="cagr-below-0.40"),
+        pytest.param({"founded_age_years": 15}, True, id="founded-15"),
+        pytest.param({"founded_age_years": 16}, False, id="founded-16"),
+    ],
+)
+def test_hypergrowth_thresholds_at_equality(overrides: dict[str, object], expected: bool) -> None:
+    is_hyper = classify(_anthropic(**overrides), _AI_SECTOR) is StoryType.HYPERGROWTH
+    assert is_hyper is expected
+
+
+def test_hypergrowth_margin_equal_to_sector_does_not_fire() -> None:
+    fin = _anthropic(operating_margin=0.28)
+    assert classify(fin, _AI_SECTOR) is not StoryType.HYPERGROWTH
+
+
+def test_hypergrowth_needs_both_margins() -> None:
+    assert classify(_anthropic(operating_margin=None), _AI_SECTOR) is StoryType.DISTRESSED
+    assert classify(_anthropic(), _sector()) is StoryType.DISTRESSED
+
+
+@pytest.mark.parametrize(
+    "history",
+    [(20_608.0,), (0.0, 20_608.0), (-1.0, 20_608.0), (1_020.0, 0.0)],
+)
+def test_hypergrowth_needs_two_positive_points(history: tuple[float, ...]) -> None:
+    fin = _anthropic(revenue_history=history)
+    assert classify(fin, _AI_SECTOR) is StoryType.DISTRESSED

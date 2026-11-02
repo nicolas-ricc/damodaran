@@ -26,6 +26,8 @@ from bot.valuator.narrative_flags import (
     beta_business_risk_flag,
     country_exposure_flag,
     growth_reinvestment_flag,
+    hypergrowth_flags,
+    hypergrowth_story_flag,
     narrative_flags,
     story_margin_flag,
     terminal_value_share_flag,
@@ -448,3 +450,62 @@ def test_narrative_flag_is_immutable() -> None:
     flag = NarrativeFlag(name="x", color=FlagColor.GREEN, reason="ok")
     with pytest.raises(dataclasses.FrozenInstanceError):
         flag.color = FlagColor.RED  # type: ignore[misc]
+
+
+# --------------------------------------------------------------------------- #
+# Hypergrowth story flag (#195), outside the five §7.5 flags                  #
+# --------------------------------------------------------------------------- #
+
+
+def _hypergrowth_flag(**context: object) -> NarrativeFlag:
+    fin, asm = _financials(), _assumptions()
+    return hypergrowth_story_flag(fin, asm, _result(fin, asm), _ctx(**context))
+
+
+def test_hypergrowth_story_red_without_story() -> None:
+    flag = _hypergrowth_flag(hypergrowth_signals=True, story_file_present=False)
+    assert flag.name == "hypergrowth_story"
+    assert flag.color is FlagColor.RED
+    assert flag.reason == "hypergrowth signals but no story file: default valuation is not reliable"
+
+
+def test_hypergrowth_story_yellow_without_signals() -> None:
+    flag = _hypergrowth_flag(
+        story_type="hypergrowth", hypergrowth_signals=False, story_file_present=True
+    )
+    assert flag.color is FlagColor.YELLOW
+    assert flag.reason == "story file present but the classifier signals are absent"
+
+
+def test_hypergrowth_story_green_with_both() -> None:
+    flag = _hypergrowth_flag(
+        story_type="hypergrowth", hypergrowth_signals=True, story_file_present=True
+    )
+    assert flag.color is FlagColor.GREEN
+
+
+def _hypergrowth_flags(**context: object) -> tuple[NarrativeFlag, ...]:
+    fin, asm = _financials(), _assumptions()
+    return hypergrowth_flags(fin, asm, _result(fin, asm), _ctx(**context))
+
+
+def test_hypergrowth_flags_empty_for_other_types() -> None:
+    assert _hypergrowth_flags(story_type="high-growth") == ()
+    assert _hypergrowth_flags() == ()
+
+
+def test_hypergrowth_flags_on_signals() -> None:
+    flags = _hypergrowth_flags(story_type="high-growth", hypergrowth_signals=True)
+    assert [(f.name, f.color) for f in flags] == [("hypergrowth_story", FlagColor.RED)]
+
+
+def test_hypergrowth_flags_on_story_type() -> None:
+    flags = _hypergrowth_flags(story_type="hypergrowth", story_file_present=True)
+    assert [(f.name, f.color) for f in flags] == [("hypergrowth_story", FlagColor.YELLOW)]
+
+
+def test_narrative_flags_stay_five_with_hypergrowth_signals() -> None:
+    fin, asm = _financials(), _assumptions()
+    flags = narrative_flags(fin, asm, _result(fin, asm), _ctx(hypergrowth_signals=True))
+    assert len(flags) == 5
+    assert "hypergrowth_story" not in {f.name for f in flags}
