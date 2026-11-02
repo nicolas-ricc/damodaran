@@ -57,7 +57,7 @@ loaded -> region_set: "the dataset region is its own [China, India, Japan]"
 loaded -> region_set: "the dataset region comes from its country's grouping\n[not China, India or Japan; grouping known]"
 loaded -> region_set: "the dataset region is US [grouping unknown]"
 region_set -> override_read: "the override file is read and checked [a valid file, or none]"
-region_set -> cannot_value: "the ticker cannot be valued, exit code 1 [the override file is not valid YAML, not a mapping, has an unknown key or a value that is not a finite number, or its story file is inconsistent]\nthe file is validated whole before the signals are derived"
+region_set -> cannot_value: "the ticker cannot be valued, exit code 1 [the override file is not valid YAML, not a mapping, has an unknown key or a value that is not a finite number, or its story file is inconsistent]\nthe file is validated whole before the signals are derived\na founded_year that is not a whole year from 1600 to this year also refuses the file"  # @const bot.valuator.assumptions._FOUNDED_YEAR_MIN
 override_read -> signals: "net debt, interest coverage, age, founded age and the cyclical sector are derived\nnet debt = total debt − cash, a missing term counts as 0\ninterest coverage = EBIT ÷ interest expense, empty when EBIT is missing, or interest expense is 0 or missing\nage = whole years since ipo_date\nfounded age = this year − founded_year of the override file, unknown without it\ncyclical sector = industry_damodaran in the cyclical list (exact match)"
 screener_candidates -> asked: "passed candidates of the latest run, by rank"
 companies -> loaded: "company row"
