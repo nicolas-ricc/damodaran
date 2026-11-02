@@ -7,8 +7,13 @@ Current version: US-only (S&P 500).
 ## Domain language
 
 - **Universe**: set of companies the screener considers (~50k global once M2 is done).
-- **Story type**: Damodaran's classification of a company's life-cycle / risk profile (`high-growth`, `mature-stable`, `mature-decline`, `cyclical`, `distressed`).
-- **Margin of safety (MoS)**: `intrinsic_value / current_price`. > 1 = potentially undervalued.
+- **Story type**: Damodaran's classification of a company's life-cycle / risk profile (`hypergrowth`, `high-growth`, `mature-stable`, `mature-decline`, `cyclical`, `distressed`). See [ADR 0009](docs/adr/0009-hypergrowth-story-driven-gated-on-story-file.md).
+- **Hypergrowth**: the story type of a young company growing explosively at a loss. The classifier assigns it on four signals: last-year revenue growth of at least 50%, a revenue CAGR of at least 40%, an operating margin below the sector's, and a founded age of at most 15 years. It is valued as such only with a story file; without one the company falls back to `high-growth` with a red flag. See [ADR 0009](docs/adr/0009-hypergrowth-story-driven-gated-on-story-file.md).
+- **Story file**: the `story`, `scenarios` and `founded_year` keys of `config/assumptions/<TICKER>.yaml`: the hand-written inputs of a hypergrowth valuation, with money amounts in the raw reporting currency. See [ADR 0009](docs/adr/0009-hypergrowth-story-driven-gated-on-story-file.md).
+  _Avoid_: story override, narrative file.
+- **Governance discount**: the `governance_discount` story key. A haircut applied to the intrinsic value before the margin of safety, never inside the DCF.
+  _Avoid_: governance haircut in the WACC.
+- **Margin of safety (MoS)**: `intrinsic_value_after_governance / current_price`, which equals `intrinsic_value / current_price` when there is no governance discount. > 1 = potentially undervalued.
 - **Verdict**: the one-word reading of the MoS: `>=1.3` potentially undervalued, `>=1.0` around fair value, `<1.0` potentially overvalued, `n/a` without a price. `margin_verdict` in `bot.reporting.analysis_report` is the single source.
 - **Quality gates**: eliminatory filters in the screener (Capa B) that disqualify a company outright.
 - **Value indicators**: filters checking cheapness relative to sector medians (Damodaran datasets).
