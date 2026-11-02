@@ -37,7 +37,7 @@
 - Test: `tests/unit/test_valuator_story_types.py` (append only)
 
 **Interfaces:**
-- Produces: `StoryType.HYPERGROWTH = "hypergrowth"` (the first member of the enum, before `HIGH_GROWTH`). `ClassificationFinancials.operating_margin: float | None = None`. `ClassificationFinancials.founded_age_years: int | None = None`. `SectorContext.operating_margin: float | None = None`. A private `_is_hypergrowth(financials, sector) -> bool`. `classify` returns `HYPERGROWTH` before the distress check.
+- Produces: `StoryType.HYPERGROWTH = "hypergrowth"` (appended as the last member of the enum, so no existing member moves). `ClassificationFinancials.operating_margin: float | None = None`. `ClassificationFinancials.founded_age_years: int | None = None`. `SectorContext.operating_margin: float | None = None`. A private `_is_hypergrowth(financials, sector) -> bool`. `classify` returns `HYPERGROWTH` before the distress check.
 
 - [ ] **Step 1: Write the failing tests** (append to the test file; reuse its `_financials` / `_sector` helpers)
 
@@ -219,3 +219,27 @@ Compute the exact last-year growth figure from the seed (`20_608 / 1_020 − 1 =
 - [ ] **Step 3: Boards.** In `analyze.d2`, the `distressed:` label becomes `"hypergrowth, then distressed: ..."`. The hypergrowth part reads: last-year growth ≥ 50%, CAGR ≥ 40%, margin below sector, founded ≤ 15 years or unknown. Add `@const` citations on that line for the three new constants. In `analyze-story.d2`, the `classified` label's ordered list gains `hypergrowth` first. Add no nodes and no edges. Read `docs/pipeline/README.md` for the digit-citation rule. Run `python3 docs/pipeline/check.py` (the render-hash check fails until Step 4; every other check must pass) and the two test files.
 - [ ] **Step 4: Commit** `docs(#195): hypergrowth in lesson chapter 6 and the analyze boards`. Then push the branch. Get the run with `gh run list --branch <branch> --workflow pipeline-diagram`, `gh run watch <id>` in the foreground, then `gh run download <id> -n pipeline-render -D docs/pipeline`. Commit the SVGs and `rendered.sha256` as `docs(#195): render boards from CI`. Confirm that `python3 docs/pipeline/check.py` passes and that the following run is green.
 - [ ] **Step 5: Run the full suite and lint.**
+
+## Assumptions
+
+Technical decisions taken during grilling. Each is declared here and listed again in the PR description.
+
+- **Enum position.** `HYPERGROWTH` is appended as the last member, not the first. The issue does not fix the position. Nothing in `src/` iterates `StoryType` in order: the only use is the set `_STORY_TYPE_VALUES` at `assumptions.py:90`. Rejected alternative: first, mirroring the rule order.
+- **Float tolerance of 1e-9 on the two growth thresholds** (see Task 1). Rejected alternative: exact `>=`, which cannot satisfy "CAGR 0.40 fires".
+- **CI render fallback.** If the `pipeline-diagram` run fails for reasons outside this diff, or its artifact does not make `check.py` pass after two rounds, the run stops: the comment names the stage and the issue ends up `agent-blocked`. The hash is never written by hand. Rejected alternative: skipping the render.
+
+## Grilling
+
+- Rounds: 1. The plan did not change substantially (enum position only), so there was no second round.
+- Questions: 16, all answered with a source. ISSUE: 4 (Q1, Q5, Q14, Q15 partly). CODE: 14 (Q1–Q13 and Q16; several questions cite both). DOC: 1 (Q8: `analysis.py` module docstring, "impure-at-the-edges orchestrator"). NO SOURCE: 2, both technical assumptions (Q14, Q15).
+- Key answers:
+  - Q1 (isolation): the issue decides "`classify` evaluates it **before** the distress rule" and requires that "**all** hold". The suite and the screener second-pass golden pin today's outputs, and the #193 golden will pin them once merged.
+  - Q2: the screener values through `analyze` (`screener/engine.py:94,144`), so both paths classify identically.
+  - Q5 / Q16: `load_override` rejects `story_type: hypergrowth` without `story`, and `story` with another type (`assumptions.py:723-728`). The gate therefore only ever sees the classifier's verdict.
+  - Q6: `load_override` returns the mapping unchanged (`assumptions.py:674-681`), and nothing in `src/` emits `AssumptionSource.STORY` yet.
+  - Q7: `founded_year` is an int in [1600, this year] (`assumptions.py:707-718`), so the age is ≥ 0.
+  - Q10: no path, or a missing path, returns `{}` (`assumptions.py:683`).
+  - Q11: `_resolve_story_type` already returns `str(manual)`. Today's expression is `assumptions.story_type is not None and assumptions.story_type != auto_story.value` (`analysis.py:739-740`).
+  - Q12: `company_operating_margin` reads only `latest.revenue` / `latest.ebit` (`analysis.py`, just before `NarrativeContext`), so hoisting it does not change its value.
+  - Q13: `structlog.testing.capture_logs` is already used in `tests/unit/test_valuator_assumptions.py:451`.
+- Assumptions: 3 (see above). Issues opened: none.
