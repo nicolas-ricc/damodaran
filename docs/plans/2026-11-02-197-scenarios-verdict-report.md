@@ -41,6 +41,19 @@
 4. **Negative scenario equity (worst ≈ −372B):** it renders with a minus sign (`-…B`) and a negative per-share value, with no error from the formatter. Test in Task 4.
 5. **A sidecar written before this change** (no `scenarios` or `governance_discount` keys): `bot site` still builds it and does not skip it. This is checked by the verification step in Task 4.
 
+## Assumptions
+
+Technical decisions recorded during plan grilling (no written source; any option satisfies the issue):
+
+- **A1. Scenarios are applied over the bundle that already carries the base story.** `apply_story` (`src/bot/valuator/hypergrowth.py`, `apply_story`) replaces every story-driven field, and leaves only `terminal_growth`, `tax_rate`, `pretax_cost_of_debt`, `distress_value_per_share`, `story_type` and `notes` untouched. Those six are the generic resolver's values in both bundles, so applying the scenario to the pre-story bundle or to the storied bundle gives the same `DCFAssumptions`. Rejected alternative: keeping a copy of the pre-story bundle, which adds a field with no behavioural difference.
+- **A2. Scenario cases are built in `analyze`, not in `resolve_assumptions`.** The issue says `Analysis.scenarios` is "filled by `analyze`", and `Financials` exists only in `analyze`. Rejected alternative: building them in the resolver, which would have to build `Financials` too.
+- **A3. The margin-of-safety label under a governance discount** is "Margin of safety (on the value after governance discount)". The issue asks only that it be "labelled as measured on it". Rejected alternative: a separate second margin line.
+- **A4. The terminal-ROIC reasons show both ROICs and the 2× threshold**, formatted with `:.1%`. The issue fixes only the rule. Rejected alternative: showing the threshold alone.
+- **A5. The reporting tests build the `Analysis` through `analyze` on a seeded DuckDB.** This is the pattern of the existing `analysis` fixture in `tests/unit/test_reporting_analysis.py`. Rejected alternative: a hand-built `Analysis`, which no reporting test uses today.
+- **A6. `Assumptions.scenarios` is a plain `dict` on a frozen dataclass.** No code hashes the sourced bundle: there is no `lru_cache`, set or dict key over it in `src/bot`, so the generated `__hash__` is never called. `dataclasses.asdict` (`src/bot/reporting/analysis_json.py`) recurses into the dict of `StoryInputs`.
+- **A7. Stage 3 commits the evals while they are red**, as the pipeline asks. "Passes unchanged" for the golden is judged on the final branch.
+- **Decisions 1–8 above** also count as technical assumptions for the PR description.
+
 ---
 
 ### Task 1: Scenario cases and the scenario range
@@ -62,7 +75,7 @@
   - `test_scenario_cases_base_first_then_file_order`: the keys are `["base", "worst", "best"]` for a scenarios dict `{"worst": ..., "best": ...}`, and `cases["base"] == (financials, bundle.to_dcf_assumptions())`.
   - `test_scenario_changing_commitments_changes_that_case_financials`: one scenario with `fixed_commitments_pv=1.0` and `extra_cash=2.0`. That case's `Financials` has `fixed_commitments == 1.0` and `extra_cash == 2.0`, and the base `Financials` is unchanged.
   - `test_scenario_unreachable_target_names_the_scenario`: a scenario with `target_revenue_y10` that cannot be reached raises `ValueError`, with a message matching `"scenario worst"`.
-  - Calibration, in `test_hypergrowth_calibration.py` (millions): the base story is `CAL_STORY` over `generic_bundle()`, and `scenarios = {"worst": replace(CAL_STORY, target_revenue_y10=200_000, target_margin=0.10, sales_to_capital=1.0, wacc_start=0.0988, regulatory_drag=0.10), "best": replace(CAL_STORY, target_revenue_y10=1_500_000, target_margin=0.40, sales_to_capital=4.0, wacc_start=0.0779, regulatory_drag=0.0)}`. Run `scenario_range(scenario_cases(bundle, scenarios, base_revenue=CAL_BASE_REVENUE, sector_wacc=None, financials=CAL_FINANCIALS))`. Assert worst `equity_value == approx(-373_000, rel=0.05)` (computed −371,991), best `== approx(4_040_000, rel=0.05)` (computed 4,076,137), and that base `equity_value` exactly equals `_calibrated()[1].equity_value`.
+  - Calibration, in `test_hypergrowth_calibration.py` (millions): `bundle = _calibrated()[0]` (the bundle with the base story already applied, as `analyze` receives it from `resolve_assumptions`), and `scenarios = {"worst": replace(CAL_STORY, target_revenue_y10=200_000, target_margin=0.10, sales_to_capital=1.0, wacc_start=0.0988, regulatory_drag=0.10), "best": replace(CAL_STORY, target_revenue_y10=1_500_000, target_margin=0.40, sales_to_capital=4.0, wacc_start=0.0779, regulatory_drag=0.0)}`. Run `scenario_range(scenario_cases(bundle, scenarios, base_revenue=CAL_BASE_REVENUE, sector_wacc=None, financials=CAL_FINANCIALS))`. Assert worst `equity_value == approx(-373_000, rel=0.05)` (computed −371,991), best `== approx(4_040_000, rel=0.05)` (computed 4,076,137), and that base `equity_value` exactly equals `_calibrated()[1].equity_value`.
   - `test_resolve_sets_scenarios_from_the_story_file` (assumptions tests): a hypergrowth override with `story` and `scenarios` gives `bundle.scenarios` the keys `["worst", "best"]` as `StoryInputs`. Without a `scenarios:` section it is `None`. For a non-hypergrowth company it is `None`.
 
 - [ ] **Step 2: Run them and see them fail**, with `uv run pytest -q tests/unit -k "scenario"`. They should fail with import or attribute errors.
@@ -114,7 +127,8 @@
   - `margin_of_safety = intrinsic_value_after_governance / price`, where `intrinsic_value_after_governance = dcf_result.intrinsic_value * (1 - governance_discount)`.
 
 - [ ] **Step 1: Write the failing tests** (they use `_seed_anthropic_sheet`, which already sets `roic = 0.12`).
-  - `test_hypergrowth_scenarios_governance_and_flags`: the YAML is `_STORY` (with `governance_discount: 0.20`) plus `scenarios` worst/best in raw units (calibration values ×1e6, worst drag 0.10), plus `terminal_growth: 0.049` and `tax_rate: 0.25`, and a price is seeded in `prices_daily`. Assert `[s.name for s in a.scenarios] == ["base", "worst", "best"]`, `a.governance_discount == 0.20`, `a.margin_of_safety == a.intrinsic_value_after_governance / a.current_price`, `a.intrinsic_value_after_governance == a.dcf_result.intrinsic_value * 0.8`, and `len(a.narrative_flags) == 8`. The `hypergrowth_terminal_roic` flag should be green, which proves that `sector_roic` 0.12 reached the context, and its reason should mention `12.0%`.
+  - `test_hypergrowth_scenarios_governance_and_flags`: the YAML is `_STORY` (with `governance_discount: 0.20`) plus `scenarios` worst/best in raw units (calibration values ×1e6, worst drag 0.10), plus `terminal_growth: 0.049` and `tax_rate: 0.25`, and a price is seeded in `prices_daily`. Assert `[s.name for s in a.scenarios] == ["base", "worst", "best"]`, `a.governance_discount == 0.20`, `a.margin_of_safety == a.intrinsic_value_after_governance / a.current_price`, `a.intrinsic_value_after_governance == a.dcf_result.intrinsic_value * 0.8`, and `len(a.narrative_flags) == 8`. The `hypergrowth_terminal_roic` flag should be green, which proves that `sector_roic` 0.12 reached the context, and its reason should mention `12.0%` (the reasons format both ROICs with `:.1%`).
+  - In the same test: `a.scenarios[0].equity_value == a.dcf_result.equity_value` and `a.scenarios[0].intrinsic_value == a.dcf_result.intrinsic_value` (the base row is the headline DCF).
   - `test_hypergrowth_without_scenarios_has_no_range`: `_sheet_yaml` with no scenarios gives `a.scenarios == ()`.
   - `test_bulk_loader_carries_sector_roic`: `bulk_load_valuation_inputs(conn, ["ANTH"])["ANTH"].sector.roic == 0.12`, which equals `load_valuation_input(conn, "ANTH").sector.roic`.
   - `test_mature_company_margin_unchanged`: for AAPL, `a.governance_discount == 0.0` and `a.margin_of_safety == a.dcf_result.intrinsic_value / a.current_price`, compared with exact `==`.
@@ -143,7 +157,7 @@
   - §5. When `a.scenarios` is non-empty, a `### Scenario range` block goes under the tornado table. It holds one sentence ("The worst and best scenarios come from the story file's `scenarios:` section; base is the story itself."), then the table `| Scenario | Equity value | Per share |` with `money` and `per_share`.
 
 - [ ] **Step 1: Write the failing tests.** Build the Task 3 analysis with a shared helper or fixture: `_seed_anthropic_sheet` plus the full YAML with scenarios and a price.
-  - The Markdown contains `"Scenario range"`, `"| worst |"`, `"| best |"`, `"WACC path (story): "` (the bold markers sit around the label, so match on `"WACC path (story):"`), a row matching the regex `r"\| .* \| story \|"`, `"after governance discount"`, `"Operating assets after failure risk"` and `"Fixed commitments"`. The worst row's equity starts with `-`.
+  - The Markdown contains `"Scenario range"`, `"| base |"`, `"| worst |"`, `"| best |"`, `"WACC path (story): "` (the bold markers sit around the label, so match on `"WACC path (story):"`), a row matching the regex `r"\| .* \| story \|"`, `"after governance discount"`, `"Operating assets after failure risk"` and `"Fixed commitments"`. The worst row's equity starts with `-`.
   - `render_analysis_html(a)` contains the same strings and `<img`, and `len(a.tornado) == 6`.
   - `render_analysis_json(a, generated_on=...)` parses. Its `schema_version == 1`, `analysis.scenarios` has three items whose names are base, worst and best, and `analysis.governance_discount == 0.2`.
   - A hypergrowth story with no scenarios has no `"Scenario range"`.
@@ -153,6 +167,12 @@
 
 - [ ] **Step 3: Implement** the template additions. With `trim_blocks` and `lstrip_blocks` on, check the blank lines by running the golden.
 
-- [ ] **Step 4: Verify.** `uv run pytest -q` should be fully green, and so should `uv run ruff check . && uv run mypy src`, `python3 docs/pipeline/check.py` and `python3 docs/leccion/check.py`. `rm -rf /tmp/site-check && uv run bot site --out /tmp/site-check --reports-dir reports --base-url /` should exit 0 and print no "skipped" warning.
+- [ ] **Step 4: Verify.** `uv run pytest -q` should be fully green, and so should `uv run ruff check . && uv run mypy src`, `python3 docs/pipeline/check.py` and `python3 docs/leccion/check.py`. `rm -rf /tmp/site-check && uv run bot site --out /tmp/site-check --reports-dir reports --base-url /` should exit 0 and log no `web.sidecar_skipped` event (`src/bot/web/index.py:43-44`). `reports/` holds 46 committed sidecars that predate this change.
 
 - [ ] **Step 5: Commit** with `feat(#197): hypergrowth report sections`.
+
+## Grilling
+
+- Rounds: 1. The revisions were small (one clarified fixture, one added assertion and the Assumptions section), so no second round was run.
+- Questions: 17. Answered with ISSUE: 6 (Q5, Q8, Q12, Q13, Q14, Q17). Answered with CODE: 9 (Q2 golden docstring, Q3 `assumptions.py` and `dcf.py` defaults, Q4 `analysis_json.py` `asdict`, Q6 no hashing, Q7 `parse_scenarios` merges over the base, Q9 `cli.py:479-488` and `test_cli_analyze.py:426`, Q10 `schema.sql:15` and the seed, Q11 `web/index.py:43`, Q16 the reporting fixture). NO SOURCE → technical assumption: 4 (Q1→A1, Q13 part→A3, Q15→A4, Q16→A5; Q6 is recorded as A6).
+- Spec ambiguities: none. Out of scope: none, so no issues were opened.
