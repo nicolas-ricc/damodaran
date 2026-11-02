@@ -36,13 +36,22 @@ from bot.valuator.assumptions import (
 )
 from bot.valuator.assumptions import Assumptions as SourcedAssumptions
 from bot.valuator.dcf import DCFResult, Financials, dcf
+from bot.valuator.hypergrowth import scenario_cases
 from bot.valuator.narrative_flags import (
     NarrativeContext,
     NarrativeFlag,
     hypergrowth_flags,
     narrative_flags,
 )
-from bot.valuator.sensitivity import Grid2D, SensitivityAxis, TornadoEntry, grid_2d, tornado
+from bot.valuator.sensitivity import (
+    Grid2D,
+    ScenarioResult,
+    SensitivityAxis,
+    TornadoEntry,
+    grid_2d,
+    scenario_range,
+    tornado,
+)
 from bot.valuator.story_types import (
     ClassificationFinancials,
     SectorContext,
@@ -101,9 +110,17 @@ class Analysis:
             ``hypergrowth_story`` flag when it applies.
         sanity_check: Implied vs sector multiples (spec §7.7).
         current_price: Latest close in the listing currency (``None`` if absent).
-        margin_of_safety: ``intrinsic_value / current_price`` (``None`` if no
-            price). > 1 means potentially undervalued (CONTEXT.md).
+        margin_of_safety: ``intrinsic_value_after_governance / current_price``
+            (``None`` if no price), i.e. measured on the value after the
+            governance discount. > 1 means potentially undervalued (CONTEXT.md).
         override_notes: Free-text notes from the manual override (spec §7.6).
+        scenarios: Base plus each story-file scenario run through a plain DCF
+            (base first, then file order); ``()`` when the file has none.
+        governance_discount: Fractional haircut on the intrinsic value for
+            governance (``0.0`` when none). Tornado, grid and scenarios use
+            the raw value.
+        intrinsic_value_after_governance: ``dcf_result.intrinsic_value *
+            (1 - governance_discount)``; equals the intrinsic value at ``0.0``.
     """
 
     ticker: str
@@ -124,6 +141,9 @@ class Analysis:
     current_price: float | None
     margin_of_safety: float | None
     override_notes: str | None
+    scenarios: tuple[ScenarioResult, ...] = ()
+    governance_discount: float = 0.0
+    intrinsic_value_after_governance: float = 0.0
 
 
 # --------------------------------------------------------------------------- #
@@ -251,6 +271,7 @@ class _SectorMultiples:
     op_margin: float | None
     beta_levered: float | None
     erp: float | None
+    roic: float | None = None
 
 
 def _sector_multiples_from(
@@ -261,7 +282,7 @@ def _sector_multiples_from(
     """Shape the Damodaran rows into the company's sector multiples.
 
     ``country_row`` is ``(region, erp)``; ``sector_row`` is ``(pe, ev_sales,
-    op_margin, beta_levered)`` for the company's industry and dataset region.
+    op_margin, beta_levered, roic)`` for the company's industry and dataset region.
     """
     geographic_region: str | None = None
     erp: float | None = None
@@ -284,6 +305,7 @@ def _sector_multiples_from(
         op_margin=sector_row[2],
         beta_levered=sector_row[3],
         erp=erp,
+        roic=sector_row[4],
     )
 
 
@@ -301,7 +323,7 @@ def _load_sector_multiples(
     sector_row: tuple[Any, ...] | None = None
     if company.industry_damodaran is not None and region is not None:
         sector_row = conn.execute(
-            "SELECT pe, ev_sales, op_margin, beta_levered FROM damodaran_industry "
+            "SELECT pe, ev_sales, op_margin, beta_levered, roic FROM damodaran_industry "
             "WHERE industry = ? AND region = ? ORDER BY year DESC LIMIT 1",
             [company.industry_damodaran, region],
         ).fetchone()
@@ -448,7 +470,7 @@ def bulk_load_valuation_inputs(
     sector_rows = {
         (r[0], r[1]): r[2:]
         for r in conn.execute(
-            "SELECT industry, region, pe, ev_sales, op_margin, beta_levered "
+            "SELECT industry, region, pe, ev_sales, op_margin, beta_levered, roic "
             "FROM damodaran_industry WHERE industry IN (SELECT unnest(?::VARCHAR[])) "
             "QUALIFY row_number() OVER (PARTITION BY industry, region ORDER BY year DESC) = 1",
             [industries],
@@ -794,6 +816,10 @@ def analyze(
         sector_beta=sector.beta_levered,
         operating_leverage=_operating_leverage(revenue_history, ebit_history),
         company_debt_weight=company_debt_weight,
+        terminal_roic=(
+            assumptions.terminal_roic.value if assumptions.terminal_roic is not None else None
+        ),
+        sector_roic=sector.roic,
         # erp_weighted / erp_listing deliberately unset: a revenue-weighted ERP
         # needs revenue by geography, which no ingest path supplies. Passing the
         # sector ERP as both made the gap identically zero — a fake calculation.
@@ -802,8 +828,29 @@ def analyze(
         financials, dcf_assumptions, dcf_result, context
     )
 
+    governance_discount = (
+        assumptions.governance_discount.value
+        if assumptions.governance_discount is not None
+        else 0.0
+    )
+    intrinsic_after_governance = dcf_result.intrinsic_value * (1.0 - governance_discount)
+    scenario_results: tuple[ScenarioResult, ...] = ()
+    if assumptions.scenarios:
+        base_revenue = inputs.assumption_inputs.latest_revenue
+        if base_revenue is None:  # resolve_assumptions already refused it; narrows the type
+            raise ValueError(f"{ticker}: scenarios need the latest revenue — cannot value")
+        assumption_sector = inputs.assumption_inputs.sector
+        scenario_results = scenario_range(
+            scenario_cases(
+                assumptions,
+                assumptions.scenarios,
+                base_revenue=base_revenue,
+                sector_wacc=assumption_sector.wacc if assumption_sector is not None else None,
+                financials=financials,
+            )
+        )
     margin_of_safety = (
-        dcf_result.intrinsic_value / current_price
+        intrinsic_after_governance / current_price
         if current_price is not None and current_price > 0.0
         else None
     )
@@ -844,4 +891,7 @@ def analyze(
         current_price=current_price,
         margin_of_safety=margin_of_safety,
         override_notes=assumptions.notes,
+        scenarios=scenario_results,
+        governance_discount=governance_discount,
+        intrinsic_value_after_governance=intrinsic_after_governance,
     )

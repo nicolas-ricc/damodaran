@@ -30,8 +30,11 @@ flag-specific inputs are gathered in :class:`NarrativeContext`, so the flag
 functions stay pure: ``(financials, assumptions, result, context) -> flag`` with
 no I/O and no global state.
 
-The ``hypergrowth_story`` flag (issue #195) sits outside the five §7.5 flags: it
-is produced by :func:`hypergrowth_flags` and never by :func:`narrative_flags`.
+The hypergrowth flags (issues #195, #197) sit outside the five §7.5 flags: they
+are produced by :func:`hypergrowth_flags` and never by :func:`narrative_flags`.
+:func:`hypergrowth_flags` emits up to three: ``hypergrowth_story`` when signals
+or the hypergrowth story type call for it, then ``hypergrowth_revenue_scale``
+and ``hypergrowth_terminal_roic`` when the story type is ``hypergrowth``.
 """
 
 from __future__ import annotations
@@ -47,6 +50,15 @@ _HIGH_GROWTH_STORY = "high-growth"
 
 #: Story type for which the hypergrowth flag always runs (issue #195).
 _HYPERGROWTH_STORY = "hypergrowth"
+
+#: Revenue of the largest company today, in the financials' currency units
+#: (~750B). A year-10 revenue above it asks the story to beat every company
+#: that exists (issue #197).
+_LARGEST_COMPANY_REVENUE = 750e9
+
+#: A terminal ROIC above this multiple of the sector ROIC claims a lasting
+#: competitive advantage far beyond the sector norm (issue #197).
+_ROIC_SECTOR_MULTIPLE = 2.0
 
 #: Terminal-value share above which the valuation is flagged fragile (spec §7.5).
 _TERMINAL_VALUE_SHARE_CEILING = 0.80
@@ -127,6 +139,10 @@ class NarrativeContext:
         hypergrowth_signals: The classifier's hypergrowth signals fired (#195).
         story_file_present: A hand-written story file exists for the company
             (#195).
+        terminal_roic: Return on invested capital the story implies in the
+            terminal period (#197).
+        sector_roic: Sector-median ROIC the terminal ROIC is compared against
+            (#197).
     """
 
     story_type: str | None = None
@@ -140,6 +156,8 @@ class NarrativeContext:
     company_debt_weight: float | None = None
     hypergrowth_signals: bool = False
     story_file_present: bool = False
+    terminal_roic: float | None = None
+    sector_roic: float | None = None
 
 
 def story_margin_flag(
@@ -422,16 +440,103 @@ def hypergrowth_story_flag(
     )
 
 
+def hypergrowth_revenue_scale_flag(
+    financials: Financials,
+    assumptions: Assumptions,
+    result: DCFResult,
+    context: NarrativeContext,
+) -> NarrativeFlag:
+    """Flag a year-10 revenue larger than any company's revenue today (#197)."""
+    name = "hypergrowth_revenue_scale"
+    revenue = result.projections[-1].revenue
+    largest_b = _LARGEST_COMPANY_REVENUE / 1e9
+    if revenue > _LARGEST_COMPANY_REVENUE:
+        return NarrativeFlag(
+            name=name,
+            color=FlagColor.YELLOW,
+            reason=(
+                f"year-10 revenue {revenue / 1e9:,.0f}B exceeds the largest "
+                f"company revenue today (~{largest_b:,.0f}B)"
+            ),
+        )
+    return NarrativeFlag(
+        name=name,
+        color=FlagColor.GREEN,
+        reason=(
+            f"year-10 revenue {revenue / 1e9:,.0f}B is within the largest "
+            f"company revenue today (~{largest_b:,.0f}B)"
+        ),
+    )
+
+
+def hypergrowth_terminal_roic_flag(
+    financials: Financials,
+    assumptions: Assumptions,
+    result: DCFResult,
+    context: NarrativeContext,
+) -> NarrativeFlag:
+    """Flag a terminal ROIC above twice the sector's ROIC (#197).
+
+    Unknown when either ROIC is missing, or when the sector ROIC is not positive.
+    """
+    name = "hypergrowth_terminal_roic"
+    terminal = context.terminal_roic
+    sector = context.sector_roic
+    if terminal is None or sector is None:
+        return NarrativeFlag(
+            name=name,
+            color=FlagColor.UNKNOWN,
+            reason="not evaluated: the terminal ROIC or the sector ROIC is unavailable",
+        )
+    if sector <= 0.0:
+        # A loss-making sector has no multiple to compare against.
+        return NarrativeFlag(
+            name=name,
+            color=FlagColor.UNKNOWN,
+            reason=f"not evaluated: sector ROIC {sector:.1%} is not a usable benchmark",
+        )
+    limit = _ROIC_SECTOR_MULTIPLE * sector
+    if terminal > limit:
+        return NarrativeFlag(
+            name=name,
+            color=FlagColor.YELLOW,
+            reason=(
+                f"terminal ROIC {terminal:.1%} exceeds {_ROIC_SECTOR_MULTIPLE:.0f}x "
+                f"the sector ROIC {sector:.1%} ({limit:.1%})"
+            ),
+        )
+    return NarrativeFlag(
+        name=name,
+        color=FlagColor.GREEN,
+        reason=(
+            f"terminal ROIC {terminal:.1%} is within {_ROIC_SECTOR_MULTIPLE:.0f}x "
+            f"the sector ROIC {sector:.1%} ({limit:.1%})"
+        ),
+    )
+
+
 def hypergrowth_flags(
     financials: Financials,
     assumptions: Assumptions,
     result: DCFResult,
     context: NarrativeContext,
 ) -> tuple[NarrativeFlag, ...]:
-    """Return the hypergrowth flag when signals or the story type call for it."""
-    if context.hypergrowth_signals or context.story_type == _HYPERGROWTH_STORY:
-        return (hypergrowth_story_flag(financials, assumptions, result, context),)
-    return ()
+    """Return the hypergrowth flags: up to three, in a fixed order (#195, #197).
+
+    ``hypergrowth_story`` comes first when signals or the hypergrowth story type
+    call for it; the revenue-scale and terminal-ROIC flags follow only for the
+    ``hypergrowth`` story type.
+    """
+    if not (context.hypergrowth_signals or context.story_type == _HYPERGROWTH_STORY):
+        return ()
+    story = hypergrowth_story_flag(financials, assumptions, result, context)
+    if context.story_type != _HYPERGROWTH_STORY:
+        return (story,)
+    return (
+        story,
+        hypergrowth_revenue_scale_flag(financials, assumptions, result, context),
+        hypergrowth_terminal_roic_flag(financials, assumptions, result, context),
+    )
 
 
 #: The five §7.5 flag functions, in spec order. The aggregator runs each.

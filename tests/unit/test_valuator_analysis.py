@@ -16,10 +16,15 @@ import pytest
 import yaml
 
 from bot.storage.db import apply_schema, connect
-from bot.valuator.analysis import Analysis, analyze
+from bot.valuator.analysis import (
+    Analysis,
+    analyze,
+    bulk_load_valuation_inputs,
+    load_valuation_input,
+)
 from bot.valuator.assumptions import AssumptionSource
 from bot.valuator.hypergrowth import margin_path, parse_story
-from bot.valuator.narrative_flags import FlagColor
+from bot.valuator.narrative_flags import FlagColor, NarrativeFlag
 from bot.valuator.sensitivity import SensitivityAxis
 from bot.valuator.story_types import StoryType
 from tests.unit.test_valuator_hypergrowth import _STORY
@@ -512,6 +517,10 @@ def _seed_anthropic(conn: duckdb.DuckDBPyConnection, ticker: str = "ANTH") -> No
         )
 
 
+def _flag(a: Analysis, name: str) -> NarrativeFlag:
+    return next(f for f in a.narrative_flags if f.name == name)
+
+
 def _story_yaml(tmp_path: Path) -> Path:
     path = tmp_path / "ANTH.yaml"
     path.write_text(yaml.safe_dump({"story_type": "hypergrowth", "story": _STORY}))
@@ -563,8 +572,7 @@ def test_hypergrowth_with_story_file(conn: duckdb.DuckDBPyConnection, tmp_path: 
     assert a.story_type == "hypergrowth"
     assert a.auto_story_type == "hypergrowth"
     assert a.story_file_present is True
-    assert a.narrative_flags[-1].name == "hypergrowth_story"
-    assert a.narrative_flags[-1].color is FlagColor.GREEN
+    assert _flag(a, "hypergrowth_story").color is FlagColor.GREEN
     # The story drives the projection (#196).
     assert a.assumptions.revenue_growth.source is AssumptionSource.STORY
     assert a.assumptions.operating_margin.source is AssumptionSource.STORY
@@ -607,7 +615,10 @@ def _seed_anthropic_sheet(conn: duckdb.DuckDBPyConnection, ticker: str = "ANTH")
 
 def _sheet_yaml(tmp_path: Path, **extra: object) -> Path:
     path = tmp_path / "ANTH.yaml"
-    path.write_text(yaml.safe_dump({"story_type": "hypergrowth", "story": _STORY, **extra}))
+    # sort_keys=False keeps scenario order (file order is the contract).
+    path.write_text(
+        yaml.safe_dump({"story_type": "hypergrowth", "story": _STORY, **extra}, sort_keys=False)
+    )
     return path
 
 
@@ -626,7 +637,7 @@ def test_hypergrowth_story_values_anthropic_end_to_end(
     assert a.dcf_result.wacc_path is not None
     assert a.financials.fixed_commitments == 472_336e6
     assert a.financials.extra_cash == 100_000e6
-    assert len(a.narrative_flags) == 6
+    assert len(a.narrative_flags) == 8
 
 
 def test_hypergrowth_story_without_terminal_growth_uses_currency_rule(
@@ -712,6 +723,111 @@ def test_story_file_without_hypergrowth_signals_is_yellow(
     assert a.auto_story_type != "hypergrowth"
     assert a.story_reasons[0].startswith("manually overridden")
     assert f"would have said {a.auto_story_type}" in a.story_reasons[0]
-    assert len(a.narrative_flags) == 6
-    assert a.narrative_flags[-1].name == "hypergrowth_story"
-    assert a.narrative_flags[-1].color is FlagColor.YELLOW
+    assert len(a.narrative_flags) == 8
+    assert _flag(a, "hypergrowth_story").color is FlagColor.YELLOW
+
+
+# --- #197: scenarios, governance verdict, sector ROIC ---------------------------
+
+#: Damodaran's worst and best scenarios in raw dollars (worst drag 10 points).
+_SCENARIOS: dict[str, dict[str, float]] = {
+    "worst": {
+        "target_revenue_y10": 200_000e6,
+        "target_margin": 0.10,
+        "sales_to_capital": 1.0,
+        "wacc_start": 0.0988,
+        "regulatory_drag": 0.10,
+    },
+    "best": {
+        "target_revenue_y10": 1_500_000e6,
+        "target_margin": 0.40,
+        "sales_to_capital": 4.0,
+        "wacc_start": 0.0779,
+        "regulatory_drag": 0.0,
+    },
+}
+
+
+def _seed_price(conn: duckdb.DuckDBPyConnection, ticker: str = "ANTH", close: float = 300.0) -> None:
+    conn.execute(
+        "INSERT INTO prices_daily (ticker, date, close, market_cap, currency, source) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        [ticker, "2026-10-30", close, close * 3_298.14 * _MILLIONS, "USD", "stooq"],
+    )
+
+
+def hypergrowth_analysis(
+    conn: duckdb.DuckDBPyConnection,
+    tmp_path: Path,
+    *,
+    scenarios: bool = True,
+    price: bool = True,
+) -> Analysis:
+    """The Anthropic sheet with the full story (governance 20%), and the scenarios."""
+    _seed_anthropic_sheet(conn)
+    if price:
+        _seed_price(conn)
+    extra: dict[str, object] = {"terminal_growth": 0.049, "tax_rate": 0.25}
+    if scenarios:
+        extra["scenarios"] = _SCENARIOS
+    return analyze("ANTH", conn, override_path=_sheet_yaml(tmp_path, **extra))
+
+
+def test_hypergrowth_scenarios_governance_and_flags(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    a = hypergrowth_analysis(conn, tmp_path)
+    assert [s.name for s in a.scenarios] == ["base", "worst", "best"]
+    assert a.scenarios[0].equity_value == a.dcf_result.equity_value
+    assert a.scenarios[0].intrinsic_value == a.dcf_result.intrinsic_value
+    assert a.scenarios[1].equity_value < 0 < a.scenarios[2].equity_value
+    assert a.governance_discount == 0.20
+    assert a.intrinsic_value_after_governance == a.dcf_result.intrinsic_value * (1 - 0.20)
+    assert a.current_price is not None
+    assert a.margin_of_safety == a.intrinsic_value_after_governance / a.current_price
+    assert len(a.narrative_flags) == 8
+    assert [f.name for f in a.narrative_flags[5:]] == [
+        "hypergrowth_story",
+        "hypergrowth_revenue_scale",
+        "hypergrowth_terminal_roic",
+    ]
+    assert _flag(a, "hypergrowth_revenue_scale").color is FlagColor.YELLOW
+    roic = _flag(a, "hypergrowth_terminal_roic")
+    assert roic.color is FlagColor.GREEN
+    assert "12.0%" in roic.reason
+
+
+def test_hypergrowth_without_scenarios_has_no_range(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    a = hypergrowth_analysis(conn, tmp_path, scenarios=False)
+    assert a.scenarios == ()
+    assert a.governance_discount == 0.20
+
+
+def test_hypergrowth_unreachable_scenario_fails_the_ticker(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_anthropic_sheet(conn)
+    override = _sheet_yaml(
+        tmp_path, terminal_growth=0.049, scenarios={"worst": {"target_revenue_y10": 1e40}}
+    )
+    with pytest.raises(ValueError, match="scenario worst"):
+        analyze("ANTH", conn, override_path=override)
+
+
+def test_loaders_carry_sector_roic(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_anthropic_sheet(conn)
+    single = load_valuation_input(conn, "ANTH")
+    bulk = bulk_load_valuation_inputs(conn, ["ANTH"])["ANTH"]
+    assert single.sector.roic == 0.12
+    assert bulk.sector.roic == single.sector.roic
+
+
+def test_mature_company_margin_unchanged(seeded_conn: duckdb.DuckDBPyConnection) -> None:
+    a = analyze("AAPL", seeded_conn)
+    assert a.governance_discount == 0.0
+    assert a.scenarios == ()
+    assert a.intrinsic_value_after_governance == a.dcf_result.intrinsic_value
+    assert a.current_price is not None
+    assert a.margin_of_safety == a.dcf_result.intrinsic_value / a.current_price

@@ -469,3 +469,32 @@ def test_grid_2d_with_wacc_path_has_defined_centre() -> None:
     expected = dcf(financials, assumptions).intrinsic_value
     assert grid.cells[2][2].intrinsic_value == pytest.approx(expected, rel=1e-12)
     assert grid.cells[2][2].margin_of_safety == pytest.approx(expected / 400.0, rel=1e-12)
+
+
+# --------------------------------------------------------------------------- #
+# scenario_range — one plain DCF per named case (#197)                         #
+# --------------------------------------------------------------------------- #
+
+
+def test_scenario_range_keeps_mapping_order() -> None:
+    from bot.valuator.sensitivity import ScenarioResult, scenario_range
+
+    fin_b, asm_b = _financials(), _assumptions()
+    fin_a = dataclasses.replace(fin_b, net_debt=100.0)
+    asm_a = dataclasses.replace(asm_b, sales_to_capital=3.0)
+    results = scenario_range({"b": (fin_b, asm_b), "a": (fin_a, asm_a)})
+    assert [r.name for r in results] == ["b", "a"]
+    for result, (fin, asm) in zip(results, ((fin_b, asm_b), (fin_a, asm_a)), strict=True):
+        expected = dcf(fin, asm)
+        assert result == ScenarioResult(
+            name=result.name,
+            intrinsic_value=expected.intrinsic_value,
+            equity_value=expected.equity_value,
+            enterprise_value=expected.enterprise_value,
+        )
+
+
+def test_scenario_range_of_no_cases_is_empty() -> None:
+    from bot.valuator.sensitivity import scenario_range
+
+    assert scenario_range({}) == ()

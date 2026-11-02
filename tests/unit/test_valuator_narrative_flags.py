@@ -27,7 +27,9 @@ from bot.valuator.narrative_flags import (
     country_exposure_flag,
     growth_reinvestment_flag,
     hypergrowth_flags,
+    hypergrowth_revenue_scale_flag,
     hypergrowth_story_flag,
+    hypergrowth_terminal_roic_flag,
     narrative_flags,
     story_margin_flag,
     terminal_value_share_flag,
@@ -501,7 +503,11 @@ def test_hypergrowth_flags_on_signals() -> None:
 
 def test_hypergrowth_flags_on_story_type() -> None:
     flags = _hypergrowth_flags(story_type="hypergrowth", story_file_present=True)
-    assert [(f.name, f.color) for f in flags] == [("hypergrowth_story", FlagColor.YELLOW)]
+    assert [(f.name, f.color) for f in flags] == [
+        ("hypergrowth_story", FlagColor.YELLOW),
+        ("hypergrowth_revenue_scale", FlagColor.GREEN),
+        ("hypergrowth_terminal_roic", FlagColor.UNKNOWN),
+    ]
 
 
 def test_narrative_flags_stay_five_with_hypergrowth_signals() -> None:
@@ -516,3 +522,103 @@ def test_hypergrowth_story_green_when_neither_signals_nor_story_file() -> None:
         story_type="hypergrowth", hypergrowth_signals=False, story_file_present=False
     )
     assert flag.color is FlagColor.GREEN
+
+
+# --------------------------------------------------------------------------- #
+# Hypergrowth revenue scale and terminal ROIC (#197)                           #
+# --------------------------------------------------------------------------- #
+
+
+def _with_year10_revenue(revenue: float) -> DCFResult:
+    fin, asm = _financials(), _assumptions()
+    result = _result(fin, asm)
+    last = dataclasses.replace(result.projections[-1], revenue=revenue)
+    return dataclasses.replace(result, projections=(*result.projections[:-1], last))
+
+
+def _revenue_scale_flag(revenue: float) -> NarrativeFlag:
+    fin, asm = _financials(), _assumptions()
+    return hypergrowth_revenue_scale_flag(
+        fin, asm, _with_year10_revenue(revenue), _ctx(story_type="hypergrowth")
+    )
+
+
+def test_revenue_scale_yellow_above_the_largest_company() -> None:
+    flag = _revenue_scale_flag(750e9 + 1)
+    assert flag.name == "hypergrowth_revenue_scale"
+    assert flag.color is FlagColor.YELLOW
+    assert flag.reason == (
+        "year-10 revenue 750B exceeds the largest company revenue today (~750B)"
+    )
+
+
+def test_revenue_scale_green_at_the_largest_company() -> None:
+    flag = _revenue_scale_flag(750e9)
+    assert flag.name == "hypergrowth_revenue_scale"
+    assert flag.color is FlagColor.GREEN
+
+
+def _terminal_roic_flag(**context: object) -> NarrativeFlag:
+    fin, asm = _financials(), _assumptions()
+    return hypergrowth_terminal_roic_flag(
+        fin, asm, _result(fin, asm), _ctx(story_type="hypergrowth", **context)
+    )
+
+
+def test_terminal_roic_yellow_above_twice_the_sector() -> None:
+    flag = _terminal_roic_flag(terminal_roic=0.24 + 1e-9, sector_roic=0.12)
+    assert flag.name == "hypergrowth_terminal_roic"
+    assert flag.color is FlagColor.YELLOW
+    assert "12.0%" in flag.reason
+
+
+def test_terminal_roic_green_at_exactly_twice_the_sector() -> None:
+    flag = _terminal_roic_flag(terminal_roic=0.24, sector_roic=0.12)
+    assert flag.color is FlagColor.GREEN
+
+
+@pytest.mark.parametrize(
+    ("terminal_roic", "sector_roic"), [(0.15, None), (None, 0.12), (None, None)]
+)
+def test_terminal_roic_unknown_without_both_roics(
+    terminal_roic: float | None, sector_roic: float | None
+) -> None:
+    flag = _terminal_roic_flag(terminal_roic=terminal_roic, sector_roic=sector_roic)
+    assert flag.color is FlagColor.UNKNOWN
+
+
+def test_hypergrowth_flags_three_for_a_story_in_order() -> None:
+    flags = _hypergrowth_flags(
+        story_type="hypergrowth",
+        hypergrowth_signals=True,
+        story_file_present=True,
+        terminal_roic=0.15,
+        sector_roic=0.12,
+    )
+    assert [f.name for f in flags] == [
+        "hypergrowth_story",
+        "hypergrowth_revenue_scale",
+        "hypergrowth_terminal_roic",
+    ]
+
+
+def test_hypergrowth_flags_one_for_signals_without_a_story() -> None:
+    flags = _hypergrowth_flags(
+        story_type="high-growth", hypergrowth_signals=True, terminal_roic=1.0, sector_roic=0.1
+    )
+    assert [f.name for f in flags] == ["hypergrowth_story"]
+
+
+def test_narrative_flags_stay_five_for_a_hypergrowth_story() -> None:
+    fin, asm = _financials(), _assumptions()
+    flags = narrative_flags(
+        fin, asm, _result(fin, asm), _ctx(story_type="hypergrowth", hypergrowth_signals=True)
+    )
+    assert len(flags) == 5
+
+
+@pytest.mark.parametrize("sector_roic", [0.0, -0.03])
+def test_terminal_roic_unknown_when_the_sector_roic_is_not_positive(sector_roic: float) -> None:
+    flag = _terminal_roic_flag(terminal_roic=0.15, sector_roic=sector_roic)
+    assert flag.color is FlagColor.UNKNOWN
+    assert "not a usable benchmark" in flag.reason

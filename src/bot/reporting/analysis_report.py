@@ -193,6 +193,24 @@ def margin_verdict(margin_of_safety: float | None) -> str:
     return "potentially overvalued"
 
 
+def analysis_summary(analysis: Analysis) -> str | None:
+    """The console line of ``bot analyze``: the value the margin of safety is measured on.
+
+    ``None`` without a margin of safety (no price).
+    """
+    if analysis.margin_of_safety is None or analysis.current_price is None:
+        return None
+    label = "Intrinsic"
+    value = analysis.dcf_result.intrinsic_value
+    if analysis.governance_discount > 0:
+        label = f"Intrinsic after {analysis.governance_discount:.1%} governance discount"
+        value = analysis.intrinsic_value_after_governance
+    return (
+        f"{label} {value:,.2f} vs price {analysis.current_price:,.2f} → "
+        f"margin of safety {analysis.margin_of_safety:.2f}x"
+    )
+
+
 def render_analysis(
     analysis: Analysis,
     *,

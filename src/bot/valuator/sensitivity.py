@@ -16,6 +16,9 @@ When the assumptions carry a ``wacc_path`` (a story's all-in discount rate) the
 cost-of-equity axis scales that path and the cost-of-debt axis is dropped, since
 it no longer moves the value; a ``tax_rate_path`` is scaled with the tax rate.
 
+:func:`scenario_range` runs a plain DCF per named case (base plus the story's
+scenarios) and returns the values side by side (#197).
+
 Everything here is pure: no I/O, no global state, and the input assumptions are
 never mutated — each scenario is built from a fresh, scaled copy via
 :func:`scale_axis`.
@@ -24,6 +27,7 @@ never mutated — each scenario is built from a fresh, scaled copy via
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Mapping
 from enum import StrEnum
 from typing import Any
 
@@ -322,3 +326,31 @@ def grid_2d(
         cells=tuple(rows),
         reference_price=reference_price,
     )
+
+
+@dataclasses.dataclass(frozen=True)
+class ScenarioResult:
+    """The DCF values of one named scenario."""
+
+    name: str
+    intrinsic_value: float
+    equity_value: float
+    enterprise_value: float
+
+
+def scenario_range(
+    cases: Mapping[str, tuple[Financials, Assumptions]],
+) -> tuple[ScenarioResult, ...]:
+    """One plain :func:`dcf` per case, in mapping order."""
+    results = []
+    for name, (financials, assumptions) in cases.items():
+        result = dcf(financials, assumptions)
+        results.append(
+            ScenarioResult(
+                name=name,
+                intrinsic_value=result.intrinsic_value,
+                equity_value=result.equity_value,
+                enterprise_value=result.enterprise_value,
+            )
+        )
+    return tuple(results)

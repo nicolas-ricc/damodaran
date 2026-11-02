@@ -13,7 +13,8 @@ currency of ``financials_annual``, not millions.
 The ten-year paths of a story (growth, operating margin, WACC, tax rate) are
 built by :func:`growth_path`, :func:`margin_path`, :func:`wacc_path` and
 :func:`tax_path`; :func:`solve_stage_growth` finds the constant growth rate of years
-2-5 that reaches ``target_revenue_y10``.
+2-5 that reaches ``target_revenue_y10``. :func:`scenario_cases` builds the DCF
+inputs of the base case and of each named scenario (#197).
 """
 
 from __future__ import annotations
@@ -22,6 +23,9 @@ import math
 from collections.abc import Callable, Mapping
 from dataclasses import MISSING, dataclass, fields, replace
 from typing import TYPE_CHECKING, Any, TypeGuard
+
+from bot.valuator.dcf import Assumptions as DCFAssumptions
+from bot.valuator.dcf import Financials
 
 if TYPE_CHECKING:
     from bot.valuator.assumptions import Assumptions
@@ -66,6 +70,9 @@ class StoryInputs:
     extra_cash: float = 0.0
     governance_discount: float = 0.0
 
+
+#: Name of the story itself in the scenario range; a scenario cannot take it.
+BASE_SCENARIO = "base"
 
 #: Years of the explicit forecast: every path has this many values.
 HORIZON: int = 10
@@ -156,6 +163,10 @@ def parse_scenarios(
     for name, body in raw.items():
         if not isinstance(name, str):
             raise ValueError(f"{where}: scenarios: each name must be a string, got {name!r}")
+        if name == BASE_SCENARIO:
+            raise ValueError(
+                f"{where}: scenarios.{name} is reserved for the story itself; rename it"
+            )
         if not isinstance(body, Mapping):
             raise ValueError(
                 f"{where}: scenarios.{name} must be a mapping of story keys, got {body!r}"
@@ -325,3 +336,37 @@ def apply_story(
         governance_discount=sourced(story.governance_discount),
         story=story,
     )
+
+
+def scenario_cases(
+    bundle: Assumptions,
+    scenarios: Mapping[str, StoryInputs],
+    *,
+    base_revenue: float,
+    sector_wacc: float | None,
+    financials: Financials,
+) -> dict[str, tuple[Financials, DCFAssumptions]]:
+    """DCF inputs of the base case, then of each scenario in mapping order.
+
+    ``bundle`` already carries the base story. Each scenario is overlaid on it
+    with :func:`apply_story`, and swaps the commitments and extra cash of
+    ``financials``. A scenario that cannot be built raises ``ValueError``
+    naming it (``scenario <name>: ...``).
+    """
+    cases = {BASE_SCENARIO: (financials, bundle.to_dcf_assumptions())}
+    for name, scenario in scenarios.items():
+        try:
+            assumptions = apply_story(
+                bundle, scenario, base_revenue=base_revenue, sector_wacc=sector_wacc
+            ).to_dcf_assumptions()
+        except ValueError as exc:
+            raise ValueError(f"scenario {name}: {exc}") from exc
+        cases[name] = (
+            replace(
+                financials,
+                fixed_commitments=scenario.fixed_commitments_pv,
+                extra_cash=scenario.extra_cash,
+            ),
+            assumptions,
+        )
+    return cases

@@ -14,6 +14,8 @@ depend on that timing, is held to 0.1%.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from bot.valuator.assumptions import Assumptions, AssumptionSource, Sourced
@@ -113,3 +115,47 @@ def test_calibration_reproduces_damodaran_base_case() -> None:
     # Computed 1,473,576 / 446.79: same-year reinvestment (see module docstring).
     assert result.equity_value == pytest.approx(1_475_406, rel=0.01)
     assert result.intrinsic_value == pytest.approx(447.34, rel=0.01)
+
+
+#: His worst and best scenarios over the base story (#197). Worst uses a
+#: 10-point drag: that reproduces his -373B (a 15-point drag gives -452B).
+CAL_SCENARIOS = {
+    "worst": replace(
+        CAL_STORY,
+        target_revenue_y10=200_000,
+        target_margin=0.10,
+        sales_to_capital=1.0,
+        wacc_start=0.0988,
+        regulatory_drag=0.10,
+    ),
+    "best": replace(
+        CAL_STORY,
+        target_revenue_y10=1_500_000,
+        target_margin=0.40,
+        sales_to_capital=4.0,
+        wacc_start=0.0779,
+        regulatory_drag=0.0,
+    ),
+}
+
+
+def test_calibration_reproduces_damodaran_scenario_range() -> None:
+    from bot.valuator.hypergrowth import scenario_cases
+    from bot.valuator.sensitivity import scenario_range
+
+    bundle, base = _calibrated()
+    results = scenario_range(
+        scenario_cases(
+            bundle,
+            CAL_SCENARIOS,
+            base_revenue=CAL_BASE_REVENUE,
+            sector_wacc=None,
+            financials=CAL_FINANCIALS,
+        )
+    )
+    by_name = {r.name: r for r in results}
+    assert [r.name for r in results] == ["base", "worst", "best"]
+    assert by_name["base"].equity_value == base.equity_value
+    # Computed -371,991 and 4,076,137.
+    assert by_name["worst"].equity_value == pytest.approx(-373_000, rel=0.05)
+    assert by_name["best"].equity_value == pytest.approx(4_040_000, rel=0.05)
