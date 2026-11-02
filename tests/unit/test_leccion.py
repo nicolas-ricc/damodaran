@@ -7,7 +7,7 @@ import math
 import re
 import subprocess
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from functools import cache
 from html.parser import HTMLParser
 from pathlib import Path
@@ -18,6 +18,7 @@ from bot.reporting.analysis_report import margin_verdict
 from bot.screener.ranking import RankingWeights, ScoredCandidate, rescore_with_margins
 from bot.valuator.assumptions import AssumptionSource
 from bot.valuator.dcf import Assumptions, Financials, dcf
+from bot.valuator.hypergrowth import StoryInputs
 from bot.valuator.sensitivity import tornado
 from bot.valuator.story_types import StoryType
 
@@ -358,6 +359,8 @@ _REQUIRED_SYMBOLS: dict[str, list[str]] = {
         "bot.valuator.story_types.classify",
         "bot.valuator.story_types.SectorContext",
         "bot.valuator.assumptions.conventional_override_path",
+        "bot.valuator.hypergrowth.apply_story",
+        "bot.valuator.hypergrowth.solve_stage_growth",
     ],
     "cap-7": [
         "bot.valuator.dcf.Financials",
@@ -377,6 +380,9 @@ _REQUIRED_SYMBOLS: dict[str, list[str]] = {
         "bot.valuator.narrative_flags.beta_business_risk_flag",
         "bot.valuator.narrative_flags.terminal_value_share_flag",
         "bot.valuator.narrative_flags.country_exposure_flag",
+        "bot.valuator.narrative_flags.hypergrowth_story_flag",
+        "bot.valuator.narrative_flags.hypergrowth_revenue_scale_flag",
+        "bot.valuator.narrative_flags.hypergrowth_terminal_roic_flag",
         "bot.valuator.analysis.analyze",
         "bot.reporting.analysis_report.margin_verdict",
     ],
@@ -392,11 +398,17 @@ _REQUIRED_CONSTS: dict[str, list[str]] = {
         "bot.valuator.story_types._HIGH_GROWTH_CAGR",
         "bot.valuator.story_types._MATURE_AGE_YEARS",
         "bot.valuator.story_types._DECLINE_CAGR",
+        "bot.valuator.story_types._HYPERGROWTH_LAST_YEAR_GROWTH",
+        "bot.valuator.story_types._HYPERGROWTH_CAGR",
+        "bot.valuator.story_types._HYPERGROWTH_MAX_AGE_YEARS",
+        "bot.valuator.hypergrowth.HORIZON",
     ],
     "cap-7": ["bot.valuator.assumptions._HORIZON"],
     "cap-8": [
         "bot.valuator.sensitivity._TORNADO_HIGH",
         "bot.valuator.narrative_flags._TERMINAL_VALUE_SHARE_CEILING",
+        "bot.valuator.narrative_flags._LARGEST_COMPANY_REVENUE",
+        "bot.valuator.narrative_flags._ROIC_SECTOR_MULTIPLE",
     ],
 }
 
@@ -508,6 +520,35 @@ def test_ranking_example_matches_code() -> None:
 def test_story_types_listed_in_chapter_6() -> None:
     codes = set(_chapter("cap-6").codes)
     assert {s.value for s in StoryType} <= codes
+
+
+def _section_html(cid: str) -> str:
+    html = _html()
+    begin = html.index(f'<section id="{cid}"')
+    return html[begin : html.index("</section>", begin)]
+
+
+def _row_headed(section: str, label: str) -> str | None:
+    """The table row whose header cell is ``<code>label</code>``, if any."""
+    for row in re.findall(r"<tr>.*?</tr>", section, re.S):
+        if re.match(rf'<tr><th scope="row"><code>{re.escape(label)}</code></th>', row):
+            return row
+    return None
+
+
+def test_hypergrowth_rows_in_chapters_6_to_8() -> None:
+    cap6 = _section_html("cap-6")
+    projection = cap6[cap6.index("¿Qué cambia después de la etiqueta?") :]
+    assert _row_headed(projection, "hypergrowth") is not None
+    cap8 = _section_html("cap-8")
+    for flag in ("hypergrowth_story", "hypergrowth_revenue_scale", "hypergrowth_terminal_roic"):
+        assert _row_headed(cap8, flag) is not None, flag
+    story = _row_headed(_section_html("cap-7"), "story")
+    assert story is not None
+    story_keys = {f.name for f in fields(StoryInputs)}
+    for key in ("failure_probability", "governance_discount"):
+        assert key in story_keys, key
+        assert key in story, key
 
 
 def test_every_assumption_source_listed_in_chapter_7() -> None:
