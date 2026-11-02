@@ -35,6 +35,7 @@ const META = {
   "s-md":{sym:"src/bot/valuator/story_types.py:StoryType", pat:["p-value"]},
   "s-cy":{sym:"src/bot/valuator/story_types.py:StoryType", pat:["p-value"]},
   "s-ds":{sym:"src/bot/valuator/story_types.py:StoryType", pat:["p-value"]},
+  "s-hy":{sym:"src/bot/valuator/story_types.py:StoryType", pat:["p-value"]},
   assumptions:{sym:"src/bot/valuator/assumptions.py:resolve_assumptions", pat:["p-source","p-value"]},
   "a-growth":{sym:"src/bot/valuator/assumptions.py:Sourced", pat:["p-source"]},
   "a-margin":{sym:"src/bot/valuator/assumptions.py:Sourced", pat:["p-source"]},
@@ -53,6 +54,9 @@ const META = {
   "f-beta":{sym:"src/bot/valuator/narrative_flags.py:beta_business_risk_flag", pat:["p-strategy"]},
   "f-tv":{sym:"src/bot/valuator/narrative_flags.py:terminal_value_share_flag", pat:["p-strategy"]},
   "f-country":{sym:"src/bot/valuator/narrative_flags.py:country_exposure_flag", pat:["p-strategy"]},
+  "f-hy-story":{sym:"src/bot/valuator/narrative_flags.py:hypergrowth_story_flag", pat:["p-strategy"]},
+  "f-hy-scale":{sym:"src/bot/valuator/narrative_flags.py:hypergrowth_revenue_scale_flag", pat:["p-strategy"]},
+  "f-hy-roic":{sym:"src/bot/valuator/narrative_flags.py:hypergrowth_terminal_roic_flag", pat:["p-strategy"]},
 
   monitor:{sym:"src/bot/portfolio/events.py:compute_events", pat:["p-protocol","p-seam","p-value"]},
   events:{sym:"src/bot/portfolio/events.py:EventType", pat:["p-value"]},

@@ -171,6 +171,8 @@ STORIES = [
      "M8,30 C22,8 34,8 46,30 S66,52 78,30 S98,8 110,26 L122,32"),
     ("s-ds", "distressed", "condicional a que sobreviva",
      "M8,22 C22,26 32,34 44,44 M58,46 L64,46 M78,44 C92,40 104,36 122,34"),
+    ("s-hy", "hypergrowth", "la historia manda, no el balance",
+     "M8,48 C24,46 34,40 46,24 S84,8 122,6"),
 ]
 ASSUMPTIONS = [
     ("a-growth", "Crecimiento de ingresos", "hoy: promedio histórico, plano",
@@ -183,7 +185,7 @@ ASSUMPTIONS = [
      "sector_default_damodaran"),
     ("a-g", "Crecimiento terminal", "el menor entre tasa libre de riesgo y PBI",
      "rule_based"),
-    ("a-default", "Probabilidad de quiebra", "cero salvo en distressed", "rule_based"),
+    ("a-default", "Probabilidad de quiebra", "cero salvo distressed a mano o story", "rule_based"),
 ]
 FLAGS = [
     ("f-story", "story_margin", "amarillo", "warn", ["story_margin"]),
@@ -191,6 +193,11 @@ FLAGS = [
     ("f-beta", "beta_business_risk", "amarillo", "warn", ["beta_business_", "risk"]),
     ("f-tv", "terminal_value_share", "amarillo", "warn", ["terminal_value_", "share"]),
     ("f-country", "country_exposure", "rojo", "bad", ["country_", "exposure"]),
+    ("f-hy-story", "hypergrowth_story", "rojo", "bad", ["hypergrowth_", "story"]),
+    ("f-hy-scale", "hypergrowth_revenue_scale", "amarillo", "warn",
+     ["hypergrowth_revenue_", "scale"]),
+    ("f-hy-roic", "hypergrowth_terminal_roic", "amarillo", "warn",
+     ["hypergrowth_terminal_", "roic"]),
 ]
 
 
@@ -199,18 +206,18 @@ def plan_c():
     o.append(band(46, 30, 800, 220, "1 · Story type",
                   "la fórmula es una sola; cambia cómo se proyecta", "valua"))
     for i, (nid, name, note, path) in enumerate(STORIES):
-        x = [58, 218, 378, 538, 698][i]
+        x = 58 + i * 132
         inner = (f'<rect class="chip-box chip-valua dimmable" x="{x}" y="64" '
-                 f'width="148" height="168" rx="2"/>'
-                 f'<rect class="dimmable" x="{x + 11}" y="80" width="126" height="58" '
+                 f'width="124" height="168" rx="2"/>'
+                 f'<rect class="dimmable" x="{x + 11}" y="80" width="102" height="58" '
                  f'fill="var(--sheet)" stroke="var(--ink-faint)" stroke-width="1.1"/>'
-                 f'<path class="axis dimmable" d="M{x + 11} 138h126"/>'
+                 f'<path class="axis dimmable" d="M{x + 11} 138h102"/>'
                  f'<path class="spark dimmable" stroke="var(--p-valua)" '
-                 f'transform="translate({x + 11},80)" d="{path}"/>')
+                 f'transform="translate({x + 11},80) scale(0.8,1)" d="{path}"/>')
         inner += txt(x + 12, 160, name, "t-b")
-        for k, ln in enumerate(wrap(note, 21)[:2]):
+        for k, ln in enumerate(wrap(note, 17)[:3]):
             inner += txt(x + 12, 178 + k * 14, ln, "t-s")
-        o.append(hot(nid, "valua", x, 64, 148, 168, inner,
+        o.append(hot(nid, "valua", x, 64, 124, 168, inner,
                      f"Story type {name}: {note}"))
     o.append(vflow(446, 250, 274))
 
@@ -291,20 +298,20 @@ def plan_c():
                  "Grilla 5 por 5 del margen de seguridad"))
     o.append(vflow(446, 1078, 1102))
 
-    o.append(band(46, 1106, 800, 132, "5 · Narrative flags",
+    o.append(band(46, 1106, 800, 214, "5 · Narrative flags",
                   "no puntúan: son para que leas", "valua"))
     for i, (nid, name, level, tone, partes) in enumerate(FLAGS):
-        x = 58 + i * 160
-        inner = (f'<rect class="chip-box chip-valua dimmable" x="{x}" y="1142" '
-                 f'width="148" height="76" rx="2"/>'
-                 f'<circle class="dimmable" cx="{x + 20}" cy="1164" r="7" '
+        x, y = 58 + (i % 4) * 196, 1142 + (i // 4) * 88
+        inner = (f'<rect class="chip-box chip-valua dimmable" x="{x}" y="{y}" '
+                 f'width="164" height="76" rx="2"/>'
+                 f'<circle class="dimmable" cx="{x + 20}" cy="{y + 22}" r="7" '
                  f'fill="var(--{tone})" opacity=".88"/>')
-        inner += txt(x + 36, 1168, level, "t-s")
+        inner += txt(x + 36, y + 26, level, "t-s")
         for k, ln in enumerate(partes):
-            inner += txt(x + 12, 1192 + k * 14, ln, "t-m")
-        o.append(hot(nid, "valua", x, 1142, 148, 76, inner,
+            inner += txt(x + 12, y + 50 + k * 14, ln, "t-m")
+        o.append(hot(nid, "valua", x, y, 164, 76, inner,
                      f"Narrative flag {name}, nivel {level}"))
-    return "".join(o), "0 0 880 1282"
+    return "".join(o), "0 0 880 1364"
 
 
 # ────────────────────────────── Fuentes ──────────────────────────────
