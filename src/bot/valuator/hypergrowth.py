@@ -21,7 +21,10 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Mapping
 from dataclasses import MISSING, dataclass, fields, replace
-from typing import Any, TypeGuard
+from typing import TYPE_CHECKING, Any, TypeGuard
+
+if TYPE_CHECKING:
+    from bot.valuator.assumptions import Assumptions
 
 #: Story-type label of a story file. ``StoryType.HYPERGROWTH`` arrives in #195.
 STORY_TYPE = "hypergrowth"
@@ -270,3 +273,55 @@ def wacc_path(story: StoryInputs, wacc_terminal: float) -> tuple[float, ...]:
 def tax_path(story: StoryInputs, marginal_tax_rate: float) -> tuple[float, ...]:
     """Tax rate of years 1..10: ``effective_tax_rate`` through year 5, fading to marginal."""
     return _fade_path(story.effective_tax_rate, marginal_tax_rate)
+
+
+def apply_story(
+    bundle: Assumptions,
+    story: StoryInputs,
+    *,
+    base_revenue: float,
+    sector_wacc: float | None,
+) -> Assumptions:
+    """Overlay ``story`` on a resolved generic ``bundle``, every set field sourced ``STORY``.
+
+    ``terminal_growth``, ``tax_rate`` and ``pretax_cost_of_debt`` stay the
+    bundle's own objects. The terminal WACC is the story's, else ``sector_wacc``.
+    Raises ``ValueError`` when the terminal WACC, ``terminal_growth`` or
+    ``tax_rate`` is unresolved.
+    """
+    # Imported here: assumptions.py imports this module at load time.
+    from bot.valuator.assumptions import AssumptionSource, Sourced
+
+    wacc_terminal = story.wacc_terminal if story.wacc_terminal is not None else sector_wacc
+    if wacc_terminal is None:
+        raise ValueError(
+            "apply_story: wacc_terminal unresolved: no sector WACC; set story.wacc_terminal"
+        )
+    terminal_growth = bundle.terminal_growth.value
+    if terminal_growth is None:
+        raise ValueError("apply_story: terminal_growth unresolved")
+    marginal_tax_rate = bundle.tax_rate.value
+    if marginal_tax_rate is None:
+        raise ValueError("apply_story: tax_rate unresolved")
+
+    def sourced[T](value: T) -> Sourced[T]:
+        return Sourced(value, AssumptionSource.STORY)
+
+    return replace(
+        bundle,
+        revenue_growth=sourced(growth_path(base_revenue, story, terminal_growth)),
+        operating_margin=sourced(margin_path(story)),
+        sales_to_capital=sourced(story.sales_to_capital),
+        cost_of_equity=sourced(story.wacc_start),
+        equity_weight=sourced(1.0),
+        debt_weight=sourced(0.0),
+        probability_of_bankruptcy=sourced(story.failure_probability),
+        wacc_path=sourced(wacc_path(story, wacc_terminal)),
+        tax_rate_path=sourced(tax_path(story, marginal_tax_rate)),
+        terminal_roic=None if story.terminal_roic is None else sourced(story.terminal_roic),
+        distress_proceeds_pct=sourced(story.failure_proceeds_pct_of_value),
+        fixed_commitments=sourced(story.fixed_commitments_pv),
+        extra_cash=sourced(story.extra_cash),
+        governance_discount=sourced(story.governance_discount),
+        story=story,
+    )

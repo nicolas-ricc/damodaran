@@ -57,7 +57,7 @@ from bot.reference.currencies import (
 from bot.reference.regions import dataset_region
 from bot.utils.logging import get_logger
 from bot.valuator.dcf import Assumptions as DCFAssumptions
-from bot.valuator.hypergrowth import STORY_TYPE, is_finite_number, story_from_override
+from bot.valuator.hypergrowth import STORY_TYPE, StoryInputs, is_finite_number, story_from_override
 from bot.valuator.story_types import StoryType
 
 log = get_logger(__name__)
@@ -151,6 +151,21 @@ class Assumptions:
             override (auto-assignment lives in story_types.py, M4.3).
         notes: Free-text override notes for the report's "manual overrides"
             section (spec §7.6).
+        wacc_path: Per-year WACC path of a hypergrowth story (``None`` outside it).
+        tax_rate_path: Per-year tax-rate path of a hypergrowth story (``None``
+            outside it).
+        terminal_roic: Terminal return on invested capital of a hypergrowth
+            story (``None`` when the story gives none).
+        distress_proceeds_pct: Share of value recovered on failure in a
+            hypergrowth story (``None`` outside it).
+        fixed_commitments: Present value of fixed commitments deducted from
+            equity, from a hypergrowth story (``None`` outside it).
+        extra_cash: Cash added to equity value, from a hypergrowth story
+            (``None`` outside it).
+        governance_discount: Fractional haircut on equity value for governance
+            risk, from a hypergrowth story (``None`` outside it).
+        story: The validated hypergrowth story behind the story fields
+            (``None`` outside it).
     """
 
     revenue_growth: Sourced[tuple[float, ...] | None]
@@ -166,6 +181,14 @@ class Assumptions:
     tax_rate: Sourced[float | None]
     story_type: str | None = None
     notes: str | None = None
+    wacc_path: Sourced[tuple[float, ...]] | None = None
+    tax_rate_path: Sourced[tuple[float, ...]] | None = None
+    terminal_roic: Sourced[float] | None = None
+    distress_proceeds_pct: Sourced[float] | None = None
+    fixed_commitments: Sourced[float] | None = None
+    extra_cash: Sourced[float] | None = None
+    governance_discount: Sourced[float] | None = None
+    story: StoryInputs | None = None
 
     def to_dcf_assumptions(self) -> DCFAssumptions:
         """Project the resolved bundle onto the pure :class:`dcf.Assumptions`.
@@ -194,6 +217,12 @@ class Assumptions:
             debt_weight=_require(self.debt_weight, "debt_weight"),
             probability_of_bankruptcy=self.probability_of_bankruptcy.value,
             distress_value_per_share=self.distress_value_per_share.value,
+            wacc_path=None if self.wacc_path is None else self.wacc_path.value,
+            tax_rate_path=None if self.tax_rate_path is None else self.tax_rate_path.value,
+            terminal_roic=None if self.terminal_roic is None else self.terminal_roic.value,
+            distress_proceeds_pct=(
+                None if self.distress_proceeds_pct is None else self.distress_proceeds_pct.value
+            ),
         )
 
 
