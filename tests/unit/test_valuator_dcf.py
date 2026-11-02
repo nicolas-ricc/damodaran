@@ -413,7 +413,7 @@ def test_non_positive_shares_raise() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Hypergrowth extensions (#193): paths, terminal ROIC, bridge, failure proceeds #
+# Hypergrowth extensions (#193): paths, ROIC, bridge, failure proceeds        #
 # --------------------------------------------------------------------------- #
 
 #: Damodaran's base-case cost of capital: 9.74% for five years, then to 9.13%.
