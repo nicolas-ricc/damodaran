@@ -1172,3 +1172,44 @@ def test_resolve_hypergrowth_story_falls_back_to_the_sector_wacc(
     result = resolve_assumptions("ACME", conn, override_path=path, currencies=_usd())
     assert result.wacc_path is not None
     assert result.wacc_path.value[-1] == 0.09
+
+
+# --- #197: scenarios on the bundle ----------------------------------------------
+
+
+def test_resolve_sets_scenarios_from_the_story_file(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)
+    _seed_financials(conn, rows=((2023, 1.0e9, -1.0e9), (2024, 20.0e9, -40.0e9)))
+    scenarios = {
+        "worst": {"target_revenue_y10": 200e9, "target_margin": 0.10},
+        "best": {"target_revenue_y10": 1_500e9},
+    }
+    result = resolve_assumptions(
+        "ACME",
+        conn,
+        override_path=_story_override(tmp_path, terminal_growth=0.049, scenarios=scenarios),
+        currencies=_usd(),
+    )
+    assert result.scenarios is not None
+    assert list(result.scenarios) == ["worst", "best"]
+    assert all(isinstance(s, StoryInputs) for s in result.scenarios.values())
+    assert result.scenarios["worst"].target_margin == 0.10
+    assert result.scenarios["best"].target_margin == _STORY["target_margin"]
+
+
+def test_resolve_without_scenarios_leaves_them_none(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)
+    _seed_financials(conn, rows=((2023, 1.0e9, -1.0e9), (2024, 20.0e9, -40.0e9)))
+    storied = resolve_assumptions(
+        "ACME",
+        conn,
+        override_path=_story_override(tmp_path, terminal_growth=0.049),
+        currencies=_usd(),
+    )
+    plain = resolve_assumptions("ACME", conn, currencies=_usd())
+    assert storied.scenarios is None
+    assert plain.scenarios is None

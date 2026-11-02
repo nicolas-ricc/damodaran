@@ -145,7 +145,7 @@ Technical decisions recorded during plan grilling (no written source; any option
 
 **Files:**
 - Modify: `src/bot/reporting/templates/analysis.md.j2`
-- Test: `tests/unit/test_reporting_analysis.py`, `tests/unit/test_reporting_html.py`, `tests/unit/test_reporting_analysis_json.py`
+- Test: `tests/unit/test_reporting_hypergrowth.py` (new; one fixture rendered through all three reports)
 
 **Interfaces:**
 - Consumes: the `Analysis` of Task 3. The `money`, `per_share`, `pct` and `margin_path` filters exist already.

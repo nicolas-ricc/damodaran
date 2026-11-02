@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from bot.valuator.assumptions import AssumptionSource
+from bot.valuator.assumptions import Assumptions, AssumptionSource
 from bot.valuator.hypergrowth import (
     HORIZON,
     StoryInputs,
@@ -29,6 +29,8 @@ from bot.valuator.hypergrowth import (
     wacc_path,
 )
 from tests.unit.test_hypergrowth_calibration import (
+    CAL_BASE_REVENUE,
+    CAL_FINANCIALS,
     CAL_GROWTH,
     CAL_MARGIN,
     CAL_STORY,
@@ -388,3 +390,63 @@ def test_apply_story_without_terminal_roic_leaves_it_none() -> None:
     )
     assert out.terminal_roic is None
     assert out.to_dcf_assumptions().terminal_roic is None
+
+
+# --- #197: scenario cases -------------------------------------------------------
+
+
+def _storied_bundle() -> Assumptions:
+    return apply_story(
+        generic_bundle(), CAL_STORY, base_revenue=CAL_BASE_REVENUE, sector_wacc=None
+    )
+
+
+def test_scenario_cases_base_first_then_file_order() -> None:
+    from bot.valuator.hypergrowth import scenario_cases
+
+    bundle = _storied_bundle()
+    scenarios = {
+        "worst": replace(CAL_STORY, target_revenue_y10=200_000),
+        "best": replace(CAL_STORY, target_revenue_y10=1_500_000),
+    }
+    cases = scenario_cases(
+        bundle,
+        scenarios,
+        base_revenue=CAL_BASE_REVENUE,
+        sector_wacc=None,
+        financials=CAL_FINANCIALS,
+    )
+    assert list(cases) == ["base", "worst", "best"]
+    assert cases["base"] == (CAL_FINANCIALS, bundle.to_dcf_assumptions())
+    worst_story = apply_story(
+        bundle, scenarios["worst"], base_revenue=CAL_BASE_REVENUE, sector_wacc=None
+    )
+    assert cases["worst"][1] == worst_story.to_dcf_assumptions()
+
+
+def test_scenario_changing_commitments_changes_that_case_financials() -> None:
+    from bot.valuator.hypergrowth import scenario_cases
+
+    cases = scenario_cases(
+        _storied_bundle(),
+        {"lean": replace(CAL_STORY, fixed_commitments_pv=1.0, extra_cash=2.0)},
+        base_revenue=CAL_BASE_REVENUE,
+        sector_wacc=None,
+        financials=CAL_FINANCIALS,
+    )
+    assert cases["lean"][0].fixed_commitments == 1.0
+    assert cases["lean"][0].extra_cash == 2.0
+    assert cases["base"][0] == CAL_FINANCIALS
+
+
+def test_scenario_unreachable_target_names_the_scenario() -> None:
+    from bot.valuator.hypergrowth import scenario_cases
+
+    with pytest.raises(ValueError, match="scenario worst"):
+        scenario_cases(
+            _storied_bundle(),
+            {"worst": replace(CAL_STORY, target_revenue_y10=1e30)},
+            base_revenue=CAL_BASE_REVENUE,
+            sector_wacc=None,
+            financials=CAL_FINANCIALS,
+        )
