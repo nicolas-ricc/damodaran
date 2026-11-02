@@ -40,6 +40,7 @@ from bot.valuator.assumptions import (
 )
 from bot.valuator.hypergrowth import StoryInputs, story_from_override
 from bot.valuator.story_types import StoryType
+from tests.unit.test_valuator_hypergrowth import _STORY
 
 # --------------------------------------------------------------------------- #
 # Fixtures                                                                     #
@@ -1019,8 +1020,6 @@ def test_founded_year_is_accepted_with_any_story_type(
 
 
 def _story_override(tmp_path: Path, **extra: object) -> Path:
-    from tests.unit.test_valuator_hypergrowth import _STORY
-
     return _write_override(
         tmp_path, yaml.safe_dump({"story_type": "hypergrowth", "story": _STORY, **extra})
     )
@@ -1165,8 +1164,6 @@ def test_resolve_hypergrowth_story_applies_the_story(
 def test_resolve_hypergrowth_story_falls_back_to_the_sector_wacc(
     conn: duckdb.DuckDBPyConnection, tmp_path: Path
 ) -> None:
-    from tests.unit.test_valuator_hypergrowth import _STORY
-
     _seed_full_sector(conn)  # sector wacc 0.09
     _seed_financials(conn, rows=((2023, 1.0e9, -1.0e9), (2024, 20.0e9, -40.0e9)))
     story = {k: v for k, v in _STORY.items() if k != "wacc_terminal"}

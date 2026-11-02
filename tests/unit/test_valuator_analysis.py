@@ -7,18 +7,22 @@ sensitivity and narrative flags, and packages everything the §7.7 report needs.
 
 from __future__ import annotations
 
+import math
 from datetime import date, timedelta
 from pathlib import Path
 
 import duckdb
 import pytest
+import yaml
 
 from bot.storage.db import apply_schema, connect
 from bot.valuator.analysis import Analysis, analyze
 from bot.valuator.assumptions import AssumptionSource
+from bot.valuator.hypergrowth import margin_path, parse_story
 from bot.valuator.narrative_flags import FlagColor
 from bot.valuator.sensitivity import SensitivityAxis
 from bot.valuator.story_types import StoryType
+from tests.unit.test_valuator_hypergrowth import _STORY
 
 # Fixture money and share counts are written in millions; the valuator refuses
 # share counts below 1,000,000, so seeds are scaled up by this factor.
@@ -509,10 +513,6 @@ def _seed_anthropic(conn: duckdb.DuckDBPyConnection, ticker: str = "ANTH") -> No
 
 
 def _story_yaml(tmp_path: Path) -> Path:
-    import yaml
-
-    from tests.unit.test_valuator_hypergrowth import _STORY
-
     path = tmp_path / "ANTH.yaml"
     path.write_text(yaml.safe_dump({"story_type": "hypergrowth", "story": _STORY}))
     return path
@@ -606,10 +606,6 @@ def _seed_anthropic_sheet(conn: duckdb.DuckDBPyConnection, ticker: str = "ANTH")
 
 
 def _sheet_yaml(tmp_path: Path, **extra: object) -> Path:
-    import yaml
-
-    from tests.unit.test_valuator_hypergrowth import _STORY
-
     path = tmp_path / "ANTH.yaml"
     path.write_text(yaml.safe_dump({"story_type": "hypergrowth", "story": _STORY, **extra}))
     return path
@@ -636,8 +632,6 @@ def test_hypergrowth_story_values_anthropic_end_to_end(
 def test_hypergrowth_story_without_terminal_growth_uses_currency_rule(
     conn: duckdb.DuckDBPyConnection, tmp_path: Path
 ) -> None:
-    import math
-
     _seed_anthropic_sheet(conn)
     a = analyze("ANTH", conn, override_path=_sheet_yaml(tmp_path, tax_rate=0.25))
     assert a.assumptions.terminal_growth.source is AssumptionSource.RULE_BASED
@@ -649,9 +643,6 @@ def test_hypergrowth_story_without_terminal_growth_uses_currency_rule(
 def test_hypergrowth_story_replaces_manual_generic_keys(
     conn: duckdb.DuckDBPyConnection, tmp_path: Path
 ) -> None:
-    from bot.valuator.hypergrowth import margin_path, parse_story
-    from tests.unit.test_valuator_hypergrowth import _STORY
-
     _seed_anthropic_sheet(conn)
     a = analyze(
         "ANTH",
