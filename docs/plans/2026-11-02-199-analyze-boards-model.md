@@ -100,13 +100,45 @@ Rules:
 
 Group budgets after the change (model steps touching each group): inputs 18, story 16, assumptions 20, dcf 20, sensitivity 8, flags 18, verdict 7.
 
+## Stage-3 evals (written before Task 1, committed failing as `test(#199): evals`)
+
+`tests/unit/test_pipeline_models.py`:
+- `_ANALYZE_RULES` gains `"HypergrowthOnlyWithAStoryFile"`; `_ANALYZE_END` loses `"crashed"`.
+- `test_analyze_rule_antecedents_are_set` gains `storyType' = "hypergrowth"`, `signal' = TRUE`, `storyFile' \in {"present", "absent"}`.
+- New `test_analyze_cfg_checks_the_gate_and_the_batch_rule`: `{"HypergrowthOnlyWithAStoryFile", "OnlyTheCommandStopsTheBatch"} <= set(_invariants("analyze"))`.
+
+`tests/unit/test_pipeline_subboards.py`, `_ANALYZE_TEXT` gains:
+- analyze-inputs: `"founded_year"`, `"read and checked"`
+- analyze-story: `"story file"`, `"founded_year"`, `"falls back to high-growth"`
+- analyze-assumptions: `"story: the story file of a hypergrowth company"`, `"ten-year"`, `"solved"`
+- analyze-dcf: `"cumulative"`, `"g ÷ ROIC"`, `"fixed commitments"`, `"extra cash"`, `"before the bridge"`
+- analyze-sensitivity: `"pretax_cost_of_debt is skipped"`, `"scenario range"`, `"base first"`
+- analyze-flags: `"hypergrowth_story"`, `"750B"`, `"2 × the sector ROIC"`
+- analyze-verdict: `"governance discount"`, `"value after governance"`, `"scenario range"`
+
+`tests/unit/test_pipeline_diagram.py`:
+- `_STORY_ORDER = ("hypergrowth", "distressed", "cyclical", "high_growth", "mature_decline", "mature_stable")`.
+- `_ANALYZE_NODES` gains `story_type.gate` (decision), `assumptions.story` (step), `sensitivity.scenarios` (step), `narrative_flags.hypergrowth` (decision), `verdict.governance` (step).
+- `_ANALYZE_TEXT` gains: `override` + `"before the signals"`; `inputs.derived` + `"founded_year"`; `story_type.hypergrowth`: `"≥ 50%"`, `"≥ 40%"`, `"founded ≤ 15 years ago or unknown"`; `story_type.gate`: `"story file"`, `"high-growth"`, `"red"`; `assumptions.story`: `"apply_story"`, `"ten-year"`; `dcf.years` + `"cumulative"`; `dcf.terminal` + `"g ÷ ROIC"`; `dcf.equity` + `"fixed commitments"`, `"extra cash"`; `dcf.blend` + `"before the bridge"`; `sensitivity.tornado` + `"pretax_cost_of_debt is skipped"`; `sensitivity.scenarios`: `"base first"`, `"scenario"`; `narrative_flags.hypergrowth`: `"750B"`, `"2 × the sector ROIC"`, `"hypergrowth_story"`; `verdict.governance`: `"governance discount"`, `"value after governance"`.
+- `_REQUIRED_CONSTS`: analyze-story + `_HYPERGROWTH_LAST_YEAR_GROWTH`, `_HYPERGROWTH_CAGR`, `_HYPERGROWTH_MAX_AGE_YEARS`; analyze-flags + `_LARGEST_COMPANY_REVENUE`, `_ROIC_SECTOR_MULTIPLE`; analyze-assumptions + `bot.valuator.hypergrowth.HORIZON`.
+- `_REQUIRED_SYMBOLS`: analyze-inputs + `bot.valuator.assumptions.load_override`; analyze-assumptions + `bot.valuator.hypergrowth.apply_story`, `bot.valuator.hypergrowth.solve_stage_growth`; analyze-sensitivity + `bot.valuator.sensitivity.scenario_range`, `bot.valuator.sensitivity.active_axes`; analyze-flags + `bot.valuator.narrative_flags.hypergrowth_flags`.
+
+Tasks 1–5 make these pass; each task's Step 1 runs the subset it owns.
+
+## Assumptions
+
+- **Scenario range before the flags in the model** (Decision 5). No doc grants a different order explicitly; `analyze` raises on a failed scenario before `Analysis` is returned and `cli._analyze_one` (`except ValueError`, `src/bot/cli.py:486`) writes nothing, so the computed flags never leave the process. Rejected: keeping the code order, which forces either dropping the scenario failure from the model or weakening `FlagsAfterTheDcfNotInTheVerdict`.
+- **A failed TLC run is fixed forward** with a new commit on the model, never by reverting the board commits; Java is not installed here, so the local invocation of `models/README.md` "Running" is unavailable and CI is the checker. Rejected: reverting, which loses the boards for a model-only error.
+- **`HypergrowthOnlyWithAStoryFile` is a guard on the actions**: today only `TheStoryFileIsPresent` sets `storyType = "hypergrowth"`, under `storyFile = "present"`; the rule is the issue's verbatim deliverable and catches a later action that sets it without the guard. Rejected: a stronger two-way rule, which the issue does not ask for.
+- **The fallback is owned by `_resolve_story_type`** (`src/bot/valuator/assumptions.py:954-972`, the classifier path; pinned by `tests/unit/test_valuator_assumptions.py::test_hypergrowth_without_story_falls_back_to_high_growth`); the manual path is refused earlier by `load_override` (`_check_story_file`). The rule's citation names both.
+
 ## Review Focus
 
 1. A label in `view.js` that differs by one character from the edge first line on its board → `test_step_labels_are_drawn` / `test_subboard_edges_join_the_model_states` fail. Copy labels from the table above.
-2. A state whose class flips (decision ⇔ step) because the count of conditioned steps leaving it changed: `resolved`, `tg_set`, `country_checked`, `scenarios_done`, `hg_story_checked`, `discounted` become decisions; `scale_checked`, `hypergrowth_checked`, `override_read` are steps. `test_subboard_state_classes` pins it on every board where the node is drawn, neighbours included.
+2. A state whose class flips (decision ⇔ step) because the count of conditioned steps leaving it changed (README "Sub-boards": a decision when two or more steps leaving it carry a [condition]): `region_set`, `resolved`, `tg_set`, `country_checked`, `scenarios_done`, `hg_story_checked`, `discounted` become decisions; `scale_checked`, `hypergrowth_checked`, `override_read` are steps. `test_subboard_state_classes` pins it on every board where the node is drawn, neighbours included.
 3. An uncited digit on a new board line (750B, 2 ×, 15 years, 10) → `test_subboard_digits_are_cited` / `check.py`.
 4. A `.tla` variable missing from an `UNCHANGED` list → TLC fails in CI only; no local test sees it. Check every action lists all 18 variables exactly once (assigned or unchanged).
-5. A neighbour node on a board that does not link its own sub-board, or a board over 24 edges after adding the new steps (assumptions is at 24).
+5. A neighbour node on a board that does not link its own sub-board, or a board over 24 edges after adding the new steps (assumptions goes from 22 to 23).
 
 ---
 
@@ -146,8 +178,8 @@ Group budgets after the change (model steps touching each group): inputs 18, sto
 
 **Files:** Modify `docs/pipeline/analyze-assumptions.d2`, `docs/pipeline/analyze-dcf.d2`.
 
-- analyze-assumptions: `tg_set` becomes a decision; edges `TaxAndBankruptcyAreSet` and `TheStoryShapesThePaths` to the `ready` neighbour. The story edge's lines cite `bot.valuator.hypergrowth.apply_story`, `bot.valuator.hypergrowth.solve_stage_growth` and `@const bot.valuator.hypergrowth.HORIZON`: growth year 1 = `year1_growth`, years 2 to 5 one rate solved so year-10 revenue meets the target, fade to terminal growth; margin ramp from `year1_margin` to `target_margin − regulatory_drag`; WACC `wacc_start` to year 5 then linear to `wacc_terminal` (else sector WACC); tax `effective_tax_rate` to year 5 then linear to the marginal rate; every value sourced `story`. Sources note gains `- story: the story file of a hypergrowth company`. `TheStoryCannotBeApplied` is not drawn here. Exactly ≤ 24 edges.
-- analyze-dcf: `resolved` becomes a decision; neighbour `region_set` (link analyze-inputs) replaces `classified`; neighbour `grid_done` (link analyze-sensitivity) for `TheScenarioRangeFails`; the `tg_set` neighbour becomes a decision. Formula lines: `WACC_t` path, `discount factor_t = ∏ 1 ÷ (1 + WACC_k), k = 1 … t`, `present value_t = FCFF_t × discount factor_t`; terminal `reinvestment = NOPAT_N+1 × g_terminal ÷ ROIC`, discounted by the last cumulative factor at the last year's WACC; bridge line `with a story: − fixed commitments + extra cash`; failure line `EV after failure = (1 − p) × EV + p × proceeds share × EV, then the bridge`.
+- analyze-assumptions: `tg_set` becomes a decision; edges `TaxAndBankruptcyAreSet` and `TheStoryShapesThePaths` to the `ready` neighbour. The story edge's lines cite `bot.valuator.hypergrowth.apply_story`, `bot.valuator.hypergrowth.solve_stage_growth` and `@const bot.valuator.hypergrowth.HORIZON`: growth year 1 = `year1_growth`, years 2 to 5 one rate solved so year-10 revenue meets the target, fade to terminal growth; margin ramp from `year1_margin` to `target_margin − regulatory_drag`; WACC `wacc_start` to year 5 then linear to `wacc_terminal` (else sector WACC); tax `effective_tax_rate` to year 5 then linear to the marginal rate; every value sourced `story`. Sources note gains `- story: the story file of a hypergrowth company`. `TheStoryCannotBeApplied` is not drawn here. 23 edges (22 today + the story edge).
+- analyze-dcf: `resolved` becomes a decision; neighbour `region_set` (link analyze-inputs) replaces `classified`; neighbour `grid_done` (link analyze-sensitivity) for `TheScenarioRangeFails`; the `tg_set` neighbour becomes a decision. Formula lines: `WACC_t` path, `discount factor_t = ∏ 1 ÷ (1 + WACC_k), k = 1 … t`, `present value_t = FCFF_t × discount factor_t`; terminal `reinvestment = NOPAT_N+1 × g ÷ ROIC, g = g_terminal`, discounted by the last cumulative factor at the last year's WACC; bridge line `with a story: − fixed commitments + extra cash`; failure line `EV after failure = (1 − p) × EV + p × proceeds share × EV, then the bridge`.
 
 - [ ] **Step 1:** `uv run pytest -q tests/unit/test_pipeline_subboards.py -k "analyze-assumptions or analyze-dcf"` fails on the new phrases.
 - [ ] **Step 2:** Edit both boards.
@@ -195,3 +227,27 @@ Group budgets after the change (model steps touching each group): inputs 18, sto
 - [ ] **Step 5:** `python3 docs/pipeline/check.py` 0 errors; full suite green; commit `docs(#199): render the analyze boards`; push; the new run is green in both jobs.
 
 Any later change to a `.d2` (review fixes, deslop) repeats Task 6 before the pull request.
+
+## Grilling
+
+One round, 17 questions (griller model: fable). The revisions above (a section listing the stage-3 evals, the `region_set` class flip, the assumptions board at 23 edges rather than 24, `## Assumptions`) clarify the plan without changing its tasks, so there was no second round.
+
+1. Where are the failing expectations written? Nowhere yet: the plan was missing them. → the plan now has a "Stage-3 evals" section listing them verbatim.
+2. Edges on the assumptions board? CODE: `docs/pipeline/analyze-assumptions.d2` has 17 model edges, 4 file edges and `out`, 22 in all; with the story edge it has 23. → the plan is corrected.
+3. Why move the scenario range before the flags? CODE: `src/bot/valuator/analysis.py` (`analyze` raises before returning `Analysis`), `src/bot/cli.py:486` (`except ValueError` returns 1 before any write). No doc grants a different order → technical assumption (see `## Assumptions`).
+4. Is invalid YAML a `ValueError`? CODE: `tests/unit/test_valuator_assumptions.py:344` (`pytest.raises(ValueError, match="not valid YAML")`); `src/bot/cli.py:483-487` (`except LookupError` / `except ValueError` inside the per-ticker call); `tests/unit/test_analyze_model_replay.py` (the batch goes on).
+5. Who owns the fallback, and is the rule vacuous? CODE: `assumptions.py:954-972` `_resolve_story_type`; test `test_valuator_assumptions.py:1028`. ISSUE: "add the rule `HypergrowthOnlyWithAStoryFile` (the story type is `hypergrowth` only when the story file is present)". It guards the actions → technical assumption.
+6. Which README paragraph grants the exception? DOC: `docs/pipeline/README.md` "Exception: when the cap leaves no room (the screen rule layers), the step is drawn only on the board of the state it enters". CODE: `test_step_labels_are_drawn` takes the union of the stage's boards.
+7. How can the digits be cited? CODE: `analyze-story.d2` writes the whole edge on one source line, with a trailing `# @const`; `test_subboard_digits_are_cited` reads the directives of that source line.
+8. Which states flip class? DOC: README "A state is a `decision` when two or more steps leaving it carry a [condition]". `region_set` becomes a decision (added to the plan); `signals` is already a decision.
+9. How are the steps of a group counted? CODE: `test_pipeline_models.py:826-832` counts a step when its source or its target is in the group. Today: inputs 16, story 14, assumptions 17, dcf 17, sensitivity 5, flags 16, verdict 6.
+10. Manual story type alongside the signals? CODE: `assumptions.py` `_resolve_story_type` (the manual type wins); `analysis.py` `hypergrowth_signals=auto_story is StoryType.HYPERGROWTH` whatever the manual type; `narrative_flags.py:518-541` emits the story flag whenever there are signals. The model's guard matches.
+11. Does anything name `crashed`, and which variables exist? CODE: `analyze.tla:727-728`, the body has no `crashed`, and there is no `TypeOK`. The 15 variables are on `analyze.tla:6-8`. `NoManualStoryType` and `TheOverrideSetsTheStoryType` already assign `overrideStory`.
+12. What if TLC fails? DOC: `models/README.md` "Running" needs Java, which is not installed here → technical assumption: fix forward.
+13. Is "no scenarios" reachable? DOC: ADR 0009 "an optional `scenarios` mapping"; CODE: `analysis.py` `if assumptions.scenarios:`. Yes.
+14. Who returns no flag at all? CODE: `narrative_flags.py:532-533` `hypergrowth_flags` returns `()` without signals and without the hypergrowth type.
+15. The citation format? DOC: `models/README.md` "each rule above its sentence, carries a `(* ... *)` citation"; CODE: `test_rules_cite_the_code` and `test_analyze_rules_are_cited` require `(* Cites:`, and the existing rules use `assumptions.py` without `src/`.
+16. What does the artifact hold? CODE: `.github/workflows/pipeline-diagram.yml`, artifact paths `docs/pipeline/*.svg`, `*.png`, `rendered.sha256`. No `.d2` file is in it.
+17. Which criteria ask for Decision 1 and the gap note? ISSUE: "move the invalid-override steps to the phase after the company is loaded … Keep every existing rule"; "if a rule breaks, the model is wrong (fix the model, never weaken the rule; the code is what the pytest suite says it is)"; "Replace the stage board's \"age comes from ipo_date\" gap note with the current truth".
+
+Sources: ISSUE 2, CODE 13, DOC 6 (some answers cite more than one). NO SOURCE: 3, all technical assumptions. Spec ambiguities: none. Issues opened: none. Status: ok.
