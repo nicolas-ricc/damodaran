@@ -10,7 +10,7 @@ fields with defaults). JSON floats are written with ``repr``, so the projection
 compares them exactly.
 
 The fixtures under ``tests/fixtures/valuator/isolation/`` were captured on
-commit ``e4ca73f`` (before the DCF changes) with::
+commit ``4caf8e1`` (the ``src`` tree before the DCF changes of #193) with::
 
     uv run python -c "
     from tests.unit.test_valuator_isolation_golden import regenerate
