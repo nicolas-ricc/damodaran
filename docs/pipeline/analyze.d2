@@ -164,17 +164,17 @@ dcf: "4. two-stage discounted cash flow" {  # @symbol bot.valuator.dcf.dcf
   years: "for t = 1 … N (N = length of the growth path, 5 unless a manual list differs, 10 with a story;\nthe margin path is cut, or extended with its last value, to N)\nrevenue_t = revenue_t−1 × (1 + g_t), revenue_0 = latest revenue\nEBIT_t = revenue_t × margin_t\nnet operating profit after tax (NOPAT)_t = EBIT_t × (1 − tax)\nreinvestment_t = (revenue_t − revenue_t−1) ÷ sales-to-capital\nfree cash flow to the firm (FCFF)_t = NOPAT_t − reinvestment_t\npresent value_t = FCFF_t ÷ (1 + WACC)^t\nwith a WACC path: present value_t = FCFF_t × the cumulative discount factor\nwith a story: NOPAT_t uses the story's yearly tax rate" {  # @const bot.valuator.assumptions._HORIZON @const bot.valuator.hypergrowth.HORIZON
     class: step
   }
-  terminal: "terminal year N + 1: revenue = revenue_N × (1 + g_terminal), margin_N\nFCFF_N+1 by the same formulas\nterminal value = FCFF_N+1 ÷ (WACC − g_terminal)\npresent value of terminal value = terminal value ÷ (1 + WACC)^N\nwith a terminal return on invested capital (ROIC): reinvestment = NOPAT_N+1 × g ÷ ROIC\nwith a WACC path: WACC = the last year's, discounted by the last cumulative factor" {
+  terminal: "terminal year N + 1: revenue = revenue_N × (1 + g_terminal), margin_N\nFCFF_N+1 by the same formulas\nterminal value = FCFF_N+1 ÷ (WACC − g_terminal)\npresent value of terminal value = terminal value ÷ (1 + WACC)^N\nwith a terminal return on invested capital (ROIC): reinvestment = NOPAT_N+1 × g ÷ ROIC\nwith a WACC path: WACC = the last year's, discounted by the last cumulative factor" {  # @symbol bot.valuator.dcf.dcf
     class: step
   }
   ev: "enterprise value (EV) = Σ present value_t + present value of terminal value\nterminal value share = present value of terminal value ÷ EV\n(0 when EV = 0)" {
     class: step
   }
-  equity: "equity = EV − net debt + adjustments\ngoing-concern value per share = equity ÷ diluted shares\nwith a story: − fixed commitments + extra cash" {
+  equity: "equity = EV − net debt + adjustments\ngoing-concern value per share = equity ÷ diluted shares\nwith a story: − fixed commitments + extra cash" {  # @symbol bot.valuator.dcf._equity_bridge
     class: step
     adjustments: |md Gap: spec §7.2 and the plano dcf card adjust equity for minority interests and cross-holdings; adjustments has no input path (not filled by the pipeline, not an override key), so it is always 0. | {class: gap}
   }
-  blend: "intrinsic value per share = (1 − p) × going-concern value per share\n+ p × distress value per share\nwith a hypergrowth story: blended on EV before the bridge (proceeds share 0 by default), then the bridge" {
+  blend: "intrinsic value per share = (1 − p) × going-concern value per share\n+ p × distress value per share\nwith a hypergrowth story: blended on EV before the bridge (proceeds share 0 by default), then the bridge" {  # @symbol bot.valuator.dcf.dcf
     class: step
   }
 }
@@ -215,7 +215,7 @@ narrative_flags: "6. narrative flags: five checks, three more for hypergrowth; f
     always_unknown: |md Gap: analyze never supplies the foreign revenue share or the two ERPs (no ingest path has revenue by geography), so this flag is always unknown. | {class: gap}
   }
   # Decision: the three hypergrowth flags
-  hypergrowth: "hypergrowth flags\nhypergrowth_story: red with signals and no story file, yellow with a story file and no signals, green otherwise\nrevenue scale: year-10 revenue > 750B: yellow\nterminal ROIC > 2 × the sector ROIC: yellow\na ROIC missing, or sector ROIC ≤ 0: unknown" {  # @symbol bot.valuator.narrative_flags.hypergrowth_flags @symbol bot.valuator.narrative_flags.hypergrowth_story_flag @const bot.valuator.narrative_flags._LARGEST_COMPANY_REVENUE @const bot.valuator.narrative_flags._ROIC_SECTOR_MULTIPLE
+  hypergrowth: "hypergrowth flags\nhypergrowth_story: red with signals and no story file, yellow with a story file and no signals, green otherwise\nrevenue scale: year-10 revenue > 750B: yellow\nterminal ROIC > 2 × the sector ROIC: yellow\na ROIC missing, or sector ROIC ≤ 0: unknown\nrun only with hypergrowth signals or the hypergrowth story type; revenue scale and terminal ROIC only with the hypergrowth story type" {  # @symbol bot.valuator.narrative_flags.hypergrowth_flags @symbol bot.valuator.narrative_flags.hypergrowth_story_flag @const bot.valuator.narrative_flags._LARGEST_COMPANY_REVENUE @const bot.valuator.narrative_flags._ROIC_SECTOR_MULTIPLE
     class: decision
   }
 }
@@ -292,7 +292,6 @@ override_yaml -> story_type.gate: "story section"
 override_yaml -> story_type.manual: "story_type key"
 
 # Edges: assumptions
-story_type.manual -> assumptions: "story type"
 story_type.gate -> assumptions: "story type after the story file check"
 story_type.gate -> assumptions.story: "hypergrowth with a story file"
 override_yaml -> assumptions.story: "story section"
@@ -341,7 +340,6 @@ assumptions.story -> verdict.governance: "governance discount"
 inputs.load -> narrative_flags: "sector op_margin and beta_levered, latest EBIT and revenue"
 inputs.derived -> narrative_flags.beta_business_risk: "histories and balance sheet"
 dcf.blend -> verdict.governance: "intrinsic value per share"
-dcf.blend -> verdict.mos: "intrinsic value per share, with no governance discount"
 inputs.load -> verdict.mos: "newest close"
 verdict.mos -> verdict.words: "MoS"
 dcf.ev -> sanity_check.multiples: "EV"
