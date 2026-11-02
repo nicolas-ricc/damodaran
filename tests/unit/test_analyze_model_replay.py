@@ -1,4 +1,6 @@
-"""Replay of the analyze model's broken rule OnlyTheCommandStopsTheBatch (#169).
+"""Replay of the analyze model's rule OnlyTheCommandStopsTheBatch (#169).
+
+The rule was broken until #180 was fixed, and is checked again since #199.
 
 TLC's shortest path: a ticker is chosen, its override file is picked, the company is
 loaded and classified, then the override file is read and is not valid YAML, or holds
