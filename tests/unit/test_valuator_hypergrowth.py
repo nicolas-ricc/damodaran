@@ -8,6 +8,7 @@ the file path and names the key, so ``bot analyze`` fails that ticker alone.
 
 from __future__ import annotations
 
+from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
@@ -72,7 +73,7 @@ _SCENARIOS: dict[str, Any] = {
 
 def test_parse_story_round_trips_the_issue_schema() -> None:
     story = parse_story(_STORY, where=_WHERE)
-    assert story == StoryInputs(**{k: v for k, v in _STORY.items()})
+    assert story == StoryInputs(**_STORY)
     assert story.target_revenue_y10 == 1_011_491_000_000.0
     assert story.wacc_terminal == pytest.approx(0.0913)
     assert story.margin_converge_year == 5
@@ -215,8 +216,6 @@ def test_story_from_override() -> None:
 
 
 def test_example_file_documents_every_story_key() -> None:
-    from dataclasses import fields
-
     example = (_ROOT / "config" / "assumptions" / "_EXAMPLE.yaml.example").read_text()
     readme = (_ROOT / "config" / "assumptions" / "README.md").read_text()
     for name in [f.name for f in fields(StoryInputs)] + ["founded_year", "story:", "scenarios:"]:
@@ -226,8 +225,6 @@ def test_example_file_documents_every_story_key() -> None:
 
 
 def test_every_story_field_has_a_rule() -> None:
-    from dataclasses import fields
-
     from bot.valuator import hypergrowth
 
     assert list(hypergrowth._RULES) == [f.name for f in fields(StoryInputs)]

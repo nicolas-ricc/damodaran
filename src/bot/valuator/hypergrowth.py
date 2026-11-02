@@ -59,8 +59,7 @@ class StoryInputs:
     governance_discount: float = 0.0
 
 
-#: Per-key rule: ``(is_int, in_range, rule text)``. Keys of :class:`StoryInputs`
-#: outside :data:`_REQUIRED` have a default and are optional.
+#: Per-key rule: ``(is_int, in_range, rule text)``.
 _Rule = tuple[bool, Callable[[float], bool], str]
 
 #: One validator per story key (ranges of issue #194). It drives unknown-key

@@ -37,6 +37,7 @@ from bot.valuator.assumptions import (
     load_override,
     resolve_assumptions,
 )
+from bot.valuator.hypergrowth import StoryInputs, story_from_override
 from bot.valuator.story_types import StoryType
 
 # --------------------------------------------------------------------------- #
@@ -988,8 +989,6 @@ def test_load_override_accepts_founded_year_up_to_this_year(tmp_path: Path) -> N
 
 
 def test_load_override_full_story_file(tmp_path: Path) -> None:
-    from bot.valuator.hypergrowth import StoryInputs, story_from_override
-
     path = _write_override(tmp_path, _FULL_STORY_FILE)
     parsed = story_from_override(load_override(path), where=str(path))
     assert parsed is not None
