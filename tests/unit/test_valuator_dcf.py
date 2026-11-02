@@ -12,6 +12,7 @@ capital-structure components::
 from __future__ import annotations
 
 import math
+from typing import Any
 
 import pytest
 
@@ -451,9 +452,9 @@ def damodaran_assumptions() -> Assumptions:
     )
 
 
-def _plain_assumptions(**overrides: object) -> Assumptions:
+def _plain_assumptions(**overrides: Any) -> Assumptions:
     """A five-year scalar-WACC case (WACC = 0.8 * 0.11 + 0.2 * 0.05 * 0.75 = 0.0955)."""
-    fields: dict[str, object] = {
+    fields: dict[str, Any] = {
         "revenue_growth": (0.10, 0.08, 0.06, 0.04, 0.02),
         "operating_margin": (0.20, 0.21, 0.22, 0.22, 0.22),
         "tax_rate": 0.25,
@@ -465,7 +466,7 @@ def _plain_assumptions(**overrides: object) -> Assumptions:
         "debt_weight": 0.2,
     }
     fields.update(overrides)
-    return Assumptions(**fields)  # type: ignore[arg-type]
+    return Assumptions(**fields)
 
 
 def _plain_financials(**overrides: float) -> Financials:

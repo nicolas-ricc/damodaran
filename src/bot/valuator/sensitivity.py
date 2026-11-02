@@ -173,7 +173,7 @@ def active_axes(assumptions: Assumptions) -> tuple[SensitivityAxis, ...]:
     return tuple(
         axis
         for axis in SensitivityAxis
-        if not (axis is SensitivityAxis.PRETAX_COST_OF_DEBT and assumptions.wacc_path)
+        if not (axis is SensitivityAxis.PRETAX_COST_OF_DEBT and assumptions.wacc_path is not None)
     )
 
 
@@ -214,7 +214,7 @@ def _axis_endpoint_value(assumptions: Assumptions, axis: SensitivityAxis) -> flo
 def tornado(financials: Financials, base_assumptions: Assumptions) -> list[TornadoEntry]:
     """Rank each assumption by its ±20% impact on intrinsic value (spec §7.4).
 
-    Each :class:`SensitivityAxis` is moved to -20% and +20% of its base value,
+    Each active axis (see :func:`active_axes`) is moved to -20% and +20% of its base value,
     one at a time, and the swing in per-share intrinsic value is recorded. The
     returned list is ordered descending by absolute impact, so the first entry
     is the assumption the valuation is most sensitive to.
@@ -224,7 +224,8 @@ def tornado(financials: Financials, base_assumptions: Assumptions) -> list[Torna
         base_assumptions: The base-case projection and discount-rate inputs.
 
     Returns:
-        One :class:`TornadoEntry` per active axis (see :func:`active_axes`), descending by absolute impact.
+        One :class:`TornadoEntry` per active axis, descending by absolute
+        impact.
     """
     entries: list[TornadoEntry] = []
     for axis in active_axes(base_assumptions):

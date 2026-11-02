@@ -208,7 +208,8 @@ def regenerate() -> None:
 
     FIXTURES.mkdir(parents=True, exist_ok=True)
     for case in CASES:
-        markdown, sidecar = _render(_run(case, Path(tempfile.mkdtemp())))
+        with tempfile.TemporaryDirectory() as tmp:
+            markdown, sidecar = _render(_run(case, Path(tmp)))
         (FIXTURES / f"{case}.md").write_text(markdown, encoding="utf-8")
         (FIXTURES / f"{case}.json").write_text(sidecar, encoding="utf-8")
 

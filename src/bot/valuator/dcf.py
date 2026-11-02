@@ -59,9 +59,10 @@ class Financials:
             minority interest, add the value of cross-holdings, etc. Added to
             equity value, so credits are positive and charges negative.
         fixed_commitments: Fixed obligations that are not debt (e.g. long-term
-            purchase or lease commitments). Subtracted from EV one for one.
-        extra_cash: Cash not already netted in ``net_debt``. Added to EV one for
-            one.
+            purchase or lease commitments). Subtracted in the equity bridge, one
+            for one, like ``net_debt``; EV is unchanged.
+        extra_cash: Cash not already netted in ``net_debt`` (e.g. IPO
+            proceeds). Added in the equity bridge, one for one; EV is unchanged.
 
     ``adjustments`` (minority interests, cross-holdings) is a supported input of the
     equity bridge that the analysis pipeline does not populate: no ingest path supplies
@@ -168,8 +169,10 @@ class DCFResult:
         terminal_value_share: PV(terminal value) / enterprise_value — the
             fraction of EV resting on the perpetuity (spec §7.5 narrative flag).
         wacc: The discount rate used (the terminal WACC when ``wacc_path`` is set).
-        equity_weight: Equity weight that produced ``wacc``.
-        debt_weight: Debt weight that produced ``wacc``.
+        equity_weight: Equity weight that produced ``wacc``; only echoed when
+            ``wacc_path`` is set, since the path replaces the built-up WACC.
+        debt_weight: Debt weight that produced ``wacc``; only echoed when
+            ``wacc_path`` is set.
         enterprise_value_after_failure: EV blended with the failure recovery
             (``distress_proceeds_pct`` mode); ``None`` otherwise.
         wacc_path: The per-year WACC path used, echoed; ``None`` for a flat rate.
@@ -315,7 +318,7 @@ def dcf(financials: Financials, assumptions: Assumptions) -> DCFResult:
     if wacc_path is None:
         pv_terminal = terminal_value / (1.0 + wacc) ** horizon
     else:
-        pv_terminal = terminal_value * discount_factor
+        pv_terminal = terminal_value * cumulative_discount
 
     enterprise_value = pv_explicit + pv_terminal
     terminal_value_share = pv_terminal / enterprise_value if enterprise_value != 0.0 else 0.0
