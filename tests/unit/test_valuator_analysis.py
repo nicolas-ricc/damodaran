@@ -565,9 +565,105 @@ def test_hypergrowth_with_story_file(conn: duckdb.DuckDBPyConnection, tmp_path: 
     assert a.story_file_present is True
     assert a.narrative_flags[-1].name == "hypergrowth_story"
     assert a.narrative_flags[-1].color is FlagColor.GREEN
-    # Generic resolvers until the story-driven projection lands (#196).
-    assert a.assumptions.revenue_growth.source is AssumptionSource.HISTORICAL_AVERAGE
+    # The story drives the projection (#196).
+    assert a.assumptions.revenue_growth.source is AssumptionSource.STORY
+    assert a.assumptions.operating_margin.source is AssumptionSource.STORY
     assert not any("no story file" in r for r in a.story_reasons)
+
+
+# --- #196: the story drives the valuation ---------------------------------------
+
+
+def _seed_anthropic_sheet(conn: duckdb.DuckDBPyConnection, ticker: str = "ANTH") -> None:
+    """Anthropic as in Damodaran's sheet, in raw dollars: revenue 1,020M then 20,608M,
+    EBIT -46,982M, coverage < 1, no debt, 112,389M cash, 3,298.14M shares; sector
+    WACC 9.13%, margin 28%, ROIC 12%, tax 25%."""
+    _seed_company(conn, ticker=ticker, industry_damodaran="Software (System & Application)")
+    conn.execute(
+        "UPDATE damodaran_industry SET wacc = 0.0913, op_margin = 0.28, roic = 0.12, "
+        "tax_rate = 0.25"
+    )
+    for year, revenue, ebit in ((2024, 1_020.0, -2_325.0), (2025, 20_608.0, -46_982.0)):
+        conn.execute(
+            "INSERT INTO financials_annual "
+            "(ticker, fiscal_year, revenue, ebit, net_income, interest_expense, "
+            "total_debt, cash, shares_diluted, is_restated, source, currency) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
+            [
+                ticker,
+                year,
+                revenue * _MILLIONS,
+                ebit * _MILLIONS,
+                ebit * _MILLIONS,
+                1_000.0 * _MILLIONS,
+                0.0,
+                112_389.0 * _MILLIONS,
+                3_298.14 * _MILLIONS,
+                False,
+                "sec_edgar",
+            ],
+        )
+
+
+def _sheet_yaml(tmp_path: Path, **extra: object) -> Path:
+    import yaml
+
+    from tests.unit.test_valuator_hypergrowth import _STORY
+
+    path = tmp_path / "ANTH.yaml"
+    path.write_text(yaml.safe_dump({"story_type": "hypergrowth", "story": _STORY, **extra}))
+    return path
+
+
+def test_hypergrowth_story_values_anthropic_end_to_end(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_anthropic_sheet(conn)
+    a = analyze(
+        "ANTH", conn, override_path=_sheet_yaml(tmp_path, terminal_growth=0.049, tax_rate=0.25)
+    )
+    # Expected 445.74: the sheet's adjustments line (3,929 - 472) is not an override key.
+    assert a.dcf_result.intrinsic_value == pytest.approx(447.34, rel=0.01)
+    assert a.story_type == "hypergrowth"
+    assert a.assumptions.revenue_growth.source is AssumptionSource.STORY
+    assert a.assumptions.operating_margin.source is AssumptionSource.STORY
+    assert a.dcf_result.wacc_path is not None
+    assert a.financials.fixed_commitments == 472_336e6
+    assert a.financials.extra_cash == 100_000e6
+    assert len(a.narrative_flags) == 6
+
+
+def test_hypergrowth_story_without_terminal_growth_uses_currency_rule(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    import math
+
+    _seed_anthropic_sheet(conn)
+    a = analyze("ANTH", conn, override_path=_sheet_yaml(tmp_path, tax_rate=0.25))
+    assert a.assumptions.terminal_growth.source is AssumptionSource.RULE_BASED
+    assert a.assumptions.terminal_growth.value == pytest.approx(0.0395)
+    assert a.dcf_result.projections[-1].revenue == pytest.approx(1_011_491e6, rel=1e-9)
+    assert math.isfinite(a.dcf_result.intrinsic_value)
+
+
+def test_hypergrowth_story_replaces_manual_generic_keys(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    from bot.valuator.hypergrowth import margin_path, parse_story
+    from tests.unit.test_valuator_hypergrowth import _STORY
+
+    _seed_anthropic_sheet(conn)
+    a = analyze(
+        "ANTH",
+        conn,
+        override_path=_sheet_yaml(
+            tmp_path, terminal_growth=0.049, operating_margin=0.35, revenue_growth=0.10
+        ),
+    )
+    assert a.assumptions.operating_margin.source is AssumptionSource.STORY
+    assert a.assumptions.operating_margin.value == margin_path(parse_story(_STORY, where="x"))
+    assert a.assumptions.revenue_growth.source is AssumptionSource.STORY
+    assert a.dcf_result.projections[-1].revenue == pytest.approx(1_011_491e6, rel=1e-9)
 
 
 def test_founded_year_40_years_back_is_distressed(
