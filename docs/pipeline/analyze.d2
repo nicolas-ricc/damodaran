@@ -65,7 +65,7 @@ inputs: "1. inputs of one company" {
 # Section 2: story type
 story_type: "2. story type: first rule that matches wins" {  # @symbol bot.valuator.story_types.classify @enum bot.valuator.story_types.StoryType
   link: "./analyze-story.svg"
-  distressed: "distressed: Altman Z < 1.81 or interest coverage ≤ 1.0" {  # @const bot.valuator.story_types._DISTRESS_ALTMAN_Z @const bot.valuator.story_types._DISTRESS_INTEREST_COVERAGE
+  distressed: "hypergrowth, then distressed\nhypergrowth: last-year growth ≥ 50%, compound annual growth rate (CAGR) ≥ 40%, margin below sector, founded ≤ 15 years ago or unknown\ndistressed: Altman Z < 1.81 or interest coverage ≤ 1.0" {  # @const bot.valuator.story_types._HYPERGROWTH_LAST_YEAR_GROWTH @const bot.valuator.story_types._HYPERGROWTH_CAGR @const bot.valuator.story_types._HYPERGROWTH_MAX_AGE_YEARS @const bot.valuator.story_types._DISTRESS_ALTMAN_Z @const bot.valuator.story_types._DISTRESS_INTEREST_COVERAGE
     class: decision
     label.near: outside-top-center
     altman: |md Gap: Altman Z is read by the classifier but computed nowhere, and analyze never passes it; only interest coverage can make a company distressed. The plano s-ds and a-default cards say Altman Z decides it. | {class: gap}
