@@ -29,6 +29,9 @@ beta, leverage ratios, foreign-revenue share, the two ERPs. Those extra,
 flag-specific inputs are gathered in :class:`NarrativeContext`, so the flag
 functions stay pure: ``(financials, assumptions, result, context) -> flag`` with
 no I/O and no global state.
+
+The ``hypergrowth_story`` flag (issue #195) sits outside the five §7.5 flags: it
+is produced by :func:`hypergrowth_flags` and never by :func:`narrative_flags`.
 """
 
 from __future__ import annotations
@@ -41,6 +44,9 @@ from bot.valuator.dcf import Assumptions, DCFResult, Financials
 
 #: Story-margin flag fires only for this story type (spec §7.1 / §7.5).
 _HIGH_GROWTH_STORY = "high-growth"
+
+#: Story type for which the hypergrowth flag always runs (issue #195).
+_HYPERGROWTH_STORY = "hypergrowth"
 
 #: Terminal-value share above which the valuation is flagged fragile (spec §7.5).
 _TERMINAL_VALUE_SHARE_CEILING = 0.80
@@ -115,6 +121,9 @@ class NarrativeContext:
         erp_weighted: Revenue-weighted equity risk premium across the countries
             the company operates in.
         erp_listing: Equity risk premium of the company's listing country.
+        hypergrowth_signals: The classifier's hypergrowth signals fired (#195).
+        story_file_present: A hand-written story file exists for the company
+            (#195).
         company_debt_weight: The company's own debt / (debt + equity) from its
             latest balance sheet. Distinct from ``Assumptions.debt_weight``,
             which is derived from the *sector's* D/E and drives the WACC.
@@ -129,6 +138,8 @@ class NarrativeContext:
     erp_weighted: float | None = None
     erp_listing: float | None = None
     company_debt_weight: float | None = None
+    hypergrowth_signals: bool = False
+    story_file_present: bool = False
 
 
 def story_margin_flag(
@@ -369,6 +380,58 @@ def country_exposure_flag(
             f"vs listing ERP {erp_listing:.1%} ({gap * 10000:.0f} bps gap)"
         ),
     )
+
+
+def hypergrowth_story_flag(
+    financials: Financials,
+    assumptions: Assumptions,
+    result: DCFResult,
+    context: NarrativeContext,
+) -> NarrativeFlag:
+    """Flag hypergrowth signals that lack a story file (issue #195).
+
+    Signals without a story file is red: the default valuation is not reliable.
+    A story file without signals is yellow (the two disagree). Both present is
+    green. Neither present (story type set by other means) is yellow.
+    """
+    name = "hypergrowth_story"
+    signals = context.hypergrowth_signals
+    story = context.story_file_present
+    if signals and not story:
+        return NarrativeFlag(
+            name=name,
+            color=FlagColor.RED,
+            reason="hypergrowth signals but no story file: default valuation is not reliable",
+        )
+    if story and not signals:
+        return NarrativeFlag(
+            name=name,
+            color=FlagColor.YELLOW,
+            reason="story file present but the classifier signals are absent",
+        )
+    if signals and story:
+        return NarrativeFlag(
+            name=name,
+            color=FlagColor.GREEN,
+            reason="hypergrowth signals and story file are both present",
+        )
+    return NarrativeFlag(
+        name=name,
+        color=FlagColor.YELLOW,
+        reason="hypergrowth story type but neither classifier signals nor a story file",
+    )
+
+
+def hypergrowth_flags(
+    financials: Financials,
+    assumptions: Assumptions,
+    result: DCFResult,
+    context: NarrativeContext,
+) -> tuple[NarrativeFlag, ...]:
+    """Return the hypergrowth flag when signals or the story type call for it."""
+    if context.hypergrowth_signals or context.story_type == _HYPERGROWTH_STORY:
+        return (hypergrowth_story_flag(financials, assumptions, result, context),)
+    return ()
 
 
 #: The five §7.5 flag functions, in spec order. The aggregator runs each.
