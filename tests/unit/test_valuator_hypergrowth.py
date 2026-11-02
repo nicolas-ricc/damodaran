@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+
 from bot.valuator.hypergrowth import (
     StoryInputs,
     parse_scenarios,
