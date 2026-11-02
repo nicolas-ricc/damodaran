@@ -184,7 +184,8 @@ story:{role:"valua",titulo:"Story type",lead:"Qué clase de historia es esta emp
   "Proyectar una empresa en declive con el patrón de una de alto crecimiento no da un número un poco peor: da un número sin sentido."],
  code:{where:[["módulo","valuator/story_types.py"],["enum","StoryType"],["override","config/assumptions/&lt;TICKER&gt;.yaml"]],
   notes:["La asignación es automática por reglas sobre crecimiento histórico, edad, volatilidad de las ganancias, deuda y sector.",
-   "Se puede pisar a mano, y el reporte deja constancia de que se pisó y por qué."]}},
+   "Se puede pisar a mano, y el reporte deja constancia de que se pisó y por qué.",
+   "<code>hypergrowth</code> es la excepción: solo se asigna con un archivo de historia. Las señales del clasificador no alcanzan para arrancarlo."]}},
 
 "s-hg":{role:"valua",titulo:"high-growth",lead:"Crecimiento alto que baja, márgenes que suben.",
  idea:["El patrón: crecimiento fuerte al principio que converge hacia el de la economía, márgenes que mejoran hacia el promedio del sector a medida que la escala llega, y reinversión pesada en los primeros años porque crecer cuesta plata.",
@@ -211,6 +212,14 @@ story:{role:"valua",titulo:"Story type",lead:"Qué clase de historia es esta emp
   "Damodaran insiste en que esa probabilidad se haga explícita en vez de esconderse en un WACC inflado. Un descuento más alto y una probabilidad de quiebra son cosas distintas y no se sustituyen."],
  code:{where:[["valor","\"distressed\""],["clasifica con","Altman Z, o cobertura ≤ 1"]],
   notes:["El Altman Z decide la clasificación, no el número: la probabilidad de quiebra sigue en cero hasta que se la pone a mano. La derivación automática desde el rating no está implementada."]}},
+
+"s-hy":{role:"valua",titulo:"hypergrowth",lead:"La historia manda, no el balance.",
+ idea:["Una empresa que recién arranca no se puede valuar extrapolando lo que hizo: el balance de ayer no dice nada de dónde va a estar en diez años. Damodaran lo resuelve al revés, empezando por la historia y bajándola a números con cuatro preguntas: cuánto va a facturar en el año diez (el mercado total por la participación que se queda), qué margen le queda cuando madura, cuánta venta compra cada peso reinvertido y a qué costo de capital.",
+  "A eso se suman dos cosas que el DCF común no tiene: la probabilidad de que la empresa no llegue y la regulación que le frena la escala. Y una advertencia sobre la fuente: el S-1 de una empresa que sale a bolsa es la libreta de un nene de jardín. Dice que estuvo, no que vaya a ser alguien.",
+  "Por eso el método no arranca solo. La historia la escribís vos, en un archivo, y el bot la proyecta diez años; el clasificador solo avisa si parece que hace falta una."],
+ code:{where:[["valor","\"hypergrowth\""],["clasifica con","crecimiento ≥ 50% el último año, CAGR ≥ 40%, margen bajo el sector, fundada hace ≤ 15 años o edad desconocida"],["exige","sección story en config/assumptions/&lt;TICKER&gt;.yaml"],["proyecta","valuator/hypergrowth.py: apply_story"]],
+  notes:["Solo corre si el archivo tiene <code>story_type: hypergrowth</code> y una sección <code>story</code>. Una sección <code>story</code> sin ese story type es un <code>ValueError</code>.",
+   "Si la empresa cumple las señales pero no hay archivo, el clasificador no arranca el método: se valúa como high-growth, salvo que el override ponga otro story type, y la bandera <code>hypergrowth_story</code> sale en rojo."]}},
 
 assumptions:{role:"valua",titulo:"Los seis supuestos",lead:"Acá vive casi todo el riesgo de la valuación.",
  idea:["Un DCF es una máquina de amplificar supuestos. Cambiar el crecimiento de largo plazo en un punto porcentual puede mover el valor intrínseco un 30%, y ese punto porcentual no se mide: se elige.",
@@ -254,12 +263,14 @@ assumptions:{role:"valua",titulo:"Los seis supuestos",lead:"Acá vive casi todo 
  code:{where:[["origen","rule_based"],["insumo","config/currencies.yaml: risk_free_rate, nominal_gdp_growth"]],
   notes:["Un detalle que conviene tener presente: la tasa libre de riesgo correcta es la de la <em>moneda</em> en la que se valúa, no la del país donde la empresa está listada. Y así se hace: la moneda de valuación es la de la última fila anual no reexpresada, y su tasa y su PBI salen de <code>config/currencies.yaml</code>, una tabla curada a mano. Si la moneda no está en la tabla, el crecimiento terminal queda sin resolver y la empresa sale del universo (<code>currency_uncovered</code>)."]}},
 
-"a-default":{role:"valua",titulo:"Probabilidad de quiebra",lead:"Cero por defecto, y hoy también en distressed.",
+"a-default":{role:"valua",titulo:"Probabilidad de quiebra",lead:"Cero por defecto; a mano en distressed, y del archivo de historia en hypergrowth.",
  idea:["Para una empresa que pasó los quality gates (deuda dentro de capacidad, intereses cubiertos, caja operativa positiva) suponer cero es razonable y evita agregar un parámetro más que nadie puede estimar bien.",
   "En una distressed deja de serlo. Ahí el método pide derivarla del rating o de un Altman Z, y valuar la mezcla entre el negocio en marcha y lo que quede en liquidación.",
-  "Esa derivación no está hecha. El clasificador sí mira el Altman Z, pero solo para decidir que la empresa es distressed; la probabilidad y el valor de liquidación se quedan en cero hasta que alguien los escribe a mano en el override. Lo que sí se sostiene es que sea un número visible y no un ajuste escondido en la tasa de descuento."],
- code:{where:[["origen","rule_based"],["default","0.0"],["se mueve con","override manual"]],
-  notes:["Va de a pares con <code>distress_value_per_share</code>, el valor por acción que se recupera si la empresa no llega. Los dos arrancan en cero y los dos se mueven solo a mano."]}},
+  "Esa derivación no está hecha. El clasificador sí mira el Altman Z, pero solo para decidir que la empresa es distressed; la probabilidad y el valor de liquidación se quedan en cero hasta que alguien los escribe a mano en el override. Lo que sí se sostiene es que sea un número visible y no un ajuste escondido en la tasa de descuento.",
+  "En una hypergrowth la probabilidad no sale de una regla: la escribís vos en el archivo de historia, como <code>failure_probability</code>, junto con lo que se recupera si la empresa no llega, como porcentaje del valor de la empresa (<code>failure_proceeds_pct_of_value</code>). Es el único camino por el que hoy este supuesto deja de ser cero sin un override manual de la quiebra."],
+ code:{where:[["origen","rule_based; story con hypergrowth"],["default","0.0"],["se mueve con","override manual, o failure_probability del story"]],
+  notes:["En distressed va de a pares con <code>distress_value_per_share</code>, el valor por acción que se recupera si la empresa no llega. Los dos arrancan en cero y los dos se mueven solo a mano.",
+   "En hypergrowth el par es <code>failure_probability</code> y <code>failure_proceeds_pct_of_value</code>, y los dos vienen del archivo de historia."]}},
 
 dcf:{role:"valua",titulo:"DCF de dos etapas",lead:"El valor de un activo es lo que va a producir, traído a hoy.",
  idea:["Todo el resto del bot existe para poder hacer bien esta cuenta. Un activo vale la suma de los flujos de caja que va a generar, descontados por el riesgo de que no aparezcan.",
@@ -294,11 +305,12 @@ sensitivity:{role:"valua",titulo:"Sensitivity",lead:"Un valor intrínseco solo e
  code:{where:[["función","grid_2d"],["salida","Grid2D, GridCell"]],notes:[]}},
 
 flags:{role:"valua",titulo:"Narrative flags",lead:"¿El relato y los números dicen lo mismo?",
- idea:["Cinco chequeos de coherencia entre la historia que la valuación cuenta y los números que la sostienen. Verde, amarillo o rojo, y un cuarto estado gris para cuando el chequeo no se pudo correr por falta de datos. Que «no se corrió» no se muestre como verde es deliberado: un chequeo que no corrió no es un chequeo que pasó.",
+ idea:["Cinco chequeos de coherencia (más tres de hypergrowth, que se explican abajo) entre la historia que la valuación cuenta y los números que la sostienen. Verde, amarillo o rojo, y un cuarto estado gris para cuando el chequeo no se pudo correr por falta de datos. Que «no se corrió» no se muestre como verde es deliberado: un chequeo que no corrió no es un chequeo que pasó.",
   "Deliberadamente no entran al ranking. Meterlas en el score sería fingir que una incoherencia narrativa se puede pesar contra un múltiplo, y no se puede: son avisos para que un humano lea, no puntos para que una máquina ordene.",
   "Es la parte más cercana a lo que Damodaran hace a mano cuando revisa una valuación ajena: buscar el lugar donde el relato y la planilla no se hablan."],
- code:{where:[["módulo","valuator/narrative_flags.py"],["cantidad","5"],["colores","verde, amarillo, rojo, unknown"],["entra al ranking","no"]],
-  notes:["De las cinco, cuatro corren siempre. La quinta, <code>country_exposure</code>, sale siempre en gris porque nadie le trae los ingresos por geografía."]}},
+ code:{where:[["módulo","valuator/narrative_flags.py"],["cantidad","5 + 3 de hypergrowth"],["colores","verde, amarillo, rojo, unknown"],["entra al ranking","no"]],
+  notes:["De las cinco, cuatro corren siempre. La quinta, <code>country_exposure</code>, sale siempre en gris porque nadie le trae los ingresos por geografía.",
+   "A las cinco se suman tres de hypergrowth: <code>hypergrowth_story</code> aparece cuando las señales disparan o el story type es hypergrowth, y las otras dos solo cuando el story type es hypergrowth."]}},
 
 "f-story":{role:"valua",titulo:"story_margin",lead:"Amarillo si el arquetipo no coincide con el margen.",
  idea:["Si clasificaste la empresa como de alto crecimiento pero sus márgenes ya están por encima del sector, algo no cierra: el relato de alto crecimiento suele implicar márgenes que todavía tienen que llegar, no márgenes que ya llegaron.",
@@ -328,6 +340,21 @@ flags:{role:"valua",titulo:"Narrative flags",lead:"¿El relato y los números di
  code:{where:[["función","country_exposure_flag"],["umbral","+300 pb y &gt;50% de ingresos"],["nivel","rojo"],["hoy","gris: sin insumo"]],
   notes:["Es la única de las cinco que hoy no llega ni a rojo ni a verde. Necesita los ingresos por geografía y una prima de riesgo ponderada por ellos, y ninguna fuente de la Capa A los trae.",
    "Queda en gris a propósito. Una versión anterior pasaba la prima del sector por las dos puntas, con lo cual la brecha daba cero siempre: una cuenta inventada que se leía como un verde."]}},
+
+"f-hy-story":{role:"valua",titulo:"hypergrowth_story",lead:"Rojo si parece hypergrowth y nadie escribió la historia.",
+ idea:["El clasificador mira crecimiento, edad y margen, y si todo apunta a una empresa de hipercrecimiento levanta la mano. Pero no arranca el método: sin una historia escrita no hay con qué proyectar diez años.",
+  "Por eso la bandera cuenta cómo cierran las dos puntas. Rojo: hay señales y no hay archivo, así que la empresa se valúa como high-growth (salvo que el override ponga otro story type). Amarillo: hay archivo y no hay señales, o sea que la historia es tuya y los números del pasado no la respaldan. Verde: las dos cosas coinciden."],
+ code:{where:[["función","hypergrowth_story_flag"],["aparece","señales o story type hypergrowth"],["nivel","rojo, amarillo o verde"]],notes:[]}},
+
+"f-hy-scale":{role:"valua",titulo:"hypergrowth_revenue_scale",lead:"Amarillo si los ingresos del año diez superan la mayor empresa del mundo.",
+ idea:["La cuenta de Damodaran empieza por el mercado total y la participación que se queda. Es fácil escribir un mercado enorme y una participación modesta y terminar con una empresa más grande que cualquiera que exista.",
+  "La bandera marca cuando los ingresos del año diez pasan de 750 mil millones. No invalida la historia: te pide que la defiendas."],
+ code:{where:[["función","hypergrowth_revenue_scale_flag"],["umbral","750e9 en el año 10"],["nivel","amarillo"],["aparece","solo con story type hypergrowth"]],notes:[]}},
+
+"f-hy-roic":{role:"valua",titulo:"hypergrowth_terminal_roic",lead:"Amarillo si el ROIC terminal supera el doble del del sector.",
+ idea:["Un ROIC terminal alto para siempre es decir que la ventaja competitiva no se erosiona nunca. Damodaran la acepta a veces, pero quiere verla dicha en voz alta.",
+  "Amarillo cuando el ROIC terminal supera dos veces el del sector. Queda en gris cuando falta alguno de los dos ROIC o cuando el del sector no es positivo, porque ahí la comparación no significa nada."],
+ code:{where:[["función","hypergrowth_terminal_roic_flag"],["umbral","2× el ROIC del sector"],["nivel","amarillo, o gris sin dato"],["aparece","solo con story type hypergrowth"]],notes:[]}},
 
 // ═══════════════ SALIDA ═══════════════
 monitor:{role:"vigila",titulo:"Portfolio monitor",lead:"Lo mismo, pero sobre lo que ya tenés.",
