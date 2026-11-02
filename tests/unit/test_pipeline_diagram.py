@@ -297,6 +297,7 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.valuator.analysis.load_valuation_input",
         "bot.cli.analyze",
         "bot.reference.regions.dataset_region",
+        "bot.valuator.assumptions.load_override",
     },
     "analyze-story": {
         "bot.valuator.story_types.classify",
@@ -310,12 +311,20 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.valuator.assumptions._resolve_weights",
         "bot.valuator.assumptions._resolve_terminal_growth",
         "bot.valuator.assumptions._resolve_tax_rate",
+        "bot.valuator.hypergrowth.apply_story",
+        "bot.valuator.hypergrowth.solve_stage_growth",
     },
     "analyze-dcf": {"bot.valuator.dcf.dcf", "bot.valuator.dcf._wacc"},
-    "analyze-sensitivity": {"bot.valuator.sensitivity.tornado", "bot.valuator.sensitivity.grid_2d"},
+    "analyze-sensitivity": {
+        "bot.valuator.sensitivity.tornado",
+        "bot.valuator.sensitivity.grid_2d",
+        "bot.valuator.sensitivity.scenario_range",
+        "bot.valuator.sensitivity.active_axes",
+    },
     "analyze-flags": {
         "bot.valuator.narrative_flags.narrative_flags",
         "bot.valuator.narrative_flags.country_exposure_flag",
+        "bot.valuator.narrative_flags.hypergrowth_flags",
     },
     "analyze-verdict": {
         "bot.reporting.analysis_report.margin_verdict",
@@ -625,11 +634,15 @@ _REQUIRED_CONSTS: dict[str, set[str]] = {
         "bot.valuator.story_types._HIGH_GROWTH_CAGR",
         "bot.valuator.story_types._MATURE_AGE_YEARS",
         "bot.valuator.story_types._DECLINE_CAGR",
+        "bot.valuator.story_types._HYPERGROWTH_LAST_YEAR_GROWTH",
+        "bot.valuator.story_types._HYPERGROWTH_CAGR",
+        "bot.valuator.story_types._HYPERGROWTH_MAX_AGE_YEARS",
     },
     "analyze-assumptions": {
         "bot.valuator.assumptions._HORIZON",
         "bot.valuator.assumptions._MIN_CYCLE_YEARS",
         "bot.valuator.assumptions._DEFAULT_TAX_RATE",
+        "bot.valuator.hypergrowth.HORIZON",
     },
     "analyze-dcf": {
         "bot.valuator.analysis.MIN_PLAUSIBLE_SHARES",
@@ -649,6 +662,8 @@ _REQUIRED_CONSTS: dict[str, set[str]] = {
         "bot.valuator.narrative_flags._HIGH_OPERATING_LEVERAGE",
         "bot.valuator.narrative_flags._HIGH_FINANCIAL_LEVERAGE",
         "bot.valuator.narrative_flags._STRETCHED_REINVESTMENT_RATE",
+        "bot.valuator.narrative_flags._LARGEST_COMPANY_REVENUE",
+        "bot.valuator.narrative_flags._ROIC_SECTOR_MULTIPLE",
     },
     "analyze-verdict": {
         "bot.web.views.MOS_UNDERVALUED",
@@ -1507,7 +1522,7 @@ def _analyze_block(key: str) -> str:
     return block
 
 
-_STORY_ORDER = ("distressed", "cyclical", "high_growth", "mature_decline", "mature_stable")
+_STORY_ORDER = ("hypergrowth", "distressed", "cyclical", "high_growth", "mature_decline", "mature_stable")
 _FLAGS = (
     "story_margin",
     "growth_reinvestment",
@@ -1529,7 +1544,11 @@ _ANALYZE_NODES: list[tuple[str, str]] = (
         ("inputs.derived.age", "gap"),
     ]
     + [(f"story_type.{k}", "decision") for k in (*_STORY_ORDER, "manual")]
-    + [("story_type.distressed.altman", "gap"), ("story_type.manual.reasons", "note")]
+    + [
+        ("story_type.distressed.altman", "gap"),
+        ("story_type.manual.reasons", "note"),
+        ("story_type.gate", "decision"),
+    ]
     + [
         (f"assumptions.{k}", "step")
         for k in (
@@ -1550,6 +1569,7 @@ _ANALYZE_NODES: list[tuple[str, str]] = (
         ("assumptions.weights.company", "gap"),
         ("assumptions.bankruptcy.manual_only", "gap"),
         ("assumptions.sources", "note"),
+        ("assumptions.story", "step"),
         ("dcf.guard", "decision"),
         ("dcf.wacc", "step"),
         ("dcf.converges", "decision"),
@@ -1561,10 +1581,13 @@ _ANALYZE_NODES: list[tuple[str, str]] = (
         ("dcf.blend", "step"),
         ("sensitivity.tornado", "step"),
         ("sensitivity.grid", "step"),
+        ("sensitivity.scenarios", "step"),
     ]
     + [(f"narrative_flags.{f}", "decision") for f in _FLAGS]
     + [
         ("narrative_flags.country_exposure.always_unknown", "gap"),
+        ("narrative_flags.hypergrowth", "decision"),
+        ("verdict.governance", "step"),
         ("verdict.mos", "step"),
         ("verdict.words", "decision"),
         ("sanity_check.multiples", "step"),
@@ -1578,7 +1601,9 @@ _ANALYZE_NODES: list[tuple[str, str]] = (
 # board's U+2212 minus signs match the ASCII hyphens here).
 _ANALYZE_TEXT: dict[str, list[str]] = {
     "tickers": ["--from-screen", "latest", "by rank", "exit code 2"],
-    "override": ["--override", "exactly one ticker", "config/assumptions/TICKER.yaml"],
+    "override": [
+        "--override", "exactly one ticker", "config/assumptions/TICKER.yaml", "before the signals",
+    ],
     "cli.errors": ["exit code 2", "exit code 1", "worst"],
     "inputs.load": [
         "non-restated", "oldest-first", "pe, ev_sales, op_margin, beta_levered", "valuation currency",
@@ -1588,7 +1613,11 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "EBIT ÷ interest expense",
         "ipo_date",
         "cyclical",
+        "founded_year",
     ],
+    "story_type.hypergrowth": ["≥ 50%", "≥ 40%", "founded ≤ 15 years ago or unknown"],
+    "story_type.gate": ["story file", "high-growth", "red"],
+    "assumptions.story": ["apply_story", "ten-year"],
     "story_type.distressed": ["Altman Z < 1.81", "interest coverage ≤ 1.0"],
     "story_type.cyclical": [
         "coefficient of variation ≥ 0.50",
@@ -1645,22 +1674,31 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "(revenue_t - revenue_t-1) ÷ sales-to-capital",
         "NOPAT_t - reinvestment_t",
         "FCFF_t ÷ (1 + WACC)^t",
+        "cumulative",
     ],
     "dcf.terminal": [
         f"revenue_N {_TIMES} (1 + g_terminal)",
         "FCFF_N+1 ÷ (WACC - g_terminal)",
         "terminal value ÷ (1 + WACC)^N",
+        "g ÷ ROIC",
     ],
     "dcf.ev": [
         "Σ present value_t + present value of terminal value",
         "present value of terminal value ÷ EV",
     ],
-    "dcf.equity": ["EV - net debt + adjustments", "equity ÷ diluted shares"],
+    "dcf.equity": [
+        "EV - net debt + adjustments", "equity ÷ diluted shares", "fixed commitments", "extra cash",
+    ],
     "dcf.blend": [
         f"(1 - p) {_TIMES} going-concern value per share",
         f"p {_TIMES} distress value per share",
+        "before the bridge",
     ],
-    "sensitivity.tornado": [f"{_TIMES} 0.8", f"{_TIMES} 1.2", "one at a time", "widest first"],
+    "sensitivity.tornado": [
+        f"{_TIMES} 0.8", f"{_TIMES} 1.2", "one at a time", "widest first",
+        "pretax_cost_of_debt is skipped",
+    ],
+    "sensitivity.scenarios": ["base first", "scenario"],
     "sensitivity.grid": [
         "five by five", "two widest", "0.8, 0.9, 1.0, 1.1, 1.2", "intrinsic value ÷ price",
     ],
@@ -1675,6 +1713,8 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
     ],
     "narrative_flags.terminal_value_share": ["terminal value share > 80%", "yellow"],
     "narrative_flags.country_exposure": ["> 50%", "> 300 bps", "red", "unknown"],
+    "narrative_flags.hypergrowth": ["750B", f"2 {_TIMES} the sector ROIC", "hypergrowth_story"],
+    "verdict.governance": ["governance discount", "value after governance"],
     "verdict.mos": ["intrinsic value per share ÷ latest close", "none"],
     "verdict.words": [
         "MoS ≥ 1.3: potentially undervalued",
