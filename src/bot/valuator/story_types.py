@@ -67,7 +67,7 @@ _HYPERGROWTH_CAGR = 0.40
 
 #: Years since founding at/below which a company can be hypergrowth. Distinct
 #: from the IPO-based ``_MATURE_AGE_YEARS``.
-_HYPERGROWTH_FOUNDED_AGE_YEARS = 15
+_HYPERGROWTH_MAX_AGE_YEARS = 15
 
 #: Absorbs float error so "at least 40%" fires at 40%: for example
 #: ``1.96 ** 0.5 - 1`` evaluates to ``0.3999999999999999``.
@@ -189,7 +189,7 @@ def _is_hypergrowth(
     if company_margin >= sector_margin:
         return False
     founded = financials.founded_age_years
-    return founded is None or founded <= _HYPERGROWTH_FOUNDED_AGE_YEARS
+    return founded is None or founded <= _HYPERGROWTH_MAX_AGE_YEARS
 
 
 def _is_distressed(financials: ClassificationFinancials) -> bool:
@@ -221,7 +221,7 @@ def classify(
        age unknown). Wins over distress: a loss-making hyper-grower is not a
        bankruptcy candidate.
     2. **distressed** — Altman Z in the distress zone, or interest coverage at or
-       below 1 — wins over everything, even a fast grower that cannot service
+       below 1 — wins over everything below, even a fast grower that cannot service
        its debt.
     3. **cyclical** — a structurally cyclical sector *and* volatile earnings
        (high coefficient of variation); the current year is not representative.
@@ -233,7 +233,7 @@ def classify(
     Args:
         financials: The company-level signals (growth, earnings volatility, age,
             leverage, solvency).
-        sector_data: The sector-level signals (currently the cyclical flag).
+        sector_data: The sector-level signals (the cyclical flag and the sector operating margin).
 
     Returns:
         The :class:`StoryType` the company is classified into.
