@@ -77,7 +77,8 @@ never applied automatically.
     WACC) in year 10.
   - Tax: `effective_tax_rate` in years 1 to 5, then linear to the marginal rate in year 10.
 - **DCF extensions, all optional.** `wacc_path` replaces the scalar WACC and discounts with a
-  cumulative factor. `tax_rate_path` sets the tax of the explicit years. `terminal_roic` sets
+  cumulative factor. `tax_rate_path` sets the tax of the explicit years. `terminal_roic` (optional;
+  without it the terminal reinvestment falls back to sales-to-capital) sets
   the terminal reinvestment to `g / ROIC`. `distress_proceeds_pct` makes the failure blend
   work on enterprise value. `Financials.fixed_commitments` and `extra_cash` enter the equity
   bridge. Every default reproduces the old maths bit for bit.
@@ -93,7 +94,7 @@ never applied automatically.
   value.
 - **Scenarios.** Each entry of `scenarios` overrides fields of `story`. `scenario_range` runs
   one plain DCF per case: `base` first, then the file order. `base` is reserved. The report
-  shows the range next to the verdict.
+  shows the range next to the tornado, in the sensitivity section.
 - **Three flags.** `hypergrowth_story` (above). `hypergrowth_revenue_scale` is yellow when the
   year-10 revenue exceeds the largest company's revenue today (`_LARGEST_COMPANY_REVENUE`,
   750e9). `hypergrowth_terminal_roic` is yellow when the terminal ROIC exceeds twice the
