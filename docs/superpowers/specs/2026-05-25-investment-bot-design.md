@@ -233,7 +233,7 @@ El screener cuantitativo no puede juzgar narrativa cualitativamente. Lo más cer
 
 ### 7.1 Story types
 
-Cinco arquetipos, cada uno con patrón distinto de proyección:
+Seis arquetipos, cada uno con patrón distinto de proyección:
 
 | Story type | Proyección |
 |---|---|
@@ -242,8 +242,11 @@ Cinco arquetipos, cada uno con patrón distinto de proyección:
 | `mature-decline` | Growth negativo controlado, márgenes erosionándose, reinvestment mínimo |
 | `cyclical` | Promediar a través del ciclo (no usar año actual), reinvestment irregular |
 | `distressed` | Probabilidad explícita de quiebra, valuación condicional a supervivencia |
+| `hypergrowth` | Story-driven: ingresos del año 10 como objetivo, rampa de margen desde `year1_margin`, trayectoria de WACC, riesgo de quiebra sobre el valor operativo, compromisos fijos como deuda; solo con la sección `story` |
 
 Auto-asignación por reglas (crecimiento histórico, edad, σ(earnings), deuda, sector). Override manual en `config/assumptions/<TICKER>.yaml`.
+
+La auto-asignación de `hypergrowth` necesita el archivo de story: las señales del clasificador (crecimiento del último año ≥ 50%, CAGR de ingresos ≥ 40%, margen operativo bajo la mediana sectorial, edad real de 15 años o menos) nunca arrancan el método solas. Con señales y sin archivo, la valuación es `high-growth` y el flag `hypergrowth_story` sale rojo; con archivo y sin señales, se valúa como `hypergrowth` con el flag amarillo (ver [ADR 0009](../../adr/0009-hypergrowth-story-driven-gated-on-story-file.md)).
 
 ### 7.2 Modelo DCF de dos etapas
 
@@ -267,7 +270,7 @@ Reinvestment = ΔWC + Capex − Depreciation ≈ ΔRevenue / sales_to_capital
 
 ### 7.3 Seis supuestos críticos con source explícito
 
-Cada supuesto tiene `source ∈ {manual, analyst_consensus, sector_default_damodaran, rule_based, historical_average}`. El reporte muestra siempre cuál es cuál.
+Cada supuesto tiene `source ∈ {manual, analyst_consensus, sector_default_damodaran, rule_based, historical_average, story}`. El reporte muestra siempre cuál es cuál. `story` aplica solo para `hypergrowth`, ver §7.6.
 
 | Supuesto | Default | Override común |
 |---|---|---|
@@ -296,11 +299,54 @@ Proxies de "story↔numbers consistency" (verde/amarillo/rojo):
 - **Terminal value share > 80%**: flag amarillo (valuación frágil, depende casi todo de perpetuidad).
 - **Country exposure vs ERP listado**: si revenue mayoritariamente fuera del país de listado y ERP weighted > listado + 300bps, flag rojo.
 
+Con story type `hypergrowth` se suman tres flags más:
+
+- **`hypergrowth_story`**: reconcilia las señales del clasificador con el archivo de story. Rojo si hay señales y no hay archivo (la valuación default no es confiable); amarillo si hay archivo y no hay señales; verde si están las dos.
+- **`hypergrowth_revenue_scale`**: si los ingresos del año 10 superan a los de la empresa más grande hoy (~750B), flag amarillo.
+- **`hypergrowth_terminal_roic`**: si el `terminal_roic` supera 2× el ROIC sectorial, flag amarillo; desconocido si falta alguno de los dos.
+
 No entran al ranking — son señales para que el humano lea y decida.
 
 ### 7.6 Override manual
 
 `config/assumptions/<TICKER>.yaml` con story_type, overrides numéricos, y notas en texto libre. El reporte incluye sección "Manual overrides aplicados" con las notas y valores cambiados — trazabilidad total.
+
+**Story file de `hypergrowth`.** El método corre solo desde un archivo que fija `story_type: hypergrowth` y trae una sección `story`. Los montos van en la moneda de reporte sin escalar, como `financials_annual` (no en millones):
+
+```yaml
+story_type: hypergrowth
+founded_year: 2021                  # entero 1600..año actual; edad real para el clasificador
+story:
+  year1_growth: 4.00                # requerido, > -1
+  target_revenue_y10: 1011491000000 # requerido, > 0; ingresos del año 10
+  year1_margin: 0.05                # requerido, < 1; ancla la rampa de margen
+  target_margin: 0.325              # requerido, < 1
+  margin_converge_year: 5           # entero 1..10, default 5
+  regulatory_drag: 0.05             # 0..1, default 0; se resta de target_margin
+  sales_to_capital: 3.0             # requerido, > 0
+  wacc_start: 0.0974                # requerido, 0..1 exclusivo; se mantiene hasta el año 5
+  wacc_terminal: 0.0913             # opcional, 0..1 exclusivo; default: WACC del sector
+  effective_tax_rate: 0.0           # 0..1, default 0; años 1-5, luego lineal a la tasa marginal en el año 10
+  terminal_roic: 0.15               # opcional, > 0; con valor, reinversión terminal = g / ROIC
+  failure_probability: 0.10         # 0..1, default 0
+  failure_proceeds_pct_of_value: 0.50  # 0..1, default 0
+  fixed_commitments_pv: 472336000000   # >= 0, default 0; se suma a la deuda
+  extra_cash: 100000000000          # >= 0, default 0; p.ej. fondos de un IPO
+  governance_discount: 0.20         # 0 <= x < 1, default 0; solo el veredicto, nunca el DCF
+scenarios:                          # opcional, exige `story`
+  worst: {target_revenue_y10: 200000000000, target_margin: 0.10}
+  best:  {target_revenue_y10: 1500000000000, target_margin: 0.40}
+```
+
+Sin default, el archivo tiene que dar: `year1_growth`, `target_revenue_y10`, `year1_margin`, `target_margin`, `sales_to_capital` y `wacc_start`. Una clave desconocida o un valor fuera de rango se rechaza.
+
+Reglas de validación, todas con `ValueError` solo para ese ticker (el batch sigue):
+
+- `story` sin `story_type: hypergrowth` en el mismo archivo se rechaza.
+- `story_type: hypergrowth` sin `story` se rechaza.
+- `scenarios` sin `story` se rechaza.
+
+`scenarios` mapea un nombre a un subconjunto de claves de `story`, que se fusiona sobre la `story` base; `base` está reservado para la story misma. El reporte muestra el rango de valor por acción de `worst`, `base` y `best` junto al tornado (§7.4). `governance_discount` baja solo el veredicto de margin of safety, nunca el DCF.
 
 ### 7.7 Output
 
