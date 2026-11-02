@@ -1018,11 +1018,11 @@ def test_founded_year_is_accepted_with_any_story_type(
 # --------------------------------------------------------------------------- #
 
 
-def _story_override(tmp_path: Path) -> Path:
+def _story_override(tmp_path: Path, **extra: object) -> Path:
     from tests.unit.test_valuator_hypergrowth import _STORY
 
     return _write_override(
-        tmp_path, yaml.safe_dump({"story_type": "hypergrowth", "story": _STORY})
+        tmp_path, yaml.safe_dump({"story_type": "hypergrowth", "story": _STORY, **extra})
     )
 
 
@@ -1127,16 +1127,6 @@ def test_latest_revenue_is_none_without_financials(conn: duckdb.DuckDBPyConnecti
     assert assumptions_mod.load_assumption_inputs(conn, "ACME", currencies=_usd()).latest_revenue is None
     bulk = assumptions_mod.bulk_load_assumption_inputs(conn, ["ACME"], currencies=_usd())
     assert bulk["ACME"].latest_revenue is None
-
-
-def _story_override(tmp_path: Path, **extra: object) -> Path:
-    from tests.unit.test_valuator_hypergrowth import _STORY
-
-    path = tmp_path / "ACME.yaml"
-    path.write_text(
-        yaml.safe_dump({"story_type": "hypergrowth", "story": _STORY, **extra})
-    )
-    return path
 
 
 def test_resolve_hypergrowth_story_raises_without_latest_revenue(
