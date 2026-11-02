@@ -57,7 +57,13 @@ from bot.reference.currencies import (
 from bot.reference.regions import dataset_region
 from bot.utils.logging import get_logger
 from bot.valuator.dcf import Assumptions as DCFAssumptions
-from bot.valuator.hypergrowth import STORY_TYPE, StoryInputs, is_finite_number, story_from_override
+from bot.valuator.hypergrowth import (
+    STORY_TYPE,
+    StoryInputs,
+    apply_story,
+    is_finite_number,
+    story_from_override,
+)
 from bot.valuator.story_types import StoryType
 
 log = get_logger(__name__)
@@ -320,6 +326,9 @@ class AssumptionInputs:
             ``financials_annual`` row, or ``None`` when there is none.
         currency_rates: That currency's risk-free rate and nominal-GDP growth
             from the currency table, or ``None`` when it is uncovered.
+        latest_revenue: Revenue of the latest non-restated ``financials_annual``
+            row, the base of a hypergrowth story's revenue path. ``None`` when
+            there is no such row or its revenue is NULL.
     """
 
     company: _Company
@@ -331,6 +340,7 @@ class AssumptionInputs:
     operating_margin_history: tuple[float, ...] = ()
     valuation_currency: str | None = None
     currency_rates: CurrencyRates | None = None
+    latest_revenue: float | None = None
 
 
 def _currency_rates(
@@ -378,7 +388,7 @@ def load_assumption_inputs(
     historical_growth_path = _historical_growth_path(conn, ticker)
     margins = _operating_margin_history(conn, ticker)
     latest = conn.execute(
-        "SELECT currency FROM financials_annual "
+        "SELECT currency, revenue FROM financials_annual "
         "WHERE ticker = ? AND is_restated = FALSE ORDER BY fiscal_year DESC LIMIT 1",
         [ticker],
     ).fetchone()
@@ -395,6 +405,7 @@ def load_assumption_inputs(
         operating_margin_history=margins,
         valuation_currency=valuation_currency,
         currency_rates=rates,
+        latest_revenue=float(latest[1]) if latest and latest[1] is not None else None,
     )
 
 
@@ -452,6 +463,7 @@ def bulk_load_assumption_inputs(
         fallback.setdefault(industry, (row, region))
     history: dict[str, list[tuple[Any, Any]]] = {}
     latest_currency: dict[str, str | None] = {}
+    latest_revenue: dict[str, float | None] = {}
     # Oldest first, so the last row seen per ticker is its latest non-restated year.
     for ticker, revenue, ebit, currency in conn.execute(
         "SELECT ticker, revenue, ebit, currency FROM financials_annual "
@@ -461,6 +473,7 @@ def bulk_load_assumption_inputs(
     ).fetchall():
         history.setdefault(ticker, []).append((revenue, ebit))
         latest_currency[ticker] = currency
+        latest_revenue[ticker] = float(revenue) if revenue is not None else None
 
     result: dict[str, AssumptionInputs] = {}
     uncovered: set[str | None] = set()
@@ -491,6 +504,7 @@ def bulk_load_assumption_inputs(
             operating_margin_history=margins,
             valuation_currency=valuation_currency,
             currency_rates=rates,
+            latest_revenue=latest_revenue.get(ticker),
         )
     for currency in sorted(uncovered, key=lambda c: c or ""):
         _warn_uncovered(currency, warned)
@@ -839,9 +853,15 @@ def resolve_assumptions(
 
     Returns:
         An :class:`Assumptions` bundle where every field carries its source.
+        For a ``hypergrowth`` story with a ``story`` section the generic bundle
+        is overlaid by :func:`bot.valuator.hypergrowth.apply_story` (the story
+        replaces the generic growth and margin keys, base revenue from
+        ``db_inputs.latest_revenue``).
 
     Raises:
         LookupError: If ``ticker`` is unknown.
+        ValueError: If a hypergrowth story is applied and the company has no
+            latest revenue.
     """
     if db_inputs is None:
         db_inputs = load_assumption_inputs(conn, ticker, currencies=currencies)
@@ -889,7 +909,7 @@ def resolve_assumptions(
     distress_value_per_share = _resolve_distress_value_per_share(override)
     tax_rate = _resolve_tax_rate(override, sector, country)
 
-    return Assumptions(
+    bundle = Assumptions(
         revenue_growth=revenue_growth,
         operating_margin=operating_margin,
         sales_to_capital=sales_to_capital,
@@ -903,6 +923,24 @@ def resolve_assumptions(
         tax_rate=tax_rate,
         story_type=story_label,
         notes=override.get("notes"),
+    )
+    if story_type is not StoryType.HYPERGROWTH:
+        return bundle
+    parsed = story_from_override(
+        override, where=str(override_path) if override_path else ticker
+    )
+    if parsed is None:
+        return bundle
+    if db_inputs.latest_revenue is None:
+        raise ValueError(
+            f"{ticker}: hypergrowth story needs the latest revenue "
+            "(none in financials_annual)"
+        )
+    return apply_story(
+        bundle,
+        parsed[0],
+        base_revenue=db_inputs.latest_revenue,
+        sector_wacc=sector.row.wacc if sector.row is not None else None,
     )
 
 

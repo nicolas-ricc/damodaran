@@ -1045,11 +1045,10 @@ def test_hypergrowth_fallback_is_logged(conn: duckdb.DuckDBPyConnection) -> None
     assert [e["ticker"] for e in fallbacks] == ["ACME"]
 
 
-def test_hypergrowth_with_story_keeps_label_and_generic_resolvers(
+def test_hypergrowth_with_story_keeps_label_and_story_resolvers(
     conn: duckdb.DuckDBPyConnection, tmp_path: Path
 ) -> None:
-    # Intermediate state pinned on purpose: the story-driven projection is #196,
-    # so with a story the label is hypergrowth but today's resolvers run.
+    # #196: with a story the label is hypergrowth and the story drives the growth.
     _seed_full_sector(conn)
     _seed_financials(conn, rows=((2024, 1_020.0, -2_325.0), (2025, 20_608.0, -46_982.0)))
     override = load_override(_story_override(tmp_path))
@@ -1057,7 +1056,7 @@ def test_hypergrowth_with_story_keeps_label_and_generic_resolvers(
         "ACME", conn, override=override, auto_story_type=StoryType.HYPERGROWTH
     )
     assert result.story_type == "hypergrowth"
-    assert result.revenue_growth.source is AssumptionSource.HISTORICAL_AVERAGE
+    assert result.revenue_growth.source is AssumptionSource.STORY
 
 
 def test_manual_story_type_beats_hypergrowth_gate(
