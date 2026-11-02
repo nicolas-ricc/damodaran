@@ -529,7 +529,6 @@ def _section_html(cid: str) -> str:
 
 
 def _row_headed(section: str, label: str) -> str | None:
-    """The table row whose header cell is ``<code>label</code>``, if any."""
     for row in re.findall(r"<tr>.*?</tr>", section, re.S):
         if re.match(rf'<tr><th scope="row"><code>{re.escape(label)}</code></th>', row):
             return row

@@ -41,8 +41,7 @@ Every other story type must keep valuing exactly as before.
 
 A new story type, `hypergrowth`, valued by Damodaran's method. It runs only from a
 story file that sets `story_type: hypergrowth` and carries a `story` section. The classifier's
-signals never gate the valuation: they colour the `hypergrowth_story` flag. The method is
-never applied automatically.
+signals never gate the valuation: they colour the `hypergrowth_story` flag.
 
 - **Two keys.** The classifier signals and the story file are separate keys. The classifier
   assigns `StoryType.HYPERGROWTH` by a rule that runs before distress and needs all four
@@ -50,9 +49,7 @@ never applied automatically.
   revenue CAGR of at least 40% over the available history, two points being enough
   (`_HYPERGROWTH_CAGR`), an operating margin below the sector median, and a real company age
   of at most 15 years, or unknown (`_HYPERGROWTH_MAX_AGE_YEARS`). The real age comes from
-  `founded_year`, not from the IPO date, which still feeds the `high-growth` rule. The
-  valuation runs only when the override file sets `story_type: hypergrowth` and has a
-  `story` section; the signals alone never start it.
+  `founded_year`, not from the IPO date, which still feeds the `high-growth` rule.
 - **Fallback.** A candidate with signals but no story file is valued as `high-growth` (unless
   the override file sets another `story_type`) and raises a red `hypergrowth_story` flag: the
   default valuation is not reliable. A story file without signals is valued as hypergrowth,

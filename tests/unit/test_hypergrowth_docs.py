@@ -48,15 +48,9 @@ def _load(name: str) -> ModuleType:
 
 
 def _js_card(text: str, card: str) -> str:
-    """The object literal of one card in part-data.js, up to the next card key."""
     begin = text.index(f'"{card}":{{')
     match = re.compile(r'\n"?[\w-]+"?:\{').search(text, begin + 1)
     return text[begin : match.start() if match else len(text)]
-
-
-# --------------------------------------------------------------------------- #
-# ADR 0009                                                                    #
-# --------------------------------------------------------------------------- #
 
 
 def test_adr_0009_exists_and_is_implemented() -> None:
@@ -101,11 +95,6 @@ def test_adr_0009_consequences() -> None:
     assert "10-point" in consequences or "0.10" in consequences
 
 
-# --------------------------------------------------------------------------- #
-# CONTEXT.md                                                                  #
-# --------------------------------------------------------------------------- #
-
-
 def test_context_links_adr_0009_and_defines_the_terms() -> None:
     context = (_ROOT / "CONTEXT.md").read_text(encoding="utf-8")
     assert "docs/adr/0009-hypergrowth-story-driven-gated-on-story-file.md" in context
@@ -115,11 +104,6 @@ def test_context_links_adr_0009_and_defines_the_terms() -> None:
         assert f"\n- **{term}**" in context, term
     mos = next(ln for ln in context.splitlines() if ln.startswith("- **Margin of safety"))
     assert "intrinsic_value_after_governance" in mos
-
-
-# --------------------------------------------------------------------------- #
-# Spec §7                                                                     #
-# --------------------------------------------------------------------------- #
 
 
 def _spec(start: str, end: str) -> str:
@@ -152,10 +136,6 @@ def test_spec_7_6_documents_every_story_key() -> None:
     for key in sorted(_STORY_KEYS | {"founded_year", "scenarios", "worst", "best"}):
         assert key in section, key
 
-
-# --------------------------------------------------------------------------- #
-# plano.html                                                                  #
-# --------------------------------------------------------------------------- #
 
 _HY_FLAGS = {
     "f-hy-story": "hypergrowth_story_flag",
@@ -202,11 +182,6 @@ def test_plano_build_passes() -> None:
         [sys.executable, str(_PLANO / "build.py")], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stdout + result.stderr
-
-
-# --------------------------------------------------------------------------- #
-# estado.html                                                                 #
-# --------------------------------------------------------------------------- #
 
 
 def test_estado_audit_stamp() -> None:
