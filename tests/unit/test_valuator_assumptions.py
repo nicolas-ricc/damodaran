@@ -1020,9 +1020,9 @@ def test_founded_year_is_accepted_with_any_story_type(
 
 
 def _story_override(tmp_path: Path, **extra: object) -> Path:
-    return _write_override(
-        tmp_path, yaml.safe_dump({"story_type": "hypergrowth", "story": _STORY, **extra})
-    )
+    # sort_keys=False: scenario order is file order.
+    body = {"story_type": "hypergrowth", "story": _STORY, **extra}
+    return _write_override(tmp_path, yaml.safe_dump(body, sort_keys=False))
 
 
 def test_hypergrowth_without_story_falls_back_to_high_growth(

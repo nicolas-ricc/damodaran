@@ -13,7 +13,8 @@ currency of ``financials_annual``, not millions.
 The ten-year paths of a story (growth, operating margin, WACC, tax rate) are
 built by :func:`growth_path`, :func:`margin_path`, :func:`wacc_path` and
 :func:`tax_path`; :func:`solve_stage_growth` finds the constant growth rate of years
-2-5 that reaches ``target_revenue_y10``.
+2-5 that reaches ``target_revenue_y10``. :func:`scenario_cases` builds the DCF
+inputs of the base case and of each named scenario (#197).
 """
 
 from __future__ import annotations
@@ -22,6 +23,9 @@ import math
 from collections.abc import Callable, Mapping
 from dataclasses import MISSING, dataclass, fields, replace
 from typing import TYPE_CHECKING, Any, TypeGuard
+
+from bot.valuator.dcf import Assumptions as DCFAssumptions
+from bot.valuator.dcf import Financials
 
 if TYPE_CHECKING:
     from bot.valuator.assumptions import Assumptions
@@ -325,3 +329,37 @@ def apply_story(
         governance_discount=sourced(story.governance_discount),
         story=story,
     )
+
+
+def scenario_cases(
+    bundle: Assumptions,
+    scenarios: Mapping[str, StoryInputs],
+    *,
+    base_revenue: float,
+    sector_wacc: float | None,
+    financials: Financials,
+) -> dict[str, tuple[Financials, DCFAssumptions]]:
+    """DCF inputs of the base case, then of each scenario in mapping order.
+
+    ``bundle`` already carries the base story. Each scenario is overlaid on it
+    with :func:`apply_story`, and swaps the commitments and extra cash of
+    ``financials``. A scenario that cannot be built raises ``ValueError``
+    naming it (``scenario <name>: ...``).
+    """
+    cases = {"base": (financials, bundle.to_dcf_assumptions())}
+    for name, scenario in scenarios.items():
+        try:
+            applied = apply_story(
+                bundle, scenario, base_revenue=base_revenue, sector_wacc=sector_wacc
+            )
+        except ValueError as exc:
+            raise ValueError(f"scenario {name}: {exc}") from exc
+        cases[name] = (
+            replace(
+                financials,
+                fixed_commitments=scenario.fixed_commitments_pv,
+                extra_cash=scenario.extra_cash,
+            ),
+            applied.to_dcf_assumptions(),
+        )
+    return cases

@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import itertools
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from datetime import date
 from enum import StrEnum
 from pathlib import Path
@@ -195,6 +195,7 @@ class Assumptions:
     extra_cash: Sourced[float] | None = None
     governance_discount: Sourced[float] | None = None
     story: StoryInputs | None = None
+    scenarios: Mapping[str, StoryInputs] | None = None
 
     def to_dcf_assumptions(self) -> DCFAssumptions:
         """Project the resolved bundle onto the pure :class:`dcf.Assumptions`.
@@ -938,11 +939,15 @@ def resolve_assumptions(
             f"{ticker}: hypergrowth story needs the latest revenue "
             "(none in financials_annual)"
         )
-    return apply_story(
-        bundle,
-        parsed[0],
-        base_revenue=db_inputs.latest_revenue,
-        sector_wacc=sector.row.wacc if sector.row is not None else None,
+    story, scenarios = parsed
+    return replace(
+        apply_story(
+            bundle,
+            story,
+            base_revenue=db_inputs.latest_revenue,
+            sector_wacc=sector.row.wacc if sector.row is not None else None,
+        ),
+        scenarios=scenarios or None,
     )
 
 
