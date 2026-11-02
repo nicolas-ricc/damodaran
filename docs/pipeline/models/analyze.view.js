@@ -110,7 +110,7 @@ const steps = {
   TheTerminalValueIsComputed: "the terminal value is computed [with a terminal return on invested capital (ROIC) the reinvestment is g ÷ ROIC of the profit, else by sales-to-capital]",
   TheEnterpriseValueIsSummed: "the enterprise value is summed",
   TheEquityIsFound: "equity and the going-concern value per share are found [fixed commitments subtracted and extra cash added when the story sets them]",
-  TheValueIsBlended: "the intrinsic value per share blends going concern and distress [per share, or on the enterprise value before the bridge when the story sets a failure proceeds share]",
+  TheValueIsBlended: "the intrinsic value per share blends going concern and distress [per share, or on the enterprise value before the bridge with a hypergrowth story]",
   TheTornadoIsRun: "each assumption is moved to 0.8 and 1.2 times, one at a time",
   TheGridIsRun: "a five by five grid crosses the two widest axes",
   TheScenariosAreValued: "the scenario range is valued, base first [scenarios in the story file]",
