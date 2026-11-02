@@ -296,13 +296,7 @@ def _sector_multiples_from(
     region = dataset_region(company.country, geographic_region)
     if sector_row is None:
         return _SectorMultiples(
-            region=region,
-            pe=None,
-            ev_sales=None,
-            op_margin=None,
-            beta_levered=None,
-            erp=erp,
-            roic=None,
+            region=region, pe=None, ev_sales=None, op_margin=None, beta_levered=None, erp=erp
         )
     return _SectorMultiples(
         region=region,
