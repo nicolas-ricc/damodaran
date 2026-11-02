@@ -9,6 +9,11 @@ The module is pure: no I/O, no global state. Every refusal is a ``ValueError``
 whose message starts with the file path (``where``) and names the key, so
 ``bot analyze`` fails that ticker alone. Money amounts are in the raw reporting
 currency of ``financials_annual``, not millions.
+
+The ten-year paths of a story (growth, operating margin, WACC, tax rate) are
+built by :func:`growth_path`, :func:`margin_path`, :func:`wacc_path` and
+:func:`tax_path`; :func:`solve_stage_growth` finds the stage-1 growth rate that
+reaches ``target_revenue_y10``.
 """
 
 from __future__ import annotations
@@ -58,6 +63,19 @@ class StoryInputs:
     extra_cash: float = 0.0
     governance_discount: float = 0.0
 
+
+#: Years of the explicit forecast: every path has this many values.
+HORIZON: int = 10
+
+#: Last year of the constant-growth stage (years 2-5); growth fades to the
+#: terminal rate over the remaining ``HORIZON - _STAGE_END`` years.
+_STAGE_END: int = 5
+
+#: Bracket of the stage growth bisection: just above total loss up to 1,000%.
+_SOLVE_BOUNDS: tuple[float, float] = (-0.99, 10.0)
+
+#: Bisection steps; 200 halvings exhaust float precision on the bracket.
+_SOLVE_ITERATIONS: int = 200
 
 #: Per-key rule: ``(is_int, in_range, rule text)``.
 _Rule = tuple[bool, Callable[[float], bool], str]
@@ -161,3 +179,94 @@ def story_from_override(
     if "scenarios" not in override:
         return story, {}
     return story, parse_scenarios(override["scenarios"], story, where=where)
+
+
+def _stage_growth_rates(
+    year1_growth: float, stage: float, terminal_growth: float
+) -> tuple[float, ...]:
+    """Growth of years 1..HORIZON: year 1, flat stage, then a linear fade to terminal."""
+    fade = HORIZON - _STAGE_END
+    return (
+        (year1_growth,)
+        + (stage,) * (_STAGE_END - 1)
+        + tuple(stage - k * (stage - terminal_growth) / fade for k in range(1, fade + 1))
+    )
+
+
+def _revenue_y10(
+    base_revenue: float, story: StoryInputs, stage: float, terminal_growth: float
+) -> float:
+    revenue = base_revenue
+    for rate in _stage_growth_rates(story.year1_growth, stage, terminal_growth):
+        revenue *= 1 + rate
+    return revenue
+
+
+def solve_stage_growth(base_revenue: float, story: StoryInputs, terminal_growth: float) -> float:
+    """Stage growth rate (years 2-5) that compounds ``base_revenue`` to the story's year-10 revenue.
+
+    Revenue is increasing in the rate, so this bisects on ``_SOLVE_BOUNDS``.
+    Raises ``ValueError`` when ``terminal_growth <= -1`` or the target is
+    unreachable (including a non-positive ``base_revenue``).
+    """
+    if terminal_growth <= -1:
+        raise ValueError(f"terminal_growth must be greater than -1, got {terminal_growth!r}")
+    target = story.target_revenue_y10
+    low, high = _SOLVE_BOUNDS
+    if base_revenue <= 0 or not (
+        _revenue_y10(base_revenue, story, low, terminal_growth)
+        <= target
+        <= _revenue_y10(base_revenue, story, high, terminal_growth)
+    ):
+        raise ValueError(
+            f"target_revenue_y10 {target} unreachable from base revenue {base_revenue}: "
+            f"stage growth must lie between {low} and {high}"
+        )
+    for _ in range(_SOLVE_ITERATIONS):
+        mid = (low + high) / 2
+        if _revenue_y10(base_revenue, story, mid, terminal_growth) < target:
+            low = mid
+        else:
+            high = mid
+    return (low + high) / 2
+
+
+def growth_path(
+    base_revenue: float, story: StoryInputs, terminal_growth: float
+) -> tuple[float, ...]:
+    """Revenue growth of years 1..10: year 1, solved stage rate, fade to ``terminal_growth``."""
+    stage = solve_stage_growth(base_revenue, story, terminal_growth)
+    return _stage_growth_rates(story.year1_growth, stage, terminal_growth)
+
+
+def margin_path(story: StoryInputs) -> tuple[float, ...]:
+    """Operating margin of years 1..10: linear from year 1 to the drag-adjusted target."""
+    target = story.target_margin - story.regulatory_drag
+    first, converge = story.year1_margin, story.margin_converge_year
+    later = (
+        first + (target - first) * t / converge if t <= converge else target
+        for t in range(2, HORIZON + 1)
+    )
+    return (first, *later)
+
+
+def _fade_path(start: float, end: float) -> tuple[float, ...]:
+    """Flat at ``start`` through the stage, linear fade to ``end`` (exact) in year 10."""
+    fade = HORIZON - _STAGE_END
+    if start == end:
+        return (start,) * HORIZON
+    return (
+        (start,) * _STAGE_END
+        + tuple(start + (end - start) * k / fade for k in range(1, fade))
+        + (end,)
+    )
+
+
+def wacc_path(story: StoryInputs, wacc_terminal: float) -> tuple[float, ...]:
+    """WACC of years 1..10: ``wacc_start`` through year 5, fading to ``wacc_terminal``."""
+    return _fade_path(story.wacc_start, wacc_terminal)
+
+
+def tax_path(story: StoryInputs, marginal_tax_rate: float) -> tuple[float, ...]:
+    """Tax rate of years 1..10: ``effective_tax_rate`` through year 5, fading to marginal."""
+    return _fade_path(story.effective_tax_rate, marginal_tax_rate)
