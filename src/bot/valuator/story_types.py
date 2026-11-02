@@ -1,8 +1,9 @@
 """Auto-classify a company into a Damodaran story type (spec §7.1, issue #14).
 
-Damodaran's life-cycle classification puts every company into one of five
-archetypes, each with a distinct projection pattern (spec §7.1)::
+Damodaran's life-cycle classification has five archetypes; the bot adds
+``hypergrowth`` as a sixth. Each has a distinct projection pattern (spec §7.1)::
 
+    hypergrowth     explosive growth at a loss, margin below the sector
     high-growth     fast growth decaying toward the sector, margins improving
     mature-stable   growth ~ GDP nominal, sector-average margins
     mature-decline  controlled negative growth, eroding margins
@@ -56,6 +57,22 @@ _MATURE_AGE_YEARS = 25
 #: Compound annual revenue growth at/below this (i.e. shrinking) marks decline.
 _DECLINE_CAGR = -0.01
 
+#: Last-year revenue growth at/above this (needs two positive points) is one
+#: half of the hypergrowth signal.
+_HYPERGROWTH_LAST_YEAR_GROWTH = 0.50
+
+#: Compound annual revenue growth at/above this over the available history (two
+#: points suffice) is the other half of the hypergrowth growth signal.
+_HYPERGROWTH_CAGR = 0.40
+
+#: Years since founding at/below which a company can be hypergrowth. Distinct
+#: from the IPO-based ``_MATURE_AGE_YEARS``.
+_HYPERGROWTH_MAX_AGE_YEARS = 15
+
+#: Absorbs float error so "at least 40%" fires at 40%: for example
+#: ``1.96 ** 0.5 - 1`` evaluates to ``0.3999999999999999``.
+_THRESHOLD_TOLERANCE = 1e-9
+
 
 class StoryType(StrEnum):
     """Damodaran life-cycle archetype (spec §7.1).
@@ -69,6 +86,7 @@ class StoryType(StrEnum):
     MATURE_DECLINE = "mature-decline"
     CYCLICAL = "cyclical"
     DISTRESSED = "distressed"
+    HYPERGROWTH = "hypergrowth"
 
 
 @dataclass(frozen=True)
@@ -90,6 +108,10 @@ class ClassificationFinancials:
             a distress signal (``None`` when unknown).
         altman_z: Altman Z-score; below the distress zone marks ``distressed``
             (``None`` when unknown).
+        operating_margin: Company operating margin (``None`` when unknown);
+            hypergrowth needs it below the sector margin.
+        founded_age_years: Years since founding, distinct from ``age_years``
+            (which keeps feeding the high-growth rule); ``None`` when unknown.
     """
 
     revenue_history: tuple[float, ...]
@@ -97,6 +119,8 @@ class ClassificationFinancials:
     age_years: int | None = None
     interest_coverage: float | None = None
     altman_z: float | None = None
+    operating_margin: float | None = None
+    founded_age_years: int | None = None
 
 
 @dataclass(frozen=True)
@@ -108,9 +132,12 @@ class SectorContext:
             (e.g. autos, steel, airlines). Cyclical classification needs *both*
             this flag and volatile earnings, so a one-off bad year in a stable
             sector is not mislabelled.
+        operating_margin: Sector operating margin (``None`` when unknown);
+            the benchmark for the hypergrowth margin test.
     """
 
     is_cyclical: bool = False
+    operating_margin: float | None = None
 
 
 def _cagr(history: tuple[float, ...]) -> float | None:
@@ -142,6 +169,27 @@ def _earnings_cv(history: tuple[float, ...]) -> float | None:
     return statistics.pstdev(history) / abs(mean)
 
 
+def _is_hypergrowth(financials: ClassificationFinancials, sector: SectorContext) -> bool:
+    """Hypergrowth: explosive growth, margin below sector, not an old company."""
+    history = financials.revenue_history
+    if len(history) < 2 or history[-1] <= 0.0 or history[-2] <= 0.0:
+        return False
+    last_year = history[-1] / history[-2] - 1.0
+    if last_year < _HYPERGROWTH_LAST_YEAR_GROWTH - _THRESHOLD_TOLERANCE:
+        return False
+    cagr = _cagr(history)
+    if cagr is None or cagr < _HYPERGROWTH_CAGR - _THRESHOLD_TOLERANCE:
+        return False
+    company_margin = financials.operating_margin
+    sector_margin = sector.operating_margin
+    if company_margin is None or sector_margin is None:
+        return False
+    if company_margin >= sector_margin:
+        return False
+    founded = financials.founded_age_years
+    return founded is None or founded <= _HYPERGROWTH_MAX_AGE_YEARS
+
+
 def _is_distressed(financials: ClassificationFinancials) -> bool:
     """Solvency check: Altman Z in the distress zone or coverage too thin."""
     if financials.altman_z is not None and financials.altman_z < _DISTRESS_ALTMAN_Z:
@@ -165,24 +213,31 @@ def classify(
 
     The rules are evaluated in priority order:
 
-    1. **distressed** — Altman Z in the distress zone, or interest coverage at or
-       below 1 — wins over everything, even a fast grower that cannot service
+    1. **hypergrowth** — last-year revenue growth at least 50% *and* CAGR at least
+       40%, both company and sector operating margins known with the company
+       strictly below the sector, and founded at most 15 years ago (or founding
+       age unknown). Wins over distress: a loss-making hyper-grower is not a
+       bankruptcy candidate.
+    2. **distressed** — Altman Z in the distress zone, or interest coverage at or
+       below 1 — wins over everything below, even a fast grower that cannot service
        its debt.
-    2. **cyclical** — a structurally cyclical sector *and* volatile earnings
+    3. **cyclical** — a structurally cyclical sector *and* volatile earnings
        (high coefficient of variation); the current year is not representative.
-    3. **high-growth** — high compound revenue growth in a still-young company.
-    4. **mature-decline** — shrinking revenue.
-    5. **mature-stable** — the default for everything else, including companies
+    4. **high-growth** — high compound revenue growth in a still-young company.
+    5. **mature-decline** — shrinking revenue.
+    6. **mature-stable** — the default for everything else, including companies
        with too little history to call.
 
     Args:
         financials: The company-level signals (growth, earnings volatility, age,
             leverage, solvency).
-        sector_data: The sector-level signals (currently the cyclical flag).
+        sector_data: The sector-level signals (cyclical flag, operating margin).
 
     Returns:
         The :class:`StoryType` the company is classified into.
     """
+    if _is_hypergrowth(financials, sector_data):
+        return StoryType.HYPERGROWTH
     if _is_distressed(financials):
         return StoryType.DISTRESSED
     if _is_cyclical(financials, sector_data):

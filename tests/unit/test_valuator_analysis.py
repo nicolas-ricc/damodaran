@@ -475,3 +475,156 @@ def test_analyze_accepts_share_count_at_bounds(
 ) -> None:
     _set_latest_shares(seeded_conn, shares)
     analyze("AAPL", seeded_conn)
+
+
+# --- #195: hypergrowth classified before distress, gated on the story file ------
+
+
+def _seed_anthropic(conn: duckdb.DuckDBPyConnection, ticker: str = "ANTH") -> None:
+    """Anthropic at its IPO, in raw units: revenue 1,020M then 20,608M, margin -228%,
+    interest coverage below 1, 114B cash; its sector's median margin is 28%."""
+    _seed_company(conn, ticker=ticker, industry_damodaran="Software (System & Application)")
+    conn.execute("UPDATE damodaran_industry SET op_margin = 0.28")
+    for year, revenue in ((2024, 1_020.0), (2025, 20_608.0)):
+        ebit = -2.2798 * revenue
+        conn.execute(
+            "INSERT INTO financials_annual "
+            "(ticker, fiscal_year, revenue, ebit, net_income, interest_expense, "
+            "total_debt, cash, shares_diluted, is_restated, source, currency) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
+            [
+                ticker,
+                year,
+                revenue * _MILLIONS,
+                ebit * _MILLIONS,
+                ebit * _MILLIONS,
+                1_000.0 * _MILLIONS,
+                0.0,
+                114_000.0 * _MILLIONS,
+                3_298.14 * _MILLIONS,
+                False,
+                "sec_edgar",
+            ],
+        )
+
+
+def _story_yaml(tmp_path: Path) -> Path:
+    import yaml
+
+    from tests.unit.test_valuator_hypergrowth import _STORY
+
+    path = tmp_path / "ANTH.yaml"
+    path.write_text(yaml.safe_dump({"story_type": "hypergrowth", "story": _STORY}))
+    return path
+
+
+def test_hypergrowth_without_story_values_as_high_growth_with_red_flag(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_anthropic(conn)
+    a = analyze("ANTH", conn)
+    assert a.story_type == "high-growth"
+    assert a.auto_story_type == "hypergrowth"
+    assert a.story_file_present is False
+    assert len(a.narrative_flags) == 6
+    assert a.narrative_flags[-1].name == "hypergrowth_story"
+    assert a.narrative_flags[-1].color is FlagColor.RED
+    assert not any("manually overridden" in r for r in a.story_reasons)
+    assert (
+        "hypergrowth signals but no story file: valued as high-growth, "
+        "see the hypergrowth_story flag"
+    ) in a.story_reasons
+
+
+def test_hypergrowth_reasons_list_the_signals(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_anthropic(conn)
+    reasons = analyze("ANTH", conn).story_reasons
+    assert reasons[:5] == (
+        "last-year revenue growth 1920.4%",
+        "revenue CAGR 1920.4% over 1 years",
+        "operating margin -228.0% below sector 28.0%",
+        "founding year unknown",
+        "classified as hypergrowth",
+    )
+
+
+def test_hypergrowth_reasons_name_the_founding_age(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_anthropic(conn)
+    override = tmp_path / "ANTH.yaml"
+    override.write_text(f"founded_year: {date.today().year - 5}\n")
+    assert "founded 5 years ago" in analyze("ANTH", conn, override_path=override).story_reasons
+
+
+def test_hypergrowth_with_story_file(conn: duckdb.DuckDBPyConnection, tmp_path: Path) -> None:
+    _seed_anthropic(conn)
+    a = analyze("ANTH", conn, override_path=_story_yaml(tmp_path))
+    assert a.story_type == "hypergrowth"
+    assert a.auto_story_type == "hypergrowth"
+    assert a.story_file_present is True
+    assert a.narrative_flags[-1].name == "hypergrowth_story"
+    assert a.narrative_flags[-1].color is FlagColor.GREEN
+    # Generic resolvers until the story-driven projection lands (#196).
+    assert a.assumptions.revenue_growth.source is AssumptionSource.HISTORICAL_AVERAGE
+    assert not any("no story file" in r for r in a.story_reasons)
+
+
+def test_founded_year_40_years_back_is_distressed(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_anthropic(conn)
+    override = tmp_path / "ANTH.yaml"
+    override.write_text(f"founded_year: {date.today().year - 40}\n")
+    a = analyze("ANTH", conn, override_path=override)
+    assert a.story_type == "distressed"
+    assert len(a.narrative_flags) == 5
+
+
+def test_mature_company_still_has_five_flags(seeded_conn: duckdb.DuckDBPyConnection) -> None:
+    a = analyze("AAPL", seeded_conn)
+    assert len(a.narrative_flags) == 5
+    assert "hypergrowth_story" not in {f.name for f in a.narrative_flags}
+    assert a.auto_story_type == a.story_type
+    assert a.story_file_present is False
+
+
+def test_hypergrowth_fallback_keeps_other_override_keys(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_anthropic(conn)
+    override = tmp_path / "ANTH.yaml"
+    override.write_text("operating_margin: 0.35\n")
+    a = analyze("ANTH", conn, override_path=override)
+    assert a.story_type == "high-growth"
+    assert a.assumptions.operating_margin.source is AssumptionSource.MANUAL
+    assert a.narrative_flags[-1].color is FlagColor.RED
+
+
+def test_manual_override_of_hypergrowth_says_overridden(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_anthropic(conn)
+    override = tmp_path / "ANTH.yaml"
+    override.write_text("story_type: mature-stable\n")
+    a = analyze("ANTH", conn, override_path=override)
+    assert a.story_type == "mature-stable"
+    assert a.story_reasons[0].startswith("manually overridden")
+    assert "hypergrowth" in a.story_reasons[0]
+    flag = next(f for f in a.narrative_flags if f.name == "hypergrowth_story")
+    assert flag.color is FlagColor.RED
+
+
+def test_story_file_without_hypergrowth_signals_is_yellow(
+    seeded_conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    # A story file on a mature company: the label is manual, the flag says the
+    # classifier does not back it.
+    a = analyze("AAPL", seeded_conn, override_path=_story_yaml(tmp_path))
+    assert a.story_type == "hypergrowth"
+    assert a.auto_story_type != "hypergrowth"
+    assert a.story_reasons[0].startswith("manually overridden")
+    assert f"would have said {a.auto_story_type}" in a.story_reasons[0]
+    assert len(a.narrative_flags) == 6
+    assert a.narrative_flags[-1].name == "hypergrowth_story"
+    assert a.narrative_flags[-1].color is FlagColor.YELLOW

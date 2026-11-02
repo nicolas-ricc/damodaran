@@ -37,7 +37,7 @@ directly.
 from __future__ import annotations
 
 import itertools
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, fields
 from datetime import date
 from enum import StrEnum
@@ -781,6 +781,7 @@ def resolve_assumptions(
     conn: duckdb.DuckDBPyConnection,
     override_path: Path | None = None,
     *,
+    override: Mapping[str, Any] | None = None,
     auto_story_type: StoryType | None = None,
     db_inputs: AssumptionInputs | None = None,
     currencies: CurrencyTable | None = None,
@@ -792,6 +793,9 @@ def resolve_assumptions(
         conn: Open DuckDB connection with the schema applied.
         override_path: Optional ``config/assumptions/<TICKER>.yaml``. A
             non-existent path is treated as "no overrides".
+        override: Override mapping already returned by :func:`load_override`,
+            so already validated. When not ``None`` it is used verbatim and
+            ``override_path`` is not read.
         auto_story_type: The story type the classifier
             (:func:`bot.valuator.story_types.classify`) assigned this company.
             It fills ``story_type`` only when the override YAML does not set one
@@ -816,9 +820,9 @@ def resolve_assumptions(
     sector = _SectorDefaults(
         row=db_inputs.sector, cross_region=db_inputs.sector_is_cross_region
     )
-    override = load_override(override_path)
+    override = dict(override) if override is not None else load_override(override_path)
 
-    story_label = _resolve_story_type(override, auto_story_type)
+    story_label = _resolve_story_type(override, auto_story_type, ticker=ticker)
     if story_label is not None and story_label not in _STORY_TYPE_VALUES:
         log.warning(
             "assumptions.story_type.invalid",
@@ -874,15 +878,24 @@ def resolve_assumptions(
 
 
 def _resolve_story_type(
-    override: dict[str, Any], auto_story_type: StoryType | None
+    override: dict[str, Any], auto_story_type: StoryType | None, *, ticker: str
 ) -> str | None:
-    """Manual ``story_type`` wins; else the classifier's verdict (spec §7.6)."""
+    """Manual ``story_type`` wins; else the classifier's verdict (spec §7.6).
+
+    A ``hypergrowth`` label without a ``story`` section falls back to
+    ``high-growth`` (#195): the method is never applied without a story file.
+    """
     manual = override.get("story_type")
     if manual is not None:
-        return str(manual)
-    if auto_story_type is not None:
-        return str(auto_story_type)
-    return None
+        label = str(manual)
+    elif auto_story_type is not None:
+        label = str(auto_story_type)
+    else:
+        return None
+    if label == StoryType.HYPERGROWTH.value and "story" not in override:
+        log.info("assumptions.story_type.hypergrowth_without_story", ticker=ticker)
+        return StoryType.HIGH_GROWTH.value
+    return label
 
 
 def _linear_path(start: float, end: float, n: int = _HORIZON) -> tuple[float, ...]:

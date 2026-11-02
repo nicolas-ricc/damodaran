@@ -31,11 +31,17 @@ from bot.valuator.assumptions import (
     AssumptionInputs,
     bulk_load_assumption_inputs,
     load_assumption_inputs,
+    load_override,
     resolve_assumptions,
 )
 from bot.valuator.assumptions import Assumptions as SourcedAssumptions
 from bot.valuator.dcf import DCFResult, Financials, dcf
-from bot.valuator.narrative_flags import NarrativeContext, NarrativeFlag, narrative_flags
+from bot.valuator.narrative_flags import (
+    NarrativeContext,
+    NarrativeFlag,
+    hypergrowth_flags,
+    narrative_flags,
+)
 from bot.valuator.sensitivity import Grid2D, SensitivityAxis, TornadoEntry, grid_2d, tornado
 from bot.valuator.story_types import (
     ClassificationFinancials,
@@ -80,14 +86,19 @@ class Analysis:
     Attributes:
         ticker / name / country / currency: Company identity.
         story_type: The story type that drove assumption resolution (manual
-            override or auto-classifier verdict).
+            override or auto-classifier verdict; a ``hypergrowth`` verdict
+            without a story file falls back to ``high-growth``).
+        auto_story_type: The classifier's own verdict (``StoryType`` value),
+            regardless of any override or the hypergrowth fallback.
+        story_file_present: Whether the override file carries a ``story`` block.
         story_reasons: Human-readable reasons the story type was assigned.
         assumptions: The six critical assumptions, each carrying its source.
         financials: The current-year DCF inputs (revenue, net debt, shares).
         dcf_result: The two-stage DCF output (intrinsic value + projections).
         tornado: Per-axis ±20% impacts, descending by impact (spec §7.4).
         grid: 5x5 margin-of-safety grid over the two widest tornado axes.
-        narrative_flags: The five §7.5 consistency flags.
+        narrative_flags: The five §7.5 consistency flags, plus the
+            ``hypergrowth_story`` flag when it applies.
         sanity_check: Implied vs sector multiples (spec §7.7).
         current_price: Latest close in the listing currency (``None`` if absent).
         margin_of_safety: ``intrinsic_value / current_price`` (``None`` if no
@@ -100,6 +111,8 @@ class Analysis:
     country: str | None
     currency: str | None
     story_type: str | None
+    auto_story_type: str
+    story_file_present: bool
     story_reasons: tuple[str, ...]
     assumptions: SourcedAssumptions
     financials: Financials
@@ -479,6 +492,10 @@ def _story_reasons(
     age_years: int | None,
     *,
     overridden: bool,
+    operating_margin: float | None = None,
+    sector_operating_margin: float | None = None,
+    founded_age_years: int | None = None,
+    hypergrowth_fallback: bool = False,
 ) -> tuple[str, ...]:
     """Human-readable reasons for the story type shown in report §2.
 
@@ -494,6 +511,14 @@ def _story_reasons(
             f"manually overridden in the assumptions file; the classifier would "
             f"have said {auto_story_type.value}",
         )
+    if auto_story_type is StoryType.HYPERGROWTH:
+        return _hypergrowth_reasons(
+            revenue_history,
+            operating_margin,
+            sector_operating_margin,
+            founded_age_years,
+            hypergrowth_fallback,
+        )
     reasons: list[str] = []
     if len(revenue_history) >= 2 and revenue_history[0] > 0.0:
         periods = len(revenue_history) - 1
@@ -504,6 +529,39 @@ def _story_reasons(
     if age_years is not None:
         reasons.append(f"company age {age_years} years")
     reasons.append(f"classified as {auto_story_type.value}")
+    return tuple(reasons)
+
+
+def _hypergrowth_reasons(
+    revenue_history: tuple[float, ...],
+    operating_margin: float | None,
+    sector_operating_margin: float | None,
+    founded_age_years: int | None,
+    hypergrowth_fallback: bool,
+) -> tuple[str, ...]:
+    """Reasons for a ``hypergrowth`` verdict: the signals that fired (issue #195)."""
+    growth = revenue_history[-1] / revenue_history[-2] - 1.0
+    cagr_rate = cagr(revenue_history)
+    periods = len(revenue_history) - 1
+    reasons = [
+        f"last-year revenue growth {growth:.1%}",
+        f"revenue CAGR {cagr_rate:.1%} over {periods} years",
+    ]
+    if operating_margin is not None and sector_operating_margin is not None:
+        reasons.append(
+            f"operating margin {operating_margin:.1%} below sector {sector_operating_margin:.1%}"
+        )
+    reasons.append(
+        f"founded {founded_age_years} years ago"
+        if founded_age_years is not None
+        else "founding year unknown"
+    )
+    reasons.append("classified as hypergrowth")
+    if hypergrowth_fallback:
+        reasons.append(
+            "hypergrowth signals but no story file: valued as high-growth, "
+            "see the hypergrowth_story flag"
+        )
     return tuple(reasons)
 
 
@@ -631,6 +689,21 @@ def analyze(
     if age_years is None and company_row.ipo_date is not None:
         age_years = max(0, (_date.today() - company_row.ipo_date).days // 365)
 
+    # Read the override once; resolve_assumptions reuses it instead of re-reading.
+    override = load_override(override_path)
+    founded_age_years = (
+        _date.today().year - int(override["founded_year"]) if "founded_year" in override else None
+    )
+
+    # The company's *realised* operating margin, from its own income statement.
+    # Deliberately not ``assumptions.operating_margin``: absent a manual override
+    # that value is read from the same ``damodaran_industry`` row as
+    # ``sector.op_margin``, so the story-margin flag would compare the sector
+    # median against itself — the same vacuous comparison the ERP gap had.
+    company_operating_margin: float | None = None
+    if latest.revenue is not None and latest.revenue != 0.0 and latest.ebit is not None:
+        company_operating_margin = latest.ebit / latest.revenue
+
     # Story type: classify, then let a manual override win inside resolve.
     interest_coverage = None
     if latest.ebit is not None and latest.interest_expense:
@@ -640,6 +713,8 @@ def analyze(
         earnings_history=income_history,
         age_years=age_years,
         interest_coverage=interest_coverage,
+        operating_margin=company_operating_margin,
+        founded_age_years=founded_age_years,
     )
     # Derived from the company's Damodaran industry unless the caller forces it,
     # so StoryType.CYCLICAL is reachable from the CLI and the screener (§7.1).
@@ -648,16 +723,25 @@ def analyze(
         if is_cyclical_sector is None
         else is_cyclical_sector
     )
-    auto_story = classify(classification, SectorContext(is_cyclical=cyclical))
+    auto_story = classify(
+        classification,
+        SectorContext(is_cyclical=cyclical, operating_margin=sector.op_margin),
+    )
 
     assumptions = resolve_assumptions(
         ticker,
         conn,
-        override_path=override_path,
+        override=override,
         auto_story_type=auto_story,
         db_inputs=inputs.assumption_inputs,
     )
     story_type = assumptions.story_type or auto_story.value
+    manual = override.get("story_type")
+    story_file_present = "story" in override
+    hypergrowth_fallback = (
+        auto_story is StoryType.HYPERGROWTH and manual is None and not story_file_present
+    )
+    overridden = manual is not None and str(manual) != auto_story.value
 
     if latest.revenue is None:
         raise ValueError(f"{ticker}: no revenue on the latest financials — cannot value")
@@ -690,17 +774,10 @@ def analyze(
         if invested > 0.0:
             company_debt_weight = latest.total_debt / invested
 
-    # The company's *realised* operating margin, from its own income statement.
-    # Deliberately not ``assumptions.operating_margin``: absent a manual override
-    # that value is read from the same ``damodaran_industry`` row as
-    # ``sector.op_margin``, so the story-margin flag would compare the sector
-    # median against itself — the same vacuous comparison the ERP gap had.
-    company_operating_margin: float | None = None
-    if latest.revenue is not None and latest.revenue != 0.0 and latest.ebit is not None:
-        company_operating_margin = latest.ebit / latest.revenue
-
     context = NarrativeContext(
         story_type=story_type,
+        hypergrowth_signals=auto_story is StoryType.HYPERGROWTH,
+        story_file_present=story_file_present,
         company_operating_margin=company_operating_margin,
         sector_operating_margin=sector.op_margin,
         sector_beta=sector.beta_levered,
@@ -710,7 +787,9 @@ def analyze(
         # needs revenue by geography, which no ingest path supplies. Passing the
         # sector ERP as both made the gap identically zero — a fake calculation.
     )
-    flags = narrative_flags(financials, dcf_assumptions, dcf_result, context)
+    flags = narrative_flags(financials, dcf_assumptions, dcf_result, context) + hypergrowth_flags(
+        financials, dcf_assumptions, dcf_result, context
+    )
 
     margin_of_safety = (
         dcf_result.intrinsic_value / current_price
@@ -732,12 +811,17 @@ def analyze(
         country=company_row.country,
         currency=company_row.currency,
         story_type=story_type,
+        auto_story_type=auto_story.value,
+        story_file_present=story_file_present,
         story_reasons=_story_reasons(
             auto_story,
             revenue_history,
             age_years,
-            overridden=assumptions.story_type is not None
-            and assumptions.story_type != auto_story.value,
+            overridden=overridden,
+            operating_margin=company_operating_margin,
+            sector_operating_margin=sector.op_margin,
+            founded_age_years=founded_age_years,
+            hypergrowth_fallback=hypergrowth_fallback,
         ),
         assumptions=assumptions,
         financials=financials,

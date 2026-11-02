@@ -24,6 +24,7 @@ from pathlib import Path
 
 import duckdb
 import pytest
+import yaml
 
 from bot.reference.currencies import CurrencyRates, CurrencyTable
 from bot.storage.db import apply_schema, connect
@@ -1010,3 +1011,73 @@ def test_founded_year_is_accepted_with_any_story_type(
     override = _write_override(tmp_path, "founded_year: 1976\nstory_type: mature-stable\n")
     result = resolve_assumptions("ACME", conn, override_path=override)
     assert result.story_type == "mature-stable"
+
+
+# --------------------------------------------------------------------------- #
+# Hypergrowth gate on the story file (#195)                                    #
+# --------------------------------------------------------------------------- #
+
+
+def _story_override(tmp_path: Path) -> Path:
+    from tests.unit.test_valuator_hypergrowth import _STORY
+
+    return _write_override(
+        tmp_path, yaml.safe_dump({"story_type": "hypergrowth", "story": _STORY})
+    )
+
+
+def test_hypergrowth_without_story_falls_back_to_high_growth(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_full_sector(conn)
+    result = resolve_assumptions("ACME", conn, auto_story_type=StoryType.HYPERGROWTH)
+    assert result.story_type == "high-growth"
+
+
+def test_hypergrowth_fallback_is_logged(conn: duckdb.DuckDBPyConnection) -> None:
+    from structlog.testing import capture_logs
+
+    _seed_full_sector(conn)
+    with capture_logs() as events:
+        resolve_assumptions("ACME", conn, auto_story_type=StoryType.HYPERGROWTH)
+    event = "assumptions.story_type.hypergrowth_without_story"
+    fallbacks = [e for e in events if e.get("event") == event]
+    assert [e["ticker"] for e in fallbacks] == ["ACME"]
+
+
+def test_hypergrowth_with_story_keeps_label_and_generic_resolvers(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    # Intermediate state pinned on purpose: the story-driven projection is #196,
+    # so with a story the label is hypergrowth but today's resolvers run.
+    _seed_full_sector(conn)
+    _seed_financials(conn, rows=((2024, 1_020.0, -2_325.0), (2025, 20_608.0, -46_982.0)))
+    override = load_override(_story_override(tmp_path))
+    result = resolve_assumptions(
+        "ACME", conn, override=override, auto_story_type=StoryType.HYPERGROWTH
+    )
+    assert result.story_type == "hypergrowth"
+    assert result.revenue_growth.source is AssumptionSource.HISTORICAL_AVERAGE
+
+
+def test_manual_story_type_beats_hypergrowth_gate(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)
+    override = _write_override(tmp_path, "story_type: mature-stable\n")
+    result = resolve_assumptions(
+        "ACME", conn, override_path=override, auto_story_type=StoryType.HYPERGROWTH
+    )
+    assert result.story_type == "mature-stable"
+
+
+def test_override_mapping_wins_over_path(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)
+    path = _write_override(tmp_path, "operating_margin: 0.10\n")
+    result = resolve_assumptions(
+        "ACME", conn, override_path=path, override={"operating_margin": 0.35}
+    )
+    assert result.operating_margin.value == pytest.approx((0.35,) * 5)
+    assert result.operating_margin.source is AssumptionSource.MANUAL
