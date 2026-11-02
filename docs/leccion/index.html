@@ -633,7 +633,7 @@ h1 {
         <li><code data-symbol="bot.valuator.story_types.StoryType">bot.valuator.story_types.StoryType</code> · <code class="at">src/bot/valuator/story_types.py:60</code>: los cinco valores. Son los tokens exactos que aparecen en los reportes y en la configuración.</li>
         <li><code data-symbol="bot.valuator.story_types.classify">bot.valuator.story_types.classify</code> · <code class="at">src/bot/valuator/story_types.py:161</code>: función pura, lee una foto de la empresa y devuelve la etiqueta con el orden de la tabla.</li>
         <li><code data-symbol="bot.valuator.story_types.SectorContext">bot.valuator.story_types.SectorContext</code> · <code class="at">src/bot/valuator/story_types.py:103</code>: lo único que <code>classify</code> sabe del sector es si es cíclico.</li>
-        <li><code data-symbol="bot.valuator.assumptions.conventional_override_path">bot.valuator.assumptions.conventional_override_path</code> · <code class="at">src/bot/valuator/assumptions.py:648</code>: dado un directorio y un ticker devuelve <code>config/assumptions/&lt;TICKER&gt;.yaml</code> si existe. Si ese archivo trae <code>story_type</code>, gana sobre lo que haya decidido <code>classify</code>.</li>
+        <li><code data-symbol="bot.valuator.assumptions.conventional_override_path">bot.valuator.assumptions.conventional_override_path</code> · <code class="at">src/bot/valuator/assumptions.py:662</code>: dado un directorio y un ticker devuelve <code>config/assumptions/&lt;TICKER&gt;.yaml</code> si existe. Si ese archivo trae <code>story_type</code>, gana sobre lo que haya decidido <code>classify</code>.</li>
       </ul>
     </div>
     <aside class="caveat">
@@ -651,7 +651,7 @@ h1 {
       <p>Por eso es un modelo de dos etapas: años explícitos (el horizonte es de <data data-const="bot.valuator.assumptions._HORIZON" value="5">5 años</data>) y una perpetuidad. En palabras, la lógica completa es una oración: el valor de la empresa es la suma de los flujos de cada año traídos a hoy con la tasa de descuento, más el valor terminal también traído a hoy; a eso se le resta la deuda neta y se divide por las acciones.</p>
       <p>El flujo de cada año sale así: ventas del año, por el margen operativo, menos impuestos, menos reinversión. La reinversión es el aumento de ventas dividido por «ventas por unidad de capital» (<code>sales_to_capital</code>): cuántos pesos de ventas nuevas genera cada peso invertido. Cuanto más crece la empresa, más tiene que reinvertir.</p>
       <p>Las cuentas son siempre las mismas; lo que cambia de una empresa a otra son los supuestos. El diseño habla de seis supuestos críticos: la trayectoria de crecimiento de ventas, el margen operativo, las ventas por unidad de capital, la tasa de descuento, el crecimiento terminal y la probabilidad de quiebra. En el código la tasa de descuento no es un dato: se arma con el costo del capital propio, el costo de la deuda y los pesos de capital propio y deuda (y el impuesto), y el impuesto también es un supuesto resuelto. Cada uno viaja envuelto en un <code>Sourced</code>: el valor junto con su <code>source</code>, de dónde salió. El reporte muestra esa procedencia al lado de cada número.</p>
-      <p>Las procedencias que existen en el código son siete:</p>
+      <p>Las procedencias que existen en el código son ocho:</p>
       <div class="tabla"><table>
         <thead><tr><th scope="col">Valor de <code>source</code></th><th scope="col">Qué significa</th></tr></thead>
         <tbody>
@@ -661,6 +661,7 @@ h1 {
           <tr><th scope="row"><code>rule_based</code></th><td>Sale de una regla: sin historia de ventas, el crecimiento es el PBI nominal, parejo los cinco años; el crecimiento terminal es el menor entre la tasa libre de riesgo y el PBI nominal; el impuesto cae en 25 % si no hay dato; la probabilidad de quiebra y el valor de liquidación quedan en 0.</td></tr>
           <tr><th scope="row"><code>historical_average</code></th><td>Es el promedio de la propia empresa: el crecimiento de ventas histórico repetido, o el margen promedio de su ciclo en una <code>cyclical</code> con historia suficiente.</td></tr>
           <tr><th scope="row"><code>story_pattern</code></th><td>Es una trayectoria armada con el patrón del arquetipo (la rampa de una <code>high-growth</code>, capítulo 6), y no un escalar copiado.</td></tr>
+          <tr><th scope="row"><code>story</code></th><td>El valor viene de la sección <code>story</code> del archivo de supuestos; solo para <code>hypergrowth</code>.</td></tr>
           <tr><th scope="row"><code>unresolved</code></th><td>Ninguna capa produjo un valor. El reporte muestra el hueco; no se lo atribuye a una fuente que no lo dio.</td></tr>
         </tbody>
       </table></div>
@@ -689,14 +690,14 @@ h1 {
         <li><code data-symbol="bot.valuator.dcf.dcf">bot.valuator.dcf.dcf</code> · <code class="at">src/bot/valuator/dcf.py:159</code>: la cuenta, función pura. Falla si el crecimiento terminal es mayor o igual que la tasa de descuento, porque la perpetuidad no converge.</li>
         <li><code data-symbol="bot.valuator.dcf.DCFResult">bot.valuator.dcf.DCFResult</code> · <code class="at">src/bot/valuator/dcf.py:122</code>: valor por acción, valor de la empresa, valor terminal y su peso (<code>terminal_value_share</code>), tasa y pesos usados.</li>
         <li><code data-symbol="bot.valuator.dcf.YearProjection">bot.valuator.dcf.YearProjection</code> · <code class="at">src/bot/valuator/dcf.py:108</code>: una fila de la tabla de arriba, por año.</li>
-        <li><code data-symbol="bot.valuator.assumptions.AssumptionSource">bot.valuator.assumptions.AssumptionSource</code> · <code class="at">src/bot/valuator/assumptions.py:92</code>: las siete procedencias.</li>
-        <li><code data-symbol="bot.valuator.assumptions.Sourced">bot.valuator.assumptions.Sourced</code> · <code class="at">src/bot/valuator/assumptions.py:114</code>: valor más procedencia.</li>
-        <li><code data-symbol="bot.valuator.assumptions.resolve_assumptions">bot.valuator.assumptions.resolve_assumptions</code> · <code class="at">src/bot/valuator/assumptions.py:738</code>: arma todos los supuestos de un ticker. Prioridad: manual, luego lo que corresponda por arquetipo e historia propia, luego el sector, luego las reglas.</li>
+        <li><code data-symbol="bot.valuator.assumptions.AssumptionSource">bot.valuator.assumptions.AssumptionSource</code> · <code class="at">src/bot/valuator/assumptions.py:93</code>: las ocho procedencias.</li>
+        <li><code data-symbol="bot.valuator.assumptions.Sourced">bot.valuator.assumptions.Sourced</code> · <code class="at">src/bot/valuator/assumptions.py:117</code>: valor más procedencia.</li>
+        <li><code data-symbol="bot.valuator.assumptions.resolve_assumptions">bot.valuator.assumptions.resolve_assumptions</code> · <code class="at">src/bot/valuator/assumptions.py:779</code>: arma todos los supuestos de un ticker. Prioridad: manual, luego lo que corresponda por arquetipo e historia propia, luego el sector, luego las reglas.</li>
       </ul>
     </div>
     <aside class="caveat">
       <p>Un DCF es basura que entra, basura que sale: devuelve un número con dos decimales aunque los supuestos sean un promedio histórico o la mediana de la industria. La precisión del resultado no es la precisión de la información.</p>
-      <p>Dos diferencias con el diseño. El diseño lista cinco procedencias e incluye <code>analyst_consensus</code> (proyecciones de analistas); el código tiene siete y no tiene esa: no hay conexión a esos datos, así que el crecimiento sale del promedio histórico de la propia empresa. Y la probabilidad de quiebra y el valor de liquidación no se derivan nunca de forma automática: quedan en 0 salvo que los cargues a mano.</p>
+      <p>Dos diferencias con el diseño. El diseño lista cinco procedencias e incluye <code>analyst_consensus</code> (proyecciones de analistas); el código tiene ocho y no tiene esa: no hay conexión a esos datos, así que el crecimiento sale del promedio histórico de la propia empresa. Y la probabilidad de quiebra y el valor de liquidación no se derivan nunca de forma automática: quedan en 0 salvo que los cargues a mano.</p>
     </aside>
   </section>
 
