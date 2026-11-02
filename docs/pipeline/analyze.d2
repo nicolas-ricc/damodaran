@@ -66,7 +66,7 @@ inputs: "1. inputs of one company" {
 story_type: "2. story type: first rule that matches wins" {  # @symbol bot.valuator.story_types.classify @enum bot.valuator.story_types.StoryType
   link: "./analyze-story.svg"
   # Decision: the hypergrowth rule, first
-  hypergrowth: "hypergrowth: last-year growth ≥ 50%, compound annual growth rate (CAGR) ≥ 40%, margin below sector, founded ≤ 15 years ago or unknown\nfounded age = this year − founded_year of the override file" {  # @symbol bot.valuator.story_types.classify @const bot.valuator.story_types._HYPERGROWTH_LAST_YEAR_GROWTH @const bot.valuator.story_types._HYPERGROWTH_CAGR @const bot.valuator.story_types._HYPERGROWTH_MAX_AGE_YEARS
+  hypergrowth: "hypergrowth: last-year growth ≥ 50%, compound annual growth rate (CAGR) ≥ 40%, margin below sector, founded ≤ 15 years ago or unknown\nboth margins known; fewer than two years, or the last or previous revenue ≤ 0: not hypergrowth\nfounded age = this year − founded_year of the override file" {  # @symbol bot.valuator.story_types.classify @const bot.valuator.story_types._HYPERGROWTH_LAST_YEAR_GROWTH @const bot.valuator.story_types._HYPERGROWTH_CAGR @const bot.valuator.story_types._HYPERGROWTH_MAX_AGE_YEARS
     class: decision
   }
   distressed: "distressed: Altman Z < 1.81 or interest coverage ≤ 1.0" {  # @const bot.valuator.story_types._DISTRESS_ALTMAN_Z @const bot.valuator.story_types._DISTRESS_INTEREST_COVERAGE
@@ -101,7 +101,7 @@ assumptions: "3. assumptions: the first source that yields a value wins; paths o
   link: "./analyze-assumptions.svg"
   plano_sources: |md Gap: plano assumptions card lists six sources without story_pattern, and plano a-growth says the default is the historical average; a high-growth company with history gets the story_pattern path. | {class: gap}
   # Step: the story shapes the ten-year paths
-  story: "hypergrowth story: the story file shapes the ten-year paths\ngrowth: year 1, then one solved rate up to year 5 so year-10 revenue meets the target, then a fade to terminal growth\nmargin, weighted average cost of capital (WACC), tax: from the story file\neach path covers 10 years; every value it sets is sourced story" {  # @symbol bot.valuator.hypergrowth.apply_story @symbol bot.valuator.hypergrowth.solve_stage_growth @const bot.valuator.hypergrowth.HORIZON @const bot.valuator.hypergrowth._STAGE_END
+  story: "hypergrowth story: the story file shapes the ten-year paths\ngrowth: year 1, then one solved rate up to year 5 so year-10 revenue meets the target, then a fade to terminal growth\nmargin, weighted average cost of capital (WACC), tax: from the story file\neach path covers 10 years; the generic chain runs first for every company\nalso from the story: sales-to-capital, cost of equity = wacc_start (equity weight 1, debt weight 0), bankruptcy odds = failure_probability (0 by default), terminal return on invested capital (ROIC), proceeds share, fixed commitments, extra cash, governance discount; all sourced story\nkept with their own source: terminal growth, the marginal tax rate (manual, sector, country, or 25%), pre-tax cost of debt, distress value per share" {  # @symbol bot.valuator.hypergrowth.apply_story @symbol bot.valuator.hypergrowth.solve_stage_growth @const bot.valuator.hypergrowth.HORIZON @const bot.valuator.hypergrowth._STAGE_END @const bot.valuator.assumptions._DEFAULT_TAX_RATE
     class: step
     adr: |md Decided in ADR 0009 (Implemented): the hypergrowth story is driven by the story file. | {class: note}  # @file docs/adr/0009-hypergrowth-story-driven-gated-on-story-file.md
   }
@@ -182,7 +182,7 @@ dcf: "4. two-stage discounted cash flow" {  # @symbol bot.valuator.dcf.dcf
 # Section 5: sensitivity
 sensitivity: "5. sensitivity" {
   link: "./analyze-sensitivity.svg"
-  tornado: "tornado: each axis × 0.8 and × 1.2, one at a time\naxes: revenue_growth, operating_margin (every year scaled), tax_rate,\nsales_to_capital, terminal_growth, cost_of_equity, pretax_cost_of_debt\nswing = |intrinsic value at × 1.2 − intrinsic value at × 0.8|, widest first\nan end with g_terminal ≥ WACC: no value, ranked last\nwith a WACC path: pretax_cost_of_debt is skipped; cost_of_equity scales the whole path" {  # @symbol bot.valuator.sensitivity.tornado @const bot.valuator.sensitivity._TORNADO_LOW @const bot.valuator.sensitivity._TORNADO_HIGH @enum bot.valuator.sensitivity.SensitivityAxis
+  tornado: "tornado: each axis × 0.8 and × 1.2, one at a time\naxes: revenue_growth, operating_margin (every year scaled), tax_rate,\nsales_to_capital, terminal_growth, cost_of_equity, pretax_cost_of_debt\nswing = |intrinsic value at × 1.2 − intrinsic value at × 0.8|, widest first\nan end with g_terminal ≥ WACC: no value, ranked last\nwith a WACC path: pretax_cost_of_debt is skipped; cost_of_equity scales the whole path\ntax_rate scales tax_rate_path too" {  # @symbol bot.valuator.sensitivity.tornado @const bot.valuator.sensitivity._TORNADO_LOW @const bot.valuator.sensitivity._TORNADO_HIGH @enum bot.valuator.sensitivity.SensitivityAxis
     class: step
   }
   grid: "five by five grid on the two widest tornado axes\nmultipliers 0.8, 0.9, 1.0, 1.1, 1.2 on each\ncell = intrinsic value ÷ price (margin of safety); no price, or price ≤ 0: intrinsic value\na cell with g_terminal ≥ WACC: empty" {  # @symbol bot.valuator.sensitivity.grid_2d @const bot.valuator.sensitivity._GRID_MULTIPLIERS
@@ -244,7 +244,7 @@ sanity_check: "8. sanity check" {
 
 # Section 9: reports
 reports: "9. reports, written to reports/YYYY-MM-DD/analysis/" {
-  markdown: "markdown report from analysis.md.j2, eight sections:\n1. executive summary (intrinsic value, and the value after governance), 2. story type + auto-assignment reasons,\n3. assumptions (story inputs sourced story), 4. DCF detail, 5. sensitivity (with the scenario range), 6. narrative flags,\n7. manual overrides, 8. sanity check vs sector multiples" {  # @symbol bot.reporting.analysis_report.render_analysis
+  markdown: "markdown report from analysis.md.j2, eight sections:\n1. executive summary (intrinsic value, and the value after governance when a discount is set), 2. story type + auto-assignment reasons,\n3. assumptions (story inputs sourced story), 4. DCF detail, 5. sensitivity (with the scenario range), 6. narrative flags,\n7. manual overrides, 8. sanity check vs sector multiples" {  # @symbol bot.reporting.analysis_report.render_analysis
     class: step
     plano_header: |md Gap: plano reports card says each report header carries the data versions it used; the header carries the generation date, currency and country only. | {class: gap}
   }

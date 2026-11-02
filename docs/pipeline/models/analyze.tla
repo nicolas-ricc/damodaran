@@ -138,7 +138,7 @@ RegionDefaultsToUs ==
   /\ phase' = "region_set"
   /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
-(* src/bot/valuator/analysis.py: analyze, `load_override(override_path)` after load_valuation_input and before ClassificationFinancials; src/bot/valuator/assumptions.py: load_override, _check_story_file *)
+(* src/bot/valuator/analysis.py: analyze, `load_override(override_path)` after load_valuation_input and before ClassificationFinancials; src/bot/valuator/assumptions.py: load_override, _check_story_file. The model does not tie the story file choice to an override file being present: an abstraction, harmless for the rules *)
 TheOverrideFileIsRead ==
   /\ phase = "region_set"
   /\ phase' = "override_read"
@@ -512,6 +512,7 @@ NoScenarios ==
   /\ phase' = "scenarios_done"
   /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
+(* valued' = FALSE: the value never goes out, because the ValueError discards the analysis *)
 (* src/bot/valuator/hypergrowth.py: scenario_cases raises ValueError naming the scenario; src/bot/valuator/dcf.py: dcf raises ValueError when terminal_growth >= wacc; src/bot/cli.py: _analyze_one returns 1 and writes nothing *)
 TheScenarioRangeFails ==
   /\ phase = "grid_done"

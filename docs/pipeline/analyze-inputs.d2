@@ -24,9 +24,9 @@ loaded: "the company and its figures are loaded\ncompanies row (name, country, c
 # @symbol bot.reference.regions.dataset_region
 region_set: "the dataset region is set\nChina, India, Japan: their own dataset region\nelse from the country's grouping in its newest damodaran_country row\nunknown: US" {class: decision}
 # @symbol bot.valuator.assumptions.load_override
-override_read: "the override file is read and checked\nconfig/assumptions/TICKER.yaml or the --override path, validated whole before any signal\nno file: nothing to check" {class: step}
+override_read: "the override file is read and checked\nconfig/assumptions/TICKER.yaml or the --override path, validated whole before the classifier reads the signals\nno file: nothing to check; a missing path or an empty file counts as no file" {class: step}
 # @symbol bot.valuator.analysis.analyze @symbol bot.reference.sectors.is_cyclical
-signals: "the signals are derived\nnet debt, interest coverage, age, founded age and the cyclical sector" {class: decision}
+signals: "the signals are derived\nnet debt, interest coverage, age, founded age and the cyclical sector" {class: decision}  # Its branches are drawn on analyze-story (README exception, cap)
 
 # Neighbours
 # @symbol bot.valuator.analysis.analyze

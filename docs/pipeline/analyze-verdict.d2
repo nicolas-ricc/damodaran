@@ -38,7 +38,7 @@ discounted -> verdict_given: "the verdict reads the margin of safety (MoS) [MoS 
 discounted -> verdict_given: "the verdict reads the margin of safety (MoS) [MoS below 1.0]\npotentially overvalued"  # @const bot.web.views.MOS_FAIR
 discounted -> verdict_given: "the verdict reads the margin of safety (MoS) [no close, or a close at most 0]\nn/a"
 verdict_given -> sanity_checked: "implied price-to-earnings and enterprise value to sales are set beside the sector's\nimplied price-to-earnings (P/E) = price ÷ earnings per share (EPS), with EPS = net income ÷ diluted shares\nimplied enterprise value (EV) ÷ sales = EV ÷ revenue"
-sanity_checked -> reported: "the markdown, HTML and JSON reports are written\nmarkdown sections: executive summary with both values, story type, assumptions with story inputs sourced story, discounted cash flow (DCF) detail, sensitivity with the scenario range, narrative flags, manual overrides, sanity check"
+sanity_checked -> reported: "the markdown, HTML and JSON reports are written\nmarkdown sections: executive summary with the value after governance when a discount is set, story type, assumptions with story inputs sourced story, discounted cash flow (DCF) detail, sensitivity with the scenario range, narrative flags, manual overrides, sanity check"
 template -> reported: "layout"
 reported -> report_md: "markdown file"
 reported -> report_html: "HTML file"
