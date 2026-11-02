@@ -2,10 +2,10 @@
 
 The rule was broken until #180 was fixed, and is checked again since #199.
 
-TLC's shortest path: a ticker is chosen, its override file is picked, the company is
-loaded and classified, then the override file is read and is not valid YAML, or holds
-a value float() refuses with a TypeError. The model says the command crashes; the rule
-says a failing ticker never stops the batch. #187 fixed the code (#180): the ticker fails
+TLC's shortest path before #199: a ticker was chosen, its override file picked, the
+company loaded and classified, then the override file was read and was not valid YAML,
+or held a value float() refused with a TypeError. The model said the command crashed;
+the rule says a failing ticker never stops the batch. #187 fixed the code (#180): the ticker fails
 alone and the batch goes on.
 """
 
