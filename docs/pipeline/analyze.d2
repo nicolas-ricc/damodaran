@@ -21,7 +21,7 @@ tickers: "which tickers?\ntickers given: those\n--from-screen: passed candidates
   class: decision
 }
 
-override: "which override file?\n--override path (only with exactly one ticker)\nelse config/assumptions/TICKER.yaml when it exists, else none\nan unknown key, or not a mapping: cannot value, exit code 1" {  # @symbol bot.valuator.assumptions.conventional_override_path
+override: "which override file?\n--override path (only with exactly one ticker)\nelse config/assumptions/TICKER.yaml when it exists, else none\nread after the company is loaded, before the signals\nany invalid file (not YAML, not a mapping, unknown key, non-number, inconsistent story file): cannot value, exit code 1" {  # @symbol bot.valuator.assumptions.conventional_override_path @symbol bot.valuator.assumptions.load_override
   class: decision
 }
 
@@ -56,16 +56,20 @@ inputs: "1. inputs of one company" {
   region: "dataset region\nChina, India, Japan: their own dataset region\nelse from the country's grouping in its newest damodaran_country row\nunknown: US" {  # @symbol bot.reference.regions.dataset_region
     class: decision
   }
-  derived: "derived signals\nnet debt = total debt − cash, a missing term counts as 0;\nboth missing: net debt taken as 0 in the DCF\ninterest coverage = EBIT ÷ interest expense;\nempty when EBIT is missing, or interest expense is 0 or missing\nage = whole years since ipo_date\ncyclical sector = industry_damodaran in the cyclical list (exact match)" {  # @symbol bot.valuator.analysis.analyze @symbol bot.reference.sectors.is_cyclical
+  derived: "derived signals\nnet debt = total debt − cash, a missing term counts as 0;\nboth missing: net debt taken as 0 in the DCF\ninterest coverage = EBIT ÷ interest expense;\nempty when EBIT is missing, or interest expense is 0 or missing\nage = whole years since ipo_date\nfounded age = this year − founded_year (override file), for the hypergrowth rule only\ncyclical sector = industry_damodaran in the cyclical list (exact match)" {  # @symbol bot.valuator.analysis.analyze @symbol bot.reference.sectors.is_cyclical
     class: step
-    age: |md Gap: age comes from ipo_date, which only Financial Modeling Prep fills. Verified: the Securities and Exchange Commission (SEC) Electronic Data Gathering, Analysis, and Retrieval (EDGAR) parser parse_submissions_info always sets ipo_date to none, so under the default provider age is unknown and every company counts as young. | {class: gap}  # @symbol bot.ingest.sec_edgar.parse_submissions_info
+    age: |md Gap: the high-growth rule still reads age from ipo_date, which only Financial Modeling Prep fills. Verified: the Securities and Exchange Commission (SEC) Electronic Data Gathering, Analysis, and Retrieval (EDGAR) parser parse_submissions_info always sets ipo_date to none, so under the default provider that age is unknown and every company counts as young. The hypergrowth rule reads founded_year of the override file instead (architecture decision record (ADR) 0009 (Implemented)). | {class: gap}  # @symbol bot.ingest.sec_edgar.parse_submissions_info
   }
 }
 
 # Section 2: story type
 story_type: "2. story type: first rule that matches wins" {  # @symbol bot.valuator.story_types.classify @enum bot.valuator.story_types.StoryType
   link: "./analyze-story.svg"
-  distressed: "hypergrowth, then distressed\nhypergrowth: last-year growth ≥ 50%, compound annual growth rate (CAGR) ≥ 40%, margin below sector, founded ≤ 15 years ago or unknown\ndistressed: Altman Z < 1.81 or interest coverage ≤ 1.0" {  # @const bot.valuator.story_types._HYPERGROWTH_LAST_YEAR_GROWTH @const bot.valuator.story_types._HYPERGROWTH_CAGR @const bot.valuator.story_types._HYPERGROWTH_MAX_AGE_YEARS @const bot.valuator.story_types._DISTRESS_ALTMAN_Z @const bot.valuator.story_types._DISTRESS_INTEREST_COVERAGE
+  # Decision: the hypergrowth rule, first
+  hypergrowth: "hypergrowth: last-year growth ≥ 50%, compound annual growth rate (CAGR) ≥ 40%, margin below sector, founded ≤ 15 years ago or unknown\nfounded age = this year − founded_year of the override file" {  # @symbol bot.valuator.story_types.classify @const bot.valuator.story_types._HYPERGROWTH_LAST_YEAR_GROWTH @const bot.valuator.story_types._HYPERGROWTH_CAGR @const bot.valuator.story_types._HYPERGROWTH_MAX_AGE_YEARS
+    class: decision
+  }
+  distressed: "distressed: Altman Z < 1.81 or interest coverage ≤ 1.0" {  # @const bot.valuator.story_types._DISTRESS_ALTMAN_Z @const bot.valuator.story_types._DISTRESS_INTEREST_COVERAGE
     class: decision
     label.near: outside-top-center
     altman: |md Gap: Altman Z is read by the classifier but computed nowhere, and analyze never passes it; only interest coverage can make a company distressed. The plano s-ds and a-default cards say Altman Z decides it. | {class: gap}
@@ -87,12 +91,20 @@ story_type: "2. story type: first rule that matches wins" {  # @symbol bot.valua
     label.near: outside-top-center
     reasons: |md The report gives the reasons: revenue CAGR over the years, the age, the classifier's story type; with an override, a line naming what the classifier would have said. | {class: note}
   }
+  gate: "hypergrowth only with a story file\nclassifier hypergrowth, no story type and no story section in the override file: high-growth, and a red hypergrowth_story flag\nstory type hypergrowth needs a story section" {  # @symbol bot.valuator.assumptions._resolve_story_type @symbol bot.valuator.narrative_flags.hypergrowth_story_flag
+    class: decision
+  }
 }
 
 # Section 3: assumptions
-assumptions: "3. assumptions: the first source that yields a value wins; paths over 5 years" {  # @symbol bot.valuator.assumptions.resolve_assumptions @const bot.valuator.assumptions._HORIZON @enum bot.valuator.assumptions.AssumptionSource
+assumptions: "3. assumptions: the first source that yields a value wins; paths over 5 years, ten for a hypergrowth story" {  # @symbol bot.valuator.assumptions.resolve_assumptions @const bot.valuator.assumptions._HORIZON @enum bot.valuator.assumptions.AssumptionSource
   link: "./analyze-assumptions.svg"
   plano_sources: |md Gap: plano assumptions card lists six sources without story_pattern, and plano a-growth says the default is the historical average; a high-growth company with history gets the story_pattern path. | {class: gap}
+  # Step: the story shapes the ten-year paths
+  story: "hypergrowth story: the story file shapes the ten-year paths\ngrowth: year 1, then one solved rate up to year 5 so year-10 revenue meets the target, then a fade to terminal growth\nmargin, weighted average cost of capital (WACC), tax: from the story file\neach path covers 10 years; every value it sets is sourced story" {  # @symbol bot.valuator.hypergrowth.apply_story @symbol bot.valuator.hypergrowth.solve_stage_growth @const bot.valuator.hypergrowth.HORIZON @const bot.valuator.hypergrowth._STAGE_END
+    class: step
+    adr: |md Decided in ADR 0009 (Implemented): the hypergrowth story is driven by the story file. | {class: note}  # @file docs/adr/0009-hypergrowth-story-driven-gated-on-story-file.md
+  }
   sector_row: "sector row: newest damodaran_industry row\nfor (industry, region)\nnone: the newest row of that industry in any region\nsector label = sector_default_damodaran,\nor sector_default_damodaran_cross_region\nwhen another region's row is used" {  # @symbol bot.valuator.assumptions._load_sector_with_fallback
     class: step
   }
@@ -128,6 +140,7 @@ assumptions: "3. assumptions: the first source that yields a value wins; paths o
     The source label of each value:
     - manual: the override file
     - story_pattern: a path built for the story type
+    - story: the story file of a hypergrowth company
     - historical_average: the company's own history
     - sector_default_damodaran: the sector or country row of the company's region
     - sector_default_damodaran_cross_region: the sector row of another region
@@ -148,20 +161,20 @@ dcf: "4. two-stage discounted cash flow" {  # @symbol bot.valuator.dcf.dcf
   converges: "g_terminal < WACC?\nno: cannot value, exit code 1" {
     class: decision
   }
-  years: "for t = 1 … N (N = length of the growth path, 5 unless a manual list differs;\nthe margin path is cut, or extended with its last value, to N)\nrevenue_t = revenue_t−1 × (1 + g_t), revenue_0 = latest revenue\nEBIT_t = revenue_t × margin_t\nnet operating profit after tax (NOPAT)_t = EBIT_t × (1 − tax)\nreinvestment_t = (revenue_t − revenue_t−1) ÷ sales-to-capital\nfree cash flow to the firm (FCFF)_t = NOPAT_t − reinvestment_t\npresent value_t = FCFF_t ÷ (1 + WACC)^t" {  # @const bot.valuator.assumptions._HORIZON
+  years: "for t = 1 … N (N = length of the growth path, 5 unless a manual list differs, 10 with a story;\nthe margin path is cut, or extended with its last value, to N)\nrevenue_t = revenue_t−1 × (1 + g_t), revenue_0 = latest revenue\nEBIT_t = revenue_t × margin_t\nnet operating profit after tax (NOPAT)_t = EBIT_t × (1 − tax)\nreinvestment_t = (revenue_t − revenue_t−1) ÷ sales-to-capital\nfree cash flow to the firm (FCFF)_t = NOPAT_t − reinvestment_t\npresent value_t = FCFF_t ÷ (1 + WACC)^t\nwith a WACC path: present value_t = FCFF_t × the cumulative discount factor\nwith a story: NOPAT_t uses the story's yearly tax rate" {  # @const bot.valuator.assumptions._HORIZON @const bot.valuator.hypergrowth.HORIZON
     class: step
   }
-  terminal: "terminal year N + 1: revenue = revenue_N × (1 + g_terminal), margin_N\nFCFF_N+1 by the same formulas\nterminal value = FCFF_N+1 ÷ (WACC − g_terminal)\npresent value of terminal value = terminal value ÷ (1 + WACC)^N" {
+  terminal: "terminal year N + 1: revenue = revenue_N × (1 + g_terminal), margin_N\nFCFF_N+1 by the same formulas\nterminal value = FCFF_N+1 ÷ (WACC − g_terminal)\npresent value of terminal value = terminal value ÷ (1 + WACC)^N\nwith a terminal return on invested capital (ROIC): reinvestment = NOPAT_N+1 × g ÷ ROIC\nwith a WACC path: WACC = the last year's, discounted by the last cumulative factor" {
     class: step
   }
   ev: "enterprise value (EV) = Σ present value_t + present value of terminal value\nterminal value share = present value of terminal value ÷ EV\n(0 when EV = 0)" {
     class: step
   }
-  equity: "equity = EV − net debt + adjustments\ngoing-concern value per share = equity ÷ diluted shares" {
+  equity: "equity = EV − net debt + adjustments\ngoing-concern value per share = equity ÷ diluted shares\nwith a story: − fixed commitments + extra cash" {
     class: step
     adjustments: |md Gap: spec §7.2 and the plano dcf card adjust equity for minority interests and cross-holdings; adjustments has no input path (not filled by the pipeline, not an override key), so it is always 0. | {class: gap}
   }
-  blend: "intrinsic value per share = (1 − p) × going-concern value per share\n+ p × distress value per share" {
+  blend: "intrinsic value per share = (1 − p) × going-concern value per share\n+ p × distress value per share\nwith a hypergrowth story: blended on EV before the bridge (proceeds share 0 by default), then the bridge" {
     class: step
   }
 }
@@ -169,16 +182,20 @@ dcf: "4. two-stage discounted cash flow" {  # @symbol bot.valuator.dcf.dcf
 # Section 5: sensitivity
 sensitivity: "5. sensitivity" {
   link: "./analyze-sensitivity.svg"
-  tornado: "tornado: each axis × 0.8 and × 1.2, one at a time\naxes: revenue_growth, operating_margin (every year scaled), tax_rate,\nsales_to_capital, terminal_growth, cost_of_equity, pretax_cost_of_debt\nswing = |intrinsic value at × 1.2 − intrinsic value at × 0.8|, widest first\nan end with g_terminal ≥ WACC: no value, ranked last" {  # @symbol bot.valuator.sensitivity.tornado @const bot.valuator.sensitivity._TORNADO_LOW @const bot.valuator.sensitivity._TORNADO_HIGH @enum bot.valuator.sensitivity.SensitivityAxis
+  tornado: "tornado: each axis × 0.8 and × 1.2, one at a time\naxes: revenue_growth, operating_margin (every year scaled), tax_rate,\nsales_to_capital, terminal_growth, cost_of_equity, pretax_cost_of_debt\nswing = |intrinsic value at × 1.2 − intrinsic value at × 0.8|, widest first\nan end with g_terminal ≥ WACC: no value, ranked last\nwith a WACC path: pretax_cost_of_debt is skipped; cost_of_equity scales the whole path" {  # @symbol bot.valuator.sensitivity.tornado @const bot.valuator.sensitivity._TORNADO_LOW @const bot.valuator.sensitivity._TORNADO_HIGH @enum bot.valuator.sensitivity.SensitivityAxis
     class: step
   }
   grid: "five by five grid on the two widest tornado axes\nmultipliers 0.8, 0.9, 1.0, 1.1, 1.2 on each\ncell = intrinsic value ÷ price (margin of safety); no price, or price ≤ 0: intrinsic value\na cell with g_terminal ≥ WACC: empty" {  # @symbol bot.valuator.sensitivity.grid_2d @const bot.valuator.sensitivity._GRID_MULTIPLIERS
     class: step
   }
+  # Step: the scenario range of a hypergrowth story
+  scenarios: "scenario range, base first, then each scenario in file order\none plain DCF each; only with scenarios in the story file\na scenario that cannot be built, or whose g_terminal ≥ WACC: cannot value, exit code 1" {  # @symbol bot.valuator.sensitivity.scenario_range @symbol bot.valuator.hypergrowth.scenario_cases
+    class: step
+  }
 }
 
 # Section 6: narrative flags
-narrative_flags: "6. narrative flags: five checks for a human, not in any ranking" {  # @symbol bot.valuator.narrative_flags.narrative_flags @enum bot.valuator.narrative_flags.FlagColor
+narrative_flags: "6. narrative flags: five checks, three more for hypergrowth; for a human, not in any ranking" {  # @symbol bot.valuator.narrative_flags.narrative_flags @enum bot.valuator.narrative_flags.FlagColor
   link: "./analyze-flags.svg"
   story_margin: "story margin\nstory type not high-growth: green\ncompany or sector margin missing: unknown\ncompany EBIT ÷ revenue (latest year) > sector op_margin: yellow\nelse green" {  # @symbol bot.valuator.narrative_flags.story_margin_flag
     class: decision
@@ -197,12 +214,20 @@ narrative_flags: "6. narrative flags: five checks for a human, not in any rankin
     label.near: outside-top-center
     always_unknown: |md Gap: analyze never supplies the foreign revenue share or the two ERPs (no ingest path has revenue by geography), so this flag is always unknown. | {class: gap}
   }
+  # Decision: the three hypergrowth flags
+  hypergrowth: "hypergrowth flags\nhypergrowth_story: red with signals and no story file, yellow with a story file and no signals, green otherwise\nrevenue scale: year-10 revenue > 750B: yellow\nterminal ROIC > 2 × the sector ROIC: yellow\na ROIC missing, or sector ROIC ≤ 0: unknown" {  # @symbol bot.valuator.narrative_flags.hypergrowth_flags @symbol bot.valuator.narrative_flags.hypergrowth_story_flag @const bot.valuator.narrative_flags._LARGEST_COMPANY_REVENUE @const bot.valuator.narrative_flags._ROIC_SECTOR_MULTIPLE
+    class: decision
+  }
 }
 
 # Section 7: margin of safety and verdict
 verdict: "7. margin of safety and verdict" {
   link: "./analyze-verdict.svg"
-  mos: "margin of safety (MoS) = intrinsic value per share ÷ latest close\nno price, or price ≤ 0: none" {  # @symbol bot.valuator.analysis.analyze
+  # Step: the governance discount
+  governance: "governance discount\nvalue after governance = intrinsic value per share × (1 − governance discount)\nthe story's discount, else none; tornado, grid and scenarios keep the raw value" {  # @symbol bot.valuator.analysis.analyze
+    class: step
+  }
+  mos: "margin of safety (MoS) = intrinsic value per share ÷ latest close\nwith a governance discount: the value after governance ÷ latest close\nno price, or price ≤ 0: none" {  # @symbol bot.valuator.analysis.analyze
     class: step
   }
   words: "verdict\nMoS ≥ 1.3: potentially undervalued\nMoS ≥ 1.0: around fair value\nMoS < 1.0: potentially overvalued\nno MoS: n/a" {  # @symbol bot.reporting.analysis_report.margin_verdict @const bot.web.views.MOS_UNDERVALUED @const bot.web.views.MOS_FAIR
@@ -219,7 +244,7 @@ sanity_check: "8. sanity check" {
 
 # Section 9: reports
 reports: "9. reports, written to reports/YYYY-MM-DD/analysis/" {
-  markdown: "markdown report from analysis.md.j2, eight sections:\n1. executive summary, 2. story type + auto-assignment reasons,\n3. assumptions, 4. DCF detail, 5. sensitivity, 6. narrative flags,\n7. manual overrides, 8. sanity check vs sector multiples" {  # @symbol bot.reporting.analysis_report.render_analysis
+  markdown: "markdown report from analysis.md.j2, eight sections:\n1. executive summary (intrinsic value, and the value after governance), 2. story type + auto-assignment reasons,\n3. assumptions (story inputs sourced story), 4. DCF detail, 5. sensitivity (with the scenario range), 6. narrative flags,\n7. manual overrides, 8. sanity check vs sector multiples" {  # @symbol bot.reporting.analysis_report.render_analysis
     class: step
     plano_header: |md Gap: plano reports card says each report header carries the data versions it used; the header carries the generation date, currency and country only. | {class: gap}
   }
@@ -249,7 +274,10 @@ inputs.load -> inputs.region: "country"
 inputs.region -> inputs.derived: "dataset region"
 
 # Edges: story type
-inputs.derived -> story_type.distressed: "signals"
+inputs.derived -> story_type.hypergrowth: "signals"
+inputs.derived -> story_type.distressed: "interest coverage"
+story_type.hypergrowth -> story_type.distressed: "no"
+story_type.hypergrowth -> story_type.manual: "yes"
 story_type.distressed -> story_type.cyclical: "no"
 story_type.cyclical -> story_type.high_growth: "no"
 story_type.high_growth -> story_type.mature_decline: "no"
@@ -259,10 +287,16 @@ story_type.cyclical -> story_type.manual: "yes"
 story_type.high_growth -> story_type.manual: "yes"
 story_type.mature_decline -> story_type.manual: "yes"
 story_type.mature_stable -> story_type.manual: "classifier's story type"
+story_type.manual -> story_type.gate: "story type"
+override_yaml -> story_type.gate: "story section"
 override_yaml -> story_type.manual: "story_type key"
 
 # Edges: assumptions
 story_type.manual -> assumptions: "story type"
+story_type.gate -> assumptions: "story type after the story file check"
+story_type.gate -> assumptions.story: "hypergrowth with a story file"
+override_yaml -> assumptions.story: "story section"
+assumptions.story -> dcf.guard: "ten-year paths"
 override_yaml -> assumptions: "manual values"
 duckdb.damodaran_industry -> assumptions.sector_row: "sector rows"
 currencies_yaml -> assumptions.terminal_growth: "risk-free rate and nominal GDP growth of the valuation currency"
@@ -294,13 +328,20 @@ dcf.equity -> dcf.blend: "going-concern value per share"
 dcf -> sensitivity.tornado: "the DCF re-run per scenario"
 inputs.load -> sensitivity.grid: "newest close"
 sensitivity.tornado -> sensitivity.grid: "two widest axes"
+assumptions.story -> sensitivity.scenarios: "scenarios of the story file"
+dcf -> sensitivity.scenarios: "the DCF re-run per scenario"
 
 # Edges: flags, verdict, sanity check
 dcf -> narrative_flags: "yearly figures, terminal value share"
-story_type.manual -> narrative_flags.story_margin: "story type"
+story_type.gate -> narrative_flags.story_margin: "story type"
+story_type.gate -> narrative_flags.hypergrowth: "story type, red flag on a fallback"
+dcf -> narrative_flags.hypergrowth: "terminal ROIC, year-10 revenue"
+verdict.governance -> verdict.mos: "value after governance"
+assumptions.story -> verdict.governance: "governance discount"
 inputs.load -> narrative_flags: "sector op_margin and beta_levered, latest EBIT and revenue"
 inputs.derived -> narrative_flags.beta_business_risk: "histories and balance sheet"
-dcf.blend -> verdict.mos: "intrinsic value per share"
+dcf.blend -> verdict.governance: "intrinsic value per share"
+dcf.blend -> verdict.mos: "intrinsic value per share, with no governance discount"
 inputs.load -> verdict.mos: "newest close"
 verdict.mos -> verdict.words: "MoS"
 dcf.ev -> sanity_check.multiples: "EV"
