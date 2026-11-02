@@ -169,9 +169,7 @@ def _earnings_cv(history: tuple[float, ...]) -> float | None:
     return statistics.pstdev(history) / abs(mean)
 
 
-def _is_hypergrowth(
-    financials: ClassificationFinancials, sector: SectorContext
-) -> bool:
+def _is_hypergrowth(financials: ClassificationFinancials, sector: SectorContext) -> bool:
     """Hypergrowth: explosive growth, margin below sector, not an old company."""
     history = financials.revenue_history
     if len(history) < 2 or history[-1] <= 0.0 or history[-2] <= 0.0:
@@ -233,7 +231,7 @@ def classify(
     Args:
         financials: The company-level signals (growth, earnings volatility, age,
             leverage, solvency).
-        sector_data: The sector-level signals (the cyclical flag and the sector operating margin).
+        sector_data: The sector-level signals (cyclical flag, operating margin).
 
     Returns:
         The :class:`StoryType` the company is classified into.

@@ -515,4 +515,4 @@ def test_hypergrowth_story_green_when_neither_signals_nor_story_file() -> None:
     flag = _hypergrowth_flag(
         story_type="hypergrowth", hypergrowth_signals=False, story_file_present=False
     )
-    assert flag.color == FlagColor.GREEN
+    assert flag.color is FlagColor.GREEN
