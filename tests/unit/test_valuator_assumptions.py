@@ -40,6 +40,7 @@ from bot.valuator.assumptions import (
 )
 from bot.valuator.hypergrowth import StoryInputs, story_from_override
 from bot.valuator.story_types import StoryType
+from tests.unit.test_valuator_hypergrowth import _STORY
 
 # --------------------------------------------------------------------------- #
 # Fixtures                                                                     #
@@ -1018,11 +1019,9 @@ def test_founded_year_is_accepted_with_any_story_type(
 # --------------------------------------------------------------------------- #
 
 
-def _story_override(tmp_path: Path) -> Path:
-    from tests.unit.test_valuator_hypergrowth import _STORY
-
+def _story_override(tmp_path: Path, **extra: object) -> Path:
     return _write_override(
-        tmp_path, yaml.safe_dump({"story_type": "hypergrowth", "story": _STORY})
+        tmp_path, yaml.safe_dump({"story_type": "hypergrowth", "story": _STORY, **extra})
     )
 
 
@@ -1045,11 +1044,10 @@ def test_hypergrowth_fallback_is_logged(conn: duckdb.DuckDBPyConnection) -> None
     assert [e["ticker"] for e in fallbacks] == ["ACME"]
 
 
-def test_hypergrowth_with_story_keeps_label_and_generic_resolvers(
+def test_hypergrowth_with_story_keeps_label_and_story_resolvers(
     conn: duckdb.DuckDBPyConnection, tmp_path: Path
 ) -> None:
-    # Intermediate state pinned on purpose: the story-driven projection is #196,
-    # so with a story the label is hypergrowth but today's resolvers run.
+    # #196: with a story the label is hypergrowth and the story drives the growth.
     _seed_full_sector(conn)
     _seed_financials(conn, rows=((2024, 1_020.0, -2_325.0), (2025, 20_608.0, -46_982.0)))
     override = load_override(_story_override(tmp_path))
@@ -1057,7 +1055,7 @@ def test_hypergrowth_with_story_keeps_label_and_generic_resolvers(
         "ACME", conn, override=override, auto_story_type=StoryType.HYPERGROWTH
     )
     assert result.story_type == "hypergrowth"
-    assert result.revenue_growth.source is AssumptionSource.HISTORICAL_AVERAGE
+    assert result.revenue_growth.source is AssumptionSource.STORY
 
 
 def test_manual_story_type_beats_hypergrowth_gate(
@@ -1081,3 +1079,96 @@ def test_override_mapping_wins_over_path(
     )
     assert result.operating_margin.value == pytest.approx((0.35,) * 5)
     assert result.operating_margin.source is AssumptionSource.MANUAL
+
+
+# --- #196: story fields of the bundle, latest revenue --------------------------
+
+
+def test_generic_bundle_has_no_story_fields(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_full_sector(conn)
+    _seed_financials(conn, rows=((2023, 100.0, 18.0), (2024, 110.0, 20.0)))
+    result = resolve_assumptions("ACME", conn, currencies=_usd())
+    for name in (
+        "wacc_path",
+        "tax_rate_path",
+        "terminal_roic",
+        "distress_proceeds_pct",
+        "fixed_commitments",
+        "extra_cash",
+        "governance_discount",
+        "story",
+    ):
+        assert getattr(result, name) is None, name
+    dcf_assumptions = result.to_dcf_assumptions()
+    assert dcf_assumptions.wacc_path is None
+    assert dcf_assumptions.tax_rate_path is None
+    assert dcf_assumptions.terminal_roic is None
+    assert dcf_assumptions.distress_proceeds_pct is None
+
+
+def test_latest_revenue_loaded_per_ticker_and_bulk(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_full_sector(conn)
+    _seed_financials(conn, rows=((2023, 100.0, 18.0), (2024, 110.0, 20.0)))
+    conn.execute(
+        "INSERT INTO financials_annual "
+        "(ticker, fiscal_year, revenue, ebit, is_restated, source, currency) "
+        "VALUES ('ACME', 2025, 999.0, 1.0, TRUE, 'test', 'USD')"
+    )
+    single = assumptions_mod.load_assumption_inputs(conn, "ACME", currencies=_usd())
+    bulk = assumptions_mod.bulk_load_assumption_inputs(conn, ["ACME"], currencies=_usd())
+    assert single.latest_revenue == 110.0
+    assert bulk["ACME"].latest_revenue == 110.0
+    assert single == bulk["ACME"]
+
+
+def test_latest_revenue_is_none_without_financials(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_full_sector(conn)
+    assert assumptions_mod.load_assumption_inputs(conn, "ACME", currencies=_usd()).latest_revenue is None
+    bulk = assumptions_mod.bulk_load_assumption_inputs(conn, ["ACME"], currencies=_usd())
+    assert bulk["ACME"].latest_revenue is None
+
+
+def test_resolve_hypergrowth_story_raises_without_latest_revenue(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)
+    conn.execute(
+        "INSERT INTO financials_annual (ticker, fiscal_year, revenue, ebit, source, currency) "
+        "VALUES ('ACME', 2024, NULL, 1.0, 'test', 'USD')"
+    )
+    with pytest.raises(ValueError, match=r"ACME.*revenue"):
+        resolve_assumptions(
+            "ACME", conn, override_path=_story_override(tmp_path), currencies=_usd()
+        )
+
+
+def test_resolve_hypergrowth_story_applies_the_story(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)
+    _seed_financials(conn, rows=((2023, 1.0e9, -1.0e9), (2024, 20.0e9, -40.0e9)))
+    result = resolve_assumptions(
+        "ACME",
+        conn,
+        override_path=_story_override(tmp_path, terminal_growth=0.049),
+        currencies=_usd(),
+    )
+    assert result.story_type == "hypergrowth"
+    assert result.revenue_growth.source is AssumptionSource.STORY
+    assert result.revenue_growth.value is not None
+    assert len(result.revenue_growth.value) == 10
+    assert result.terminal_growth.source is AssumptionSource.MANUAL
+    assert result.story is not None
+
+
+def test_resolve_hypergrowth_story_falls_back_to_the_sector_wacc(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)  # sector wacc 0.09
+    _seed_financials(conn, rows=((2023, 1.0e9, -1.0e9), (2024, 20.0e9, -40.0e9)))
+    story = {k: v for k, v in _STORY.items() if k != "wacc_terminal"}
+    path = tmp_path / "ACME.yaml"
+    path.write_text(yaml.safe_dump({"story_type": "hypergrowth", "story": story}))
+    result = resolve_assumptions("ACME", conn, override_path=path, currencies=_usd())
+    assert result.wacc_path is not None
+    assert result.wacc_path.value[-1] == 0.09

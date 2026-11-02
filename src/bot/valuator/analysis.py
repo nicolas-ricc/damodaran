@@ -661,6 +661,10 @@ def analyze(
         warned: Run-scoped set of currencies already logged as uncovered; share one
             across calls to warn once per currency per run. Used like ``currencies``.
 
+    A ``hypergrowth`` story file (resolved in :func:`resolve_assumptions`) also
+    sets the DCF's ``fixed_commitments`` and ``extra_cash`` from the bundle; both
+    are zero without one.
+
     Returns:
         An :class:`Analysis` carrying everything the §7.7 report renders.
 
@@ -757,6 +761,13 @@ def analyze(
         revenue=latest.revenue,
         net_debt=latest.net_debt if latest.net_debt is not None else 0.0,
         shares_diluted=shares,
+        # A hypergrowth story's balance-sheet items; None (no story) means zero.
+        fixed_commitments=(
+            assumptions.fixed_commitments.value
+            if assumptions.fixed_commitments is not None
+            else 0.0
+        ),
+        extra_cash=assumptions.extra_cash.value if assumptions.extra_cash is not None else 0.0,
     )
 
     dcf_assumptions = assumptions.to_dcf_assumptions()
