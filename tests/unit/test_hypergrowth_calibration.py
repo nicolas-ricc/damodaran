@@ -17,8 +17,8 @@ from __future__ import annotations
 import pytest
 
 from bot.valuator.assumptions import Assumptions, AssumptionSource, Sourced
-from bot.valuator.dcf import Financials, dcf
-from bot.valuator.hypergrowth import StoryInputs
+from bot.valuator.dcf import DCFResult, Financials, dcf
+from bot.valuator.hypergrowth import StoryInputs, apply_story
 
 #: Damodaran's base-case story, in millions of USD.
 CAL_STORY = StoryInputs(
@@ -89,9 +89,7 @@ def generic_bundle(
     )
 
 
-def _calibrated() -> tuple[Assumptions, object]:
-    from bot.valuator.hypergrowth import apply_story
-
+def _calibrated() -> tuple[Assumptions, DCFResult]:
     bundle = apply_story(
         generic_bundle(), CAL_STORY, base_revenue=CAL_BASE_REVENUE, sector_wacc=None
     )
@@ -109,9 +107,6 @@ def test_calibration_paths_match_the_sheet() -> None:
 
 def test_calibration_reproduces_damodaran_base_case() -> None:
     _, result = _calibrated()
-    from bot.valuator.dcf import DCFResult
-
-    assert isinstance(result, DCFResult)
     assert result.projections[-1].revenue == pytest.approx(1_011_491, abs=1)
     pv_terminal = result.terminal_value * result.projections[-1].discount_factor
     assert pv_terminal == pytest.approx(1_398_391, rel=0.001)

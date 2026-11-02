@@ -861,7 +861,9 @@ def resolve_assumptions(
     Raises:
         LookupError: If ``ticker`` is unknown.
         ValueError: If a hypergrowth story is applied and the company has no
-            latest revenue.
+            latest revenue, or :func:`bot.valuator.hypergrowth.apply_story`
+            refuses the story (unreachable revenue target, unresolved
+            ``wacc_terminal``, ``terminal_growth`` or ``tax_rate``).
     """
     if db_inputs is None:
         db_inputs = load_assumption_inputs(conn, ticker, currencies=currencies)

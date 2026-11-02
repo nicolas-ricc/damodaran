@@ -5,15 +5,15 @@ hypergrowth inputs) and a ``scenarios`` section (named subsets of story keys
 merged over the base story). :func:`parse_story`, :func:`parse_scenarios` and
 :func:`story_from_override` turn them into frozen :class:`StoryInputs`.
 
-The module is pure: no I/O, no global state. Every refusal is a ``ValueError``
-whose message starts with the file path (``where``) and names the key, so
-``bot analyze`` fails that ticker alone. Money amounts are in the raw reporting
+The module is pure: no I/O, no global state. Every refusal is a ``ValueError``,
+so ``bot analyze`` fails that ticker alone; a parse refusal's message starts
+with the file path (``where``) and names the key. Money amounts are in the raw reporting
 currency of ``financials_annual``, not millions.
 
 The ten-year paths of a story (growth, operating margin, WACC, tax rate) are
 built by :func:`growth_path`, :func:`margin_path`, :func:`wacc_path` and
-:func:`tax_path`; :func:`solve_stage_growth` finds the stage-1 growth rate that
-reaches ``target_revenue_y10``.
+:func:`tax_path`; :func:`solve_stage_growth` finds the constant growth rate of years
+2-5 that reaches ``target_revenue_y10``.
 """
 
 from __future__ import annotations
