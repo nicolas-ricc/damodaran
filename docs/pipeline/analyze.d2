@@ -189,7 +189,7 @@ sensitivity: "5. sensitivity" {
     class: step
   }
   # Step: the scenario range of a hypergrowth story
-  scenarios: "scenario range, base first, then each scenario in file order\none plain DCF each; only with scenarios in the story file\na scenario that cannot be built, or whose g_terminal ≥ WACC: cannot value, exit code 1" {  # @symbol bot.valuator.sensitivity.scenario_range @symbol bot.valuator.hypergrowth.scenario_cases
+  scenario_range: "scenario range, base first, then each scenario in file order\none plain DCF each; only with scenarios in the story file\na scenario that cannot be built, or whose g_terminal ≥ WACC: cannot value, exit code 1" {  # @symbol bot.valuator.sensitivity.scenario_range @symbol bot.valuator.hypergrowth.scenario_cases
     class: step
   }
 }
@@ -328,8 +328,8 @@ dcf.equity -> dcf.blend: "going-concern value per share"
 dcf -> sensitivity.tornado: "the DCF re-run per scenario"
 inputs.load -> sensitivity.grid: "newest close"
 sensitivity.tornado -> sensitivity.grid: "two widest axes"
-assumptions.story -> sensitivity.scenarios: "scenarios of the story file"
-dcf -> sensitivity.scenarios: "the DCF re-run per scenario"
+assumptions.story -> sensitivity.scenario_range: "scenarios of the story file"
+dcf -> sensitivity.scenario_range: "the DCF re-run per scenario"
 
 # Edges: flags, verdict, sanity check
 dcf -> narrative_flags: "yearly figures, terminal value share"

@@ -1581,7 +1581,7 @@ _ANALYZE_NODES: list[tuple[str, str]] = (
         ("dcf.blend", "step"),
         ("sensitivity.tornado", "step"),
         ("sensitivity.grid", "step"),
-        ("sensitivity.scenarios", "step"),
+        ("sensitivity.scenario_range", "step"),
     ]
     + [(f"narrative_flags.{f}", "decision") for f in _FLAGS]
     + [
@@ -1698,7 +1698,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         f"{_TIMES} 0.8", f"{_TIMES} 1.2", "one at a time", "widest first",
         "pretax_cost_of_debt is skipped",
     ],
-    "sensitivity.scenarios": ["base first", "scenario"],
+    "sensitivity.scenario_range": ["base first", "scenario"],
     "sensitivity.grid": [
         "five by five", "two widest", "0.8, 0.9, 1.0, 1.1, 1.2", "intrinsic value ÷ price",
     ],
