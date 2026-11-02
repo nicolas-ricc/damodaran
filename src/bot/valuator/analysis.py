@@ -47,7 +47,6 @@ from bot.valuator.story_types import (
     ClassificationFinancials,
     SectorContext,
     StoryType,
-    _cagr,
     classify,
 )
 
@@ -87,7 +86,8 @@ class Analysis:
     Attributes:
         ticker / name / country / currency: Company identity.
         story_type: The story type that drove assumption resolution (manual
-            override or auto-classifier verdict).
+            override or auto-classifier verdict; a ``hypergrowth`` verdict
+            without a story file falls back to ``high-growth``).
         auto_story_type: The classifier's own verdict (``StoryType`` value),
             regardless of any override or the hypergrowth fallback.
         story_file_present: Whether the override file carries a ``story`` block.
@@ -541,7 +541,7 @@ def _hypergrowth_reasons(
 ) -> tuple[str, ...]:
     """Reasons for a ``hypergrowth`` verdict: the signals that fired (issue #195)."""
     growth = revenue_history[-1] / revenue_history[-2] - 1.0
-    cagr_rate = _cagr(revenue_history)
+    cagr_rate = cagr(revenue_history)
     periods = len(revenue_history) - 1
     reasons = [
         f"last-year revenue growth {growth:.1%}",
@@ -731,7 +731,6 @@ def analyze(
     assumptions = resolve_assumptions(
         ticker,
         conn,
-        override_path=override_path,
         override=override,
         auto_story_type=auto_story,
         db_inputs=inputs.assumption_inputs,

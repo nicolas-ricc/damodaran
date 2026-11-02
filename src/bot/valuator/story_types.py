@@ -1,7 +1,7 @@
 """Auto-classify a company into a Damodaran story type (spec §7.1, issue #14).
 
-Damodaran's life-cycle classification puts every company into one of six
-archetypes, each with a distinct projection pattern (spec §7.1)::
+Damodaran's life-cycle classification has five archetypes; the bot adds
+``hypergrowth`` as a sixth. Each has a distinct projection pattern (spec §7.1)::
 
     hypergrowth     explosive growth at a loss, margin below the sector
     high-growth     fast growth decaying toward the sector, margins improving

@@ -613,3 +613,18 @@ def test_manual_override_of_hypergrowth_says_overridden(
     assert "hypergrowth" in a.story_reasons[0]
     flag = next(f for f in a.narrative_flags if f.name == "hypergrowth_story")
     assert flag.color is FlagColor.RED
+
+
+def test_story_file_without_hypergrowth_signals_is_yellow(
+    seeded_conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    # A story file on a mature company: the label is manual, the flag says the
+    # classifier does not back it.
+    a = analyze("AAPL", seeded_conn, override_path=_story_yaml(tmp_path))
+    assert a.story_type == "hypergrowth"
+    assert a.auto_story_type != "hypergrowth"
+    assert a.story_reasons[0].startswith("manually overridden")
+    assert f"would have said {a.auto_story_type}" in a.story_reasons[0]
+    assert len(a.narrative_flags) == 6
+    assert a.narrative_flags[-1].name == "hypergrowth_story"
+    assert a.narrative_flags[-1].color is FlagColor.YELLOW

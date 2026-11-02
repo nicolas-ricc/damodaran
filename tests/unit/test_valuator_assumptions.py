@@ -1040,8 +1040,9 @@ def test_hypergrowth_fallback_is_logged(conn: duckdb.DuckDBPyConnection) -> None
     _seed_full_sector(conn)
     with capture_logs() as events:
         resolve_assumptions("ACME", conn, auto_story_type=StoryType.HYPERGROWTH)
-    names = [e.get("event") for e in events]
-    assert names.count("assumptions.story_type.hypergrowth_without_story") == 1
+    event = "assumptions.story_type.hypergrowth_without_story"
+    fallbacks = [e for e in events if e.get("event") == event]
+    assert [e["ticker"] for e in fallbacks] == ["ACME"]
 
 
 def test_hypergrowth_with_story_keeps_label_and_generic_resolvers(
