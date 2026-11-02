@@ -5,14 +5,21 @@ _Generated {{ generated_at }} · currency {{ a.currency or "n/a" }} · country {
 ## 1. Executive summary
 
 - **Intrinsic value (per share):** {{ a.dcf_result.intrinsic_value | per_share }}
+{% if a.governance_discount > 0 %}
+- **Intrinsic value after governance discount ({{ a.governance_discount | pct }}):** {{ a.intrinsic_value_after_governance | per_share }} (tornado, grid and scenarios use the raw value)
+{% endif %}
 {% if a.current_price is not none -%}
 - **Current price:** {{ a.current_price | per_share }}
-- **Margin of safety:** {{ a.margin_of_safety | ratio }} ({{ verdict }})
-{% else -%}
+- **Margin of safety{% if a.governance_discount > 0 %} (on the value after governance discount){% endif %}:** {{ a.margin_of_safety | ratio }} ({{ verdict }})
+{% else %}
 - **Current price:** not available — margin of safety cannot be computed.
-{% endif -%}
+{% endif %}
 - **Story type:** {{ a.story_type }}
+{% if a.dcf_result.wacc_path is not none %}
+- **WACC path (story):** {{ a.dcf_result.wacc_path | margin_path }}
+{% else %}
 - **WACC (computed from the components in §3):** {{ a.dcf_result.wacc | pct }} (equity {{ a.dcf_result.equity_weight | pct }} / debt {{ a.dcf_result.debt_weight | pct }})
+{% endif %}
 - **Terminal value share of EV:** {{ a.dcf_result.terminal_value_share | pct }}
 
 > A single intrinsic value is a point in a cloud — read the sensitivity section
@@ -39,6 +46,27 @@ _Generated {{ generated_at }} · currency {{ a.currency or "n/a" }} · country {
 | Terminal growth | {{ a.assumptions.terminal_growth.value | pct }} | {{ a.assumptions.terminal_growth.source }} |
 | Tax rate | {{ a.assumptions.tax_rate.value | pct }} | {{ a.assumptions.tax_rate.source }} |
 | Probability of bankruptcy | {{ a.assumptions.probability_of_bankruptcy.value | pct }} | {{ a.assumptions.probability_of_bankruptcy.source }} |
+{% if a.assumptions.wacc_path is not none %}
+| WACC path | {{ a.assumptions.wacc_path.value | margin_path }} | {{ a.assumptions.wacc_path.source }} |
+{% endif %}
+{% if a.assumptions.tax_rate_path is not none %}
+| Tax-rate path | {{ a.assumptions.tax_rate_path.value | margin_path }} | {{ a.assumptions.tax_rate_path.source }} |
+{% endif %}
+{% if a.assumptions.terminal_roic is not none %}
+| Terminal ROIC | {{ a.assumptions.terminal_roic.value | pct }} | {{ a.assumptions.terminal_roic.source }} |
+{% endif %}
+{% if a.assumptions.distress_proceeds_pct is not none %}
+| Failure proceeds (% of value) | {{ a.assumptions.distress_proceeds_pct.value | pct }} | {{ a.assumptions.distress_proceeds_pct.source }} |
+{% endif %}
+{% if a.assumptions.fixed_commitments is not none %}
+| Fixed commitments | {{ a.assumptions.fixed_commitments.value | money }} | {{ a.assumptions.fixed_commitments.source }} |
+{% endif %}
+{% if a.assumptions.extra_cash is not none %}
+| Extra cash | {{ a.assumptions.extra_cash.value | money }} | {{ a.assumptions.extra_cash.source }} |
+{% endif %}
+{% if a.assumptions.governance_discount is not none %}
+| Governance discount | {{ a.assumptions.governance_discount.value | pct }} | {{ a.assumptions.governance_discount.source }} |
+{% endif %}
 
 ## 4. DCF detail
 
@@ -52,6 +80,15 @@ _Generated {{ generated_at }} · currency {{ a.currency or "n/a" }} · country {
 - **Enterprise value:** {{ a.dcf_result.enterprise_value | money }}
 - **Equity value:** {{ a.dcf_result.equity_value | money }}
 - **Net debt:** {{ a.financials.net_debt | money }}
+{% if a.dcf_result.enterprise_value_after_failure is not none %}
+- **Operating assets after failure risk:** {{ a.dcf_result.enterprise_value_after_failure | money }}
+{% endif %}
+{% if a.financials.fixed_commitments %}
+- **Fixed commitments (added to debt):** {{ a.financials.fixed_commitments | money }}
+{% endif %}
+{% if a.financials.extra_cash %}
+- **Extra cash:** {{ a.financials.extra_cash | money }}
+{% endif %}
 
 ## 5. Sensitivity
 
@@ -62,6 +99,19 @@ _Generated {{ generated_at }} · currency {{ a.currency or "n/a" }} · country {
 {% for t in a.tornado -%}
 | {{ t.axis | axis_label }} | {{ t.intrinsic_low | per_share }} | {{ t.intrinsic_high | per_share }} | {{ t.impact | per_share }} |
 {% endfor %}
+{% if a.scenarios %}
+
+### Scenario range
+
+The worst and best scenarios come from the story file's `scenarios:` section; base is the story itself.
+
+| Scenario | Equity value | Per share |
+|---|---|---|
+{% for sc in a.scenarios %}
+| {{ sc.name }} | {{ sc.equity_value | money }} | {{ sc.intrinsic_value | per_share }} |
+{% endfor %}
+
+{% endif %}
 ### 2-D grid — {{ a.grid.axis_a }} (rows) × {{ a.grid.axis_b }} (cols), {% if a.grid.reference_price is none %}{{ grid_label_intrinsic }}{% else %}{{ grid_label_mos }}{% endif %}
 {% if a.grid.reference_price is none %}
 _No current price available — the grid below shows intrinsic values only._
@@ -82,7 +132,7 @@ _No current price available — the grid below shows intrinsic values only._
 {{ a.override_notes }}
 
 Overridden assumptions are marked `manual` in the assumptions table above.
-{% else -%}
+{% else %}
 No manual overrides applied — all assumptions are sector defaults, rules, or
 historical averages.
 {% endif %}

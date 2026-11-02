@@ -24,6 +24,7 @@ from pathlib import Path
 
 import duckdb
 import pytest
+import yaml
 
 from bot.reference.currencies import CurrencyRates, CurrencyTable
 from bot.storage.db import apply_schema, connect
@@ -34,9 +35,12 @@ from bot.valuator.assumptions import (
     Sourced,
     _resolve_revenue_growth,
     conventional_override_path,
+    load_override,
     resolve_assumptions,
 )
+from bot.valuator.hypergrowth import StoryInputs, story_from_override
 from bot.valuator.story_types import StoryType
+from tests.unit.test_valuator_hypergrowth import _STORY
 
 # --------------------------------------------------------------------------- #
 # Fixtures                                                                     #
@@ -857,6 +861,7 @@ def test_assumption_source_has_no_unreachable_member() -> None:
         "rule_based",
         "historical_average",
         "story_pattern",
+        "story",
         "unresolved",
     }
 
@@ -892,3 +897,319 @@ def test_conventional_override_path_is_none_when_missing_or_no_dir(tmp_path: Pat
 
 def test_cyclical_margin_needs_a_full_cycle_of_history() -> None:
     assert assumptions_mod._MIN_CYCLE_YEARS == 4
+
+
+# --------------------------------------------------------------------------- #
+# Hypergrowth story file keys (#194)                                           #
+# --------------------------------------------------------------------------- #
+
+_VALID_STORY = (
+    "story:\n"
+    "  year1_growth: 4.00\n"
+    "  target_revenue_y10: 1011491000000\n"
+    "  year1_margin: 0.05\n"
+    "  target_margin: 0.325\n"
+    "  sales_to_capital: 3.0\n"
+    "  wacc_start: 0.0974\n"
+)
+
+_FULL_STORY_FILE = """\
+story_type: hypergrowth
+founded_year: 2021
+story:
+  year1_growth: 4.00
+  target_revenue_y10: 1011491000000
+  year1_margin: 0.05
+  target_margin: 0.325
+  margin_converge_year: 5
+  regulatory_drag: 0.05
+  sales_to_capital: 3.0
+  wacc_start: 0.0974
+  wacc_terminal: 0.0913
+  effective_tax_rate: 0.0
+  terminal_roic: 0.15
+  failure_probability: 0.10
+  failure_proceeds_pct_of_value: 0.50
+  fixed_commitments_pv: 472336000000
+  extra_cash: 100000000000
+  governance_discount: 0.20
+scenarios:
+  worst: {target_revenue_y10: 200000000000, target_margin: 0.10, sales_to_capital: 1.0, wacc_start: 0.0988, regulatory_drag: 0.10}
+  best:  {target_revenue_y10: 1500000000000, target_margin: 0.40, sales_to_capital: 4.0, wacc_start: 0.0779, regulatory_drag: 0.0}
+"""
+
+
+@pytest.mark.parametrize(
+    ("body", "fragment"),
+    [
+        pytest.param(
+            "story_type: hypergrowth\n", "requires a story", id="hypergrowth-without-story"
+        ),
+        pytest.param(
+            "story_type: high-growth\n" + _VALID_STORY, "story_type", id="story-with-high-growth"
+        ),
+        pytest.param(_VALID_STORY, "story_type", id="story-without-story-type"),
+        pytest.param(
+            "scenarios: {worst: {target_margin: 0.1}}\n",
+            "scenarios",
+            id="scenarios-without-story",
+        ),
+        pytest.param("founded_year: 1500\n", "founded_year", id="founded-year-1500"),
+        pytest.param("founded_year: 2021.5\n", "founded_year", id="founded-year-float"),
+        pytest.param("founded_year: true\n", "founded_year", id="founded-year-bool"),
+        pytest.param("story_type: hypergrowth\nstory:\n", "mapping", id="null-story"),
+        pytest.param(
+            "story_type: hypergrowth\nscenarios: 3\n" + _VALID_STORY,
+            "scenarios",
+            id="scenarios-not-mapping",
+        ),
+        pytest.param(
+            "story_type: hypergrowth\n" + _VALID_STORY.replace("3.0", "0"),
+            "story.sales_to_capital",
+            id="story-parsed-at-load",
+        ),
+    ],
+)
+def test_load_override_rejects_story_file_errors(
+    tmp_path: Path, body: str, fragment: str
+) -> None:
+    path = _write_override(tmp_path, body)
+    with pytest.raises(ValueError) as excinfo:
+        load_override(path)
+    message = str(excinfo.value)
+    assert message.startswith(f"{path}: ")
+    assert fragment in message
+
+
+def test_load_override_accepts_founded_year_up_to_this_year(tmp_path: Path) -> None:
+    this_year = date.today().year
+    path = _write_override(tmp_path, f"founded_year: {this_year}\n")
+    assert load_override(path) == {"founded_year": this_year}
+    path.write_text(f"founded_year: {this_year + 1}\n")
+    with pytest.raises(ValueError, match="founded_year"):
+        load_override(path)
+
+
+def test_load_override_full_story_file(tmp_path: Path) -> None:
+    path = _write_override(tmp_path, _FULL_STORY_FILE)
+    parsed = story_from_override(load_override(path), where=str(path))
+    assert parsed is not None
+    story, scenarios = parsed
+    assert isinstance(story, StoryInputs)
+    assert story.target_revenue_y10 == 1_011_491_000_000
+    assert list(scenarios) == ["worst", "best"]
+
+
+def test_load_override_without_a_path_is_empty(tmp_path: Path) -> None:
+    assert load_override(None) == {}
+    assert load_override(tmp_path / "MISSING.yaml") == {}
+
+
+def test_founded_year_is_accepted_with_any_story_type(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)
+    override = _write_override(tmp_path, "founded_year: 1976\nstory_type: mature-stable\n")
+    result = resolve_assumptions("ACME", conn, override_path=override)
+    assert result.story_type == "mature-stable"
+
+
+# --------------------------------------------------------------------------- #
+# Hypergrowth gate on the story file (#195)                                    #
+# --------------------------------------------------------------------------- #
+
+
+def _story_override(tmp_path: Path, **extra: object) -> Path:
+    # sort_keys=False: scenario order is file order.
+    body = {"story_type": "hypergrowth", "story": _STORY, **extra}
+    return _write_override(tmp_path, yaml.safe_dump(body, sort_keys=False))
+
+
+def test_hypergrowth_without_story_falls_back_to_high_growth(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_full_sector(conn)
+    result = resolve_assumptions("ACME", conn, auto_story_type=StoryType.HYPERGROWTH)
+    assert result.story_type == "high-growth"
+
+
+def test_hypergrowth_fallback_is_logged(conn: duckdb.DuckDBPyConnection) -> None:
+    from structlog.testing import capture_logs
+
+    _seed_full_sector(conn)
+    with capture_logs() as events:
+        resolve_assumptions("ACME", conn, auto_story_type=StoryType.HYPERGROWTH)
+    event = "assumptions.story_type.hypergrowth_without_story"
+    fallbacks = [e for e in events if e.get("event") == event]
+    assert [e["ticker"] for e in fallbacks] == ["ACME"]
+
+
+def test_hypergrowth_with_story_keeps_label_and_story_resolvers(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    # #196: with a story the label is hypergrowth and the story drives the growth.
+    _seed_full_sector(conn)
+    _seed_financials(conn, rows=((2024, 1_020.0, -2_325.0), (2025, 20_608.0, -46_982.0)))
+    override = load_override(_story_override(tmp_path))
+    result = resolve_assumptions(
+        "ACME", conn, override=override, auto_story_type=StoryType.HYPERGROWTH
+    )
+    assert result.story_type == "hypergrowth"
+    assert result.revenue_growth.source is AssumptionSource.STORY
+
+
+def test_manual_story_type_beats_hypergrowth_gate(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)
+    override = _write_override(tmp_path, "story_type: mature-stable\n")
+    result = resolve_assumptions(
+        "ACME", conn, override_path=override, auto_story_type=StoryType.HYPERGROWTH
+    )
+    assert result.story_type == "mature-stable"
+
+
+def test_override_mapping_wins_over_path(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)
+    path = _write_override(tmp_path, "operating_margin: 0.10\n")
+    result = resolve_assumptions(
+        "ACME", conn, override_path=path, override={"operating_margin": 0.35}
+    )
+    assert result.operating_margin.value == pytest.approx((0.35,) * 5)
+    assert result.operating_margin.source is AssumptionSource.MANUAL
+
+
+# --- #196: story fields of the bundle, latest revenue --------------------------
+
+
+def test_generic_bundle_has_no_story_fields(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_full_sector(conn)
+    _seed_financials(conn, rows=((2023, 100.0, 18.0), (2024, 110.0, 20.0)))
+    result = resolve_assumptions("ACME", conn, currencies=_usd())
+    for name in (
+        "wacc_path",
+        "tax_rate_path",
+        "terminal_roic",
+        "distress_proceeds_pct",
+        "fixed_commitments",
+        "extra_cash",
+        "governance_discount",
+        "story",
+    ):
+        assert getattr(result, name) is None, name
+    dcf_assumptions = result.to_dcf_assumptions()
+    assert dcf_assumptions.wacc_path is None
+    assert dcf_assumptions.tax_rate_path is None
+    assert dcf_assumptions.terminal_roic is None
+    assert dcf_assumptions.distress_proceeds_pct is None
+
+
+def test_latest_revenue_loaded_per_ticker_and_bulk(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_full_sector(conn)
+    _seed_financials(conn, rows=((2023, 100.0, 18.0), (2024, 110.0, 20.0)))
+    conn.execute(
+        "INSERT INTO financials_annual "
+        "(ticker, fiscal_year, revenue, ebit, is_restated, source, currency) "
+        "VALUES ('ACME', 2025, 999.0, 1.0, TRUE, 'test', 'USD')"
+    )
+    single = assumptions_mod.load_assumption_inputs(conn, "ACME", currencies=_usd())
+    bulk = assumptions_mod.bulk_load_assumption_inputs(conn, ["ACME"], currencies=_usd())
+    assert single.latest_revenue == 110.0
+    assert bulk["ACME"].latest_revenue == 110.0
+    assert single == bulk["ACME"]
+
+
+def test_latest_revenue_is_none_without_financials(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_full_sector(conn)
+    assert assumptions_mod.load_assumption_inputs(conn, "ACME", currencies=_usd()).latest_revenue is None
+    bulk = assumptions_mod.bulk_load_assumption_inputs(conn, ["ACME"], currencies=_usd())
+    assert bulk["ACME"].latest_revenue is None
+
+
+def test_resolve_hypergrowth_story_raises_without_latest_revenue(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)
+    conn.execute(
+        "INSERT INTO financials_annual (ticker, fiscal_year, revenue, ebit, source, currency) "
+        "VALUES ('ACME', 2024, NULL, 1.0, 'test', 'USD')"
+    )
+    with pytest.raises(ValueError, match=r"ACME.*revenue"):
+        resolve_assumptions(
+            "ACME", conn, override_path=_story_override(tmp_path), currencies=_usd()
+        )
+
+
+def test_resolve_hypergrowth_story_applies_the_story(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)
+    _seed_financials(conn, rows=((2023, 1.0e9, -1.0e9), (2024, 20.0e9, -40.0e9)))
+    result = resolve_assumptions(
+        "ACME",
+        conn,
+        override_path=_story_override(tmp_path, terminal_growth=0.049),
+        currencies=_usd(),
+    )
+    assert result.story_type == "hypergrowth"
+    assert result.revenue_growth.source is AssumptionSource.STORY
+    assert result.revenue_growth.value is not None
+    assert len(result.revenue_growth.value) == 10
+    assert result.terminal_growth.source is AssumptionSource.MANUAL
+    assert result.story is not None
+
+
+def test_resolve_hypergrowth_story_falls_back_to_the_sector_wacc(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)  # sector wacc 0.09
+    _seed_financials(conn, rows=((2023, 1.0e9, -1.0e9), (2024, 20.0e9, -40.0e9)))
+    story = {k: v for k, v in _STORY.items() if k != "wacc_terminal"}
+    path = tmp_path / "ACME.yaml"
+    path.write_text(yaml.safe_dump({"story_type": "hypergrowth", "story": story}))
+    result = resolve_assumptions("ACME", conn, override_path=path, currencies=_usd())
+    assert result.wacc_path is not None
+    assert result.wacc_path.value[-1] == 0.09
+
+
+# --- #197: scenarios on the bundle ----------------------------------------------
+
+
+def test_resolve_sets_scenarios_from_the_story_file(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)
+    _seed_financials(conn, rows=((2023, 1.0e9, -1.0e9), (2024, 20.0e9, -40.0e9)))
+    scenarios = {
+        "worst": {"target_revenue_y10": 200e9, "target_margin": 0.10},
+        "best": {"target_revenue_y10": 1_500e9},
+    }
+    result = resolve_assumptions(
+        "ACME",
+        conn,
+        override_path=_story_override(tmp_path, terminal_growth=0.049, scenarios=scenarios),
+        currencies=_usd(),
+    )
+    assert result.scenarios is not None
+    assert list(result.scenarios) == ["worst", "best"]
+    assert all(isinstance(s, StoryInputs) for s in result.scenarios.values())
+    assert result.scenarios["worst"].target_margin == 0.10
+    assert result.scenarios["best"].target_margin == _STORY["target_margin"]
+
+
+def test_resolve_without_scenarios_leaves_them_none(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)
+    _seed_financials(conn, rows=((2023, 1.0e9, -1.0e9), (2024, 20.0e9, -40.0e9)))
+    storied = resolve_assumptions(
+        "ACME",
+        conn,
+        override_path=_story_override(tmp_path, terminal_growth=0.049),
+        currencies=_usd(),
+    )
+    plain = resolve_assumptions("ACME", conn, currencies=_usd())
+    assert storied.scenarios is None
+    assert plain.scenarios is None

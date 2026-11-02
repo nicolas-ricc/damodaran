@@ -12,6 +12,13 @@ explicit:
   widest tornado bars, growth x margin) with a margin-of-safety per cell, so
   the joint sensitivity is visible rather than just the two marginals.
 
+When the assumptions carry a ``wacc_path`` (a story's all-in discount rate) the
+cost-of-equity axis scales that path and the cost-of-debt axis is dropped, since
+it no longer moves the value; a ``tax_rate_path`` is scaled with the tax rate.
+
+:func:`scenario_range` runs a plain DCF per named case (base plus the story's
+scenarios) and returns the values side by side (#197).
+
 Everything here is pure: no I/O, no global state, and the input assumptions are
 never mutated — each scenario is built from a fresh, scaled copy via
 :func:`scale_axis`.
@@ -20,10 +27,11 @@ never mutated — each scenario is built from a fresh, scaled copy via
 from __future__ import annotations
 
 import dataclasses
+from collections.abc import Mapping
 from enum import StrEnum
 from typing import Any
 
-from bot.valuator.dcf import Assumptions, Financials, _wacc, dcf
+from bot.valuator.dcf import Assumptions, Financials, dcf, terminal_wacc
 
 #: The two ends each assumption is swung to in the tornado.
 _TORNADO_LOW = 0.8
@@ -134,7 +142,9 @@ def scale_axis(assumptions: Assumptions, axis: SensitivityAxis, multiplier: floa
     """Return a copy of ``assumptions`` with ``axis`` scaled by ``multiplier``.
 
     Path axes are scaled element-wise (every forecast year moves by the same
-    factor); scalar axes are scaled directly. The input is never mutated.
+    factor); scalar axes are scaled directly. ``COST_OF_EQUITY`` also scales
+    ``wacc_path`` and ``TAX_RATE`` also scales ``tax_rate_path`` when set. The
+    input is never mutated.
 
     Args:
         assumptions: The base assumptions to copy from.
@@ -150,7 +160,25 @@ def scale_axis(assumptions: Assumptions, axis: SensitivityAxis, multiplier: floa
     else:
         scalar: float = getattr(assumptions, axis.value)
         scaled = scalar * multiplier
-    return dataclasses.replace(assumptions, **{axis.value: scaled})
+    changes: dict[str, Any] = {axis.value: scaled}
+    if axis is SensitivityAxis.COST_OF_EQUITY and assumptions.wacc_path is not None:
+        changes["wacc_path"] = tuple(value * multiplier for value in assumptions.wacc_path)
+    elif axis is SensitivityAxis.TAX_RATE and assumptions.tax_rate_path is not None:
+        changes["tax_rate_path"] = tuple(value * multiplier for value in assumptions.tax_rate_path)
+    return dataclasses.replace(assumptions, **changes)
+
+
+def active_axes(assumptions: Assumptions) -> tuple[SensitivityAxis, ...]:
+    """The axes that can move the value, in enum order.
+
+    Every axis, except ``PRETAX_COST_OF_DEBT`` when ``wacc_path`` is set: the
+    path replaces the built-up WACC, so the cost of debt no longer matters.
+    """
+    return tuple(
+        axis
+        for axis in SensitivityAxis
+        if not (axis is SensitivityAxis.PRETAX_COST_OF_DEBT and assumptions.wacc_path is not None)
+    )
 
 
 def _safe_intrinsic(financials: Financials, assumptions: Assumptions) -> float | None:
@@ -163,7 +191,7 @@ def _safe_intrinsic(financials: Financials, assumptions: Assumptions) -> float |
     meaningful value, so it is reported as a ``None`` sentinel. Any *other*
     :class:`ValueError` from :func:`dcf` is a genuine bug and is left to surface.
     """
-    if assumptions.terminal_growth >= _wacc(assumptions):
+    if assumptions.terminal_growth >= terminal_wacc(assumptions):
         return None
     return dcf(financials, assumptions).intrinsic_value
 
@@ -190,7 +218,7 @@ def _axis_endpoint_value(assumptions: Assumptions, axis: SensitivityAxis) -> flo
 def tornado(financials: Financials, base_assumptions: Assumptions) -> list[TornadoEntry]:
     """Rank each assumption by its ±20% impact on intrinsic value (spec §7.4).
 
-    Each :class:`SensitivityAxis` is moved to -20% and +20% of its base value,
+    Each active axis (see :func:`active_axes`) is moved to -20% and +20% of its base value,
     one at a time, and the swing in per-share intrinsic value is recorded. The
     returned list is ordered descending by absolute impact, so the first entry
     is the assumption the valuation is most sensitive to.
@@ -200,10 +228,11 @@ def tornado(financials: Financials, base_assumptions: Assumptions) -> list[Torna
         base_assumptions: The base-case projection and discount-rate inputs.
 
     Returns:
-        One :class:`TornadoEntry` per axis, descending by absolute impact.
+        One :class:`TornadoEntry` per active axis, descending by absolute
+        impact.
     """
     entries: list[TornadoEntry] = []
-    for axis in SensitivityAxis:
+    for axis in active_axes(base_assumptions):
         low_assumptions = scale_axis(base_assumptions, axis, _TORNADO_LOW)
         high_assumptions = scale_axis(base_assumptions, axis, _TORNADO_HIGH)
         intrinsic_low = _safe_intrinsic(financials, low_assumptions)
@@ -297,3 +326,31 @@ def grid_2d(
         cells=tuple(rows),
         reference_price=reference_price,
     )
+
+
+@dataclasses.dataclass(frozen=True)
+class ScenarioResult:
+    """The DCF values of one named scenario."""
+
+    name: str
+    intrinsic_value: float
+    equity_value: float
+    enterprise_value: float
+
+
+def scenario_range(
+    cases: Mapping[str, tuple[Financials, Assumptions]],
+) -> tuple[ScenarioResult, ...]:
+    """One plain :func:`dcf` per case, in mapping order."""
+    results = []
+    for name, (financials, assumptions) in cases.items():
+        result = dcf(financials, assumptions)
+        results.append(
+            ScenarioResult(
+                name=name,
+                intrinsic_value=result.intrinsic_value,
+                equity_value=result.equity_value,
+                enterprise_value=result.enterprise_value,
+            )
+        )
+    return tuple(results)

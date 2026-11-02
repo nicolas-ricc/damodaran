@@ -5,14 +5,17 @@
 
 VARIABLES phase, batch, exitCode, storyTypes, overrideStory, currency,
           tgSource, unresolved, shares, gVsWacc, valued, flags,
-          margin, verdict, reports
+          margin, verdict, reports, storyFile, signal, storyType
 
-vars == << phase, batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+vars == << phase, batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* The narrative flags the analysis computes after the DCF, one name each. *)
 FlagNames == {"story margin", "reinvestment", "beta", "terminal value share", "country"}
 
-EndPhases == {"command_stops", "not_found", "cannot_value", "crashed", "reported"}
+(* The narrative flags the hypergrowth story type adds after the five, one name each. *)
+HypergrowthFlagNames == {"hypergrowth story", "revenue scale", "terminal ROIC"}
+
+EndPhases == {"command_stops", "not_found", "cannot_value", "reported"}
 
 (* margin_verdict in src/bot/reporting/analysis_report.py: the margin of safety bands, tested in descending order. *)
 MarginVerdict(m) ==
@@ -46,18 +49,21 @@ Init ==
   /\ margin = "unread"
   /\ verdict = "none"
   /\ reports = {}
+  /\ storyFile = "unread"
+  /\ signal = FALSE
+  /\ storyType = "unset"
 
 (* src/bot/cli.py: analyze, the `tickers` argument *)
 TheTickersAreGiven ==
   /\ phase = "asked"
   /\ phase' = "chosen"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/cli.py: analyze, `SELECT ticker ... WHERE passed AND run_id = ? ORDER BY rank` *)
 TheLatestScreenListsIt ==
   /\ phase = "asked"
   /\ phase' = "chosen"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/cli.py: analyze, argument checks raise typer.Exit(code=2) before the loop *)
 TheArgumentsAreRefused ==
@@ -65,7 +71,7 @@ TheArgumentsAreRefused ==
   /\ phase' = "command_stops"
   /\ batch' = "stopped"
   /\ exitCode' = "2"
-  /\ UNCHANGED << storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/cli.py: analyze, `latest_run is None` / `not rows` raise typer.Exit(code=2) *)
 TheScreenLeftNoCandidate ==
@@ -73,7 +79,7 @@ TheScreenLeftNoCandidate ==
   /\ phase' = "command_stops"
   /\ batch' = "stopped"
   /\ exitCode' = "2"
-  /\ UNCHANGED << storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/cli.py: analyze, load_currency_table before the loop; src/bot/reference/currencies.py: _check_bounds raises ValueError on a rate out of range, uncaught *)
 TheCurrencyTableIsRefused ==
@@ -81,177 +87,215 @@ TheCurrencyTableIsRefused ==
   /\ phase' = "command_stops"
   /\ batch' = "stopped"
   /\ exitCode' = "1"
-  /\ UNCHANGED << storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/cli.py: analyze, the `override` option; _analyze_one *)
 TheOverrideFlagNamesTheFile ==
   /\ phase = "chosen"
   /\ phase' = "override_picked"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: conventional_override_path *)
 TheTickersFileExists ==
   /\ phase = "chosen"
   /\ phase' = "override_picked"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: conventional_override_path returns None *)
 NoOverrideFile ==
   /\ phase = "chosen"
   /\ phase' = "override_picked"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/analysis.py: _load_company / _load_latest_financials raise LookupError; src/bot/cli.py: _analyze_one returns 2 *)
 TheTickerIsUnknown ==
   /\ phase = "override_picked"
   /\ phase' = "not_found"
   /\ exitCode' = "2"
-  /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/analysis.py: load_valuation_input *)
 TheCompanyIsLoaded ==
   /\ phase = "override_picked"
   /\ phase' = "loaded"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/reference/regions.py: dataset_region, COUNTRY_REGION_OVERRIDES *)
 ItsOwnDatasetRegion ==
   /\ phase = "loaded"
   /\ phase' = "region_set"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/reference/regions.py: dataset_region, GEOGRAPHIC_TO_DATASET_REGION *)
 RegionFromItsCountryGrouping ==
   /\ phase = "loaded"
   /\ phase' = "region_set"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/reference/regions.py: dataset_region returns DEFAULT_DATASET_REGION *)
 RegionDefaultsToUs ==
   /\ phase = "loaded"
   /\ phase' = "region_set"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
-(* src/bot/valuator/analysis.py: analyze (age, interest_coverage, is_cyclical); _latest_from_row (net debt) *)
-TheSignalsAreDerived ==
+(* src/bot/valuator/analysis.py: analyze, `load_override(override_path)` after load_valuation_input and before ClassificationFinancials; src/bot/valuator/assumptions.py: load_override, _check_story_file. The model does not tie the story file choice to an override file being present: an abstraction, harmless for the rules *)
+TheOverrideFileIsRead ==
   /\ phase = "region_set"
-  /\ phase' = "signals"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ phase' = "override_read"
+  /\ storyFile' \in {"present", "absent"}
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, signal, storyType >>
 
-(* src/bot/valuator/story_types.py: classify, _is_distressed *)
-ItIsDistressed ==
+(* src/bot/valuator/assumptions.py: load_override raises ValueError on invalid YAML, a non-mapping, an unknown key, a value that is not finite (_check_override_values) and an inconsistent story file (_check_story_file); src/bot/cli.py: _analyze_one catches ValueError and returns 1 *)
+TheOverrideFileIsInvalid ==
+  /\ phase = "region_set"
+  /\ phase' = "cannot_value"
+  /\ exitCode' = "1"
+  /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
+
+(* src/bot/valuator/analysis.py: analyze (age, founded_age, interest_coverage, is_cyclical); _latest_from_row (net debt) *)
+TheSignalsAreDerived ==
+  /\ phase = "override_read"
+  /\ phase' = "signals"
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
+
+(* src/bot/valuator/story_types.py: classify, _is_hypergrowth (_HYPERGROWTH_LAST_YEAR_GROWTH, _HYPERGROWTH_CAGR, _HYPERGROWTH_MAX_AGE_YEARS) *)
+ItIsHypergrowth ==
   /\ phase = "signals"
   /\ phase' = "classified"
   /\ storyTypes' = {"classifier"}
-  /\ UNCHANGED << batch, exitCode, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ signal' = TRUE
+  /\ UNCHANGED << batch, exitCode, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, storyType >>
+
+(* src/bot/valuator/story_types.py: classify, the `if` chain *)
+ItIsNotHypergrowth ==
+  /\ phase = "signals"
+  /\ phase' = "not_hypergrowth"
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
+
+(* src/bot/valuator/story_types.py: classify, _is_distressed *)
+ItIsDistressed ==
+  /\ phase = "not_hypergrowth"
+  /\ phase' = "classified"
+  /\ storyTypes' = {"classifier"}
+  /\ UNCHANGED << batch, exitCode, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/story_types.py: classify, the `if` chain *)
 ItIsNotDistressed ==
-  /\ phase = "signals"
+  /\ phase = "not_hypergrowth"
   /\ phase' = "not_distressed"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/story_types.py: classify, _is_cyclical *)
 ItIsCyclical ==
   /\ phase = "not_distressed"
   /\ phase' = "classified"
   /\ storyTypes' = {"classifier"}
-  /\ UNCHANGED << batch, exitCode, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/story_types.py: classify, the `if` chain *)
 ItIsNotCyclical ==
   /\ phase = "not_distressed"
   /\ phase' = "not_cyclical"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/story_types.py: classify, _HIGH_GROWTH_CAGR, _MATURE_AGE_YEARS *)
 ItIsHighGrowth ==
   /\ phase = "not_cyclical"
   /\ phase' = "classified"
   /\ storyTypes' = {"classifier"}
-  /\ UNCHANGED << batch, exitCode, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/story_types.py: classify, the `if` chain *)
 ItIsNotHighGrowth ==
   /\ phase = "not_cyclical"
   /\ phase' = "not_high_growth"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/story_types.py: classify, _DECLINE_CAGR *)
 ItIsInDecline ==
   /\ phase = "not_high_growth"
   /\ phase' = "classified"
   /\ storyTypes' = {"classifier"}
-  /\ UNCHANGED << batch, exitCode, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/story_types.py: classify, the `if` chain *)
 ItIsMatureStable ==
   /\ phase = "not_high_growth"
   /\ phase' = "classified"
   /\ storyTypes' = {"classifier"}
-  /\ UNCHANGED << batch, exitCode, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
-
-(* src/bot/valuator/assumptions.py: _load_override raises ValueError; src/bot/cli.py: _analyze_one returns 1 *)
-TheOverrideFileIsInvalid ==
-  /\ phase = "classified"
-  /\ phase' = "cannot_value"
-  /\ exitCode' = "1"
-  /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
-
-(* src/bot/valuator/assumptions.py: _load_override, yaml.safe_load raises yaml.YAMLError; _override_scalar / _override_path_field, float() of an empty or list value raises TypeError. Neither is a ValueError; _analyze_one catches only LookupError and ValueError, so the error leaves the `for ticker` loop of cli.analyze *)
-TheOverrideFileIsNotYaml ==
-  /\ phase = "classified"
-  /\ phase' = "crashed"
-  /\ batch' = "stopped"
-  /\ exitCode' = "1"
-  /\ UNCHANGED << storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: _resolve_story_type *)
 NoManualStoryType ==
   /\ phase = "classified"
   /\ phase' = "story_set"
+  /\ storyFile = "absent"
+  /\ ~signal
   /\ overrideStory' = "absent"
-  /\ UNCHANGED << batch, exitCode, storyTypes, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ storyType' = "other"
+  /\ UNCHANGED << batch, exitCode, storyTypes, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal >>
 
 (* src/bot/valuator/assumptions.py: _resolve_story_type (manual wins); resolve_assumptions, _STORY_TYPE_VALUES *)
 TheOverrideSetsTheStoryType ==
   /\ phase = "classified"
   /\ phase' = "story_set"
+  /\ storyFile = "absent"
   /\ overrideStory' = "given"
   /\ storyTypes' = {"override"}
-  /\ UNCHANGED << batch, exitCode, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ storyType' = "other"
+  /\ UNCHANGED << batch, exitCode, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal >>
+
+(* src/bot/valuator/assumptions.py: _resolve_story_type returns high-growth for a hypergrowth label without a story section *)
+HypergrowthWithoutAStoryFallsBack ==
+  /\ phase = "classified"
+  /\ phase' = "story_set"
+  /\ signal
+  /\ storyFile = "absent"
+  /\ overrideStory' = "absent"
+  /\ storyType' = "other"
+  /\ UNCHANGED << batch, exitCode, storyTypes, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal >>
+
+(* src/bot/valuator/assumptions.py: _resolve_story_type, load_override (story_type hypergrowth with a story section) *)
+TheStoryFileIsPresent ==
+  /\ phase = "classified"
+  /\ phase' = "story_set"
+  /\ storyFile = "present"
+  /\ overrideStory' = "given"
+  /\ storyTypes' = {"override"}
+  /\ storyType' = "hypergrowth"
+  /\ UNCHANGED << batch, exitCode, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal >>
 
 (* src/bot/valuator/assumptions.py: _load_sector_with_fallback, _pick_sector *)
 TheSectorRowIsFound ==
   /\ phase = "story_set"
   /\ phase' = "sector_read"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: _pick_sector returns (None, False) *)
 NoSectorRow ==
   /\ phase = "story_set"
   /\ phase' = "sector_read"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: load_assumption_inputs, _currency_rates *)
 TheCurrencyIsCovered ==
   /\ phase = "sector_read"
   /\ phase' = "currency_read"
   /\ currency' = "covered"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: _currency_rates returns None rates; _warn_uncovered *)
 TheCurrencyIsUncovered ==
   /\ phase = "sector_read"
   /\ phase' = "currency_read"
   /\ currency' = "uncovered"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: _resolve_revenue_growth *)
 GrowthIsResolved ==
   /\ phase = "currency_read"
   /\ phase' = "growth_set"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: _resolve_revenue_growth returns UNRESOLVED when `gdp is None` *)
 GrowthIsUnresolved ==
@@ -259,60 +303,60 @@ GrowthIsUnresolved ==
   /\ phase' = "growth_set"
   /\ currency = "uncovered"
   /\ unresolved' = TRUE
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: _resolve_operating_margin *)
 MarginIsResolved ==
   /\ phase = "growth_set"
   /\ phase' = "margin_set"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: _resolve_operating_margin, `sector_margin is None` gives UNRESOLVED *)
 MarginIsUnresolved ==
   /\ phase = "growth_set"
   /\ phase' = "margin_set"
   /\ unresolved' = TRUE
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: _resolve_sector_scalar *)
 ScalarsAreResolved ==
   /\ phase = "margin_set"
   /\ phase' = "scalars_set"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: _resolve_sector_scalar, `value is None` gives UNRESOLVED *)
 AScalarIsUnresolved ==
   /\ phase = "margin_set"
   /\ phase' = "scalars_set"
   /\ unresolved' = TRUE
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: _resolve_weights *)
 WeightsAreResolved ==
   /\ phase = "scalars_set"
   /\ phase' = "weights_set"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: _resolve_weights, the last return *)
 WeightsAreUnresolved ==
   /\ phase = "scalars_set"
   /\ phase' = "weights_set"
   /\ unresolved' = TRUE
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: _resolve_weights raises ValueError; src/bot/cli.py: _analyze_one returns 1 *)
 TheManualWeightsDoNotSumToOne ==
   /\ phase = "scalars_set"
   /\ phase' = "cannot_value"
   /\ exitCode' = "1"
-  /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: _resolve_terminal_growth, manual branch *)
 TerminalGrowthIsManual ==
   /\ phase = "weights_set"
   /\ phase' = "tg_set"
   /\ tgSource' = "manual"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: _resolve_terminal_growth, min(rates.risk_free_rate, rates.nominal_gdp_growth) *)
 TerminalGrowthFromTheCurrency ==
@@ -320,7 +364,7 @@ TerminalGrowthFromTheCurrency ==
   /\ phase' = "tg_set"
   /\ currency = "covered"
   /\ tgSource' = "rule based"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: _resolve_terminal_growth, `rates is None` *)
 TerminalGrowthIsUnresolved ==
@@ -329,20 +373,36 @@ TerminalGrowthIsUnresolved ==
   /\ currency = "uncovered"
   /\ tgSource' = "unresolved"
   /\ unresolved' = TRUE
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: _resolve_tax_rate, _resolve_probability_of_bankruptcy, _resolve_distress_value_per_share *)
 TaxAndBankruptcyAreSet ==
   /\ phase = "tg_set"
   /\ phase' = "ready"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ storyType # "hypergrowth"
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
+
+(* src/bot/valuator/assumptions.py: resolve_assumptions calls src/bot/valuator/hypergrowth.py: apply_story *)
+TheStoryShapesThePaths ==
+  /\ phase = "tg_set"
+  /\ phase' = "ready"
+  /\ storyType = "hypergrowth"
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
+
+(* src/bot/valuator/assumptions.py: resolve_assumptions raises ValueError without latest revenue; src/bot/valuator/hypergrowth.py: apply_story raises ValueError when wacc_terminal, terminal_growth or tax_rate is unresolved, solve_stage_growth raises on an unreachable target; src/bot/cli.py: _analyze_one returns 1 *)
+TheStoryCannotBeApplied ==
+  /\ phase = "tg_set"
+  /\ phase' = "cannot_value"
+  /\ storyType = "hypergrowth"
+  /\ exitCode' = "1"
+  /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/analysis.py: analyze, `latest.revenue is None` raises ValueError *)
 NoLatestRevenue ==
   /\ phase = "ready"
   /\ phase' = "cannot_value"
   /\ exitCode' = "1"
-  /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/analysis.py: analyze, MIN_PLAUSIBLE_SHARES / MAX_PLAUSIBLE_SHARES *)
 TheSharesAreImplausible ==
@@ -350,14 +410,14 @@ TheSharesAreImplausible ==
   /\ phase' = "cannot_value"
   /\ shares' = "implausible"
   /\ exitCode' = "1"
-  /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/analysis.py: analyze, the share bounds pass *)
 TheSharesArePlausible ==
   /\ phase = "ready"
   /\ phase' = "shares_ok"
   /\ shares' = "plausible"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: Assumptions.to_dcf_assumptions / _require raise ValueError *)
 AnAssumptionIsUnresolved ==
@@ -365,27 +425,27 @@ AnAssumptionIsUnresolved ==
   /\ phase' = "cannot_value"
   /\ unresolved
   /\ exitCode' = "1"
-  /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/assumptions.py: Assumptions.to_dcf_assumptions returns *)
 EveryAssumptionHasASource ==
   /\ phase = "shares_ok"
   /\ phase' = "resolved"
   /\ ~unresolved
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/dcf.py: dcf, `horizon == 0` and `sales_to_capital <= 0.0` raise ValueError *)
 SalesToCapitalIsNotPositive ==
   /\ phase = "resolved"
   /\ phase' = "cannot_value"
   /\ exitCode' = "1"
-  /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
-(* src/bot/valuator/dcf.py: _wacc *)
+(* src/bot/valuator/dcf.py: _wacc, terminal_wacc; dcf, wacc_path *)
 TheWaccIsComputed ==
   /\ phase = "resolved"
   /\ phase' = "wacc_computed"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/dcf.py: dcf, `terminal_growth >= wacc` raises ValueError *)
 TerminalGrowthReachesTheWacc ==
@@ -393,75 +453,98 @@ TerminalGrowthReachesTheWacc ==
   /\ phase' = "cannot_value"
   /\ gVsWacc' = "at or above"
   /\ exitCode' = "1"
-  /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
-(* src/bot/valuator/dcf.py: dcf, the yearly loop *)
+(* src/bot/valuator/dcf.py: dcf, the yearly loop (wacc_path cumulative discount) *)
 TerminalGrowthIsBelowTheWacc ==
   /\ phase = "wacc_computed"
   /\ phase' = "projected"
   /\ gVsWacc' = "below"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
-(* src/bot/valuator/dcf.py: dcf, the terminal year after the yearly loop *)
+(* src/bot/valuator/dcf.py: dcf, the terminal year after the yearly loop (terminal_roic reinvestment) *)
 TheTerminalValueIsComputed ==
   /\ phase = "projected"
   /\ phase' = "terminal_valued"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/dcf.py: dcf, enterprise_value *)
 TheEnterpriseValueIsSummed ==
   /\ phase = "terminal_valued"
   /\ phase' = "ev_found"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
-(* src/bot/valuator/dcf.py: dcf, equity and value per share *)
+(* src/bot/valuator/dcf.py: dcf, _equity_bridge (fixed_commitments, extra_cash) *)
 TheEquityIsFound ==
   /\ phase = "ev_found"
   /\ phase' = "equity_found"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
-(* src/bot/valuator/dcf.py: dcf, the probability_of_bankruptcy blend *)
+(* src/bot/valuator/dcf.py: dcf, the probability_of_bankruptcy blend; distress_proceeds_pct blend on the enterprise value *)
 TheValueIsBlended ==
   /\ phase = "equity_found"
   /\ phase' = "valued"
   /\ valued' = TRUE
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/sensitivity.py: tornado *)
 TheTornadoIsRun ==
   /\ phase = "valued"
   /\ phase' = "tornado_done"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/sensitivity.py: grid_2d; src/bot/valuator/analysis.py: _two_widest_axes *)
 TheGridIsRun ==
   /\ phase = "tornado_done"
   /\ phase' = "grid_done"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
+
+(* src/bot/valuator/analysis.py: analyze, `if assumptions.scenarios:`; src/bot/valuator/sensitivity.py: scenario_range; src/bot/valuator/hypergrowth.py: scenario_cases *)
+TheScenariosAreValued ==
+  /\ phase = "grid_done"
+  /\ phase' = "scenarios_done"
+  /\ storyType = "hypergrowth"
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
+
+(* src/bot/valuator/analysis.py: analyze, `if assumptions.scenarios:` is false *)
+NoScenarios ==
+  /\ phase = "grid_done"
+  /\ phase' = "scenarios_done"
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
+
+(* valued' = FALSE: the value never goes out, because the ValueError discards the analysis *)
+(* src/bot/valuator/hypergrowth.py: scenario_cases raises ValueError naming the scenario; src/bot/valuator/dcf.py: dcf raises ValueError when terminal_growth >= wacc; src/bot/cli.py: _analyze_one returns 1 and writes nothing *)
+TheScenarioRangeFails ==
+  /\ phase = "grid_done"
+  /\ phase' = "cannot_value"
+  /\ storyType = "hypergrowth"
+  /\ valued' = FALSE
+  /\ exitCode' = "1"
+  /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/narrative_flags.py: story_margin_flag *)
 StoryMarginGreen ==
-  /\ phase = "grid_done"
+  /\ phase = "scenarios_done"
   /\ phase' = "story_margin_checked"
   /\ valued
   /\ flags' = flags \cup {"story margin"}
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/narrative_flags.py: story_margin_flag *)
 StoryMarginYellow ==
-  /\ phase = "grid_done"
+  /\ phase = "scenarios_done"
   /\ phase' = "story_margin_checked"
   /\ valued
   /\ flags' = flags \cup {"story margin"}
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/narrative_flags.py: story_margin_flag *)
 StoryMarginUnknown ==
-  /\ phase = "grid_done"
+  /\ phase = "scenarios_done"
   /\ phase' = "story_margin_checked"
   /\ valued
   /\ flags' = flags \cup {"story margin"}
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/narrative_flags.py: growth_reinvestment_flag *)
 ReinvestmentRed ==
@@ -469,7 +552,7 @@ ReinvestmentRed ==
   /\ phase' = "reinvestment_checked"
   /\ valued
   /\ flags' = flags \cup {"reinvestment"}
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/narrative_flags.py: growth_reinvestment_flag *)
 ReinvestmentYellow ==
@@ -477,7 +560,7 @@ ReinvestmentYellow ==
   /\ phase' = "reinvestment_checked"
   /\ valued
   /\ flags' = flags \cup {"reinvestment"}
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/narrative_flags.py: growth_reinvestment_flag *)
 ReinvestmentGreen ==
@@ -485,7 +568,7 @@ ReinvestmentGreen ==
   /\ phase' = "reinvestment_checked"
   /\ valued
   /\ flags' = flags \cup {"reinvestment"}
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/narrative_flags.py: beta_business_risk_flag *)
 BetaYellow ==
@@ -493,7 +576,7 @@ BetaYellow ==
   /\ phase' = "beta_checked"
   /\ valued
   /\ flags' = flags \cup {"beta"}
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/narrative_flags.py: beta_business_risk_flag *)
 BetaUnknown ==
@@ -501,7 +584,7 @@ BetaUnknown ==
   /\ phase' = "beta_checked"
   /\ valued
   /\ flags' = flags \cup {"beta"}
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/narrative_flags.py: beta_business_risk_flag *)
 BetaGreen ==
@@ -509,7 +592,7 @@ BetaGreen ==
   /\ phase' = "beta_checked"
   /\ valued
   /\ flags' = flags \cup {"beta"}
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/narrative_flags.py: terminal_value_share_flag *)
 TerminalShareYellow ==
@@ -517,7 +600,7 @@ TerminalShareYellow ==
   /\ phase' = "tv_share_checked"
   /\ valued
   /\ flags' = flags \cup {"terminal value share"}
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/narrative_flags.py: terminal_value_share_flag *)
 TerminalShareGreen ==
@@ -525,7 +608,7 @@ TerminalShareGreen ==
   /\ phase' = "tv_share_checked"
   /\ valued
   /\ flags' = flags \cup {"terminal value share"}
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/narrative_flags.py: country_exposure_flag; analysis.analyze leaves erp_weighted / erp_listing unset *)
 CountryUnknown ==
@@ -533,45 +616,92 @@ CountryUnknown ==
   /\ phase' = "country_checked"
   /\ valued
   /\ flags' = flags \cup {"country"}
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports, storyFile, signal, storyType >>
 
-(* src/bot/valuator/analysis.py: analyze, margin_of_safety; src/bot/reporting/analysis_report.py: margin_verdict *)
-TheMarginIsAtLeastOnePointThree ==
+(* src/bot/valuator/narrative_flags.py: hypergrowth_flags, hypergrowth_story_flag *)
+TheHypergrowthStoryFlagIsSet ==
   /\ phase = "country_checked"
+  /\ phase' = "hg_story_checked"
+  /\ signal \/ storyType = "hypergrowth"
+  /\ valued
+  /\ flags' = flags \cup {"hypergrowth story"}
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports, storyFile, signal, storyType >>
+
+(* src/bot/valuator/narrative_flags.py: hypergrowth_flags returns no flag *)
+NoHypergrowthFlag ==
+  /\ phase = "country_checked"
+  /\ phase' = "hypergrowth_checked"
+  /\ ~signal
+  /\ storyType # "hypergrowth"
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
+
+(* src/bot/valuator/narrative_flags.py: hypergrowth_flags, hypergrowth_revenue_scale_flag *)
+TheRevenueScaleFlagIsSet ==
+  /\ phase = "hg_story_checked"
+  /\ phase' = "scale_checked"
+  /\ storyType = "hypergrowth"
+  /\ valued
+  /\ flags' = flags \cup {"revenue scale"}
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports, storyFile, signal, storyType >>
+
+(* src/bot/valuator/narrative_flags.py: hypergrowth_flags returns the story flag alone without the hypergrowth story type *)
+OnlyTheStoryFlag ==
+  /\ phase = "hg_story_checked"
+  /\ phase' = "hypergrowth_checked"
+  /\ storyType # "hypergrowth"
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
+
+(* src/bot/valuator/narrative_flags.py: hypergrowth_flags, hypergrowth_terminal_roic_flag *)
+TheTerminalRoicFlagIsSet ==
+  /\ phase = "scale_checked"
+  /\ phase' = "hypergrowth_checked"
+  /\ valued
+  /\ flags' = flags \cup {"terminal ROIC"}
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports, storyFile, signal, storyType >>
+
+(* src/bot/valuator/analysis.py: analyze, intrinsic_after_governance *)
+TheGovernanceDiscountIsApplied ==
+  /\ phase = "hypergrowth_checked"
+  /\ phase' = "discounted"
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
+
+(* src/bot/valuator/analysis.py: analyze, margin_of_safety from intrinsic_after_governance; src/bot/reporting/analysis_report.py: margin_verdict *)
+TheMarginIsAtLeastOnePointThree ==
+  /\ phase = "discounted"
   /\ phase' = "verdict_given"
   /\ margin' = "1.3 or more"
   /\ verdict' = MarginVerdict("1.3 or more")
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, reports, storyFile, signal, storyType >>
 
-(* src/bot/valuator/analysis.py: analyze, margin_of_safety; src/bot/reporting/analysis_report.py: margin_verdict *)
+(* src/bot/valuator/analysis.py: analyze, margin_of_safety from intrinsic_after_governance; src/bot/reporting/analysis_report.py: margin_verdict *)
 TheMarginIsFromOneToOnePointThree ==
-  /\ phase = "country_checked"
+  /\ phase = "discounted"
   /\ phase' = "verdict_given"
   /\ margin' = "1.0 to under 1.3"
   /\ verdict' = MarginVerdict("1.0 to under 1.3")
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, reports, storyFile, signal, storyType >>
 
-(* src/bot/valuator/analysis.py: analyze, margin_of_safety; src/bot/reporting/analysis_report.py: margin_verdict *)
+(* src/bot/valuator/analysis.py: analyze, margin_of_safety from intrinsic_after_governance; src/bot/reporting/analysis_report.py: margin_verdict *)
 TheMarginIsBelowOne ==
-  /\ phase = "country_checked"
+  /\ phase = "discounted"
   /\ phase' = "verdict_given"
   /\ margin' = "below 1.0"
   /\ verdict' = MarginVerdict("below 1.0")
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, reports, storyFile, signal, storyType >>
 
-(* src/bot/valuator/analysis.py: analyze, margin_of_safety; src/bot/reporting/analysis_report.py: margin_verdict *)
+(* src/bot/valuator/analysis.py: analyze, margin_of_safety from intrinsic_after_governance; src/bot/reporting/analysis_report.py: margin_verdict *)
 TheTickerHasNoPrice ==
-  /\ phase = "country_checked"
+  /\ phase = "discounted"
   /\ phase' = "verdict_given"
   /\ margin' = "no price"
   /\ verdict' = MarginVerdict("no price")
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/analysis.py: _sanity_check *)
 TheMultiplesAreCompared ==
   /\ phase = "verdict_given"
   /\ phase' = "sanity_checked"
-  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports >>
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/cli.py: _analyze_one, three write_text calls after render_* *)
 TheReportsAreWritten ==
@@ -579,7 +709,7 @@ TheReportsAreWritten ==
   /\ phase' = "reported"
   /\ reports' = {"markdown", "HTML", "JSON"}
   /\ exitCode' = "0"
-  /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict >>
+  /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, storyFile, signal, storyType >>
 
 Done ==
   /\ phase \in EndPhases
@@ -599,7 +729,11 @@ Next ==
   \/ ItsOwnDatasetRegion
   \/ RegionFromItsCountryGrouping
   \/ RegionDefaultsToUs
+  \/ TheOverrideFileIsRead
+  \/ TheOverrideFileIsInvalid
   \/ TheSignalsAreDerived
+  \/ ItIsHypergrowth
+  \/ ItIsNotHypergrowth
   \/ ItIsDistressed
   \/ ItIsNotDistressed
   \/ ItIsCyclical
@@ -608,10 +742,10 @@ Next ==
   \/ ItIsNotHighGrowth
   \/ ItIsInDecline
   \/ ItIsMatureStable
-  \/ TheOverrideFileIsInvalid
-  \/ TheOverrideFileIsNotYaml
   \/ NoManualStoryType
   \/ TheOverrideSetsTheStoryType
+  \/ HypergrowthWithoutAStoryFallsBack
+  \/ TheStoryFileIsPresent
   \/ TheSectorRowIsFound
   \/ NoSectorRow
   \/ TheCurrencyIsCovered
@@ -629,6 +763,8 @@ Next ==
   \/ TerminalGrowthFromTheCurrency
   \/ TerminalGrowthIsUnresolved
   \/ TaxAndBankruptcyAreSet
+  \/ TheStoryShapesThePaths
+  \/ TheStoryCannotBeApplied
   \/ NoLatestRevenue
   \/ TheSharesAreImplausible
   \/ TheSharesArePlausible
@@ -644,6 +780,9 @@ Next ==
   \/ TheValueIsBlended
   \/ TheTornadoIsRun
   \/ TheGridIsRun
+  \/ TheScenariosAreValued
+  \/ NoScenarios
+  \/ TheScenarioRangeFails
   \/ StoryMarginGreen
   \/ StoryMarginYellow
   \/ StoryMarginUnknown
@@ -656,6 +795,12 @@ Next ==
   \/ TerminalShareYellow
   \/ TerminalShareGreen
   \/ CountryUnknown
+  \/ TheHypergrowthStoryFlagIsSet
+  \/ NoHypergrowthFlag
+  \/ TheRevenueScaleFlagIsSet
+  \/ OnlyTheStoryFlag
+  \/ TheTerminalRoicFlagIsSet
+  \/ TheGovernanceDiscountIsApplied
   \/ TheMarginIsAtLeastOnePointThree
   \/ TheMarginIsFromOneToOnePointThree
   \/ TheMarginIsBelowOne
@@ -709,7 +854,7 @@ VerdictFromTheMargin ==
 \* The narrative flags are computed after the DCF, and the verdict reads the margin of safety alone.
 FlagsAfterTheDcfNotInTheVerdict ==
   (flags # {} => valued)
-  /\ (verdict # "none" => (flags = FlagNames /\ verdict = ThresholdVerdict(margin)))
+  /\ (verdict # "none" => (flags \in {FlagNames, FlagNames \cup {"hypergrowth story"}, FlagNames \cup HypergrowthFlagNames} /\ verdict = ThresholdVerdict(margin)))
 
 (* Cites: cli.py _analyze_one: three write_text calls in a row, after a successful run_analysis. *)
 \* The markdown, HTML and JSON reports are written together, and only for a valued company.
@@ -723,9 +868,13 @@ UnknownTickerSkippedBatchGoesOn ==
 
 (* Cites: cli.py analyze: typer.Exit(code=2) only before the loop; inside it the exit code is the max of the tickers' codes. *)
 \* Only refused arguments, an empty screen or a refused currency table stop the whole command; a failing ticker never does.
-\* broken: #180
 OnlyTheCommandStopsTheBatch ==
   batch = "stopped" => (phase = "command_stops" /\ storyTypes = {})
+
+(* Cites: assumptions.py _resolve_story_type turns a hypergrowth label without a story section into high-growth; load_override refuses story_type hypergrowth without story. *)
+\* The story type is hypergrowth only when the story file is present.
+HypergrowthOnlyWithAStoryFile ==
+  storyType = "hypergrowth" => storyFile = "present"
 
 (* Cites: cli.py _analyze_one: except ValueError returns 1 before any write. *)
 \* A company that cannot be valued exits with code 1 and gets no report.

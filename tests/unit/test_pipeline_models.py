@@ -753,8 +753,9 @@ _ANALYZE_RULES = {
     "UnknownTickerSkippedBatchGoesOn",
     "OnlyTheCommandStopsTheBatch",
     "CannotValueMeansNoReport",
+    "HypergrowthOnlyWithAStoryFile",
 }
-_ANALYZE_END = {"command_stops", "not_found", "cannot_value", "crashed", "reported"}
+_ANALYZE_END = {"command_stops", "not_found", "cannot_value", "reported"}
 
 
 def _analyze_defined() -> dict[str, list[str]]:
@@ -817,10 +818,20 @@ def test_analyze_end_phases_have_no_step_out() -> None:
         "margin' = \"below 1.0\"",
         "margin' = \"1.0 to under 1.3\"",
         "margin' = \"1.3 or more\"",
+        "storyType' = \"hypergrowth\"",
+        "signal' = TRUE",
+        "storyFile' \\in {\"present\", \"absent\"}",
     ],
 )
 def test_analyze_rule_antecedents_are_set(assignment: str) -> None:
     assert assignment in _text("analyze", ".tla")
+
+
+def test_analyze_cfg_checks_the_gate_and_the_batch_rule() -> None:
+    """#199: the hypergrowth gate is checked, and #180's fix puts the batch rule back."""
+    assert {"HypergrowthOnlyWithAStoryFile", "OnlyTheCommandStopsTheBatch"} <= set(
+        _invariants("analyze")
+    )
 
 
 def test_analyze_groups_fit_a_subboard() -> None:

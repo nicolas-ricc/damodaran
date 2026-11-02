@@ -397,8 +397,8 @@ _ANALYZE_SUBBOARDS = {
     "analyze-inputs", "analyze-story", "analyze-assumptions", "analyze-dcf",
     "analyze-sensitivity", "analyze-flags", "analyze-verdict",
 }
-# What a reader must find on each board (issue #170 acceptance criteria); the DCF lines are
-# the arithmetic of src/bot/valuator/dcf.py.
+# What a reader must find on each board (issue #170 acceptance criteria, and #199 for the
+# hypergrowth story); the DCF lines are the arithmetic of src/bot/valuator/dcf.py.
 _ANALYZE_TEXT: dict[str, list[str]] = {
     "analyze-inputs": [
         "--from-screen",
@@ -406,12 +406,17 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "China, India, Japan",
         "net debt = total debt \u2212 cash",
         "interest coverage = EBIT \u00f7 interest expense",
+        "founded_year",
+        "read and checked",
     ],
     "analyze-story": [
         "first match wins",
         "Altman Z < 1.81",
         "coefficient of variation = standard deviation \u00f7 |mean| of net income",
         "CAGR = (last \u00f7 first)^(1 \u00f7 (years \u2212 1)) \u2212 1",
+        "story file",
+        "founded_year",
+        "falls back to high-growth",
     ],
     "analyze-assumptions": [
         "story_pattern",
@@ -420,6 +425,9 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "min(risk-free rate, nominal GDP growth)",
         "debt weight = D/E \u00f7 (1 + D/E)",
         "config/currencies.yaml",
+        "story: the story file of a hypergrowth company",
+        "ten-year",
+        "solved",
     ],
     "analyze-dcf": [
         "WACC = equity weight \u00d7 cost of equity + debt weight \u00d7 pre-tax cost of debt"
@@ -437,13 +445,28 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "going-concern value per share = equity \u00f7 diluted shares",
         "intrinsic value per share = (1 \u2212 p) \u00d7 going-concern value per share"
         " + p \u00d7 distress value per share",
+        "cumulative",
+        "g \u00f7 ROIC",
+        "fixed commitments",
+        "extra cash",
+        "before the bridge",
     ],
     "analyze-sensitivity": [
         "swing = |intrinsic value at \u00d7 1.2 \u2212 intrinsic value at \u00d7 0.8|",
         "two widest",
         "cell = intrinsic value \u00f7 price",
+        "pretax_cost_of_debt is skipped",
+        "scenario range",
+        "base first",
     ],
-    "analyze-flags": ["always unknown", "300 bps", "operating leverage = %\u0394EBIT \u00f7 %\u0394Revenue"],
+    "analyze-flags": [
+        "always unknown",
+        "300 bps",
+        "operating leverage = %\u0394EBIT \u00f7 %\u0394Revenue",
+        "hypergrowth_story",
+        "750B",
+        "2 \u00d7 the sector ROIC",
+    ],
     "analyze-verdict": [
         "potentially undervalued",
         "around fair value",
@@ -451,6 +474,9 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "n/a",
         "decides nothing",
         "reports/YYYY-MM-DD/analysis/TICKER.json",
+        "governance discount",
+        "value after governance",
+        "scenario range",
     ],
 }
 # The gap notes a sub-board repeats because they change what the reader sees in the flow.
