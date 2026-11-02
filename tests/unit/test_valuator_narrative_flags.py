@@ -27,7 +27,9 @@ from bot.valuator.narrative_flags import (
     country_exposure_flag,
     growth_reinvestment_flag,
     hypergrowth_flags,
+    hypergrowth_revenue_scale_flag,
     hypergrowth_story_flag,
+    hypergrowth_terminal_roic_flag,
     narrative_flags,
     story_margin_flag,
     terminal_value_share_flag,
@@ -535,8 +537,6 @@ def _with_year10_revenue(revenue: float) -> DCFResult:
 
 
 def _revenue_scale_flag(revenue: float) -> NarrativeFlag:
-    from bot.valuator.narrative_flags import hypergrowth_revenue_scale_flag
-
     fin, asm = _financials(), _assumptions()
     return hypergrowth_revenue_scale_flag(
         fin, asm, _with_year10_revenue(revenue), _ctx(story_type="hypergrowth")
@@ -559,8 +559,6 @@ def test_revenue_scale_green_at_the_largest_company() -> None:
 
 
 def _terminal_roic_flag(**context: object) -> NarrativeFlag:
-    from bot.valuator.narrative_flags import hypergrowth_terminal_roic_flag
-
     fin, asm = _financials(), _assumptions()
     return hypergrowth_terminal_roic_flag(
         fin, asm, _result(fin, asm), _ctx(story_type="hypergrowth", **context)
