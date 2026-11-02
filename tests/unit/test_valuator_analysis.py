@@ -615,7 +615,10 @@ def _seed_anthropic_sheet(conn: duckdb.DuckDBPyConnection, ticker: str = "ANTH")
 
 def _sheet_yaml(tmp_path: Path, **extra: object) -> Path:
     path = tmp_path / "ANTH.yaml"
-    path.write_text(yaml.safe_dump({"story_type": "hypergrowth", "story": _STORY, **extra}))
+    # sort_keys=False keeps scenario order (file order is the contract).
+    path.write_text(
+        yaml.safe_dump({"story_type": "hypergrowth", "story": _STORY, **extra}, sort_keys=False)
+    )
     return path
 
 
