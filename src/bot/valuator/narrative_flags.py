@@ -121,12 +121,12 @@ class NarrativeContext:
         erp_weighted: Revenue-weighted equity risk premium across the countries
             the company operates in.
         erp_listing: Equity risk premium of the company's listing country.
-        hypergrowth_signals: The classifier's hypergrowth signals fired (#195).
-        story_file_present: A hand-written story file exists for the company
-            (#195).
         company_debt_weight: The company's own debt / (debt + equity) from its
             latest balance sheet. Distinct from ``Assumptions.debt_weight``,
             which is derived from the *sector's* D/E and drives the WACC.
+        hypergrowth_signals: The classifier's hypergrowth signals fired (#195).
+        story_file_present: A hand-written story file exists for the company
+            (#195).
     """
 
     story_type: str | None = None
@@ -392,7 +392,7 @@ def hypergrowth_story_flag(
 
     Signals without a story file is red: the default valuation is not reliable.
     A story file without signals is yellow (the two disagree). Both present is
-    green. Neither present (story type set by other means) is yellow.
+    green; so is neither present (story type set by other means).
     """
     name = "hypergrowth_story"
     signals = context.hypergrowth_signals
@@ -417,8 +417,8 @@ def hypergrowth_story_flag(
         )
     return NarrativeFlag(
         name=name,
-        color=FlagColor.YELLOW,
-        reason="hypergrowth story type but neither classifier signals nor a story file",
+        color=FlagColor.GREEN,
+        reason="no hypergrowth signals and no story file: nothing to reconcile",
     )
 
 

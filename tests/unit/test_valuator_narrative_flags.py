@@ -509,3 +509,10 @@ def test_narrative_flags_stay_five_with_hypergrowth_signals() -> None:
     flags = narrative_flags(fin, asm, _result(fin, asm), _ctx(hypergrowth_signals=True))
     assert len(flags) == 5
     assert "hypergrowth_story" not in {f.name for f in flags}
+
+
+def test_hypergrowth_story_green_when_neither_signals_nor_story_file() -> None:
+    flag = _hypergrowth_flag(
+        story_type="hypergrowth", hypergrowth_signals=False, story_file_present=False
+    )
+    assert flag.color == FlagColor.GREEN
