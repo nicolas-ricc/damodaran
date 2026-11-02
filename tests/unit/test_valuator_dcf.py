@@ -409,3 +409,238 @@ def test_non_positive_shares_raise() -> None:
 
     with pytest.raises(ValueError, match="shares_diluted"):
         dcf(Financials(revenue=1000.0, net_debt=0.0, shares_diluted=0.0), assumptions)
+
+
+# --------------------------------------------------------------------------- #
+# Hypergrowth extensions (#193): paths, terminal ROIC, bridge, failure proceeds #
+# --------------------------------------------------------------------------- #
+
+#: Damodaran's base-case cost of capital: 9.74% for five years, then to 9.13%.
+_DAMODARAN_WACC_PATH = (0.0974,) * 5 + (0.0962, 0.0950, 0.0937, 0.0925, 0.0913)
+
+
+def damodaran_financials() -> Financials:
+    """Damodaran's Anthropic bridge, in millions (issue #193 ground truth)."""
+    return Financials(
+        revenue=20_608.0,
+        net_debt=-212_389.0,
+        shares_diluted=3_298.14,
+        adjustments=3_929.0 - 472.0,
+        fixed_commitments=472_336.0,
+        extra_cash=0.0,
+    )
+
+
+def damodaran_assumptions() -> Assumptions:
+    """Damodaran's Anthropic base case (issue #193 ground truth)."""
+    return Assumptions(
+        revenue_growth=(4.00, 0.42, 0.42, 0.42, 0.42, 0.3458, 0.2716, 0.1974, 0.1232, 0.0490),
+        operating_margin=(0.05, 0.14, 0.185, 0.23, 0.275, 0.275, 0.275, 0.275, 0.275, 0.275),
+        tax_rate=0.25,
+        sales_to_capital=3.0,
+        terminal_growth=0.049,
+        cost_of_equity=0.0974,
+        pretax_cost_of_debt=0.05,
+        equity_weight=1.0,
+        debt_weight=0.0,
+        probability_of_bankruptcy=0.10,
+        wacc_path=_DAMODARAN_WACC_PATH,
+        tax_rate_path=(0.0,) * 5 + (0.05, 0.10, 0.15, 0.20, 0.25),
+        terminal_roic=0.15,
+        distress_proceeds_pct=0.5,
+    )
+
+
+def _plain_assumptions(**overrides: object) -> Assumptions:
+    """A five-year scalar-WACC case (WACC = 0.8 * 0.11 + 0.2 * 0.05 * 0.75 = 0.0955)."""
+    fields: dict[str, object] = {
+        "revenue_growth": (0.10, 0.08, 0.06, 0.04, 0.02),
+        "operating_margin": (0.20, 0.21, 0.22, 0.22, 0.22),
+        "tax_rate": 0.25,
+        "sales_to_capital": 2.0,
+        "terminal_growth": 0.02,
+        "cost_of_equity": 0.11,
+        "pretax_cost_of_debt": 0.05,
+        "equity_weight": 0.8,
+        "debt_weight": 0.2,
+    }
+    fields.update(overrides)
+    return Assumptions(**fields)  # type: ignore[arg-type]
+
+
+def _plain_financials(**overrides: float) -> Financials:
+    fields = {"revenue": 1000.0, "net_debt": 300.0, "shares_diluted": 100.0, "adjustments": 25.0}
+    fields.update(overrides)
+    return Financials(**fields)
+
+
+def _assert_same_result(a: DCFResult, b: DCFResult) -> None:
+    rel = 1e-9
+    assert a.intrinsic_value == pytest.approx(b.intrinsic_value, rel=rel)
+    assert a.enterprise_value == pytest.approx(b.enterprise_value, rel=rel)
+    assert a.equity_value == pytest.approx(b.equity_value, rel=rel)
+    assert a.terminal_value == pytest.approx(b.terminal_value, rel=rel)
+    assert a.terminal_value_share == pytest.approx(b.terminal_value_share, rel=rel)
+    assert a.wacc == pytest.approx(b.wacc, rel=rel)
+    for pa, pb in zip(a.projections, b.projections, strict=True):
+        assert pa.nopat == pytest.approx(pb.nopat, rel=rel)
+        assert pa.fcff == pytest.approx(pb.fcff, rel=rel)
+        assert pa.discount_factor == pytest.approx(pb.discount_factor, rel=rel)
+        assert pa.present_value == pytest.approx(pb.present_value, rel=rel)
+
+
+def test_damodaran_base_case() -> None:
+    result = dcf(damodaran_financials(), damodaran_assumptions())
+
+    pv_explicit = sum(p.present_value for p in result.projections)
+    pv_terminal = result.terminal_value * result.projections[-1].discount_factor
+    assert result.projections[-1].revenue == pytest.approx(1_011_491.0, abs=1.0)
+    assert pv_explicit == pytest.approx(422_725.0, rel=1e-3)
+    assert pv_terminal == pytest.approx(1_398_392.0, rel=1e-3)
+    assert result.enterprise_value_after_failure == pytest.approx(1_730_061.0, rel=1e-3)
+    assert result.equity_value == pytest.approx(1_473_576.0, rel=1e-3)
+    assert result.intrinsic_value == pytest.approx(446.79, rel=1e-3)
+    assert result.terminal_value_share == pytest.approx(pv_terminal / result.enterprise_value)
+    assert result.wacc == 0.0913
+    assert result.wacc_path == _DAMODARAN_WACC_PATH
+
+
+def test_damodaran_discount_factor_is_cumulative() -> None:
+    result = dcf(damodaran_financials(), damodaran_assumptions())
+
+    expected = 1.0
+    for projection, rate in zip(result.projections, _DAMODARAN_WACC_PATH, strict=True):
+        expected /= 1.0 + rate
+        assert projection.discount_factor == pytest.approx(expected, rel=1e-12)
+
+
+def test_flat_wacc_path_matches_scalar() -> None:
+    base = _plain_assumptions()
+    flat = _plain_assumptions(wacc_path=(0.0955,) * 5)
+
+    _assert_same_result(dcf(_plain_financials(), flat), dcf(_plain_financials(), base))
+
+
+def test_flat_tax_rate_path_matches_scalar() -> None:
+    base = _plain_assumptions()
+    flat = _plain_assumptions(tax_rate_path=(0.25,) * 5)
+
+    _assert_same_result(dcf(_plain_financials(), flat), dcf(_plain_financials(), base))
+
+
+@pytest.mark.parametrize("probability", [0.0, 0.3, 1.0])
+def test_full_proceeds_gives_going_concern_equity(probability: float) -> None:
+    going_concern = dcf(_plain_financials(), _plain_assumptions())
+    full = dcf(
+        _plain_financials(),
+        _plain_assumptions(probability_of_bankruptcy=probability, distress_proceeds_pct=1.0),
+    )
+
+    assert full.equity_value == pytest.approx(going_concern.equity_value, rel=1e-12)
+    assert full.intrinsic_value == pytest.approx(going_concern.intrinsic_value, rel=1e-12)
+
+
+def test_proceeds_mode_with_zero_probability_is_going_concern() -> None:
+    going_concern = dcf(_plain_financials(), _plain_assumptions())
+    result = dcf(_plain_financials(), _plain_assumptions(distress_proceeds_pct=0.4))
+
+    assert result.enterprise_value_after_failure == pytest.approx(result.enterprise_value)
+    assert result.equity_value == pytest.approx(going_concern.equity_value, rel=1e-12)
+
+
+def test_proceeds_mode_blends_enterprise_value_and_ignores_per_share_recovery() -> None:
+    assumptions = _plain_assumptions(
+        probability_of_bankruptcy=0.25,
+        distress_value_per_share=999.0,
+        distress_proceeds_pct=0.4,
+    )
+    result = dcf(_plain_financials(), assumptions)
+
+    ev = result.enterprise_value
+    expected_ev = ev * 0.75 + ev * 0.4 * 0.25
+    assert result.enterprise_value_after_failure == pytest.approx(expected_ev, rel=1e-12)
+    assert result.equity_value == pytest.approx(expected_ev - 300.0 + 25.0, rel=1e-12)
+    assert result.intrinsic_value == pytest.approx(result.equity_value / 100.0, rel=1e-12)
+
+
+def test_fixed_commitments_lower_equity_one_for_one() -> None:
+    base = dcf(_plain_financials(), _plain_assumptions())
+    loaded = dcf(_plain_financials(fixed_commitments=120.0), _plain_assumptions())
+
+    assert base.equity_value - loaded.equity_value == pytest.approx(120.0, rel=1e-9)
+    assert loaded.enterprise_value == base.enterprise_value
+
+
+def test_extra_cash_raises_equity_one_for_one() -> None:
+    base = dcf(_plain_financials(), _plain_assumptions())
+    flush = dcf(_plain_financials(extra_cash=80.0), _plain_assumptions())
+
+    assert flush.equity_value - base.equity_value == pytest.approx(80.0, rel=1e-9)
+    assert flush.enterprise_value == base.enterprise_value
+
+
+def test_wacc_path_ignores_scalar_components() -> None:
+    path = (0.09, 0.09, 0.095, 0.10, 0.10)
+    a = dcf(_plain_financials(), _plain_assumptions(wacc_path=path))
+    b = dcf(
+        _plain_financials(),
+        _plain_assumptions(
+            wacc_path=path, cost_of_equity=0.30, pretax_cost_of_debt=0.20, debt_weight=0.5
+        ),
+    )
+
+    assert a.wacc == 0.10
+    _assert_same_result(a, b)
+
+
+def test_terminal_roic_sets_terminal_reinvestment() -> None:
+    result = dcf(_plain_financials(), _plain_assumptions(terminal_roic=0.10))
+
+    last = result.projections[-1]
+    terminal_nopat = last.revenue * 1.02 * 0.22 * 0.75
+    expected_fcff = terminal_nopat - terminal_nopat * 0.02 / 0.10
+    assert result.terminal_value == pytest.approx(expected_fcff / (0.0955 - 0.02), rel=1e-9)
+
+
+def test_tax_rate_path_drives_yearly_nopat_but_not_terminal() -> None:
+    path = (0.0, 0.0, 0.10, 0.20, 0.30)
+    result = dcf(_plain_financials(), _plain_assumptions(tax_rate_path=path))
+    base = dcf(_plain_financials(), _plain_assumptions())
+
+    for projection, rate in zip(result.projections, path, strict=True):
+        assert projection.nopat == pytest.approx(projection.ebit * (1.0 - rate), rel=1e-12)
+    assert result.terminal_value == pytest.approx(base.terminal_value, rel=1e-12)
+    assert result.wacc == base.wacc
+
+
+@pytest.mark.parametrize("terminal", [0.02, 0.015])
+def test_wacc_path_terminal_at_or_below_growth_raises(terminal: float) -> None:
+    path = (0.09, 0.09, 0.09, 0.09, terminal)
+    with pytest.raises(ValueError, match="terminal_growth"):
+        dcf(_plain_financials(), _plain_assumptions(wacc_path=path))
+
+
+@pytest.mark.parametrize(
+    ("overrides", "match"),
+    [
+        ({"wacc_path": (0.09,) * 4}, "wacc_path"),
+        ({"wacc_path": (0.09,) * 6}, "wacc_path"),
+        ({"wacc_path": ()}, "wacc_path"),
+        ({"tax_rate_path": (0.25,) * 4}, "tax_rate_path"),
+        ({"tax_rate_path": (0.25,) * 6}, "tax_rate_path"),
+        ({"terminal_roic": 0.0}, "terminal_roic"),
+        ({"terminal_roic": -0.1}, "terminal_roic"),
+        ({"distress_proceeds_pct": -0.01}, "distress_proceeds_pct"),
+        ({"distress_proceeds_pct": 1.01}, "distress_proceeds_pct"),
+    ],
+)
+def test_new_fields_invalid_raise(overrides: dict[str, object], match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        dcf(_plain_financials(), _plain_assumptions(**overrides))
+
+
+def test_defaults_leave_new_result_fields_none() -> None:
+    result = dcf(_plain_financials(), _plain_assumptions())
+
+    assert result.enterprise_value_after_failure is None
+    assert result.wacc_path is None
