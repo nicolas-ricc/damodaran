@@ -1048,8 +1048,9 @@ def test_hypergrowth_with_story_keeps_label_and_story_resolvers(
     conn: duckdb.DuckDBPyConnection, tmp_path: Path
 ) -> None:
     # #196: with a story the label is hypergrowth and the story drives the growth.
+    # Raw dollars, the story's units (Damodaran's 2026-11-03 sheet).
     _seed_full_sector(conn)
-    _seed_financials(conn, rows=((2024, 1_020.0, -2_325.0), (2025, 20_608.0, -46_982.0)))
+    _seed_financials(conn, rows=((2024, 1_020e6, -2_325e6), (2025, 35_286e6, -46_313e6)))
     override = load_override(_story_override(tmp_path))
     result = resolve_assumptions(
         "ACME", conn, override=override, auto_story_type=StoryType.HYPERGROWTH

@@ -42,10 +42,11 @@ from tests.unit.test_hypergrowth_calibration import (
 _WHERE = "config/assumptions/ANTH.yaml"
 _ROOT = Path(__file__).resolve().parents[2]
 
-#: The issue's full ``story:`` block (raw reporting currency, not millions).
+#: The issue's full ``story:`` block (raw reporting currency, not millions),
+#: on Damodaran's 2026-11-03 sheet.
 _STORY: dict[str, Any] = {
-    "year1_growth": 4.00,
-    "target_revenue_y10": 1011491000000,
+    "year1_growth": 1.90,
+    "target_revenue_y10": 1004515600000,
     "year1_margin": 0.05,
     "target_margin": 0.325,
     "margin_converge_year": 5,
@@ -57,7 +58,7 @@ _STORY: dict[str, Any] = {
     "terminal_roic": 0.15,
     "failure_probability": 0.10,
     "failure_proceeds_pct_of_value": 0.50,
-    "fixed_commitments_pv": 472336000000,
+    "fixed_commitments_pv": 485319790000,
     "extra_cash": 100000000000,
     "governance_discount": 0.20,
 }
@@ -92,7 +93,7 @@ _SCENARIOS: dict[str, Any] = {
 def test_parse_story_round_trips_the_issue_schema() -> None:
     story = parse_story(_STORY, where=_WHERE)
     assert story == StoryInputs(**_STORY)
-    assert story.target_revenue_y10 == 1_011_491_000_000.0
+    assert story.target_revenue_y10 == 1_004_515_600_000.0
     assert story.wacc_terminal == pytest.approx(0.0913)
     assert story.margin_converge_year == 5
     assert isinstance(story.margin_converge_year, int)
@@ -264,22 +265,22 @@ def _cal_story(**changes: Any) -> StoryInputs:
 
 
 def test_solve_stage_growth_reproduces_the_sheet() -> None:
-    assert solve_stage_growth(20_608.0, _cal_story(), 0.049) == pytest.approx(0.42, abs=1e-6)
+    assert solve_stage_growth(CAL_BASE_REVENUE, _cal_story(), 0.049) == pytest.approx(0.42, abs=1e-6)
 
 
 def test_growth_path_matches_the_sheet_and_hits_the_target() -> None:
-    path = growth_path(20_608.0, _cal_story(), 0.049)
+    path = growth_path(CAL_BASE_REVENUE, _cal_story(), 0.049)
     assert len(path) == HORIZON == 10
     assert path == pytest.approx(CAL_GROWTH, abs=1e-6)
-    revenue = 20_608.0
+    revenue = CAL_BASE_REVENUE
     for g in path:
         revenue *= 1.0 + g
-    assert revenue == pytest.approx(1_011_491, abs=1)
+    assert revenue == pytest.approx(CAL_STORY.target_revenue_y10, abs=1)
 
 
 @pytest.mark.parametrize(
     ("base", "target"),
-    [(20_608.0, 1e30), (20_608.0, 1e-9), (0.0, 1_011_491), (-1.0, 1_011_491)],
+    [(CAL_BASE_REVENUE, 1e30), (CAL_BASE_REVENUE, 1e-9), (0.0, 1_004_515.6), (-1.0, 1_004_515.6)],
 )
 def test_solve_stage_growth_raises_when_unreachable(base: float, target: float) -> None:
     with pytest.raises(ValueError, match="unreachable"):
@@ -288,7 +289,7 @@ def test_solve_stage_growth_raises_when_unreachable(base: float, target: float) 
 
 def test_solve_stage_growth_refuses_terminal_growth_at_or_below_minus_one() -> None:
     with pytest.raises(ValueError, match="terminal_growth"):
-        solve_stage_growth(20_608.0, _cal_story(), -1.0)
+        solve_stage_growth(CAL_BASE_REVENUE, _cal_story(), -1.0)
 
 
 def test_margin_path_matches_the_sheet() -> None:
@@ -326,9 +327,9 @@ def test_tax_path_matches_the_sheet() -> None:
 def test_apply_story_sets_story_sourced_values() -> None:
     story = _cal_story()
     bundle = generic_bundle()
-    out = apply_story(bundle, story, base_revenue=20_608.0, sector_wacc=0.08)
+    out = apply_story(bundle, story, base_revenue=CAL_BASE_REVENUE, sector_wacc=0.08)
     story_sourced = {
-        "revenue_growth": growth_path(20_608.0, story, 0.049),
+        "revenue_growth": growth_path(CAL_BASE_REVENUE, story, 0.049),
         "operating_margin": margin_path(story),
         "sales_to_capital": 3.0,
         "cost_of_equity": 0.0974,
@@ -337,7 +338,7 @@ def test_apply_story_sets_story_sourced_values() -> None:
         "probability_of_bankruptcy": 0.10,
         "terminal_roic": 0.15,
         "distress_proceeds_pct": 0.50,
-        "fixed_commitments": 472_336.0,
+        "fixed_commitments": 485_319.79,
         "extra_cash": 100_000.0,
         "governance_discount": 0.0,
     }
@@ -357,7 +358,7 @@ def test_apply_story_sets_story_sourced_values() -> None:
 
 def test_apply_story_wacc_terminal_falls_back_to_sector() -> None:
     out = apply_story(
-        generic_bundle(), _cal_story(wacc_terminal=None), base_revenue=20_608.0, sector_wacc=0.09
+        generic_bundle(), _cal_story(wacc_terminal=None), base_revenue=CAL_BASE_REVENUE, sector_wacc=0.09
     )
     assert out.wacc_path is not None
     assert out.wacc_path.value[-1] == 0.09
@@ -368,7 +369,7 @@ def test_apply_story_raises_without_wacc_terminal() -> None:
         apply_story(
             generic_bundle(),
             _cal_story(wacc_terminal=None),
-            base_revenue=20_608.0,
+            base_revenue=CAL_BASE_REVENUE,
             sector_wacc=None,
         )
 
@@ -379,14 +380,14 @@ def test_apply_story_raises_on_unresolved_generic_input(missing: str) -> None:
         apply_story(
             generic_bundle(**{missing: None}),
             _cal_story(),
-            base_revenue=20_608.0,
+            base_revenue=CAL_BASE_REVENUE,
             sector_wacc=0.09,
         )
 
 
 def test_apply_story_without_terminal_roic_leaves_it_none() -> None:
     out = apply_story(
-        generic_bundle(), _cal_story(terminal_roic=None), base_revenue=20_608.0, sector_wacc=None
+        generic_bundle(), _cal_story(terminal_roic=None), base_revenue=CAL_BASE_REVENUE, sector_wacc=None
     )
     assert out.terminal_roic is None
     assert out.to_dcf_assumptions().terminal_roic is None
