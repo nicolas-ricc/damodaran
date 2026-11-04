@@ -131,6 +131,12 @@ class Analysis:
             the raw value.
         intrinsic_value_after_governance: ``dcf_result.intrinsic_value *
             (1 - governance_discount)``; equals the intrinsic value at ``0.0``.
+        valuation_currency: Currency the DCF (and so ``current_price``) is in.
+        listing_price: The newest close as listed, before conversion.
+        price_currency: Currency of ``listing_price`` (normalised).
+        fx_rate: Multiplier taking the listing price into the valuation
+            currency; ``None`` when no conversion applied or no rate was found.
+        price_date: Date of the newest close.
     """
 
     ticker: str
@@ -154,6 +160,11 @@ class Analysis:
     scenarios: tuple[ScenarioResult, ...] = ()
     governance_discount: float = 0.0
     intrinsic_value_after_governance: float = 0.0
+    valuation_currency: str | None = None
+    listing_price: float | None = None
+    price_currency: str | None = None
+    fx_rate: float | None = None
+    price_date: _date | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -835,7 +846,8 @@ def analyze(
     income_history = inputs.income_history
     ebit_history = inputs.ebit_history
     sector = inputs.sector
-    current_price = price_in_valuation_currency(inputs).price
+    converted = price_in_valuation_currency(inputs)
+    current_price = converted.price
 
     # Derive age from the company's ipoDate (FMP) when the caller didn't pass
     # one explicitly — an explicit age_years always wins.
@@ -1022,4 +1034,9 @@ def analyze(
         scenarios=scenario_results,
         governance_discount=governance_discount,
         intrinsic_value_after_governance=intrinsic_after_governance,
+        valuation_currency=inputs.assumption_inputs.valuation_currency,
+        listing_price=inputs.latest_close.close if inputs.latest_close else None,
+        price_currency=inputs.latest_close.currency if inputs.latest_close else None,
+        fx_rate=converted.fx_rate,
+        price_date=inputs.latest_close.date if inputs.latest_close else None,
     )
