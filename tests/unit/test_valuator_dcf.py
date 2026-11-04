@@ -421,21 +421,21 @@ _DAMODARAN_WACC_PATH = (0.0974,) * 5 + (0.0962, 0.0950, 0.0937, 0.0925, 0.0913)
 
 
 def damodaran_financials() -> Financials:
-    """Damodaran's Anthropic bridge, in millions (issue #193 ground truth)."""
+    """Damodaran's Anthropic bridge, in millions (his 2026-11-03 sheet)."""
     return Financials(
-        revenue=20_608.0,
+        revenue=35_286.0,
         net_debt=-212_389.0,
-        shares_diluted=3_298.14,
-        adjustments=3_929.0 - 472.0,
-        fixed_commitments=472_336.0,
+        shares_diluted=3_302.27,
+        adjustments=3_929.0 - 472.30,
+        fixed_commitments=485_319.79,
         extra_cash=0.0,
     )
 
 
 def damodaran_assumptions() -> Assumptions:
-    """Damodaran's Anthropic base case (issue #193 ground truth)."""
+    """Damodaran's Anthropic base case (his 2026-11-03 sheet)."""
     return Assumptions(
-        revenue_growth=(4.00, 0.42, 0.42, 0.42, 0.42, 0.3458, 0.2716, 0.1974, 0.1232, 0.0490),
+        revenue_growth=(1.90, 0.42, 0.42, 0.42, 0.42, 0.3458, 0.2716, 0.1974, 0.1232, 0.0490),
         operating_margin=(0.05, 0.14, 0.185, 0.23, 0.275, 0.275, 0.275, 0.275, 0.275, 0.275),
         tax_rate=0.25,
         sales_to_capital=3.0,
@@ -495,12 +495,15 @@ def test_damodaran_base_case() -> None:
 
     pv_explicit = sum(p.present_value for p in result.projections)
     pv_terminal = result.terminal_value * result.projections[-1].discount_factor
-    assert result.projections[-1].revenue == pytest.approx(1_011_491.0, abs=1.0)
-    assert pv_explicit == pytest.approx(422_725.0, rel=1e-3)
-    assert pv_terminal == pytest.approx(1_398_392.0, rel=1e-3)
-    assert result.enterprise_value_after_failure == pytest.approx(1_730_061.0, rel=1e-3)
-    assert result.equity_value == pytest.approx(1_473_576.0, rel=1e-3)
-    assert result.intrinsic_value == pytest.approx(446.79, rel=1e-3)
+    # His sheet: PV of cash flows 421,729, PV of terminal value 1,388,748, value after
+    # failure 1,719,953, equity 1,450,951, 439.24 a share. The cash flows differ
+    # because his sheet reinvests a year ahead of revenue; this model, the same year.
+    assert result.projections[-1].revenue == pytest.approx(1_004_515.6, abs=1.0)
+    assert pv_explicit == pytest.approx(424_311.0, rel=1e-3)
+    assert pv_terminal == pytest.approx(1_388_748.0, rel=1e-3)
+    assert result.enterprise_value_after_failure == pytest.approx(1_722_406.0, rel=1e-3)
+    assert result.equity_value == pytest.approx(1_452_932.0, rel=1e-3)
+    assert result.intrinsic_value == pytest.approx(439.98, rel=1e-3)
     assert result.terminal_value_share == pytest.approx(pv_terminal / result.enterprise_value)
     assert result.wacc == 0.0913
     assert result.wacc_path == _DAMODARAN_WACC_PATH

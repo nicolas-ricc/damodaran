@@ -15,7 +15,15 @@ The valuation is driven by a story, not by history: the S-1 is "a kindergartner'
 card". Each DCF input answers one question: year-10 revenue (the market times the company's
 share), the target operating margin (mass market against premium), sales to capital (the cost
 of compute), the cost of capital, the failure risk from the compute commitments and the
-regulatory drag. His base case is equity of $1,475,406M, $447.34 a share. Governance (five
+regulatory drag. His base case is equity of $1,475,406M, $447.34 a share. On 2026-11-03,
+in "The Anthropic Feedback Loop"
+(https://aswathdamodaran.blogspot.com/2026/11/the-anthropic-feedback-loop-cost-of.html), he
+updated it for leaked Q3 figures: trailing revenue $35,286M, year-1 growth cut to 190% so
+next year's revenue stays near $100B, debt and commitments of $485,320M, and 3,302.27M
+shares. The rest of the story is unchanged. Equity is now $1,450,951M, $439.24 a share. He
+ranks the fragile assumptions as the $1T year-10 revenue first, then governance, the margin,
+compute investment and regulation, and argues the cost of capital is the wrong place to
+argue. Governance (five
 share classes, founders keep 50.1% of the vote) stays outside the DCF and becomes a larger
 discount before buying.
 
@@ -111,12 +119,16 @@ signals never gate the valuation: they colour the `hypergrowth_story` flag.
 - The method is never applied automatically. No story file, no hypergrowth valuation, only a
   red flag and the `high-growth` default.
 - Calibration against Damodaran's base case, asserted in
-  `tests/unit/test_hypergrowth_calibration.py:110-161` (the computed values were re-run on
-  commit 90f717c during plan review): equity 1,473,576 against his 1,475,406, and 446.79 a
-  share against 447.34. The test allows 1% on both. Two deviations explain the gap: the
+  `tests/unit/test_hypergrowth_calibration.py`. His 2026-11-03 sheet: year-10 revenue
+  1,004,516 and PV of the terminal value 1,388,748 match exactly; equity 1,452,937 against
+  his 1,450,951, and 439.98 a share against 439.24. His October sheet, still asserted
+  (the computed values were re-run on commit 90f717c during plan review): equity 1,473,576
+  against his 1,475,406, and 446.79 a share against 447.34. The test allows 1% on all four.
+  Two deviations explain the gap: the
   same-year reinvestment (his sheet reinvests one year ahead), and the worst case, which uses
   a 10-point regulatory drag (0.10) instead of his 15 points because that reproduces his
-  figure. Worst case: -371,991 against -373,000. Best case: 4,076,137 against 4,040,000.
+  figure. The scenarios run on the October sheet, the one he published them for. Worst
+  case: -371,991 against -373,000. Best case: 4,076,137 against 4,040,000.
   The test allows 5% on both.
 - Sidecars stay at `schema_version` 1. The new fields are additive and have defaults, so older
   sidecars still load. ADR 0008 says any change to the sidecar shape means a bump; this ADR
