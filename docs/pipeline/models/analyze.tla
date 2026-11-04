@@ -845,7 +845,7 @@ UncoveredCurrencyLeavesTerminalGrowthUnresolved ==
   ((currency = "uncovered" /\ tgSource # "unread" /\ tgSource # "manual") => tgSource = "unresolved")
   /\ (tgSource = "rule based" => currency = "covered")
 
-(* Cites: analysis_report.py margin_verdict; views.py MOS_UNDERVALUED and MOS_FAIR; CONTEXT.md "Verdict". *)
+(* Cites: analysis_report.py margin_verdict, MOS_UNDERVALUED and MOS_FAIR; CONTEXT.md "Verdict". *)
 \* The verdict is n/a exactly when there is no price; otherwise it is one of three words, by the thresholds 1.3 and 1.0.
 VerdictFromTheMargin ==
   verdict # "none" => (verdict = ThresholdVerdict(margin) /\ ((verdict = "n/a") = (margin = "no price")))

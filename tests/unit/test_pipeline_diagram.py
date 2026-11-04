@@ -29,7 +29,7 @@ from bot.portfolio import events as events_mod
 from bot.portfolio.events import EventType, Position
 from bot.portfolio.marks import HoldingMark
 from bot.reference.currencies import CurrencyRates
-from bot.reporting.analysis_report import margin_verdict
+from bot.reporting.analysis_report import MOS_FAIR, MOS_UNDERVALUED, margin_verdict
 from bot.screener.engine import CoverageReason
 from bot.screener.ranking import RankingWeights
 from bot.screener.rules import registered_rules
@@ -40,7 +40,6 @@ from bot.valuator.assumptions import _OVERRIDE_PATH_KEYS, AssumptionSource
 from bot.valuator.dcf import Assumptions, DCFResult, Financials, YearProjection, dcf
 from bot.valuator.narrative_flags import NarrativeContext
 from bot.valuator.story_types import ClassificationFinancials, SectorContext, StoryType, classify
-from bot.web.views import MOS_FAIR, MOS_UNDERVALUED
 
 _ROOT = Path(__file__).resolve().parents[2]
 _PIPELINE = _ROOT / "docs" / "pipeline"
