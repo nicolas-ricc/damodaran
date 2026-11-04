@@ -27,17 +27,64 @@ helpers, which only read from the ``currencies`` table.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import date
 
 import duckdb
 
 from bot.ingest.base import IngestResult, refresh_run, transaction
 from bot.ingest.provider import FxRate, MarketDataProvider
+from bot.reference.currencies import normalize_currency
 from bot.utils.logging import get_logger
 
 log = get_logger(__name__)
 
 USD = "USD"
+
+#: A currency -> USD-rate lookup at a fixed as-of date. Keeping valuation behind
+#: this seam lets callers stay pure (no ``conn``, no I/O).
+type FxLookup = Callable[[str], float | None]
+
+
+@dataclass(frozen=True)
+class ConvertedPrice:
+    """A close in the valuation currency; ``fx_rate`` is the cross rate applied.
+
+    ``price`` is ``None`` when a needed rate is missing or non-positive;
+    ``fx_rate`` is ``None`` when no conversion was needed or possible.
+    """
+
+    price: float | None
+    fx_rate: float | None
+
+
+def convert_price(
+    close: float,
+    listing_currency: str | None,
+    valuation_currency: str | None,
+    rate_to_usd: FxLookup,
+) -> ConvertedPrice:
+    """Convert ``close`` from the listing to the valuation currency.
+
+    Same currency (case/space-insensitive) or either one unknown: the close as is.
+    Otherwise ``close * rate(listing) / rate(valuation)``; a missing or
+    non-positive rate gives ``ConvertedPrice(None, None)``.
+    """
+    listing = normalize_currency(listing_currency)
+    valuation = normalize_currency(valuation_currency)
+    if listing is None or valuation is None or listing == valuation:
+        return ConvertedPrice(close, None)
+    rate_listing = rate_to_usd(listing)
+    rate_valuation = rate_to_usd(valuation)
+    if (
+        rate_listing is None
+        or rate_valuation is None
+        or rate_listing <= 0.0
+        or rate_valuation <= 0.0
+    ):
+        return ConvertedPrice(None, None)
+    return ConvertedPrice(close * rate_listing / rate_valuation, rate_listing / rate_valuation)
 
 
 def upsert_fx_rates(
