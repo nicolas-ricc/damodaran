@@ -420,6 +420,9 @@ def analyze(
             "--override is only valid with exactly one ticker.", err=True
         )
         raise typer.Exit(code=2)
+    if override is not None and not override.is_file():
+        typer.echo(f"--override {override}: no such file.", err=True)
+        raise typer.Exit(code=2)
 
     conn, settings = _open_db()
 

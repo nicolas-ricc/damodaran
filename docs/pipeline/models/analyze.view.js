@@ -51,7 +51,7 @@ const states = {
 const steps = {
   TheTickersAreGiven: "the ticker is named on the command line",
   TheLatestScreenListsIt: "the latest screen lists it as a passed candidate [--from-screen]",
-  TheArgumentsAreRefused: "the command stops, exit code two [tickers with --from-screen, neither, or --override without exactly one ticker]",
+  TheArgumentsAreRefused: "the command stops, exit code two [tickers with --from-screen, neither, --override without exactly one ticker, or an --override path that is not a file]",
   TheCurrencyTableIsRefused: "the command stops, exit code 1 [a rate in config/currencies.yaml is out of range]",
   TheScreenLeftNoCandidate: "the command stops, exit code two [--from-screen, and no screen run or no passed candidate]",
   TheOverrideFlagNamesTheFile: "the override file is the one --override names [exactly one ticker]",
