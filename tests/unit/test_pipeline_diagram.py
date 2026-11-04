@@ -2090,9 +2090,9 @@ _PORTFOLIO_TEXT: dict[str, list[str]] = {
     "marks.gates": ["skipped rule does not count", "sector WACC"],
     "marks.persist.unknowns": ["never fires", "counts as empty"],
     "events.window": ["per ticker across accounts", "never a recomputation"],
-    "events.position_opened": ["≠ 0", "first run"],
-    "events.position_closed": ["absent or 0 now", "returns no positions"],
-    "events.position_size_changed": ["> 10%", "exactly 10%: no event"],
+    "events.position_opened": ["≠ 0", "first run", "other sign"],
+    "events.position_closed": ["absent or 0 now", "returns no positions", "other sign"],
+    "events.position_size_changed": ["> 10%", "exactly 10%: no event", "same sign"],
     "events.currency_changed": [
         "listing currency", "not on the first run", "per (account, ticker)", "one event per account",
     ],
