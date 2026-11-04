@@ -1,6 +1,6 @@
 # {{ a.ticker }} — {{ a.name }}
 
-_Generated {{ generated_at }} · currency {{ a.currency or "n/a" }} · country {{ a.country or "n/a" }}_
+_Generated {{ generated_at }} · currency {{ a.valuation_currency or "n/a" }} · country {{ a.country or "n/a" }}_
 
 ## 1. Executive summary
 
@@ -10,7 +10,12 @@ _Generated {{ generated_at }} · currency {{ a.currency or "n/a" }} · country {
 {% endif %}
 {% if a.current_price is not none -%}
 - **Current price:** {{ a.current_price | per_share }}
+{% if a.fx_rate is not none %}
+- **Price conversion:** close {{ a.listing_price | per_share }} {{ a.price_currency }} × {{ "%.6f" | format(a.fx_rate) }} = {{ a.current_price | per_share }} {{ a.valuation_currency }} (rates on or before {{ a.price_date }})
+{% endif %}
 - **Margin of safety{% if a.governance_discount > 0 %} (on the value after governance discount){% endif %}:** {{ a.margin_of_safety | ratio }} ({{ verdict }})
+{% elif a.listing_price is not none %}
+- **Current price:** close {{ a.listing_price | per_share }} {{ a.price_currency }} has no exchange rate into {{ a.valuation_currency }} on or before {{ a.price_date }} — margin of safety cannot be computed.
 {% else %}
 - **Current price:** not available — margin of safety cannot be computed.
 {% endif %}
