@@ -14,6 +14,7 @@ from collections.abc import Callable, Sequence
 
 from markupsafe import Markup, escape
 
+from bot.reporting.analysis_report import MOS_FAIR, MOS_UNDERVALUED
 from bot.web.views import (
     VERDICT_LABEL,
     VERDICT_TEXT,
@@ -148,8 +149,8 @@ def value_line_svg(vl: ValueLine, *, mini: bool) -> Markup:
     return Markup(
         '<figure class="value-axis">'
         '<div class="axis-row axis-ticks">'
-        + label(fair_x, "fair 1.0\u00d7", "tick", "end")
-        + label(under_x, "undervalued 1.3\u00d7", "tick", "start")
+        + label(fair_x, f"fair {MOS_FAIR:.1f}\u00d7", "tick", "end")
+        + label(under_x, f"undervalued {MOS_UNDERVALUED:.1f}\u00d7", "tick", "start")
         + "</div>"
         + svg
         + '<div class="axis-row">'

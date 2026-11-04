@@ -13,6 +13,8 @@ from enum import StrEnum
 from typing import Any
 
 from bot.reporting.analysis_report import (
+    MOS_FAIR,
+    MOS_UNDERVALUED,
     fmt_axis_label,
     fmt_margin_path,
     fmt_money,
@@ -37,8 +39,8 @@ class Verdict(StrEnum):
 
 
 VERDICT_TEXT: dict[Verdict, str] = {
-    Verdict.UNDERVALUED: margin_verdict(1.3),
-    Verdict.FAIR: margin_verdict(1.0),
+    Verdict.UNDERVALUED: margin_verdict(MOS_UNDERVALUED),
+    Verdict.FAIR: margin_verdict(MOS_FAIR),
     Verdict.OVERVALUED: margin_verdict(0.0),
     Verdict.NA: margin_verdict(None),
 }
@@ -51,10 +53,6 @@ VERDICT_LABEL: dict[Verdict, str] = {
     Verdict.OVERVALUED: "overvalued",
     Verdict.NA: "no verdict",
 }
-
-#: Margin-of-safety thresholds behind :func:`margin_verdict`, as the viewer explains them.
-MOS_UNDERVALUED = 1.3
-MOS_FAIR = 1.0
 
 FILTERS = ("all", "undervalued", "fair", "overvalued", "na")
 SORTS = ("ticker", "mos", "date")

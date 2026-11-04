@@ -29,9 +29,9 @@ renderable: "the analysis has every field" {class: decision; link: "./site-scan.
 out: "Comes out:\nthe live static viewer: index.html, l/, rows/, c/, f/, 404.html, robots.txt, static/" {class: output; link: "./site.svg"}
 
 # Edges
-renderable -> row: "the build reads the verdict from the sidecar [margin of safety (MoS) 1.3 or more]\npotentially undervalued, filter value undervalued"  # @const bot.web.views.MOS_UNDERVALUED
-renderable -> row: "the build reads the verdict from the sidecar [margin of safety (MoS) from 1.0 to under 1.3]\naround fair value, filter value fair"  # @const bot.web.views.MOS_FAIR @const bot.web.views.MOS_UNDERVALUED
-renderable -> row: "the build reads the verdict from the sidecar [margin of safety (MoS) below 1.0]\npotentially overvalued, filter value overvalued"  # @const bot.web.views.MOS_FAIR
+renderable -> row: "the build reads the verdict from the sidecar [margin of safety (MoS) 1.3 or more]\npotentially undervalued, filter value undervalued"  # @const bot.reporting.analysis_report.MOS_UNDERVALUED
+renderable -> row: "the build reads the verdict from the sidecar [margin of safety (MoS) from 1.0 to under 1.3]\naround fair value, filter value fair"  # @const bot.reporting.analysis_report.MOS_FAIR @const bot.reporting.analysis_report.MOS_UNDERVALUED
+renderable -> row: "the build reads the verdict from the sidecar [margin of safety (MoS) below 1.0]\npotentially overvalued, filter value overvalued"  # @const bot.reporting.analysis_report.MOS_FAIR
 renderable -> row: "the build reads the verdict from the sidecar [no price]\nn/a, filter value na"  # @enum bot.web.views.Verdict
 row -> listed: "the list pages show the company"
 listed -> pages: "the build writes the company pages"

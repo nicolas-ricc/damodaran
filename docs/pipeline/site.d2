@@ -86,7 +86,7 @@ build: "3. bot site: build the static viewer" {  # @symbol bot.web.site.build
     class: step
     link: "./site-views.svg"
   }
-  verdict: "verdict, as a filter value\nmargin of safety (MoS) ≥ 1.3: undervalued; ≥ 1.0: fair; < 1.0: overvalued; none: na\nlist rows and the detail's verdict sentence: the verdict text the sidecar carries, read back\nvalue line and grid cells: recomputed from their MoS" {  # @symbol bot.web.views.verdict_of @const bot.web.views.MOS_UNDERVALUED @const bot.web.views.MOS_FAIR @enum bot.web.views.Verdict
+  verdict: "verdict, as a filter value\nmargin of safety (MoS) ≥ 1.3: undervalued; ≥ 1.0: fair; < 1.0: overvalued; none: na\nlist rows and the detail's verdict sentence: the verdict text the sidecar carries, read back\nvalue line and grid cells: recomputed from their MoS" {  # @symbol bot.web.views.verdict_of @const bot.reporting.analysis_report.MOS_UNDERVALUED @const bot.reporting.analysis_report.MOS_FAIR @enum bot.web.views.Verdict
     class: decision
   }
   counts: "verdict counts: all = every company, then one count per verdict" {
