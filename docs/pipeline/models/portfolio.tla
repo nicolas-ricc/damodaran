@@ -351,8 +351,8 @@ ThePreviousSnapshotLacksIt ==
   /\ prevMark' = "unread"
   /\ UNCHANGED << channel, stored, flexFailed, held, valuation, gates, filing, anyFired, alerts >>
 
-(* src/bot/portfolio/events.py: detect_position_changes; a held ticker the previous
-   snapshot also held opens too when its sign flipped (position_closed fired first) *)
+(* src/bot/portfolio/events.py: detect_position_changes, `if (before > 0.0) != (after > 0.0)`:
+   a held ticker the previous snapshot also held opens on the other side, after position_closed *)
 PositionOpenedFires ==
   /\ phase = "window"
   /\ held

@@ -157,53 +157,38 @@ def detect_position_changes(
     curr_by_ticker = {p.ticker: p for p in curr if p.qty != 0.0}
     events: list[Event] = []
 
+    def opened(ticker: str, qty: float) -> Event:
+        return Event(
+            event_type=EventType.POSITION_OPENED,
+            ticker=ticker,
+            curr_snapshot_date=snapshot_date,
+            prev_snapshot_date=prev_date,
+            details={"qty": qty},
+        )
+
+    def closed(ticker: str, prev_qty: float) -> Event:
+        return Event(
+            event_type=EventType.POSITION_CLOSED,
+            ticker=ticker,
+            curr_snapshot_date=snapshot_date,
+            prev_snapshot_date=prev_date,
+            details={"prev_qty": prev_qty},
+        )
+
     for ticker, position in curr_by_ticker.items():
         if ticker not in prev_by_ticker:
-            events.append(
-                Event(
-                    event_type=EventType.POSITION_OPENED,
-                    ticker=ticker,
-                    curr_snapshot_date=snapshot_date,
-                    prev_snapshot_date=prev_date,
-                    details={"qty": position.qty},
-                )
-            )
+            events.append(opened(ticker, position.qty))
 
     for ticker, position in prev_by_ticker.items():
         if ticker not in curr_by_ticker:
-            events.append(
-                Event(
-                    event_type=EventType.POSITION_CLOSED,
-                    ticker=ticker,
-                    curr_snapshot_date=snapshot_date,
-                    prev_snapshot_date=prev_date,
-                    details={"prev_qty": position.qty},
-                )
-            )
+            events.append(closed(ticker, position.qty))
             continue
         before = prev_by_ticker[ticker].qty
         after = curr_by_ticker[ticker].qty
         if before == 0.0:
             continue
         if (before > 0.0) != (after > 0.0):
-            events.append(
-                Event(
-                    event_type=EventType.POSITION_CLOSED,
-                    ticker=ticker,
-                    curr_snapshot_date=snapshot_date,
-                    prev_snapshot_date=prev_date,
-                    details={"prev_qty": before},
-                )
-            )
-            events.append(
-                Event(
-                    event_type=EventType.POSITION_OPENED,
-                    ticker=ticker,
-                    curr_snapshot_date=snapshot_date,
-                    prev_snapshot_date=prev_date,
-                    details={"qty": after},
-                )
-            )
+            events += [closed(ticker, before), opened(ticker, after)]
             continue
         change = (after - before) / abs(before)
         if abs(change) > size_change_threshold:

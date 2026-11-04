@@ -266,6 +266,32 @@ def test_first_snapshot_opens_all_positions(conn: duckdb.DuckDBPyConnection) -> 
     }
 
 
+def test_sign_flip_summed_across_accounts_is_closed_then_opened(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    # Long 100 in one account; next day +30 there and -80 in another: summed -50.
+    _insert_snapshot(conn, PREV, [("TSLA", 100.0, 1000.0, "USD")])
+    _insert_snapshot(conn, CURR, [("TSLA", 30.0, 300.0, "USD")])
+    conn.execute(
+        "INSERT INTO portfolio_snapshots "
+        "(snapshot_date, account, ticker, con_id, qty, market_value, currency) "
+        "VALUES (?, 'DU2', 'TSLA', ?, -80.0, -800.0, 'USD')",
+        [CURR, hash("TSLA") & 0xFFFF],
+    )
+
+    events = [e for e in compute_events(conn, PREV, CURR) if e.ticker == "TSLA"]
+    assert [(e.event_type, e.details) for e in events] == [
+        (EventType.POSITION_CLOSED, {"prev_qty": 100.0}),
+        (EventType.POSITION_OPENED, {"qty": -50.0}),
+    ]
+
+    assert persist_events(conn, events) == 2
+    rows = conn.execute(
+        "SELECT event_type FROM events_log WHERE ticker = 'TSLA' ORDER BY event_type"
+    ).fetchall()
+    assert rows == [("position_closed",), ("position_opened",)]
+
+
 def test_persistent_red_flag_reported_once(conn: duckdb.DuckDBPyConnection) -> None:
     days = [date(2026, 5, 1), date(2026, 5, 2), date(2026, 5, 3)]
     tickers = [f"T{i:02d}" for i in range(10)]
