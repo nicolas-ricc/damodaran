@@ -231,7 +231,7 @@ verdict: "7. margin of safety and verdict" {
   mos: "margin of safety (MoS) = intrinsic value per share ÷ latest close\nwith a governance discount: the value after governance ÷ latest close\nno price, or price ≤ 0: none" {  # @symbol bot.valuator.analysis.analyze
     class: step
   }
-  words: "verdict\nMoS ≥ 1.3: potentially undervalued\nMoS ≥ 1.0: around fair value\nMoS < 1.0: potentially overvalued\nno MoS: n/a" {  # @symbol bot.reporting.analysis_report.margin_verdict @const bot.web.views.MOS_UNDERVALUED @const bot.web.views.MOS_FAIR
+  words: "verdict\nMoS ≥ 1.3: potentially undervalued\nMoS ≥ 1.0: around fair value\nMoS < 1.0: potentially overvalued\nno MoS: n/a" {  # @symbol bot.reporting.analysis_report.margin_verdict @const bot.reporting.analysis_report.MOS_UNDERVALUED @const bot.reporting.analysis_report.MOS_FAIR
     class: decision
   }
 }

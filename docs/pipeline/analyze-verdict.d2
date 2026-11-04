@@ -33,9 +33,9 @@ out: "Comes out:\na verdict and three reports per ticker: markdown, HTML and the
 
 # Edges
 hypergrowth_checked -> discounted: "the value after the governance discount is set [the story's discount, else none]\nvalue after governance = intrinsic value per share × (1 − governance discount)"  # @symbol bot.valuator.analysis.analyze
-discounted -> verdict_given: "the verdict reads the margin of safety (MoS) [MoS 1.3 or more]\npotentially undervalued"  # @const bot.web.views.MOS_UNDERVALUED
-discounted -> verdict_given: "the verdict reads the margin of safety (MoS) [MoS from 1.0 to under 1.3]\naround fair value"  # @const bot.web.views.MOS_UNDERVALUED @const bot.web.views.MOS_FAIR
-discounted -> verdict_given: "the verdict reads the margin of safety (MoS) [MoS below 1.0]\npotentially overvalued"  # @const bot.web.views.MOS_FAIR
+discounted -> verdict_given: "the verdict reads the margin of safety (MoS) [MoS 1.3 or more]\npotentially undervalued"  # @const bot.reporting.analysis_report.MOS_UNDERVALUED
+discounted -> verdict_given: "the verdict reads the margin of safety (MoS) [MoS from 1.0 to under 1.3]\naround fair value"  # @const bot.reporting.analysis_report.MOS_UNDERVALUED @const bot.reporting.analysis_report.MOS_FAIR
+discounted -> verdict_given: "the verdict reads the margin of safety (MoS) [MoS below 1.0]\npotentially overvalued"  # @const bot.reporting.analysis_report.MOS_FAIR
 discounted -> verdict_given: "the verdict reads the margin of safety (MoS) [no close, or a close at most 0]\nn/a"
 verdict_given -> sanity_checked: "implied price-to-earnings and enterprise value to sales are set beside the sector's\nimplied price-to-earnings (P/E) = intrinsic value per share ÷ earnings per share (EPS), with EPS = net income ÷ diluted shares\nmarket P/E = price ÷ EPS, set beside it\nimplied enterprise value (EV) ÷ sales = EV ÷ revenue"
 sanity_checked -> reported: "the markdown, HTML and JSON reports are written\nmarkdown sections: executive summary with the value after governance when a discount is set, story type, assumptions with story inputs sourced story, discounted cash flow (DCF) detail, sensitivity with the scenario range, narrative flags, manual overrides, sanity check"
