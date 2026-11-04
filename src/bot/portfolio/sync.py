@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
+
 class PortfolioSource(Protocol):
     """The read-only slice of :class:`~bot.ingest.ibkr.IbkrClient` we depend on.
 
