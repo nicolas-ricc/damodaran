@@ -50,7 +50,7 @@ report_json: "reports/YYYY-MM-DD/analysis/TICKER.json, read by the site" {class:
 # Section 1: inputs
 inputs: "1. inputs of one company" {
   link: "./analyze-inputs.svg"
-  load: "load the company\ncompanies row (name, country, currency, industry_damodaran, ipo_date)\nthe newest non-restated financials_annual row\noldest-first revenue, net income and\nearnings before interest and taxes (EBIT) histories,\nempty years dropped\nnewest prices_daily close, its currency and date\nsector pe, ev_sales, op_margin, beta_levered\nfrom the newest damodaran_industry row\nof (industry, region)\nvaluation currency = currency of that newest non-restated row\nclose converted into the valuation currency when they differ:\nrate_to_usd of each from currencies,\nnearest on or before the close's date" {  # @symbol bot.valuator.analysis.load_valuation_input @symbol bot.valuator.assumptions.load_assumption_inputs
+  load: "load the company\ncompanies row (name, country, currency, industry_damodaran, ipo_date)\nthe newest non-restated financials_annual row\noldest-first revenue, net income and\nearnings before interest and taxes (EBIT) histories,\nempty years dropped\nnewest prices_daily close, its currency and date\nsector pe, ev_sales, op_margin, beta_levered\nfrom the newest damodaran_industry row\nof (industry, region)\nvaluation currency = currency of that newest non-restated row\nclose converted into the valuation currency when they differ:\nrate_to_usd of both currencies, from currencies,\nnearest on or before the close's date" {  # @symbol bot.valuator.analysis.load_valuation_input @symbol bot.valuator.assumptions.load_assumption_inputs
     class: step
     exact_region: |md The sector multiples here (sanity check, flags) take the company's own dataset region only; the assumptions use the cross-region fallback. | {class: note}
   }
@@ -229,7 +229,7 @@ verdict: "7. margin of safety and verdict" {
   governance: "governance discount\nvalue after governance = intrinsic value per share × (1 − governance discount)\nthe story's discount, else none; tornado, grid and scenarios keep the raw value" {  # @symbol bot.valuator.analysis.analyze
     class: step
   }
-  mos: "margin of safety (MoS) = intrinsic value per share ÷ latest close\nwith a governance discount: the value after governance ÷ latest close\nlatest close = newest close, in the valuation currency:\nclose × rate_to_usd of its currency ÷ rate_to_usd of the valuation currency\nno close, no exchange rate, or price ≤ 0: none" {  # @symbol bot.valuator.analysis.analyze
+  mos: "margin of safety (MoS) = intrinsic value per share ÷ latest close\nwith a governance discount: the value after governance ÷ latest close\nlatest close = newest close, in the valuation currency:\nclose × rate_to_usd of its currency ÷ rate_to_usd of the valuation currency\neither currency unknown, or the same: the close as is\nno close, no exchange rate (a missing or non-positive rate), or price ≤ 0: none" {  # @symbol bot.valuator.analysis.analyze
     class: step
   }
   words: "verdict\nMoS ≥ 1.3: potentially undervalued\nMoS ≥ 1.0: around fair value\nMoS < 1.0: potentially overvalued\nno MoS: n/a" {  # @symbol bot.reporting.analysis_report.margin_verdict @const bot.reporting.analysis_report.MOS_UNDERVALUED @const bot.reporting.analysis_report.MOS_FAIR

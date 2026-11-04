@@ -665,7 +665,7 @@ TheGovernanceDiscountIsApplied ==
   /\ phase' = "discounted"
   /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
-(* src/bot/valuator/analysis.py: analyze, margin_of_safety from intrinsic_after_governance, no price when the close is missing, not above 0, or has no exchange rate; src/bot/reporting/analysis_report.py: margin_verdict *)
+(* src/bot/valuator/analysis.py: analyze, margin_of_safety from intrinsic_after_governance; src/bot/reporting/analysis_report.py: margin_verdict *)
 TheMarginIsAtLeastOnePointThree ==
   /\ phase = "discounted"
   /\ phase' = "verdict_given"
@@ -689,7 +689,7 @@ TheMarginIsBelowOne ==
   /\ verdict' = MarginVerdict("below 1.0")
   /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, reports, storyFile, signal, storyType >>
 
-(* src/bot/valuator/analysis.py: analyze, margin_of_safety from intrinsic_after_governance; src/bot/reporting/analysis_report.py: margin_verdict *)
+(* src/bot/valuator/analysis.py: analyze, margin_of_safety from intrinsic_after_governance, no price when the close is missing, not above 0, or has no exchange rate; src/bot/reporting/analysis_report.py: margin_verdict *)
 TheTickerHasNoPrice ==
   /\ phase = "discounted"
   /\ phase' = "verdict_given"

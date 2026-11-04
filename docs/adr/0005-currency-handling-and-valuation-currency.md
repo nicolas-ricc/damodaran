@@ -13,9 +13,9 @@ does not cover. The price conversion (the price half of §3 and the first
 or before that date) and `analyze` (margin of safety on the converted price). §1
 (retiring `companies.currency`) is still not implemented: `companies.currency`
 remains one ambiguous column. Under the current US-only scope (S&P 500 universe,
-listing currency = reporting currency = USD) their consequences do not manifest —
+listing currency = reporting currency = USD) its consequences do not manifest —
 there is no mismatch to resolve when every company trades and reports in the same
-currency. They become blocking again once M2 (the global universe) reopens.
+currency. It becomes blocking again once M2 (the global universe) reopens.
 
 ## Context
 
