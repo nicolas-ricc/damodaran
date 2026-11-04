@@ -21,6 +21,7 @@ from collections.abc import Callable
 
 import pytest
 
+import bot.valuator.narrative_flags as narrative_flags_module
 from bot.valuator.dcf import Assumptions, DCFResult, Financials, dcf
 from bot.valuator.narrative_flags import (
     FlagColor,
@@ -706,6 +707,8 @@ def test_sweep_results_reach_the_bands() -> None:
 
 
 def test_every_flag_is_classified_by_red_capability() -> None:
+    # The flags analyze returns (bot.valuator.analysis.analyze): keep in sync with its
+    # narrative_flags(...) + hypergrowth_flags(...) concatenation.
     fin, asm = _financials(), _assumptions()
     result = _result(fin, asm)
     ctx = _ctx(story_type="hypergrowth", hypergrowth_signals=True)
@@ -715,6 +718,11 @@ def test_every_flag_is_classified_by_red_capability() -> None:
     }
     never_red = {f.__name__.removesuffix("_flag") for f in _NEVER_RED}
     assert emitted == never_red | _RED_CAPABLE
+
+
+def test_red_is_named_once_per_red_capable_flag() -> None:
+    # A helper or a new red site anywhere in the module trips this, not only in the flag bodies.
+    assert inspect.getsource(narrative_flags_module).count("FlagColor.RED") == len(_RED_CAPABLE)
 
 
 @pytest.mark.parametrize("flag", _NEVER_RED, ids=lambda f: f.__name__)

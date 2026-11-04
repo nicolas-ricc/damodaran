@@ -549,7 +549,7 @@ _PORTFOLIO_TEXT: dict[str, list[str]] = {
         "market value \u00f7 total market value > 15%",
         "fires on every run while above",
         "counts as none red",
-        "only growth_reinvestment can fire it",
+        "only growth_reinvestment can fire new_red_flag",
         "hypergrowth_story",
     ],
     "portfolio-events": [
