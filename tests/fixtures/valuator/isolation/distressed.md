@@ -87,5 +87,6 @@ historical averages.
 
 | Multiple | Implied | Sector (Damodaran) |
 |---|---|---|
-| P/E | — | 10.00 |
+| P/E implied (DCF) | — | 10.00 |
+| P/E market | — | 10.00 |
 | EV/Sales | 1.46 | 1.20 |

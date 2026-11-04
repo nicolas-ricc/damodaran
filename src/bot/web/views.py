@@ -347,8 +347,14 @@ def _defaulted(assumptions: Mapping[str, Any]) -> int:
 def _sanity(check: Mapping[str, Any] | None) -> tuple[LabelledValue, ...]:
     if not check:
         return ()
+    sector_pe = fmt_num(check["sector_pe"])
+    if "market_pe" in check:
+        implied_pe, market_pe = check["implied_pe"], check["market_pe"]
+    else:  # sidecar from before #219: its implied_pe was the market P/E
+        implied_pe, market_pe = None, check["implied_pe"]
     return (
-        LabelledValue("P/E", f"{fmt_num(check['implied_pe'])} / {fmt_num(check['sector_pe'])}", ""),
+        LabelledValue("P/E implied (DCF)", f"{fmt_num(implied_pe)} / {sector_pe}", ""),
+        LabelledValue("P/E market", f"{fmt_num(market_pe)} / {sector_pe}", ""),
         LabelledValue(
             "EV/Sales",
             f"{fmt_num(check['implied_ev_sales'])} / {fmt_num(check['sector_ev_sales'])}",
