@@ -26,7 +26,7 @@
    
    Precedent: #218 corrected a brief sentence for the same reason. The exact copy, identical on all three boards:
 
-   `Execution order, not dependency: the margin of safety and the verdict read the value after the governance discount and the latest close; the sanity check reads the latest close, net income, diluted shares and revenue, the discounted cash flow's enterprise value and the sector multiples. The flags change none of them, and the sanity check does not read the verdict.`
+   `Execution order, not dependency: the margin of safety and the verdict read the value after the governance discount and the latest close; the sanity check reads the latest close, net income, diluted shares and revenue, the discounted cash flow's intrinsic value per share and enterprise value, and the sector multiples. The flags change none of them, and the sanity check does not read the verdict.`
 2. **Note key `execution_order`** on all three boards, top-level. On `analyze.d2` it sits between sections 8 and 9. "Near sections 6–8" is met by declaration order; TALA chooses the final placement.
 3. **A guard test backs the note.** The test monkeypatches `bot.valuator.analysis.narrative_flags` and `bot.valuator.analysis.hypergrowth_flags` so that every flag comes out red. It then asserts that `margin_of_safety`, `margin_verdict(margin_of_safety)` and `sanity_check` equal the unpatched run. The test lives under `tests/`, so AC2 holds.
 
@@ -104,6 +104,10 @@ Technical choices made in the plan review, each with the alternative it rejected
 - **A3. The guard is a characterization test.** It passes on its first run, and its red state is shown by a temporary, reverted edit. Rejected alternative: a committed failing test, which is impossible for a property the code already has.
 - **A4. Placement on `analyze.d2` is by declaration order.** No test asserts position, and TALA lays out the board. Rejected alternative: nesting the note in section 7 or 8, which would make it read as belonging to one section only.
 - **A5. Only the three changed SVGs come from the CI artifact (Task 3).** Rejected alternative: copying every SVG, which would widen the diff beyond #221.
+
+## Rebase onto #219
+
+#219 (0c3aa2a) added `intrinsic_value=dcf_result.intrinsic_value` to `_sanity_check` (implied P/E = intrinsic value per share ÷ EPS). The note copy now names "the discounted cash flow's intrinsic value per share and enterprise value". The SVGs were re-rendered after the rebase.
 
 ## Grilling
 
