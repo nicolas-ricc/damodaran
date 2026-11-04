@@ -73,7 +73,7 @@ const steps = {
   ThisIsTheFirstRun: "there is no earlier snapshot [first run]",
   ThePreviousSnapshotHeldIt: "the previous snapshot is read [it held it]",
   ThePreviousSnapshotLacksIt: "the previous snapshot is read [it did not hold it]",
-  PositionOpenedFires: "position opened fires [held now, not in the previous snapshot]",
+  PositionOpenedFires: "position opened fires [held now, not in the previous snapshot or on the other side]",
   PositionClosedFires: "position closed fires [held before, not now]",
   PositionSizeChangedFires: "position size changed fires [the quantity moved more than 10%]",
   PositionSizeHolds: "no position event [the quantity moved 10% or less]",
