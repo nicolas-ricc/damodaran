@@ -47,7 +47,7 @@ window -> positions_diffed: "position closed fires [held before, not now]\nquant
 window -> positions_diffed: "position size changed fires [the quantity moved more than 10%]\n|Δquantity ÷ |previous quantity|| > 10%"  # @const bot.portfolio.events.DEFAULT_SIZE_CHANGE_THRESHOLD
 window -> positions_diffed: "no position event [the quantity moved 10% or less]\nexactly 10%: no event"  # @const bot.portfolio.events.DEFAULT_SIZE_CHANGE_THRESHOLD
 positions_diffed -> currency_checked: "currency changed fires [both known and different]\nthe currency of the position in portfolio_snapshots, as Interactive Brokers (IBKR) reports it: its listing currency at the broker, differs from the previous snapshot's, compared per (account, ticker), one event per account\nnot on the first run"
-positions_diffed -> currency_checked: "no currency event [same, unknown, or nothing to compare]\neither currency unknown, or no previous snapshot: nothing"
+positions_diffed -> currency_checked: "no currency event [same, unknown, or nothing to compare]\neither currency unknown, or no previous snapshot: nothing\none account, several rows disagreeing or one empty: unknown"
 currency_checked -> dividend_checked: "dividend fires [a dividend in the window]\na corporate_actions row of type dividend for a holding, effective after the previous snapshot, on or before this one\nfirst run: every action on or before this one"
 currency_checked -> dividend_checked: "no dividend [none in the window, or no longer held]\nonly a holding is checked"
 dividend_checked -> split_checked: "split fires [a split in the window]\nthe same rule for type split (first run included)"

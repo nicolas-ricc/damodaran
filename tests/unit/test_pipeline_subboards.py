@@ -572,6 +572,7 @@ _PORTFOLIO_TEXT: dict[str, list[str]] = {
         "first run: every position",
         "(ticker, filing type, filing date)",
         "compared per (account, ticker), one event per account",
+        "one account, several rows disagreeing or one empty: unknown",
     ],
     "portfolio-alerts": [
         "P&L = market value \u2212 quantity \u00d7 average cost",
