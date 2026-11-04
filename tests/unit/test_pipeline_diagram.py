@@ -36,7 +36,7 @@ from bot.screener.rules import registered_rules
 from bot.screener.types import CompanyData, IndustryBenchmarks
 from bot.valuator import narrative_flags as flags_mod
 from bot.valuator import story_types as story_mod
-from bot.valuator.assumptions import AssumptionSource
+from bot.valuator.assumptions import _OVERRIDE_PATH_KEYS, AssumptionSource
 from bot.valuator.dcf import Assumptions, DCFResult, Financials, YearProjection, dcf
 from bot.valuator.narrative_flags import NarrativeContext
 from bot.valuator.story_types import ClassificationFinancials, SectorContext, StoryType, classify
@@ -1757,8 +1757,6 @@ def test_analyze_text(key: str) -> None:
 
 def test_analyze_override_names_every_list_key() -> None:
     """The override decision names exactly the keys that take a per-year list (#212)."""
-    from bot.valuator.assumptions import _OVERRIDE_PATH_KEYS
-
     lines = _analyze_block("override").split("\\n")
     found = [x for x in lines if "non-empty list" in x]
     assert len(found) == 1, "the override decision has no single non-empty list line"
