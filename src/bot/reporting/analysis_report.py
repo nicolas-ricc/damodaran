@@ -182,13 +182,18 @@ def _grid_table(analysis: Analysis) -> list[str]:
     return lines
 
 
+#: Margin-of-safety thresholds of :func:`margin_verdict`; the site reads them too.
+MOS_UNDERVALUED = 1.3
+MOS_FAIR = 1.0
+
+
 def margin_verdict(margin_of_safety: float | None) -> str:
     """One-word read of the headline margin of safety (CONTEXT.md: MoS > 1)."""
     if margin_of_safety is None:
         return "n/a"
-    if margin_of_safety >= 1.3:
+    if margin_of_safety >= MOS_UNDERVALUED:
         return "potentially undervalued"
-    if margin_of_safety >= 1.0:
+    if margin_of_safety >= MOS_FAIR:
         return "around fair value"
     return "potentially overvalued"
 
