@@ -19,8 +19,8 @@ from bot.storage.db import apply_schema, connect
 from bot.valuator.analysis import (
     Analysis,
     SanityCheck,
-    _SectorMultiples,
     _sanity_check,
+    _SectorMultiples,
     analyze,
     bulk_load_valuation_inputs,
     load_valuation_input,

@@ -1,4 +1,9 @@
-"""JSON sidecar for an :class:`Analysis`, read by the static web viewer (#92)."""
+"""JSON sidecar for an :class:`Analysis`, read by the static web viewer (#92).
+
+Since #219, ``sanity_check.implied_pe`` is the DCF's multiple (intrinsic value
+per share / EPS) and the market P/E is ``sanity_check.market_pe``. Sidecars
+written before carry the market P/E under ``implied_pe`` and no ``market_pe``.
+"""
 
 from __future__ import annotations
 

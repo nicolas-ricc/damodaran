@@ -88,5 +88,5 @@ Overridden assumptions are marked `manual` in the assumptions table above.
 
 | Multiple | Implied | Sector (Damodaran) |
 |---|---|---|
-| P/E | 23.25 | 22.00 |
+| P/E | 21.19 | 22.00 |
 | EV/Sales | 5.04 | 5.00 |

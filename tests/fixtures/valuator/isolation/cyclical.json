@@ -357,7 +357,8 @@
       }
     ],
     "sanity_check": {
-      "implied_pe": 0.6,
+      "implied_pe": 9.519070241267782,
+      "market_pe": 0.6,
       "sector_pe": 10.0,
       "implied_ev_sales": 1.314883780158473,
       "sector_ev_sales": 1.2
