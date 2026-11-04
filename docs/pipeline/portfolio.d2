@@ -98,7 +98,7 @@ events: "4b. diff two snapshots into events" {  # @symbol bot.portfolio.events.c
   position_size_changed: "position_size_changed: held in both and\n|Δquantity ÷ |previous quantity|| > 10%\nexactly 10%: no event" {  # @const bot.portfolio.events.DEFAULT_SIZE_CHANGE_THRESHOLD
     class: decision
   }
-  currency_changed: "currency_changed\nthe ticker's portfolio_snapshots currency\n(the position's currency IBKR reports: its listing currency at the broker)\ndiffers from the previous snapshot's, both known;\nheld in several accounts: any one account's currency\nnot on the first run" {  # @symbol bot.portfolio.events.detect_currency_changes
+  currency_changed: "currency_changed\nthe ticker's portfolio_snapshots currency\n(the position's currency IBKR reports: its listing currency at the broker)\ndiffers from the previous snapshot's, both known;\ncompared per (account, ticker): one event per account whose currency changed;\nan account holding it on one side only: nothing\nnot on the first run" {  # @symbol bot.portfolio.events.detect_currency_changes
     class: decision
   }
   dividend: "dividend\na corporate_actions row of type dividend for a holding,\neffective after the previous snapshot, on or before this one\nfirst run: every action on or before this one" {  # @symbol bot.portfolio.events.detect_corporate_action_events
