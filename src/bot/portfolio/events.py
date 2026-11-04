@@ -102,6 +102,19 @@ class Position:
 
 
 @dataclass(frozen=True)
+class AccountCurrency:
+    """One ``portfolio_snapshots`` row's currency, kept per account.
+
+    :class:`Position` aggregates a ticker across accounts and so cannot say which
+    account's currency changed; this is the un-aggregated view.
+    """
+
+    account: str
+    ticker: str
+    currency: str | None
+
+
+@dataclass(frozen=True)
 class Filing:
     """A filing-log entry for a held ticker (subset of ``filings_log``).
 
@@ -185,30 +198,51 @@ def detect_position_changes(
     return events
 
 
+def _known_currencies(rows: Sequence[AccountCurrency]) -> dict[tuple[str, str], str]:
+    """Currency of each ``(account, TICKER)`` whose rows agree on exactly one."""
+    seen: dict[tuple[str, str], set[str | None]] = {}
+    for row in rows:
+        seen.setdefault((row.account, row.ticker.upper()), set()).add(row.currency)
+    known: dict[tuple[str, str], str] = {}
+    for key, currencies in seen.items():
+        if len(currencies) == 1:
+            (only,) = currencies
+            if only is not None:
+                known[key] = only
+    return known
+
+
 def detect_currency_changes(
-    prev: list[Position],
-    curr: list[Position],
+    prev: Sequence[AccountCurrency],
+    curr: Sequence[AccountCurrency],
     *,
     snapshot_date: date,
     prev_date: date | None,
 ) -> list[Event]:
-    """A held position's listing currency changed between snapshots (spec §8.3)."""
-    prev_ccy = {p.ticker: p.currency for p in prev}
+    """An account's listing currency for a ticker changed between snapshots (spec §8.3).
+
+    Compared per ``(account, ticker)``: one event per account whose currency
+    changed, so a ticker held in a USD and a EUR account never fires on its own.
+    An account holding the ticker on one side only fires nothing. One account may
+    hold a ticker under several ``con_id`` rows; its currency is known only when
+    those rows carry exactly one distinct, non-NULL currency, otherwise it is
+    unknown and fires nothing. Events are sorted by ``(ticker, account)``.
+    """
+    before = _known_currencies(prev)
+    after = _known_currencies(curr)
     events: list[Event] = []
-    for position in curr:
-        before = prev_ccy.get(position.ticker)
-        if (
-            before is not None
-            and position.currency is not None
-            and before != position.currency
-        ):
+    for (account, ticker), to_ccy in sorted(
+        after.items(), key=lambda kv: (kv[0][1], kv[0][0])
+    ):
+        from_ccy = before.get((account, ticker))
+        if from_ccy is not None and from_ccy != to_ccy:
             events.append(
                 Event(
                     event_type=EventType.CURRENCY_CHANGED,
-                    ticker=position.ticker,
+                    ticker=ticker,
                     curr_snapshot_date=snapshot_date,
                     prev_snapshot_date=prev_date,
-                    details={"from": before, "to": position.currency},
+                    details={"account": account, "from": from_ccy, "to": to_ccy},
                 )
             )
     return events
@@ -495,6 +529,25 @@ def _load_positions(
     ]
 
 
+def _load_account_currencies(
+    conn: duckdb.DuckDBPyConnection, snapshot_date: date
+) -> list[AccountCurrency]:
+    """Read a snapshot's raw ``(account, ticker, currency)`` rows, unaggregated."""
+    rows = conn.execute(
+        "SELECT account, ticker, currency FROM portfolio_snapshots "
+        "WHERE snapshot_date = ?",
+        [snapshot_date],
+    ).fetchall()
+    return [
+        AccountCurrency(
+            account=str(r[0]),
+            ticker=str(r[1]),
+            currency=str(r[2]) if r[2] is not None else None,
+        )
+        for r in rows
+    ]
+
+
 def _load_filings(
     conn: duckdb.DuckDBPyConnection,
     held_tickers: set[str],
@@ -616,8 +669,8 @@ def compute_events(
     if prev_snapshot_date is not None:
         events.extend(
             detect_currency_changes(
-                prev_positions,
-                curr_positions,
+                _load_account_currencies(conn, prev_snapshot_date),
+                _load_account_currencies(conn, curr_snapshot_date),
                 snapshot_date=curr_snapshot_date,
                 prev_date=prev_snapshot_date,
             )
