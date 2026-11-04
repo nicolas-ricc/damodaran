@@ -82,3 +82,15 @@
 - [ ] **Step 4: Run** the same three test files plus `python3 docs/pipeline/check.py` — Expected: PASS except the render-hash check, which only passes once the SVGs and `rendered.sha256` are regenerated (Step 5).
 - [ ] **Step 5: Render.** If `d2` v0.9.0 with TALA is on `PATH`, run `docs/pipeline/build.sh`; otherwise push the branch, download `pipeline-render` from the `pipeline-diagram` run (`gh run download <id> -n pipeline-render`), copy `portfolio.svg`, `portfolio-events.svg` and `rendered.sha256` (and any other SVG that changed) into `docs/pipeline/`. Then `python3 docs/pipeline/check.py` PASS. TLC: the `models` job of the same run must be green (`portfolio | ... 0 errors`).
 - [ ] **Step 6: Commit** `docs(#226): atlas says a sign flip closes then opens` (render in its own commit `docs(#226): render` if it came from CI).
+
+## Assumptions
+
+- **A1 — model abstraction, no flip variable** (Decision 3). The model already picks `PositionSizeChangedFires` / `PositionSizeHolds` nondeterministically on the quantity, with nothing in its state for "more than 10%"; the sign is treated the same way. No invariant constrains a held-before ticker's position event; `FirstRunOpensEveryPosition` (`portfolio.tla:650-653`) constrains only `prev = "none"`. Rejected: a new `PositionFlips` step, which needs a 25th edge on `portfolio-events.d2` and, per `docs/pipeline/README.md` ("Over that, split the group in the model"), a group split unrelated to this bug.
+- **A2 — closed-before-opened order is pinned by unit tests only.** The model's single `event` variable holds one event per step (`portfolio.tla:354-386`), so it cannot express a pair; the order is pinned by `test_long_to_short_flip_is_closed_then_opened` and `test_flip_beside_other_tickers`. Rejected: an `events` sequence variable in the model (changes every action of the stage).
+- **A3 — atlas and code land in one PR.** Nothing checks automatically that a board's prose matches the code (`check.py` checks cited symbols and the render hash), so Tasks 1 and 2 ship together; a half-landed state never reaches master.
+
+## Grilling
+
+- Rounds: 1 (plan not substantially changed: Assumptions added, no step added or removed). Questions: 15.
+- Sources: ISSUE 3 (Q6, Q14, plus Q1/Q7 partly), CODE 9 (Q3, Q4, Q5, Q8, Q10, Q11, Q13, Q1, Q7), DOC 3 (Q9, Q12, Q15), NO SOURCE → technical assumption 3 (A1, A2, A3). Spec ambiguities: 0. Out of scope: 0 new (per-account netting is already excluded by the brief: "Out of scope: per-account netting (positions stay summed across accounts)").
+- Issues opened: none.
