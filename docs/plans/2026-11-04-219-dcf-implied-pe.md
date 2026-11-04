@@ -49,10 +49,10 @@
 ## Review Focus
 
 1. **Positive EPS, negative intrinsic value** (a distressed blend can go ≤ 0): `implied_pe` must be `None`, never a negative multiple; `market_pe` still computed. Test in Task 1.
-2. **Price present but no net income / net income ≤ 0** (loss-maker, e.g. the `distressed` golden): both `None`, report shows `n/a` on both P/E rows. Test in Task 1 (unit) and the distressed golden.
+2. **Price present but no net income / net income ≤ 0** (loss-maker, e.g. the `distressed` golden): both `None`, report shows `—` (`fmt_num(None)`) on both P/E rows. Test in Task 1 (unit) and the distressed golden.
 3. **Shares 0 or `None`**: both `None`, no `ZeroDivisionError`. Test in Task 1.
-4. **Sidecars written before this change** (no `market_pe` key) read by the site: the site reads `reports/*/analysis/*.json` from earlier runs; `_sanity` must not raise `KeyError`. Use `check.get("market_pe")`. Test in Task 2.
-5. **Old sidecars' `implied_pe` meant the market P/E.** The site cannot tell; the docstring in `analysis_json.py` records the change date/issue so a reader of an old file knows. Covered by Task 1's docstring step; no test.
+4. **Sidecars written before this change** (no `market_pe` key) read by the site: the site reads `reports/*/analysis/*.json` from earlier runs; `_sanity` must not raise `KeyError`. Test in Task 2.
+5. **Old sidecars' `implied_pe` meant the market P/E.** A sidecar without the `market_pe` key is pre-#219, so its `implied_pe` is the market P/E: `_sanity` shows it on the `P/E market` row and `—` on `P/E implied (DCF)` (Assumption A1). Test in Task 2.
 
 ---
 
@@ -78,7 +78,7 @@
 
 - [ ] **Step 2: Run** `uv run pytest -q tests/unit/test_valuator_analysis.py tests/unit/test_reporting_analysis_json.py` — Expected: FAIL (`TypeError` on `intrinsic_value`, missing `market_pe`).
 
-- [ ] **Step 3: Implement** the `SanityCheck` field and docstring (implied P/E = intrinsic value per share ÷ trailing EPS, the DCF's multiple; market P/E = price ÷ EPS) and `_sanity_check` per Global Constraints; pass `intrinsic_value=dcf_result.intrinsic_value` from `analyze`. Add to the `analysis_json.py` module docstring: since #219, `sanity_check.implied_pe` is the DCF's (intrinsic value per share ÷ EPS) and the market P/E is `sanity_check.market_pe`; sidecars written before carry the market P/E under `implied_pe` and no `market_pe`.
+- [ ] **Step 3: Implement** the `SanityCheck` field and docstring (implied P/E = intrinsic value per share ÷ EPS of the latest fiscal year, the DCF's multiple; market P/E = price ÷ that EPS; `_load_latest_financials` reads the latest annual row, not TTM) and `_sanity_check` per Global Constraints; pass `intrinsic_value=dcf_result.intrinsic_value` from `analyze`. Add to the `analysis_json.py` module docstring: since #219, `sanity_check.implied_pe` is the DCF's (intrinsic value per share ÷ EPS) and the market P/E is `sanity_check.market_pe`; sidecars written before carry the market P/E under `implied_pe` and no `market_pe`.
 
 - [ ] **Step 4: Patch the goldens** with Decision 5's command. Check `git diff --stat tests/fixtures` touches only the twelve isolation files, and `git diff tests/fixtures` shows only P/E row values (`.md`) and the `sanity_check` object (`.json`: `implied_pe` changed, `market_pe` added).
 
@@ -100,11 +100,11 @@
 - [ ] **Step 1: Write the failing tests:**
   - `tests/unit/test_reporting_analysis.py::test_render_sanity_check_shows_both_pe_rows(analysis)`: `analysis = dataclasses.replace(analysis, sanity_check=dataclasses.replace(analysis.sanity_check, implied_pe=15.0, market_pe=10.0, sector_pe=22.0))`; `md` contains `"| P/E implied (DCF) | 15.00 | 22.00 |"`, `"| P/E market | 10.00 | 22.00 |"` and a line starting `"| EV/Sales |"`. (`num` is `fmt_num`, two decimals, as the goldens' `| P/E | 23.25 | 22.00 |` shows.)
   - `tests/unit/test_web_views.py::test_detail_from_a_real_analysis`: `[s.label for s in detail.sanity] == ["P/E implied (DCF)", "P/E market", "EV/Sales"]`.
-  - `tests/unit/test_web_views.py::test_sanity_of_a_sidecar_without_market_pe`: `real_sidecar()` with `del payload["analysis"]["sanity_check"]["market_pe"]`; the detail view builds, and the `P/E market` value is `fmt_num(None)` ` / ` sector.
+  - `tests/unit/test_web_views.py::test_sanity_of_a_pre_219_sidecar`: `real_sidecar()` with `del payload["analysis"]["sanity_check"]["market_pe"]` and `implied_pe = 23.25`; the detail view builds; `P/E implied (DCF)` value is `"— / 22.00"`, `P/E market` value is `"23.25 / 22.00"`.
 
 - [ ] **Step 2: Run** `uv run pytest -q tests/unit/test_reporting_analysis.py tests/unit/test_web_views.py` — Expected: FAIL.
 
-- [ ] **Step 3: Implement.** Template: replace the `P/E` row with the two rows of Decision 4 (`implied_pe` then `market_pe`, each vs `sector_pe`). `_sanity`: three `LabelledValue`s, labels per Decision 4, `market_pe` read with `check.get("market_pe")`.
+- [ ] **Step 3: Implement.** Template: replace the `P/E` row with the two rows of Decision 4 (`implied_pe` then `market_pe`, each vs `sector_pe`). `_sanity`: three `LabelledValue`s, labels per Decision 4. When `"market_pe" not in check` (pre-#219 sidecar), the implied figure is `None` and the market figure is `check["implied_pe"]` (Assumption A1); otherwise both read their own keys.
 
 - [ ] **Step 4: Regenerate the `.md` goldens** with Decision 5's command (re-running it is harmless for the JSON). `git diff tests/fixtures` shows only the P/E rows (one row relabelled, one added) in each `.md`.
 
@@ -133,3 +133,17 @@
 - [ ] **Step 5: Commit** `docs(#219): analyze boards say the implied P/E comes from the DCF`.
 
 - [ ] **Step 6 (orchestrator, after push):** download the `pipeline-render` artifact of the push's `pipeline-diagram` run (`gh run download <id> -n pipeline-render`), copy the SVGs and `rendered.sha256` into `docs/pipeline/`, run `python3 docs/pipeline/check.py` (PASS), commit `docs(#219): render` naming the run id.
+
+## Assumptions
+
+- **A1. Pre-#219 sidecars on the site.** A sidecar without `sanity_check.market_pe` predates this issue, so its `implied_pe` is the market P/E (`_sanity_check` before #219, `analysis.py:622-632`). The site shows it on the `P/E market` row and `—` on `P/E implied (DCF)`. Rejected: showing the old value under the DCF label (mislabels every published report, against the brief's "labelled as such"), and bumping `SCHEMA_VERSION` (the brief says it stays 1).
+- **A2. EPS wording.** The docstrings say "EPS of the latest fiscal year", not "trailing": `_load_latest_financials` (`analysis.py:214-223`) reads the latest non-restated annual row. Rejected: keeping "trailing", which reads as TTM.
+- **A3. Commit split.** Task 1 changes the meaning and patches the goldens' values; Task 2 changes the labels. Each commit leaves the suite green. Rejected: one commit (a reviewer could accept the model and reject the copy).
+- **A4. Finite multiples.** `json.dumps(..., allow_nan=False)` already serialises `intrinsic_value` and `current_price`; dividing them by a positive finite EPS stays finite for any input the DCF guard admits. No extra guard.
+
+## Grilling
+
+- Rounds: 1 (the revision added no task and no seam: one rule in `_sanity`, one test, wording).
+- Questions: 16. Sources: CODE 12, ISSUE 3 (Q2 schema version, Q3 raw intrinsic value, Q12 golden header), NO SOURCE 4 → technical assumptions A1–A4 (Q2 old sidecars, Q7, Q9, Q13). Q2 was answered by the issue for the schema version and by A1 for the display.
+- Corrections: `fmt_num(None)` is `—`, not `n/a` (`analysis_report.py:110-113`).
+- Issues opened: none.
