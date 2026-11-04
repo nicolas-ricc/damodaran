@@ -1641,6 +1641,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
     "execution_order": [
         "Execution order, not dependency",
         "the value after the governance discount",
+        "net income, diluted shares and revenue",
         "The flags change none of them",
         "does not read the verdict",
     ],

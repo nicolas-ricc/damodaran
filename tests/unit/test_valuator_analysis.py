@@ -408,6 +408,7 @@ def test_flags_change_neither_the_verdict_nor_the_sanity_check(
 ) -> None:
     """The analyze boards chain flags, verdict and sanity check in execution order only (#221)."""
     baseline = analyze("AAPL", seeded_conn)
+    assert baseline.margin_of_safety is not None
 
     def red(*args: object, **kwargs: object) -> tuple[NarrativeFlag, ...]:
         return (NarrativeFlag("forced", FlagColor.RED, "forced red"),)

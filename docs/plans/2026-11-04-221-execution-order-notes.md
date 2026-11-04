@@ -26,7 +26,7 @@
    
    Precedent: #218 corrected a brief sentence for the same reason. The exact copy, identical on all three boards:
 
-   `Execution order, not dependency: the margin of safety and the verdict read the value after the governance discount and the latest close; the sanity check reads the latest close and figures, the discounted cash flow's enterprise value and the sector multiples. The flags change none of them, and the sanity check does not read the verdict.`
+   `Execution order, not dependency: the margin of safety and the verdict read the value after the governance discount and the latest close; the sanity check reads the latest close, net income, diluted shares and revenue, the discounted cash flow's enterprise value and the sector multiples. The flags change none of them, and the sanity check does not read the verdict.`
 2. **Note key `execution_order`** on all three boards, top-level. On `analyze.d2` it sits between sections 8 and 9. "Near sections 6–8" is met by declaration order; TALA chooses the final placement.
 3. **A guard test backs the note.** The test monkeypatches `bot.valuator.analysis.narrative_flags` and `bot.valuator.analysis.hypergrowth_flags` so that every flag comes out red. It then asserts that `margin_of_safety`, `margin_verdict(margin_of_safety)` and `sanity_check` equal the unpatched run. The test lives under `tests/`, so AC2 holds.
 
