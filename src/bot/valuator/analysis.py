@@ -71,8 +71,12 @@ class SanityCheck:
     """Implied valuation multiples vs the company's sector (spec §7.7).
 
     Attributes:
-        implied_pe: Current price divided by trailing EPS (net income / shares),
-            or ``None`` when EPS is non-positive or unavailable.
+        implied_pe: The DCF's multiple: intrinsic value per share divided by
+            EPS (net income / shares) of the latest fiscal year, or ``None``
+            when EPS is non-positive or unavailable, or the intrinsic value is
+            non-positive.
+        market_pe: Current price divided by that same EPS, or ``None`` when
+            the price is unavailable or EPS is non-positive or unavailable.
         sector_pe: Damodaran sector-median price/earnings multiple.
         implied_ev_sales: Enterprise value / trailing revenue from the DCF, or
             ``None`` when revenue is unavailable.
@@ -80,6 +84,7 @@ class SanityCheck:
     """
 
     implied_pe: float | None
+    market_pe: float | None
     sector_pe: float | None
     implied_ev_sales: float | None
     sector_ev_sales: float | None
@@ -615,26 +620,26 @@ def _sanity_check(
     current_price: float | None,
     net_income: float | None,
     shares: float | None,
+    intrinsic_value: float,
     enterprise_value: float,
     revenue: float | None,
     sector: _SectorMultiples,
 ) -> SanityCheck:
     implied_pe: float | None = None
-    if (
-        current_price is not None
-        and net_income is not None
-        and net_income > 0.0
-        and shares is not None
-        and shares > 0.0
-    ):
+    market_pe: float | None = None
+    if net_income is not None and net_income > 0.0 and shares is not None and shares > 0.0:
         eps = net_income / shares
         if eps > 0.0:
-            implied_pe = current_price / eps
+            if intrinsic_value > 0.0:
+                implied_pe = intrinsic_value / eps
+            if current_price is not None:
+                market_pe = current_price / eps
     implied_ev_sales: float | None = None
     if revenue is not None and revenue > 0.0:
         implied_ev_sales = enterprise_value / revenue
     return SanityCheck(
         implied_pe=implied_pe,
+        market_pe=market_pe,
         sector_pe=sector.pe,
         implied_ev_sales=implied_ev_sales,
         sector_ev_sales=sector.ev_sales,
@@ -858,6 +863,7 @@ def analyze(
         current_price=current_price,
         net_income=latest.net_income,
         shares=latest.shares_diluted,
+        intrinsic_value=dcf_result.intrinsic_value,
         enterprise_value=dcf_result.enterprise_value,
         revenue=latest.revenue,
         sector=sector,

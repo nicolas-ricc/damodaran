@@ -174,7 +174,7 @@ def test_detail_from_a_real_analysis() -> None:
     ]
     assert all(a.source for a in detail.assumptions)
     assert [f.color for f in detail.flags] == ["green", "green", "unknown", "yellow", "unknown"]
-    assert [s.label for s in detail.sanity] == ["P/E", "EV/Sales"]
+    assert [s.label for s in detail.sanity] == ["P/E implied (DCF)", "P/E market", "EV/Sales"]
     assert len(detail.dcf_rows) == len(payload["analysis"]["dcf_result"]["projections"])
     assert [t.label for t in detail.dcf_totals] == [
         "Present value of FCFF, years 1-5",
@@ -190,6 +190,20 @@ def test_detail_from_a_real_analysis() -> None:
     assert "reads as undervalued" in detail.mos_note
     assert detail.tornado
     assert detail.grid is not None
+
+
+def test_sanity_of_a_pre_219_sidecar() -> None:
+    # Before #219 there was no market_pe and implied_pe held the market P/E.
+    payload = real_sidecar()
+    check = payload["analysis"]["sanity_check"]
+    del check["market_pe"]
+    check["implied_pe"] = 23.25
+    check["sector_pe"] = 22.0
+    latest = _ref(payload)
+    detail = detail_view(_entry(latest), latest)
+    values = {s.label: s.value for s in detail.sanity}
+    assert values["P/E implied (DCF)"] == "— / 22.00"
+    assert values["P/E market"] == "23.25 / 22.00"
 
 
 def _rows() -> list[Any]:

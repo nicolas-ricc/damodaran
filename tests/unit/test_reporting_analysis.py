@@ -266,3 +266,13 @@ def test_grid_heading_reflects_the_no_price_mode(analysis: Analysis) -> None:
     )
     assert "intrinsic value (no price available)" in no_price
     assert "margin of safety (intrinsic ÷ price)" not in no_price
+
+
+def test_render_sanity_check_shows_both_pe_rows(analysis: Analysis) -> None:
+    check = dataclasses.replace(
+        analysis.sanity_check, implied_pe=15.0, market_pe=10.0, sector_pe=22.0
+    )
+    md = render_analysis(dataclasses.replace(analysis, sanity_check=check))
+    assert "| P/E implied (DCF) | 15.00 | 22.00 |" in md
+    assert "| P/E market | 10.00 | 22.00 |" in md
+    assert "\n| EV/Sales |" in md

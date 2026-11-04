@@ -1735,7 +1735,8 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "n/a",
     ],
     "sanity_check.multiples": [
-        "price ÷ earnings per share (EPS)",
+        "intrinsic value per share ÷ earnings per share (EPS)",
+        "market P/E = price ÷ EPS",
         "net income ÷ diluted shares",
         "EV ÷ revenue",
         "decides nothing",
