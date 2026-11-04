@@ -1622,6 +1622,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
     "cli.errors": ["exit code 2", "exit code 1", "worst"],
     "inputs.load": [
         "non-restated", "oldest-first", "pe, ev_sales, op_margin, beta_levered", "valuation currency",
+        "close, its currency and date", "converted into the valuation currency",
     ],
     "inputs.derived": [
         "net debt = total debt - cash",
@@ -1729,6 +1730,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
     "sensitivity.scenario_range": ["base first", "scenario"],
     "sensitivity.grid": [
         "five by five", "two widest", "0.8, 0.9, 1.0, 1.1, 1.2", "intrinsic value ÷ price",
+        "price in the valuation currency",
     ],
     "narrative_flags.story_margin": ["high-growth", "> sector op_margin", "yellow", "unknown"],
     "narrative_flags.growth_reinvestment": ["FCFF < 0", "NOPAT ≤ 0", "red", "> 0.90", "yellow"],
@@ -1743,7 +1745,12 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
     "narrative_flags.country_exposure": ["> 50%", "> 300 bps", "red", "unknown"],
     "narrative_flags.hypergrowth": ["750B", f"2 {_TIMES} the sector ROIC", "hypergrowth_story"],
     "verdict.governance": ["governance discount", "value after governance"],
-    "verdict.mos": ["intrinsic value per share ÷ latest close", "none"],
+    "verdict.mos": [
+        "intrinsic value per share ÷ latest close",
+        "in the valuation currency",
+        "no exchange rate",
+        "none",
+    ],
     "verdict.words": [
         "MoS ≥ 1.3: potentially undervalued",
         "MoS ≥ 1.0: around fair value",
@@ -2059,6 +2066,7 @@ _PORTFOLIO_NODES: list[tuple[str, str]] = (
 # Node -> phrases its block must show (compared after check.normalize, so the
 # board's U+2212 minus signs match the ASCII hyphens here).
 _PORTFOLIO_TEXT: dict[str, list[str]] = {
+    "sync.value.adr_0005": ["§1", "#222"],
     "daily": ["09:00", "only when both succeeded"],
     "cli.exits": ["exit code 2", "exit code 1"],
     "sync.snapshot": ["(snapshot_date, account)", "delete", "then insert"],
@@ -2750,3 +2758,14 @@ def test_pipeline_svg_links_the_five_stage_boards() -> None:
     assert hrefs == {f"./{stage}.svg" for stage in _STAGES}
     for stage in _STAGES:
         assert (_PIPELINE / f"{stage}.svg").exists(), stage
+
+
+def test_analyze_converts_the_close_with_the_currencies_table() -> None:
+    # #222: the close is converted into the valuation currency with rates from currencies.
+    assert _node_class(_analyze(), "duckdb.currencies") == "store"
+    assert _edge_line(_analyze(), "duckdb.currencies", "inputs.load") is not None
+
+
+def test_portfolio_adr_0005_gap_no_longer_lists_the_price_conversion() -> None:
+    block = _portfolio_block("sync.value.adr_0005")
+    assert "prices converted into the valuation currency) are still not implemented" not in block

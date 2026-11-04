@@ -408,6 +408,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "interest coverage = EBIT \u00f7 interest expense",
         "founded_year",
         "read and checked",
+        "converted into the valuation currency",
     ],
     "analyze-story": [
         "first match wins",
@@ -480,6 +481,8 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "decides nothing",
         "intrinsic value per share ÷ earnings per share (EPS)",
         "market P/E = price ÷ EPS",
+        "latest close in the valuation currency",
+        "no exchange rate",
         "reports/YYYY-MM-DD/analysis/TICKER.json",
         "governance discount",
         "value after governance",
@@ -650,3 +653,10 @@ def test_portfolio_marks_hands_off_to_analyze() -> None:
         src in linked and first_line(nodes.get(dst, (0, None, ""))[2]) == valuation_done
         for _, src, dst, _ in edges(text)
     )
+
+
+def test_analyze_no_price_step_names_the_missing_exchange_rate() -> None:
+    # #222: a close with no exchange rate into the valuation currency is no price.
+    label = "the verdict reads the margin of safety (MoS) [no close, a close at most 0, or no exchange rate]"
+    assert label in (_MODELS / "analyze.view.js").read_text(encoding="utf-8")
+    assert label in _text("analyze-verdict")

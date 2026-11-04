@@ -7,6 +7,7 @@ bundled Jinja2 template, with every §7.7 section present.
 from __future__ import annotations
 
 import dataclasses
+from datetime import date
 from pathlib import Path
 
 import duckdb
@@ -276,3 +277,49 @@ def test_render_sanity_check_shows_both_pe_rows(analysis: Analysis) -> None:
     assert "| P/E implied (DCF) | 15.00 | 22.00 |" in md
     assert "| P/E market | 10.00 | 22.00 |" in md
     assert "\n| EV/Sales |" in md
+
+
+def _header(md: str) -> str:
+    return md.splitlines()[2]
+
+
+def _converted(analysis: Analysis) -> Analysis:
+    """``analysis`` as if it reported in EUR and traded at 110 USD (#222)."""
+    return dataclasses.replace(
+        analysis,
+        currency="USD",
+        valuation_currency="EUR",
+        listing_price=110.0,
+        price_currency="USD",
+        fx_rate=1 / 1.10,
+        current_price=100.0,
+        price_date=date(2026, 5, 29),
+    )
+
+
+def test_header_shows_the_valuation_currency(analysis: Analysis) -> None:
+    md = render_analysis(_converted(analysis))
+    assert "currency EUR" in _header(md)
+    assert "currency USD" not in _header(md)
+
+
+def test_price_conversion_line_only_when_converted(analysis: Analysis) -> None:
+    md = render_analysis(_converted(analysis))
+    assert (
+        "- **Price conversion:** close 110.00 USD \u00d7 0.909091 = 100.00 EUR "
+        "(rates on or before 2026-05-29)"
+    ) in md
+    assert "Price conversion" not in render_analysis(analysis)
+
+
+def test_missing_rate_line(analysis: Analysis) -> None:
+    md = render_analysis(
+        dataclasses.replace(
+            _converted(analysis), current_price=None, margin_of_safety=None, fx_rate=None
+        )
+    )
+    assert (
+        "- **Current price:** close 110.00 USD has no exchange rate into EUR on or before "
+        "2026-05-29 — margin of safety cannot be computed."
+    ) in md
+    assert "Price conversion" not in md

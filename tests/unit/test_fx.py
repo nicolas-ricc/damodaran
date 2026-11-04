@@ -4,11 +4,19 @@ from __future__ import annotations
 
 from datetime import date
 
+import duckdb
 import pytest
 
 from bot.ingest.provider import FxRate
 from bot.storage.db import apply_schema, connect
-from bot.utils.fx import get_fx_rate, import_fx_rates, to_usd, upsert_fx_rates
+from bot.utils.fx import (
+    ConvertedPrice,
+    convert_price,
+    get_fx_rate,
+    import_fx_rates,
+    to_usd,
+    upsert_fx_rates,
+)
 from tests.fake_provider import FakeProvider
 
 
@@ -180,3 +188,50 @@ def test_import_fx_end_trims_rows_client_side(conn) -> None:
         "SELECT date FROM currencies WHERE currency = 'EUR' ORDER BY date"
     ).fetchall()
     assert [str(r[0]) for r in rows] == ["2023-12-28", "2023-12-29"]
+
+
+# --------------------------------------------------------------------------- #
+# convert_price (#222): the one listing -> valuation price conversion          #
+# --------------------------------------------------------------------------- #
+
+
+def _no_rate(_currency: str) -> float | None:
+    return None
+
+
+@pytest.mark.parametrize(
+    ("listing", "valuation"), [("usd", "USD"), (" eur", "EUR"), ("EUR", "eur ")]
+)
+def test_convert_price_same_currency_any_case(listing: str, valuation: str) -> None:
+    assert convert_price(110.0, listing, valuation, _no_rate) == ConvertedPrice(110.0, None)
+
+
+@pytest.mark.parametrize(("listing", "valuation"), [(None, "EUR"), ("USD", None), (None, None)])
+def test_convert_price_unknown_currency_uses_close(
+    listing: str | None, valuation: str | None
+) -> None:
+    assert convert_price(110.0, listing, valuation, _no_rate) == ConvertedPrice(110.0, None)
+
+
+def test_convert_price_cross_rate() -> None:
+    rates = {"USD": 1.0, "EUR": 1.10}
+    converted = convert_price(110.0, "USD", "EUR", rates.get)
+    assert converted.price == pytest.approx(100.0)
+    assert converted.fx_rate == pytest.approx(1 / 1.10)
+
+
+def test_convert_price_usd_needs_no_row(conn: duckdb.DuckDBPyConnection) -> None:
+    upsert_fx_rates(
+        conn, currency="EUR", rates=[FxRate(date(2026, 5, 29), 1.10)], source="test"
+    )
+    converted = convert_price(
+        110.0, "usd", "eur", lambda ccy: get_fx_rate(conn, ccy, date(2026, 5, 29))
+    )
+    assert converted.price == pytest.approx(100.0)
+
+
+@pytest.mark.parametrize("eur_rate", [None, 0.0, -1.0])
+def test_convert_price_missing_or_non_positive_rate(eur_rate: float | None) -> None:
+    rates = {"USD": 1.0, "EUR": eur_rate}
+    assert convert_price(110.0, "USD", "EUR", rates.get) == ConvertedPrice(None, None)
+    assert convert_price(110.0, "EUR", "USD", rates.get) == ConvertedPrice(None, None)

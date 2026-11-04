@@ -98,3 +98,14 @@ def test_sidecar_preserves_none_grid_cells(analysis: Analysis) -> None:
 )
 def test_margin_verdict_thresholds(mos: float | None, word: str) -> None:
     assert margin_verdict(mos) == word
+
+
+def test_sidecar_carries_the_price_conversion_fields(analysis: Analysis) -> None:
+    payload = _payload(analysis)
+    assert payload["schema_version"] == 1
+    a = payload["analysis"]
+    assert a["valuation_currency"] == "USD"
+    assert a["listing_price"] == 150.0
+    assert a["price_currency"] == "USD"
+    assert a["fx_rate"] is None
+    assert a["price_date"] == "2026-05-29"

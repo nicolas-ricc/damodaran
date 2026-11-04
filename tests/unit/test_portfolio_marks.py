@@ -22,6 +22,7 @@ from bot.screener.engine import load_holding_inputs
 from bot.screener.rules import MinMarketCap, ROICAboveSectorWACC
 from bot.storage.db import apply_schema
 from bot.valuator.narrative_flags import FlagColor, NarrativeFlag
+from tests.unit.test_valuator_analysis import _seed as _seed_valuable
 
 DAY = date(2026, 6, 1)
 
@@ -260,3 +261,24 @@ def test_mark_holdings_values_with_the_conventional_override(
     mark_holdings(conn, DAY, assumptions_dir=tmp_path)
 
     assert seen == {"AAPL": override, "MSFT": None}
+
+
+def test_mark_holdings_stores_the_converted_price(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    # #222: an EUR reporter trading at 110 USD, EUR rate 1.10 -> the mark's price is 100 EUR,
+    # the currency its intrinsic value is in.
+    _seed_valuable(conn)
+    conn.execute("UPDATE financials_annual SET currency = 'EUR' WHERE ticker = 'AAPL'")
+    conn.execute("UPDATE prices_daily SET close = 110.0 WHERE ticker = 'AAPL'")
+    conn.execute(
+        "INSERT INTO currencies (currency, date, rate_to_usd, source) "
+        "VALUES ('EUR', '2026-05-29', 1.10, 'test')"
+    )
+    _hold(conn, "AAPL")
+
+    marks = mark_holdings(conn, DAY, assumptions_dir=tmp_path)
+
+    assert marks[0].intrinsic_value is not None
+    assert marks[0].price == pytest.approx(100.0)
+    assert load_marks(conn, DAY)["AAPL"].price == pytest.approx(100.0)
