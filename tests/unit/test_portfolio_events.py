@@ -12,6 +12,7 @@ from datetime import date
 import pytest
 
 from bot.portfolio.events import (
+    AccountCurrency,
     Event,
     EventType,
     Filing,
@@ -34,6 +35,10 @@ CURR = date(2026, 5, 2)
 
 def _pos(ticker: str, qty: float, mv: float | None = None, ccy: str | None = "USD") -> Position:
     return Position(ticker=ticker, qty=qty, market_value=mv, currency=ccy)
+
+
+def _acc(account: str, ticker: str, ccy: str | None) -> AccountCurrency:
+    return AccountCurrency(account=account, ticker=ticker, currency=ccy)
 
 
 def _mark(
@@ -109,25 +114,84 @@ def test_zero_qty_treated_as_closed() -> None:
 # --------------------------------------------------------------------------- #
 
 
+def _currency_events(
+    prev: list[AccountCurrency], curr: list[AccountCurrency]
+) -> list[Event]:
+    return detect_currency_changes(prev, curr, snapshot_date=CURR, prev_date=PREV)
+
+
 def test_currency_change_fires() -> None:
-    events = detect_currency_changes(
-        [_pos("BP", 10.0, ccy="GBP")],
-        [_pos("BP", 10.0, ccy="USD")],
-        snapshot_date=CURR,
-        prev_date=PREV,
-    )
+    events = _currency_events([_acc("U1", "BP", "GBP")], [_acc("U1", "BP", "USD")])
     assert [e.event_type for e in events] == [EventType.CURRENCY_CHANGED]
-    assert events[0].details == {"from": "GBP", "to": "USD"}
+    assert events[0].ticker == "BP"
+    assert events[0].details == {"account": "U1", "from": "GBP", "to": "USD"}
 
 
 def test_currency_unchanged_no_event() -> None:
-    events = detect_currency_changes(
-        [_pos("BP", 10.0, ccy="USD")],
-        [_pos("BP", 10.0, ccy="USD")],
-        snapshot_date=CURR,
-        prev_date=PREV,
-    )
+    events = _currency_events([_acc("U1", "BP", "USD")], [_acc("U1", "BP", "USD")])
     assert events == []
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_currency_same_ticker_two_accounts_unchanged_no_event(reverse: bool) -> None:
+    rows = [_acc("U1", "AAPL", "USD"), _acc("U2", "AAPL", "EUR")]
+    prev = rows[::-1] if reverse else rows
+    curr = rows if reverse else rows[::-1]
+    assert _currency_events(prev, curr) == []
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+def test_currency_one_account_switches(reverse: bool) -> None:
+    prev = [_acc("A", "AAPL", "USD"), _acc("B", "AAPL", "EUR")]
+    curr = [_acc("A", "AAPL", "EUR"), _acc("B", "AAPL", "EUR")]
+    if reverse:
+        prev, curr = prev[::-1], curr[::-1]
+    events = _currency_events(prev, curr)
+    assert len(events) == 1
+    assert events[0].ticker == "AAPL"
+    assert events[0].details == {"account": "A", "from": "USD", "to": "EUR"}
+
+
+def test_currency_both_accounts_switch_two_events() -> None:
+    events = _currency_events(
+        [_acc("B", "AAPL", "USD"), _acc("A", "AAPL", "USD")],
+        [_acc("B", "AAPL", "EUR"), _acc("A", "AAPL", "EUR")],
+    )
+    assert [e.details["account"] for e in events] == ["A", "B"]
+
+
+def test_currency_account_on_one_side_only_no_event() -> None:
+    assert _currency_events([_acc("A", "AAPL", "USD")], [_acc("B", "AAPL", "EUR")]) == []
+
+
+@pytest.mark.parametrize(
+    ("before", "after"), [(None, "USD"), ("USD", None), (None, None)]
+)
+def test_currency_unknown_side_no_event(before: str | None, after: str | None) -> None:
+    assert _currency_events([_acc("A", "AAPL", before)], [_acc("A", "AAPL", after)]) == []
+
+
+def test_currency_ambiguous_within_account_is_unknown() -> None:
+    # Two rows (two con_ids) of one ticker in one account: no single currency.
+    assert (
+        _currency_events(
+            [_acc("A", "AAPL", "USD")],
+            [_acc("A", "AAPL", "USD"), _acc("A", "AAPL", "EUR")],
+        )
+        == []
+    )
+    assert (
+        _currency_events(
+            [_acc("A", "AAPL", "USD"), _acc("A", "AAPL", None)],
+            [_acc("A", "AAPL", "EUR")],
+        )
+        == []
+    )
+
+
+def test_currency_ticker_case_insensitive() -> None:
+    events = _currency_events([_acc("A", "bp", "GBP")], [_acc("A", "BP", "USD")])
+    assert [e.ticker for e in events] == ["BP"]
 
 
 # --------------------------------------------------------------------------- #
