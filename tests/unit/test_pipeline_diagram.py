@@ -533,7 +533,10 @@ _REQUIRED_PARAMS: dict[str, set[str]] = {
     "screen-ranking": _preset_layer_params("ranking"),
 }
 _REQUIRED_CONSTS: dict[str, set[str]] = {
-    "pipeline": {"bot.web.views.MOS_UNDERVALUED", "bot.web.views.MOS_FAIR"},
+    "pipeline": {
+        "bot.reporting.analysis_report.MOS_UNDERVALUED",
+        "bot.reporting.analysis_report.MOS_FAIR",
+    },
     "refresh": {
         "bot.ingest.sec_edgar.ANNUAL_SPAN_DAYS",
         "bot.ingest.sec_edgar.QUARTERLY_SPAN_DAYS",
@@ -572,8 +575,8 @@ _REQUIRED_CONSTS: dict[str, set[str]] = {
         "bot.valuator.narrative_flags._HIGH_OPERATING_LEVERAGE",
         "bot.valuator.narrative_flags._HIGH_FINANCIAL_LEVERAGE",
         "bot.valuator.narrative_flags._STRETCHED_REINVESTMENT_RATE",
-        "bot.web.views.MOS_UNDERVALUED",
-        "bot.web.views.MOS_FAIR",
+        "bot.reporting.analysis_report.MOS_UNDERVALUED",
+        "bot.reporting.analysis_report.MOS_FAIR",
         "bot.reporting.analysis_json.SCHEMA_VERSION",
     },
     "portfolio": {
@@ -582,8 +585,8 @@ _REQUIRED_CONSTS: dict[str, set[str]] = {
         "bot.portfolio.events.DEFAULT_WACC_RECALIBRATION_BPS",
     },
     "site": {
-        "bot.web.views.MOS_UNDERVALUED",
-        "bot.web.views.MOS_FAIR",
+        "bot.reporting.analysis_report.MOS_UNDERVALUED",
+        "bot.reporting.analysis_report.MOS_FAIR",
         "bot.web.views.FILTERS",
         "bot.web.views.SORTS",
         "bot.web.views.DIRECTIONS",
@@ -593,12 +596,12 @@ _REQUIRED_CONSTS: dict[str, set[str]] = {
     "site-scan": {
         "bot.reporting.analysis_json.SCHEMA_VERSION",
         "bot.web.site.MARKER",
-        "bot.web.views.MOS_UNDERVALUED",
-        "bot.web.views.MOS_FAIR",
+        "bot.reporting.analysis_report.MOS_UNDERVALUED",
+        "bot.reporting.analysis_report.MOS_FAIR",
     },
     "site-views": {
-        "bot.web.views.MOS_UNDERVALUED",
-        "bot.web.views.MOS_FAIR",
+        "bot.reporting.analysis_report.MOS_UNDERVALUED",
+        "bot.reporting.analysis_report.MOS_FAIR",
         "bot.web.views.FILTERS",
         "bot.web.views.SORTS",
         "bot.web.views.DIRECTIONS",
@@ -666,8 +669,8 @@ _REQUIRED_CONSTS: dict[str, set[str]] = {
         "bot.valuator.narrative_flags._ROIC_SECTOR_MULTIPLE",
     },
     "analyze-verdict": {
-        "bot.web.views.MOS_UNDERVALUED",
-        "bot.web.views.MOS_FAIR",
+        "bot.reporting.analysis_report.MOS_UNDERVALUED",
+        "bot.reporting.analysis_report.MOS_FAIR",
         "bot.reporting.analysis_json.SCHEMA_VERSION",
     },
     "portfolio-mark-events": {
@@ -1029,6 +1032,12 @@ def test_verdict_thresholds_match_margin_verdict() -> None:
     assert margin_verdict(MOS_FAIR) == "around fair value"
     assert margin_verdict(MOS_FAIR - 1e-9) == "potentially overvalued"
     assert margin_verdict(None) == "n/a"
+
+
+def test_no_board_cites_views_mos() -> None:
+    """The MoS thresholds are cited where ``margin_verdict`` defines them (issue #220)."""
+    for board in sorted(_PIPELINE.glob("*.d2")):
+        assert "bot.web.views.MOS_" not in board.read_text(encoding="utf-8"), board.name
 
 
 def test_readme_has_build_and_check_commands() -> None:
