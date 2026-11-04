@@ -15,6 +15,7 @@ import duckdb
 import pytest
 import yaml
 
+from bot.reporting.analysis_report import margin_verdict
 from bot.storage.db import apply_schema, connect
 from bot.valuator.analysis import (
     Analysis,
@@ -400,6 +401,24 @@ def test_sanity_check_non_positive_intrinsic_value_gives_no_implied_pe(
     check = _check(intrinsic_value=intrinsic_value)
     assert check.implied_pe is None
     assert check.market_pe == pytest.approx(10.0)
+
+
+def test_flags_change_neither_the_verdict_nor_the_sanity_check(
+    seeded_conn: duckdb.DuckDBPyConnection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The analyze boards chain flags, verdict and sanity check in execution order only (#221)."""
+    baseline = analyze("AAPL", seeded_conn)
+
+    def red(*args: object, **kwargs: object) -> tuple[NarrativeFlag, ...]:
+        return (NarrativeFlag("forced", FlagColor.RED, "forced red"),)
+
+    monkeypatch.setattr("bot.valuator.analysis.narrative_flags", red)
+    monkeypatch.setattr("bot.valuator.analysis.hypergrowth_flags", red)
+    forced = analyze("AAPL", seeded_conn)
+    assert all(f.color is FlagColor.RED for f in forced.narrative_flags)
+    assert forced.margin_of_safety == baseline.margin_of_safety
+    assert margin_verdict(forced.margin_of_safety) == margin_verdict(baseline.margin_of_safety)
+    assert forced.sanity_check == baseline.sanity_check
 
 
 def test_analyze_manual_override_applied(
