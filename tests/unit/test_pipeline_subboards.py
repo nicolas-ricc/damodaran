@@ -571,6 +571,8 @@ _PORTFOLIO_TEXT: dict[str, list[str]] = {
         "exactly 10%: no event",
         "first run: every position",
         "(ticker, filing type, filing date)",
+        "compared per (account, ticker), one event per account",
+        "one account, several rows disagreeing or one empty: unknown",
     ],
     "portfolio-alerts": [
         "P&L = market value \u2212 quantity \u00d7 average cost",
@@ -620,6 +622,12 @@ def _decided_events(stem: str) -> set[str]:
         for e in EventType
         if any(re.search(rf"(?<!\w){e.value}(?!\w)", label) for label in labels)
     }
+
+
+def test_no_board_says_any_one_accounts_currency() -> None:
+    # #223: currency_changed is compared per (account, ticker), never on one account's pick.
+    stale = [b.name for b in sorted(_PIPELINE.glob("*.d2")) if "any one account's currency" in b.read_text()]
+    assert stale == []
 
 
 def test_portfolio_events_cover_every_event_type() -> None:

@@ -46,6 +46,20 @@ def _insert_snapshot(
         )
 
 
+def _insert_account_rows(
+    conn: duckdb.DuckDBPyConnection,
+    snapshot_date: date,
+    rows: list[tuple[str, str, int, float, float, str]],
+) -> None:
+    for account, ticker, con_id, qty, mv, ccy in rows:
+        conn.execute(
+            "INSERT INTO portfolio_snapshots "
+            "(snapshot_date, account, ticker, con_id, qty, market_value, currency) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [snapshot_date, account, ticker, con_id, qty, mv, ccy],
+        )
+
+
 def _insert_filing(
     conn: duckdb.DuckDBPyConnection,
     ticker: str,
@@ -134,6 +148,8 @@ def test_compute_events_end_to_end(conn: duckdb.DuckDBPyConnection) -> None:
     assert (EventType.POSITION_CLOSED, "GOOG") in got
     assert (EventType.POSITION_SIZE_CHANGED, "MSFT") in got
     assert (EventType.CURRENCY_CHANGED, "AAPL") in got
+    (currency_event,) = [e for e in events if e.event_type is EventType.CURRENCY_CHANGED]
+    assert currency_event.details == {"account": "DU1", "from": "USD", "to": "EUR"}
     assert (EventType.DIVIDEND, "MSFT") in got
     # Derived
     assert (EventType.NEW_FILING, "AAPL") in got
@@ -158,6 +174,48 @@ def test_compute_events_end_to_end(conn: duckdb.DuckDBPyConnection) -> None:
     assert written == len(events)
     (count,) = conn.execute("SELECT COUNT(*) FROM events_log").fetchone() or (0,)
     assert count == len(events)
+
+
+_USD_ROW = ("U1", "AAPL", 1, 10.0, 1000.0, "USD")
+_EUR_ROW = ("U2", "AAPL", 2, 10.0, 1000.0, "EUR")
+
+
+@pytest.mark.parametrize(
+    ("prev_rows", "curr_rows"),
+    [([_USD_ROW, _EUR_ROW], [_EUR_ROW, _USD_ROW]), ([_EUR_ROW, _USD_ROW], [_USD_ROW, _EUR_ROW])],
+    ids=["usd-first-then-eur-first", "eur-first-then-usd-first"],
+)
+def test_currency_two_accounts_unchanged_no_event(
+    conn: duckdb.DuckDBPyConnection,
+    prev_rows: list[tuple[str, str, int, float, float, str]],
+    curr_rows: list[tuple[str, str, int, float, float, str]],
+) -> None:
+    """Same ticker in a USD and a EUR account, unchanged: no currency event (#223)."""
+    _insert_account_rows(conn, PREV, prev_rows)
+    _insert_account_rows(conn, CURR, curr_rows)
+
+    events = compute_events(conn, PREV, CURR)
+
+    assert [e for e in events if e.event_type is EventType.CURRENCY_CHANGED] == []
+
+
+def test_currency_one_account_switches_logs_account(conn: duckdb.DuckDBPyConnection) -> None:
+    """Account A switches USD -> EUR, B unchanged: one event naming A, logged (#223)."""
+    _insert_account_rows(conn, PREV, [("A", "AAPL", 1, 10.0, 1000.0, "USD"), _EUR_ROW])
+    _insert_account_rows(conn, CURR, [("A", "AAPL", 1, 10.0, 1000.0, "EUR"), _EUR_ROW])
+
+    events = compute_events(conn, PREV, CURR)
+    currency_events = [e for e in events if e.event_type is EventType.CURRENCY_CHANGED]
+
+    assert [e.details for e in currency_events] == [
+        {"account": "A", "from": "USD", "to": "EUR"}
+    ]
+    persist_events(conn, events)
+    logged = conn.execute(
+        "SELECT ticker, json_extract_string(details, '$.account') FROM events_log "
+        "WHERE event_type = 'currency_changed'"
+    ).fetchall()
+    assert logged == [("AAPL", "A")]
 
 
 def test_price_move_only_emits_nothing(conn: duckdb.DuckDBPyConnection) -> None:

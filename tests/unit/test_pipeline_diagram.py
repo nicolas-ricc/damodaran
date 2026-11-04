@@ -2093,7 +2093,9 @@ _PORTFOLIO_TEXT: dict[str, list[str]] = {
     "events.position_opened": ["≠ 0", "first run"],
     "events.position_closed": ["absent or 0 now", "returns no positions"],
     "events.position_size_changed": ["> 10%", "exactly 10%: no event"],
-    "events.currency_changed": ["listing currency", "not on the first run"],
+    "events.currency_changed": [
+        "listing currency", "not on the first run", "per (account, ticker)", "one event per account",
+    ],
     "events.dividend": ["after the previous snapshot, on or before this one"],
     "events.split": ["split"],
     "events.new_filing": ["absent from events_log", "ingested"],
