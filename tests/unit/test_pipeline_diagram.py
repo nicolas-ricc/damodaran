@@ -1603,7 +1603,8 @@ _ANALYZE_NODES: list[tuple[str, str]] = (
 _ANALYZE_TEXT: dict[str, list[str]] = {
     "tickers": ["--from-screen", "latest", "by rank", "exit code 2"],
     "override": [
-        "--override", "exactly one ticker", "config/assumptions/TICKER.yaml", "before the signals",
+        "--override", "exactly one ticker", "not a file: exit code 2",
+        "config/assumptions/TICKER.yaml", "before the signals",
         "not valid YAML", "not a mapping", "an unknown key", "a numeric value that is not a finite number",
         "a founded_year that is not a whole year from 1600 to this year",
         "a non-empty list of them for revenue_growth / operating_margin",

@@ -317,6 +317,49 @@ def test_analyze_explicit_override_with_many_tickers_is_rejected(
     runner = CliRunner()
     result = runner.invoke(app, ["analyze", "AAPL", "MSFT", "--override", "x.yaml"])
     assert result.exit_code == 2
+    assert "exactly one ticker" in result.output
+
+
+def test_analyze_explicit_override_that_does_not_exist_is_rejected(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A typo in ``--override`` stops the command before the DB is opened (#214)."""
+    db_path = tmp_path / "bot.duckdb"
+    reports_dir = tmp_path / "reports"
+    monkeypatch.setenv("BOT_DB_PATH", str(db_path))
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(reports_dir))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+
+    missing = tmp_path / "does" / "not" / "exist.yaml"
+    runner = CliRunner()
+    result = runner.invoke(app, ["analyze", "AAPL", "--override", str(missing)])
+    assert result.exit_code == 2
+    assert f"--override {missing}: no such file." in result.output
+    assert not db_path.exists()
+    assert list(reports_dir.glob("*/analysis/*")) == []
+
+
+def test_analyze_explicit_override_that_is_a_directory_is_rejected(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "bot.duckdb"
+    reports_dir = tmp_path / "reports"
+    monkeypatch.setenv("BOT_DB_PATH", str(db_path))
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(reports_dir))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+
+    conn = connect(db_path)
+    apply_schema(conn)
+    _seed(conn, "AAPL")
+    conn.close()
+
+    directory = tmp_path / "assumptions"
+    directory.mkdir()
+    runner = CliRunner()
+    result = runner.invoke(app, ["analyze", "AAPL", "--override", str(directory)])
+    assert result.exit_code == 2
+    assert f"--override {directory}: no such file." in result.output
+    assert list(reports_dir.glob("*/analysis/*")) == []
 
 
 def test_analyze_explicit_override_wins_over_convention(
