@@ -38,6 +38,8 @@ portfolio_snapshots: {class: store}  # @table portfolio_snapshots
 
 out: "Comes out:\nthis holding's mark events (zero to five kinds) and its concentration verdict, handed to the snapshot diff" {class: output; link: "./portfolio-events.svg"}
 
+only_red: |md In practice only growth_reinvestment can fire new_red_flag, or hypergrowth_story for a company with hypergrowth signals and no story file (see analyze flags). | {class: note}
+
 # Edges
 trades_synced -> concentration_checked: "it is neither marked nor weighed [no longer held]"
 marked -> marks_read: "the previous mark is read [it was marked then]"

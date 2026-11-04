@@ -1587,6 +1587,7 @@ _ANALYZE_NODES: list[tuple[str, str]] = (
     + [
         ("narrative_flags.country_exposure.always_unknown", "gap"),
         ("narrative_flags.hypergrowth", "decision"),
+        ("narrative_flags.only_red", "note"),
         ("verdict.governance", "step"),
         ("verdict.mos", "step"),
         ("verdict.words", "decision"),
@@ -1617,6 +1618,12 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
     ],
     "story_type.hypergrowth": ["≥ 50%", "≥ 40%", "founded ≤ 15 years ago or unknown"],
     "story_type.gate": ["story file", "high-growth", "red"],
+    "narrative_flags.only_red": [
+        "Only growth_reinvestment can be red",
+        "three stop at yellow",
+        "always unknown",
+        "only hypergrowth_story can be red",
+    ],
     "assumptions.story": ["apply_story", "ten-year"],
     "story_type.distressed": ["Altman Z < 1.81", "interest coverage ≤ 1.0"],
     "story_type.cyclical": [
@@ -2007,6 +2014,7 @@ _PORTFOLIO_NODES: list[tuple[str, str]] = (
     + [
         ("events.split.other_actions", "gap"),
         ("events.new_filing.no_auto_analyze", "gap"),
+        ("events.new_red_flag.only_red", "note"),
         ("events.not_events", "note"),
         ("events.persist", "step"),
         ("events.persist.reruns", "note"),
@@ -2060,6 +2068,9 @@ _PORTFOLIO_TEXT: dict[str, list[str]] = {
     "events.new_filing": ["absent from events_log", "ingested"],
     "events.intrinsic_value_crossed_price": ["equality is not a cross"],
     "events.new_red_flag": ["not red in the previous mark"],
+    "events.new_red_flag.only_red": [
+        "only growth_reinvestment can fire it", "hypergrowth_story", "see analyze flags",
+    ],
     "events.below_quality_gate": ["failing now and not failing before"],
     "events.sector_recalibrated": ["> 100 bps", "exactly 100 bps: no event"],
     "events.concentration": ["> 15%", "exactly 15%: no event", "fires on every run while above"],

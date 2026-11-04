@@ -120,6 +120,8 @@ events: "4b. diff two snapshots into events" {  # @symbol bot.portfolio.events.c
   new_red_flag: "new_red_flag: one per narrative flag red now\nand not red in the previous mark\nno previous mark or unknown previous flags: counts as none red\nunknown flags now: nothing" {  # @symbol bot.portfolio.events.detect_new_red_flags
     class: decision
     link: "./portfolio-mark-events.svg"
+    label.near: outside-top-center
+    only_red: |md In practice only growth_reinvestment can fire it, or hypergrowth_story for a company with hypergrowth signals and no story file (see analyze flags). | {class: note}
   }
   below_quality_gate: "below_quality_gate: one per gate failing now and not failing before\nfailed gates unknown on either side, or no previous mark: nothing" {  # @symbol bot.portfolio.events.detect_below_quality_gate
     class: decision
