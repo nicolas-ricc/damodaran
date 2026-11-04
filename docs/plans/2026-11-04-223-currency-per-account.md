@@ -19,11 +19,20 @@
 - Out of scope: same-day reruns (#83), symbol mapping (#84).
 - Never edit an SVG or `rendered.sha256` by hand (`docs/pipeline/README.md`).
 
+## Acceptance criteria → tasks
+
+- AC1 "Same ticker in USD account and EUR account, unchanged → no event (test runs both orders of insertion)": Task 1 Steps 1-2 (`..._two_accounts_unchanged_no_event`, both orders).
+- AC2 "Account A switches USD → EUR, account B unchanged → exactly one event naming account A": Task 1 Steps 1-2 (`..._one_account_switches...`).
+- AC3 "Single-account change behaves as today": the adapted `test_currency_change_fires` and the existing end-to-end test.
+- AC4 "`events_log.details` carries the account": Task 1 Step 2 (`json_extract_string(details, '$.account')`).
+- AC5 "Pipeline check, TLC on `portfolio.cfg` and full suite pass": Task 2 Step 4, Task 3.
+- Atlas paragraph of the brief: Task 2.
+
 ## Decisions taken here
 
 1. **New input type.** `AccountCurrency(account: str, ticker: str, currency: str | None)`, a frozen dataclass next to `Position`. It is one row of `portfolio_snapshots`.
 2. **Detector signature.** `detect_currency_changes(prev: Sequence[AccountCurrency], curr: Sequence[AccountCurrency], *, snapshot_date: date, prev_date: date | None) -> list[Event]`. It stays pure.
-3. **Several rows for one (account, ticker).** The primary key of `portfolio_snapshots` is `(snapshot_date, account, ticker, con_id)` (`src/bot/db/schema.sql:191`). One account can therefore hold one ticker under two `con_id`s, for example two listings. The detector collapses rows by `(account, ticker.upper())`. The key's currency is known only when its rows carry exactly one distinct currency and none of them is NULL. Otherwise it is treated as unknown, and an unknown currency fires nothing, as today. This makes the result deterministic and order-independent, and it can never produce the issue's false positive inside a single account.
+3. **Several rows for one (account, ticker).** The primary key of `portfolio_snapshots` is `(snapshot_date, account, ticker, con_id)` (`src/bot/storage/schema.sql:191`). One account can therefore hold one ticker under two `con_id`s, for example two listings. The detector collapses rows by `(account, ticker.upper())`. The key's currency is known only when its rows carry exactly one distinct currency and none of them is NULL. Otherwise it is treated as unknown, and an unknown currency fires nothing, as today. This makes the result deterministic and order-independent, and it can never produce the issue's false positive inside a single account.
 4. **Event order.** Events are sorted by `(ticker, account)`, so the stream is the same whatever order the rows come in.
 5. **Loader.** `_load_account_currencies(conn, snapshot_date) -> list[AccountCurrency]` runs `SELECT account, ticker, currency FROM portfolio_snapshots WHERE snapshot_date = ?`. It does no aggregation, because the rule lives in the pure detector, where it can be unit-tested.
 6. **Atlas copy.** `portfolio.d2` `events.currency_changed`, replacing the line `held in several accounts: any one account's currency`:
@@ -54,14 +63,15 @@
 - [ ] **Step 1: Failing unit tests** in the currency section. Use a helper `_acc(account, ticker, ccy)` that returns an `AccountCurrency`. Adapt the two existing tests to the new input; `test_currency_change_fires` now expects `details == {"account": "U1", "from": "GBP", "to": "USD"}`. New tests:
   - `test_currency_same_ticker_two_accounts_unchanged_no_event`: parametrised over both row orders. prev = [U1 AAPL USD, U2 AAPL EUR], curr = the same rows in the given order (and prev in the reverse order) → `[]`.
   - `test_currency_one_account_switches`: prev [A USD, B EUR], curr [A EUR, B EUR], both orders → exactly one event, with `ticker == "AAPL"` and `details == {"account": "A", "from": "USD", "to": "EUR"}`.
+  - `test_currency_both_accounts_switch_two_events`: prev [A USD, B USD], curr [A EUR, B EUR] → two events, accounts `["A", "B"]` in that order (`events_log` has no key, `src/bot/storage/schema.sql:262-270`, so both rows persist).
   - `test_currency_account_on_one_side_only_no_event`: prev [A AAPL USD], curr [B AAPL EUR] → `[]`.
   - `test_currency_unknown_side_no_event`: a NULL currency on either side → `[]`.
   - `test_currency_ambiguous_within_account_is_unknown`: prev [A AAPL USD], curr [A AAPL USD, A AAPL EUR] → `[]`. prev [A AAPL USD, A AAPL NULL], curr [A AAPL EUR] → `[]`.
   - `test_currency_ticker_case_insensitive`: prev [A "bp" GBP], curr [A "BP" USD] → one event, ticker `"BP"`.
-- [ ] **Step 2: Failing integration tests** in `tests/integration/test_portfolio_events.py`. Add a helper that inserts rows with an explicit account, `_insert_account_rows(conn, date, [(account, ticker, qty, mv, ccy)])`. The existing end-to-end test's AAPL USD→EUR event now also carries `"account": "DU1"`, so assert that. New tests:
+- [ ] **Step 2: Failing integration tests** in `tests/integration/test_portfolio_events.py`. Add a helper that inserts rows with an explicit account and `con_id`, `_insert_account_rows(conn, date, [(account, ticker, con_id, qty, mv, ccy)])`; the existing `_insert_snapshot` (account `'DU1'`, `con_id = hash(ticker) & 0xFFFF`) stays for the other tests. The existing end-to-end test's AAPL USD→EUR event now also carries `"account": "DU1"`, so assert that. New tests:
   - `test_currency_two_accounts_unchanged_no_event`: parametrised over the two insertion orders of the accounts on each day (USD-first yesterday with EUR-first today, and the reverse). `compute_events` → no `CURRENCY_CHANGED`.
   - `test_currency_one_account_switches_logs_account`: account A USD→EUR, B EUR unchanged → exactly one `CURRENCY_CHANGED`. After `persist_events`, `json_extract_string(details, '$.account')` from `events_log` is `'A'`.
-- [ ] **Step 3: Run** `uv run pytest -q tests/unit/test_portfolio_events.py tests/integration/test_portfolio_events.py`. Expected: the new and adapted tests FAIL (TypeError or ImportError on `AccountCurrency`, or a missing `account` key).
+- [ ] **Step 3: Run** `uv run pytest -q tests/unit/test_portfolio_events.py tests/integration/test_portfolio_events.py`. Expected: `tests/unit/test_portfolio_events.py` errors at collection (ImportError on `AccountCurrency`), so all of it is red; in the integration module, only the end-to-end test and the two new tests fail (missing `account` key / an event too many); every other integration test passes.
 - [ ] **Step 4: Implement** Decisions 1-5. Update the docstring of `detect_currency_changes` to state the per-account rule and the ambiguity rule. In `compute_events`, load `_load_account_currencies` for both dates inside the existing `if prev_snapshot_date is not None:` block.
 - [ ] **Step 5: Run** the same tests, then `uv run pytest -q` and lint. Expected: PASS.
 - [ ] **Step 6: Commit** `fix(#223): currency_changed per (account, ticker)`.
@@ -81,3 +91,22 @@
 ### Task 3: Render (orchestrator, needs a push)
 
 - [ ] Push the branch and wait for the `pipeline-diagram` run on its head (`gh run list --branch <b> --workflow pipeline-diagram`, then `gh run watch <id>`). Download `pipeline-render` (`gh run download <id> -n pipeline-render`). Copy `portfolio.svg`, `portfolio-events.svg` and `rendered.sha256` into `docs/pipeline/`, plus any other SVG that d2 renders differently. The same run's `models` job is the TLC check on `portfolio.cfg`, and it must be green. Run `python3 docs/pipeline/check.py` (expected: pass) and the full suite. Commit `docs(#223): render`.
+
+## Assumptions
+
+Technical choices made in the plan review, each with the alternative it rejected:
+
+- **A1. Several rows for one (account, ticker) in one snapshot count as an unknown currency (Decision 3).** The brief fires only when both currencies "are both known and differ"; with two `con_id` rows in two currencies the (account, ticker) has no single currency, so it is not known. Rejected: comparing the sorted set of currencies (it makes `from`/`to` lists, not the brief's single values) and `MIN(currency)` (deterministic but hides a real change of one row).
+- **A2. The rule lives in the pure detector and the loader reads raw rows (Decision 5).** Rejected: collapsing in SQL, which would put the rule out of reach of the unit tests.
+- **A3. `account` is compared as stored.** `sync._insert_positions` writes IBKR's `pos.account` verbatim (`src/bot/portfolio/sync.py:262-276`); `account` and `ticker` are `NOT NULL` (`src/bot/storage/schema.sql:180-181`). Rejected: normalising account ids, which nothing else does.
+- **A4. Events sorted by (ticker, account) (Decision 4).** `compute_events` concatenates detector outputs in order and `persist_events` / `alerts.md` keep that order (`src/bot/portfolio/events.py:600-723`), so the order is observable. Rejected: input order, which depends on DuckDB's scan order.
+- **A5. TLA model unchanged.** `CurrencyChangedFires` / `CurrencyIsTheSame` (`docs/pipeline/models/portfolio.tla:389-404`) model one ticker through one run, and the model plan left "several accounts" out (`docs/plans/2026-10-31-171-portfolio-model.md:39`). Per account, the abstract step still fires or does not, so the model still holds.
+
+## Grilling
+
+- **Rounds:** one. The revision added one test, fixed a path and spelled out the red set; no step or seam changed.
+- **Questions:** 16.
+- **Answers by source:** CODE 12, ISSUE 2, DOC 1, NO SOURCE 1 (Q2, the two-`con_id` rule → A1, technical assumption).
+- **Corrections to the plan:** the schema path (Q1), a test where both accounts switch (Q1), the exact red set at Task 1 Step 3 (Q10), the `con_id` of the new helper (Q7).
+- **Assumptions:** A1 to A5 above.
+- **Issues opened:** none.
