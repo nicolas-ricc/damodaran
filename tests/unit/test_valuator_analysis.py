@@ -18,6 +18,9 @@ import yaml
 from bot.storage.db import apply_schema, connect
 from bot.valuator.analysis import (
     Analysis,
+    SanityCheck,
+    _SectorMultiples,
+    _sanity_check,
     analyze,
     bulk_load_valuation_inputs,
     load_valuation_input,
@@ -115,9 +118,7 @@ def conn() -> duckdb.DuckDBPyConnection:
     return c
 
 
-def _seed_company(
-    conn: duckdb.DuckDBPyConnection, ticker: str, industry_damodaran: str
-) -> None:
+def _seed_company(conn: duckdb.DuckDBPyConnection, ticker: str, industry_damodaran: str) -> None:
     """A minimal company + country + sector row, enough to run ``analyze``."""
     conn.execute(
         "INSERT INTO companies "
@@ -332,10 +333,71 @@ def test_analyze_sanity_check_vs_sector_multiples(
     seeded_conn: duckdb.DuckDBPyConnection,
 ) -> None:
     analysis = analyze("AAPL", seeded_conn)
-    # The implied PE (price / EPS) is compared to the sector PE multiple.
+    # The seed's 2025 net income and diluted shares, both in millions.
+    eps = 100_000.0 / 15_500.0
     assert analysis.sanity_check.sector_pe == 22.0
-    assert analysis.sanity_check.implied_pe is not None
-    assert analysis.sanity_check.implied_pe > 0.0
+    # The implied P/E is the DCF's multiple; the market P/E sits beside it.
+    assert analysis.sanity_check.implied_pe == pytest.approx(
+        analysis.dcf_result.intrinsic_value / eps
+    )
+    assert analysis.sanity_check.market_pe == pytest.approx(23.25)
+
+
+def _check(
+    *,
+    current_price: float | None = 100.0,
+    net_income: float | None = 10.0,
+    shares: float | None = 1.0,
+    intrinsic_value: float = 150.0,
+) -> SanityCheck:
+    return _sanity_check(
+        current_price=current_price,
+        net_income=net_income,
+        shares=shares,
+        intrinsic_value=intrinsic_value,
+        enterprise_value=500.0,
+        revenue=100.0,
+        sector=_SectorMultiples(
+            region=None, pe=22.0, ev_sales=5.0, op_margin=None, beta_levered=None, erp=None
+        ),
+    )
+
+
+def test_sanity_check_implied_pe_comes_from_the_dcf() -> None:
+    check = _check()
+    assert check.implied_pe == pytest.approx(15.0)
+    assert check.market_pe == pytest.approx(10.0)
+    assert check.implied_ev_sales == pytest.approx(5.0)
+    assert check.sector_pe == 22.0
+
+
+def test_sanity_check_without_price_keeps_implied_pe() -> None:
+    check = _check(current_price=None)
+    assert check.implied_pe == pytest.approx(15.0)
+    assert check.market_pe is None
+
+
+@pytest.mark.parametrize("net_income", [0.0, -5.0, None])
+def test_sanity_check_non_positive_net_income_gives_no_pe(net_income: float | None) -> None:
+    check = _check(net_income=net_income)
+    assert check.implied_pe is None
+    assert check.market_pe is None
+
+
+@pytest.mark.parametrize("shares", [0.0, None])
+def test_sanity_check_no_shares_gives_no_pe(shares: float | None) -> None:
+    check = _check(shares=shares)
+    assert check.implied_pe is None
+    assert check.market_pe is None
+
+
+@pytest.mark.parametrize("intrinsic_value", [0.0, -3.0])
+def test_sanity_check_non_positive_intrinsic_value_gives_no_implied_pe(
+    intrinsic_value: float,
+) -> None:
+    check = _check(intrinsic_value=intrinsic_value)
+    assert check.implied_pe is None
+    assert check.market_pe == pytest.approx(10.0)
 
 
 def test_analyze_manual_override_applied(
@@ -748,7 +810,9 @@ _SCENARIOS: dict[str, dict[str, float]] = {
 }
 
 
-def _seed_price(conn: duckdb.DuckDBPyConnection, ticker: str = "ANTH", close: float = 300.0) -> None:
+def _seed_price(
+    conn: duckdb.DuckDBPyConnection, ticker: str = "ANTH", close: float = 300.0
+) -> None:
     conn.execute(
         "INSERT INTO prices_daily (ticker, date, close, market_cap, currency, source) "
         "VALUES (?, ?, ?, ?, ?, ?)",

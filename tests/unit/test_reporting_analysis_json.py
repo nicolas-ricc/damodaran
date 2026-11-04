@@ -51,6 +51,7 @@ def test_sidecar_carries_every_section_the_viewer_reads(analysis: Analysis) -> N
     ]
     assert set(a["sanity_check"]) == {
         "implied_pe",
+        "market_pe",
         "sector_pe",
         "implied_ev_sales",
         "sector_ev_sales",

@@ -475,6 +475,8 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "potentially overvalued",
         "n/a",
         "decides nothing",
+        "intrinsic value per share ÷ earnings per share (EPS)",
+        "market P/E = price ÷ EPS",
         "reports/YYYY-MM-DD/analysis/TICKER.json",
         "governance discount",
         "value after governance",

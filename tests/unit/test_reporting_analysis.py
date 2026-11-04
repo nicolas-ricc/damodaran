@@ -53,19 +53,32 @@ def _seed(conn: duckdb.DuckDBPyConnection) -> None:
             5.0,
         ],
     )
-    for year, revenue in {2022: 380_000.0, 2023: 395_000.0, 2024: 410_000.0, 2025: 430_000.0}.items():
+    for year, revenue in {
+        2022: 380_000.0,
+        2023: 395_000.0,
+        2024: 410_000.0,
+        2025: 430_000.0,
+    }.items():
         conn.execute(
             "INSERT INTO financials_annual "
             "(ticker, fiscal_year, revenue, ebit, net_income, total_debt, cash, "
             "shares_diluted, is_restated, source, currency) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
-            ["AAPL", year, revenue * _MILLIONS, revenue * 0.30 * _MILLIONS,
-             100_000.0 * _MILLIONS, 110_000.0 * _MILLIONS, 60_000.0 * _MILLIONS,
-             15_500.0 * _MILLIONS, False, "sec_edgar"],
+            [
+                "AAPL",
+                year,
+                revenue * _MILLIONS,
+                revenue * 0.30 * _MILLIONS,
+                100_000.0 * _MILLIONS,
+                110_000.0 * _MILLIONS,
+                60_000.0 * _MILLIONS,
+                15_500.0 * _MILLIONS,
+                False,
+                "sec_edgar",
+            ],
         )
     conn.execute(
-        "INSERT INTO prices_daily (ticker, date, close, currency, source) "
-        "VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO prices_daily (ticker, date, close, currency, source) VALUES (?, ?, ?, ?, ?)",
         ["AAPL", "2026-05-29", 150.0, "USD", "fmp"],
     )
 
@@ -248,6 +261,7 @@ def test_report_renders_per_share_values_unscaled(
     assert "1500.00" in md
     assert "1.50K" not in md
 
+
 def test_grid_heading_reflects_the_no_price_mode(analysis: Analysis) -> None:
     # With a price the cells are margins of safety; without one they are intrinsic
     # values. The heading used to claim "margin of safety" in both modes, while
@@ -266,3 +280,13 @@ def test_grid_heading_reflects_the_no_price_mode(analysis: Analysis) -> None:
     )
     assert "intrinsic value (no price available)" in no_price
     assert "margin of safety (intrinsic ÷ price)" not in no_price
+
+
+def test_render_sanity_check_shows_both_pe_rows(analysis: Analysis) -> None:
+    check = dataclasses.replace(
+        analysis.sanity_check, implied_pe=15.0, market_pe=10.0, sector_pe=22.0
+    )
+    md = render_analysis(dataclasses.replace(analysis, sanity_check=check))
+    assert "| P/E implied (DCF) | 15.00 | 22.00 |" in md
+    assert "| P/E market | 10.00 | 22.00 |" in md
+    assert "\n| EV/Sales |" in md
