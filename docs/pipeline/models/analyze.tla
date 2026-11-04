@@ -65,7 +65,7 @@ TheLatestScreenListsIt ==
   /\ phase' = "chosen"
   /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
-(* src/bot/cli.py: analyze, argument checks raise typer.Exit(code=2) before the loop *)
+(* src/bot/cli.py: analyze, argument checks raise typer.Exit(code=2) before the loop; an --override path that is not a file (override.is_file()) *)
 TheArgumentsAreRefused ==
   /\ phase = "asked"
   /\ phase' = "command_stops"

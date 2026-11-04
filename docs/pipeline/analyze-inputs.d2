@@ -16,7 +16,7 @@ command_stops: "the command stops before any ticker\nno ticker is valued" {class
 # @symbol bot.cli.analyze
 chosen: "the ticker is chosen\neach ticker of the batch in turn" {class: decision}
 # @symbol bot.valuator.assumptions.conventional_override_path
-override_picked: "the override file is settled\n--override path (only with exactly one ticker)\nelse config/assumptions/TICKER.yaml when it exists, else none" {class: step}
+override_picked: "the override file is settled\n--override path (only with exactly one ticker); not a file: exit code two\nelse config/assumptions/TICKER.yaml when it exists, else none" {class: step}
 # @symbol bot.cli.analyze
 not_found: "the ticker is skipped (exit code two)\nthe batch goes on with the next ticker" {class: step}  # No outgoing edge: the run of this ticker ends here
 # @symbol bot.valuator.analysis.load_valuation_input @symbol bot.valuator.assumptions.load_assumption_inputs
@@ -45,7 +45,7 @@ out: "Comes out:\none loaded company: its newest annual figures and histories, n
 # Edges
 asked -> chosen: "the ticker is named on the command line\n[tickers named, no --from-screen]"
 asked -> chosen: "the latest screen lists it as a passed candidate [--from-screen]"
-asked -> command_stops: "the command stops, exit code two [tickers with --from-screen, neither, or --override without exactly one ticker]"
+asked -> command_stops: "the command stops, exit code two [tickers with --from-screen, neither, --override without exactly one ticker, or an --override path that is not a file]"
 asked -> command_stops: "the command stops, exit code 1 [a rate in config/currencies.yaml is out of range]"
 asked -> command_stops: "the command stops, exit code two [--from-screen, and no screen run or no passed candidate]"
 chosen -> override_picked: "the override file is the one --override names [exactly one ticker]"
