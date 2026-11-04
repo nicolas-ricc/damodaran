@@ -30,12 +30,12 @@
    - `@dataclass(frozen=True) class ConvertedPrice: price: float | None; fx_rate: float | None` — `fx_rate` is the cross rate `rate_listing / rate_valuation` applied, None when no conversion was needed or possible.
    - `def convert_price(close: float, listing_currency: str | None, valuation_currency: str | None, rate_to_usd: FxLookup) -> ConvertedPrice`. The price is computed as `close * rate_listing / rate_valuation` (this exact expression, as sync does today, so sync's floats do not move). The `close <= 0` guard stays in `_market_value` (it is a quote guard, not a conversion guard; the valuator already treats a price ≤ 0 as no margin).
 2. **`ValuationInput` shape:** `current_price` is replaced by
-   - `latest_close: LatestClose | None`, with `@dataclass(frozen=True) class LatestClose: close: float; currency: str | None; date: datetime.date` (public, in `analysis.py`, the newest non-null `prices_daily` row);
+   - `latest_close: LatestClose | None`, with `@dataclass(frozen=True) class LatestClose: close: float; currency: str | None; date: datetime.date` (public, in `analysis.py`, the newest non-null `prices_daily` row). `currency` is stored already normalised with `bot.reference.currencies.normalize_currency` (strip + upper, blank → None), the same function that normalises the valuation currency, so the "different" test, the USD shortcut and the rate keys all use one spelling. `convert_price` applies the same normalisation (it calls `normalize_currency`) before comparing and before calling `rate_to_usd`;
    - `close_rates: tuple[float | None, float | None] | None`: `(rate_to_usd(listing), rate_to_usd(valuation))` on or before `latest_close.date`, only when a conversion is needed (both currencies known and different); `None` otherwise. USD resolves to `1.0` without a query, as `get_fx_rate`.
    - The valuation currency is `assumption_inputs.valuation_currency` (already normalised, from the newest non-restated `financials_annual` row). No new read.
 3. **One conversion function for both loaders and `analyze`:** `def price_in_valuation_currency(inputs: ValuationInput) -> ConvertedPrice` (module-level in `analysis.py`) calls `convert_price` with `{listing: r1, valuation: r2}.get`-style lookup over `close_rates`. `latest_close is None` → `ConvertedPrice(None, None)`.
 4. **Bulk FX read:** one extra query, always issued when `kept` is non-empty (so the count does not depend on the currency mix): `(currency, date)` pairs unnested from two parallel arrays, `ASOF LEFT JOIN currencies c ON c.currency = n.currency AND c.date <= n.date`. Pairs are upper-cased; USD is never sent. The per-ticker loader uses `get_fx_rate` twice (only when a conversion is needed).
-5. **Warning:** logged by the loaders (they take `warned`; `analyze(company=...)` does not), when `price_in_valuation_currency(...)` has a close but no price. Key in the existing `warned: set[str | None]`: the string `f"price_fx:{listing}/{valuation}"` (cannot collide with a bare ISO code). Fields: `listing=<code>`, `valuation=<code>`, `date=<close date iso>`. With `warned=None` it logs on every call (same as `_warn_uncovered`). The bulk loader logs each missing pair once, sorted.
+5. **Warning:** logged by the loaders (they take `warned`; `analyze(company=...)` does not), when `price_in_valuation_currency(...)` has a close but no price. Key in the existing `warned: set[str | None]`: the string `f"price_fx:{listing}/{valuation}"` (cannot collide with a bare ISO code). Fields: `listing=<code>`, `valuation=<code>`, `date=<close date iso>`, `listing_rate=<rate or None>`, `valuation_rate=<rate or None>` (so a non-positive row is told apart from an absent one). With `warned=None` it logs on every call (same as `_warn_uncovered`). The bulk loader logs each missing pair once, sorted.
 6. **`Analysis` new fields**, appended after `intrinsic_value_after_governance`, all defaulting to `None` (so existing direct constructions keep working): `valuation_currency: str | None`, `listing_price: float | None` (raw close), `price_currency: str | None` (listing currency), `fx_rate: float | None`, `price_date: datetime.date | None` (the close's date; the report's "rate date", rates are taken on or before it). `current_price` = the converted price.
 7. **Report copy** (`templates/analysis.md.j2`):
    - Header: `currency {{ a.valuation_currency or "n/a" }}` — label word unchanged so USD goldens do not move.
@@ -71,7 +71,7 @@
   - `test_convert_price_missing_or_non_positive_rate`: parametrize EUR rate `None`, `0.0`, `-1.0` → `ConvertedPrice(None, None)`.
 - [ ] **Step 2: Run** `uv run pytest -q tests/unit/test_fx.py` — Expected: FAIL (ImportError `convert_price`).
 - [ ] **Step 3: Implement** `convert_price` and `ConvertedPrice` in `bot/utils/fx.py` (Decision 1). Rewrite `_market_value` as: quote guard, then `convert_price(quote.close, quote.currency, pos.currency, fx)`, `None` if `.price is None`, else `pos.quantity * .price`. Move `FxLookup` to `fx.py` and import it in `sync.py`.
-- [ ] **Step 4: Run** `uv run pytest -q tests/unit/test_fx.py tests/unit/test_portfolio_sync.py` — Expected: PASS, `test_portfolio_sync.py` not edited.
+- [ ] **Step 4: Run** `uv run pytest -q tests/unit/test_fx.py tests/unit/test_portfolio_sync.py`, then the full suite `uv run pytest -q` — Expected: PASS, `test_portfolio_sync.py` not edited.
 - [ ] **Step 5: Commit** `feat(#222): one price conversion helper shared with portfolio sync`.
 
 ### Task 2: Loaders read the close with its currency, date and rates
@@ -89,8 +89,8 @@
   - `test_bulk_loader_warns_once_per_missing_pair`: three EUR tickers with no EUR rate, `warned=set()` → exactly one `analysis.price_fx_missing` with `listing="USD", valuation="EUR"`.
   - In `test_valuator_price_fx.py`: `test_per_ticker_loader_warns_once_per_run` — two `load_valuation_input` calls sharing one `warned` set → one warning.
 - [ ] **Step 2: Run** `uv run pytest -q tests/unit/test_valuation_bulk_load.py tests/unit/test_valuator_price_fx.py` — Expected: FAIL.
-- [ ] **Step 3: Implement** Decisions 2–5. `_load_latest_price` becomes `_load_latest_close(conn, ticker) -> LatestClose | None` selecting `close, currency, date`. The bulk price query selects `ticker, close, currency, date`. Rates: Decision 4.
-- [ ] **Step 4: Run** the same tests — Expected: PASS.
+- [ ] **Step 3: Implement** Decisions 2–5. `_load_latest_price` becomes `_load_latest_close(conn, ticker) -> LatestClose | None` selecting `close, currency, date`. The bulk price query selects `ticker, close, currency, date`. Rates: Decision 4. In `analyze`, the line `current_price = inputs.current_price` becomes `current_price = price_in_valuation_currency(inputs).price`, so this commit is complete on its own (Task 3 adds the `Analysis` fields).
+- [ ] **Step 4: Run** the same tests, then the full suite `uv run pytest -q` — Expected: PASS.
 - [ ] **Step 5: Commit** `feat(#222): valuation inputs carry the close, its currency, date and rates`.
 
 ### Task 3: `analyze` values against the converted price
@@ -110,10 +110,10 @@
   - `test_no_rate_on_or_before_close_date_gives_no_price`: EUR rate only on 2026-06-01 → `current_price is None`, `margin_of_safety is None`, `margin_verdict(...) == "n/a"`, every grid cell `margin_of_safety is None`, `market_pe is None`, exactly one `analysis.price_fx_missing` log.
   - `test_null_listing_currency_uses_close`: `prices_daily.currency` NULL → `current_price == 110.0`, `fx_rate is None`.
   - `test_analyze_with_preloaded_inputs_converts`: `analyze(..., company=bulk_load_valuation_inputs(...)["AAPL"])` gives the same `current_price` as the per-ticker path (screener second pass).
-  - In `test_reporting_analysis_json.py`: `test_sidecar_carries_the_price_conversion_fields` — keys `valuation_currency`, `listing_price`, `price_currency`, `fx_rate`, `price_date` present; `schema_version == 1`.
+  - In `test_reporting_analysis_json.py`: `test_sidecar_carries_the_price_conversion_fields` — keys `valuation_currency`, `listing_price`, `price_currency`, `fx_rate`, `price_date` present, `price_date == "2026-05-29"` (ISO string from the writer's `_json_default`); `schema_version == 1`.
 - [ ] **Step 2: Run** them — Expected: FAIL.
 - [ ] **Step 3: Implement** Decision 6 in `analyze`: `converted = price_in_valuation_currency(inputs)`; `current_price = converted.price`; populate the new fields. Update the `Analysis` and `ValuationInput` docstrings (`current_price`: newest close converted into the valuation currency).
-- [ ] **Step 4: Run** `uv run pytest -q tests/unit/test_valuator_price_fx.py tests/unit/test_reporting_analysis_json.py tests/unit/test_valuator_isolation_golden.py tests/unit/test_screener_second_pass_golden.py` — Expected: PASS, goldens untouched.
+- [ ] **Step 4: Run** `uv run pytest -q tests/unit/test_valuator_price_fx.py tests/unit/test_reporting_analysis_json.py tests/unit/test_valuator_isolation_golden.py tests/unit/test_screener_second_pass_golden.py`, then the full suite — Expected: PASS, goldens untouched.
 - [ ] **Step 5: Commit** `feat(#222): margin of safety on the price in the valuation currency`.
 
 ### Task 4: Report header and conversion line; holding marks
@@ -129,7 +129,7 @@
   - `test_header_shows_the_valuation_currency`: `analysis` fixture `dataclasses.replace(..., currency="USD", valuation_currency="EUR")` → header line contains `currency EUR`.
   - `test_price_conversion_line_only_when_converted`: with `fx_rate=1/1.10, listing_price=110.0, price_currency="USD", valuation_currency="EUR", current_price=100.0, price_date=date(2026,5,29)` → md contains `- **Price conversion:** close 110.00 USD × 0.909091 = 100.00 EUR (rates on or before 2026-05-29)`; with `fx_rate=None` → no `Price conversion` substring.
   - `test_missing_rate_line`: `current_price=None, margin_of_safety=None, listing_price=110.0, price_currency="USD", valuation_currency="EUR", price_date=...` → contains `has no exchange rate into EUR on or before 2026-05-29`.
-  - `test_mark_holdings_stores_the_converted_price` in `test_portfolio_marks.py`: default valuator (no `analyze_fn`) on a seeded EUR-reporting holding with a 110 USD close and EUR rate 1.10 → the persisted mark's `price == approx(100.0)`.
+  - `test_mark_holdings_stores_the_converted_price` in `test_portfolio_marks.py`: default valuator (no `analyze_fn`), seeded with the file's existing `_seed_benchmarks` + `_seed_company`, then `UPDATE financials_annual SET currency = 'EUR'`, close updated to 110 USD, an EUR row in `currencies` — an EUR-reporting holding with a 110 USD close and EUR rate 1.10 → the persisted mark's `price == approx(100.0)`.
 - [ ] **Step 2: Run** — Expected: FAIL.
 - [ ] **Step 3: Implement** Decision 7 in the template. No change in `marks.py` (it already reads `analysis.current_price`).
 - [ ] **Step 4: Run** `uv run pytest -q tests/unit/test_reporting_analysis.py tests/unit/test_portfolio_marks.py tests/unit/test_valuator_isolation_golden.py` — Expected: PASS.
@@ -147,3 +147,21 @@
 - [ ] **Step 4: Run** `uv run pytest -q tests/unit/test_pipeline_diagram.py tests/unit/test_pipeline_subboards.py tests/unit/test_pipeline_models.py tests/unit/test_analyze_model_replay.py` — Expected: PASS. `python3 docs/pipeline/check.py` fails only on the stale `rendered.sha256`.
 - [ ] **Step 5: Commit** `docs(#222): ADR 0005 and the atlas record the price conversion`.
 - [ ] **Step 6 (orchestrator, after push):** download the `pipeline-render` artifact of the push's `pipeline-diagram` run (`gh run download <id> -n pipeline-render`), copy the SVGs and `rendered.sha256` into `docs/pipeline/`, run `python3 docs/pipeline/check.py` (PASS), commit `docs(#222): render` naming the run id.
+
+## Assumptions
+
+Technical decisions taken without a written source (listed for the PR description):
+
+- A1. **`price_date` on `Analysis`.** The brief asks the report to show "the rate date" but lists only four new fields. The close's date is added as `price_date`; rates are taken on or before it. Rejected: the actual rate rows' dates (a cross rate mixes two rows that may carry different dates).
+- A2. **The warning key** in the existing `warned: set[str | None]` is `"price_fx:<listing>/<valuation>"`. Rejected: a second `warned` parameter (changes every caller's signature for one event).
+- A3. **The warning is logged by the loaders, not by `analyze`.** `analyze(company=...)` (screener second pass) receives no `warned` set; the loaders do. Rejected: logging in `analyze` (one event per company in the screener).
+- A4. **The bulk FX query is always issued** when any ticker is kept, so the query count is the same for an all-USD and a mixed set. An empty-array bind was run against DuckDB 1.5.3 and returns `[]`.
+- A5. **The header keeps the word "currency"** and prints the valuation currency; changing the label would move every USD golden, which the first acceptance criterion forbids.
+- A6. **`Analysis.currency` (from `companies.currency`) stays** in the sidecar; retiring it is ADR 0005 §1, out of scope.
+
+## Grilling
+
+- Rounds: 1 (the revision added no task and changed no seam). Griller model: fable.
+- Questions: 14. Sources: ISSUE 5 (Q2, Q10, Q12, Q13 partly, Q9 with CODE), CODE 9 (Q1 `analysis.py:716`; Q3 `reference/currencies.py:49-54`; Q5 isolation and second-pass seeds are USD in `companies` and `financials_annual`; Q6 `valuator/sensitivity.py:268-309`, `analysis.py:635`; Q7 `reporting/analysis_json.py:20-23`; Q8 `portfolio/sync.py:126-131` computes `close * rate_price / rate_pos` then `quantity * close_in_pos`; Q9 `portfolio/marks.py:131` shares one `warned` set per run; Q11 `tests/unit/test_portfolio_marks.py:67-102`; Q14 `.github/workflows/pipeline-diagram.yml:34` runs `check.py` in the `render` job), DOC 0, NO SOURCE 4 (A1–A4 above, Q4 verified by running the bind).
+- Plan changes: Task 2 also switches `analyze` to the converted price so each commit is green; full suite at each task; one normalisation (`normalize_currency`) for codes; warning carries both rates; test fixtures and the sidecar date string named.
+- Issues opened: #234 (no staleness bound on the nearest-prior rate; the brief fixes `get_fx_rate` semantics, so it is out of scope here).
