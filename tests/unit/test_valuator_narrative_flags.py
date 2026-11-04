@@ -15,6 +15,9 @@ the actual arithmetic, not a hand-built ``DCFResult``.
 from __future__ import annotations
 
 import dataclasses
+import inspect
+import itertools
+from collections.abc import Callable
 
 import pytest
 
@@ -622,3 +625,114 @@ def test_terminal_roic_unknown_when_the_sector_roic_is_not_positive(sector_roic:
     flag = _terminal_roic_flag(terminal_roic=0.15, sector_roic=sector_roic)
     assert flag.color is FlagColor.UNKNOWN
     assert "not a usable benchmark" in flag.reason
+
+
+# --------------------------------------------------------------------------- #
+# Which flags can be red (issue #218)                                         #
+# --------------------------------------------------------------------------- #
+# The analyze-flags and portfolio-mark-events boards say only growth_reinvestment
+# (of the five) and hypergrowth_story can be red, so only they fire new_red_flag.
+# These tests break when that stops being true.
+
+_NEVER_RED = (
+    story_margin_flag,
+    beta_business_risk_flag,
+    terminal_value_share_flag,
+    hypergrowth_revenue_scale_flag,
+    hypergrowth_terminal_roic_flag,
+)
+#: NarrativeFlag.name of every flag that can return red.
+_RED_CAPABLE = {"growth_reinvestment", "country_exposure", "hypergrowth_story"}
+
+
+def _sweep_results() -> list[tuple[Financials, Assumptions, DCFResult]]:
+    """Default, negative FCFF, terminal share > 80%, year-10 revenue > 750B."""
+    cases = [
+        (_financials(), _assumptions()),
+        (_financials(), _assumptions(sales_to_capital=0.1)),
+        (
+            _financials(),
+            _assumptions(
+                revenue_growth=(0.01, 0.01, 0.01, 0.01, 0.01),
+                terminal_growth=0.04,
+                cost_of_equity=0.07,
+                pretax_cost_of_debt=0.04,
+            ),
+        ),
+        (Financials(revenue=1e12, net_debt=0.0, shares_diluted=100.0), _assumptions()),
+    ]
+    return [(fin, asm, _result(fin, asm)) for fin, asm in cases]
+
+
+def _sweep_contexts() -> list[NarrativeContext]:
+    return [
+        NarrativeContext(
+            story_type=story_type,
+            company_operating_margin=company_margin,
+            sector_operating_margin=sector_margin,
+            sector_beta=beta,
+            operating_leverage=operating_leverage,
+            company_debt_weight=debt_weight,
+            terminal_roic=terminal_roic,
+            sector_roic=sector_roic,
+        )
+        for (
+            story_type,
+            company_margin,
+            sector_margin,
+            beta,
+            operating_leverage,
+            debt_weight,
+            terminal_roic,
+            sector_roic,
+        ) in itertools.product(
+            (None, "high-growth", "hypergrowth"),
+            (None, 0.05, 0.30),
+            (None, 0.10),
+            (None, 0.5, 1.5),
+            (None, 3.0),
+            (None, 0.9),
+            (None, 0.5),
+            (None, 0.0, 0.1),
+        )
+    ]
+
+
+def test_sweep_results_reach_the_bands() -> None:
+    _, negative, fragile, huge = _sweep_results()
+    assert any(p.fcff < 0.0 for p in negative[2].projections)
+    assert fragile[2].terminal_value_share > 0.80
+    assert huge[2].projections[-1].revenue > 750e9
+
+
+def test_every_flag_is_classified_by_red_capability() -> None:
+    fin, asm = _financials(), _assumptions()
+    result = _result(fin, asm)
+    ctx = _ctx(story_type="hypergrowth", hypergrowth_signals=True)
+    emitted = {
+        f.name
+        for f in narrative_flags(fin, asm, result, ctx) + hypergrowth_flags(fin, asm, result, ctx)
+    }
+    never_red = {f.__name__.removesuffix("_flag") for f in _NEVER_RED}
+    assert emitted == never_red | _RED_CAPABLE
+
+
+@pytest.mark.parametrize("flag", _NEVER_RED, ids=lambda f: f.__name__)
+def test_never_red_flag_source_names_no_red(
+    flag: Callable[[Financials, Assumptions, DCFResult, NarrativeContext], NarrativeFlag],
+) -> None:
+    assert "FlagColor.RED" not in inspect.getsource(flag)
+
+
+@pytest.mark.parametrize("flag", _NEVER_RED, ids=lambda f: f.__name__)
+def test_never_red_flag_is_not_red_over_a_sweep(
+    flag: Callable[[Financials, Assumptions, DCFResult, NarrativeContext], NarrativeFlag],
+) -> None:
+    contexts = _sweep_contexts()
+    reds = [
+        (fin, ctx)
+        for fin, asm, result in _sweep_results()
+        for ctx in contexts
+        if flag(fin, asm, result, ctx).color is FlagColor.RED
+    ]
+    assert reds == []
