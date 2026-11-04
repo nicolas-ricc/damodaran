@@ -109,7 +109,7 @@ def test_threshold_values_unchanged() -> None:
 
 ## Grilling
 
-One round (griller model: fable). The revision added no task and changed no seam, so no second round ran. 16 questions. Sources: ISSUE 4, CODE 15, DOC 3. Questions often cite more than one source. Three questions had no source and became technical assumptions. No spec ambiguity, no out-of-scope issue.
+One round (griller model: fable). The revision added no task and changed no seam, so no second round ran. 16 questions. Sources: ISSUE 4, CODE 15, DOC 3. Questions often cite more than one source. Two questions (12, 16) had no source and became technical assumptions. No spec ambiguity, no out-of-scope issue.
 
 | # | Question (short) | Answer |
 |---|---|---|
