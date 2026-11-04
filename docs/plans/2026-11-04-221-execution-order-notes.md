@@ -65,7 +65,7 @@ assert forced.sanity_check == baseline.sanity_check
 (Write `red` as a `def` with typed `*args: object` for mypy and ruff.)
 
 - [ ] **Step 2: Run** `uv run pytest -q tests/unit/test_valuator_analysis.py -k flags_change_neither`. Expected: PASS. It is a characterization guard. To check its red state, temporarily make `analyze` multiply `margin_of_safety` by 0.5 when any flag is red, see the test fail, then revert. The revert is mandatory: `src/` must stay unchanged.
-- [ ] **Step 3: Commit** `test(#221): ...`.
+- [ ] **Step 3: Commit** `test(#221): ...`, after `git diff --exit-code -- src/ docs/pipeline/models/` exits 0 (the red-state edit is reverted). If the commit ever carries a `src/` change, `git revert` it before going on.
 
 ### Task 2: The three notes
 
@@ -79,6 +79,7 @@ assert forced.sanity_check == baseline.sanity_check
   - In `test_pipeline_subboards.py`, add `"Execution order, not dependency"`, `"The flags change none of them"` and `"does not read the verdict"` to both `_ANALYZE_TEXT["analyze-flags"]` and `_ANALYZE_TEXT["analyze-verdict"]`.
   - In `test_pipeline_diagram.py`, add `("execution_order", "note")` to `_ANALYZE_NODES`.
   - Also in `test_pipeline_diagram.py`, add `"execution_order": [the same three phrases, plus "the value after the governance discount"]` to `_ANALYZE_TEXT`.
+  - In `test_pipeline_subboards.py`, add `test_execution_order_note_is_the_same_on_three_boards`. It asserts that the `execution_order` label (`node_labels(_text(stem))["execution_order"]`) has class `note` and the same text on `analyze`, `analyze-flags` and `analyze-verdict`.
 - [ ] **Step 2: Run** `uv run pytest -q tests/unit/test_pipeline_diagram.py tests/unit/test_pipeline_subboards.py`. Expected: the new entries FAIL.
 - [ ] **Step 3: Add** `execution_order: |md <Decision 1 copy> | {class: note}` on each of the three boards.
 - [ ] **Step 4: Run** the same tests, plus `uv run pytest -q tests/unit/test_pipeline_models.py`. Expected: PASS. Also run `python3 docs/pipeline/check.py`. Expected: it fails only on the stale `rendered.sha256` (Task 3).
@@ -87,5 +88,28 @@ assert forced.sanity_check == baseline.sanity_check
 ### Task 3: Render
 
 - [ ] Push the branch. Wait for the `pipeline-diagram` run on its head commit: `gh run list --branch <b> --workflow pipeline-diagram`, then `gh run watch <id>`. Download the render with `gh run download <id> -n pipeline-render -D <tmpdir>`.
-- [ ] Copy `analyze.svg`, `analyze-flags.svg`, `analyze-verdict.svg` and `rendered.sha256` into `docs/pipeline/`. Any other SVG that d2 re-renders byte-identically shows no diff.
+- [ ] Copy only `analyze.svg`, `analyze-flags.svg`, `analyze-verdict.svg` and `rendered.sha256` into `docs/pipeline/`. `rendered.sha256` hashes the `.d2` sources, not the SVGs (`build.sh`), so leaving the untouched SVGs as committed keeps the hash consistent, even if TALA would draw them differently.
 - [ ] `python3 docs/pipeline/check.py` and the full suite must pass. Commit `docs(#221): render`.
+
+## Assumptions
+
+Technical choices made in the plan review, each with the alternative it rejected:
+
+- **A1. The note copy corrects the brief's sentence (Decision 1).** The rejected alternative is the brief's sentence verbatim. Backing:
+  - The issue body says "read only the DCF result, the price and the sector row".
+  - `analysis.py:829-853` reads the governance discount and `_sanity_check(current_price, net_income, shares, enterprise_value, revenue, sector)`.
+  
+  The brief's intent and its opening words, "Execution order, not dependency", are kept, and so is its claim that the flags change none of them.
+- **A2. The Task 1 guard is added by the plan; no AC asks for it.** Rejected alternative: notes only. The guard is what makes the note's claim checked against the code. It changes no `src/`.
+- **A3. The guard is a characterization test.** It passes on its first run, and its red state is shown by a temporary, reverted edit. Rejected alternative: a committed failing test, which is impossible for a property the code already has.
+- **A4. Placement on `analyze.d2` is by declaration order.** No test asserts position, and TALA lays out the board. Rejected alternative: nesting the note in section 7 or 8, which would make it read as belonging to one section only.
+- **A5. Only the three changed SVGs come from the CI artifact (Task 3).** Rejected alternative: copying every SVG, which would widen the diff beyond #221.
+
+## Grilling
+
+- **Rounds:** one. The revision added assertions and a verification line to existing steps; no step or seam changed.
+- **Questions:** 17.
+- **Answers by source:** CODE 10, ISSUE 2, DOC 3, NO SOURCE 2. Both NO SOURCE answers are technical assumptions (A3, A4).
+- **Assumptions:** A1 to A5 above.
+- **Issues opened:** none.
+- **Changes the answers made to the plan:** a `src/`/`models/` diff check before the Task 1 commit (Q8), an identical-copy test (Q10), and the rule to copy only the three SVGs (Q12).
