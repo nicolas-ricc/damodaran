@@ -132,11 +132,13 @@ class Analysis:
         intrinsic_value_after_governance: ``dcf_result.intrinsic_value *
             (1 - governance_discount)``; equals the intrinsic value at ``0.0``.
         valuation_currency: Currency the DCF (and so ``current_price``) is in.
-        listing_price: The newest close as listed, before conversion.
-        price_currency: Currency of ``listing_price`` (normalised).
+        listing_price: The newest close as listed, before conversion
+            (``None`` without a close).
+        price_currency: Currency of ``listing_price`` (normalised; ``None``
+            when unknown or without a close).
         fx_rate: Multiplier taking the listing price into the valuation
             currency; ``None`` when no conversion applied or no rate was found.
-        price_date: Date of the newest close.
+        price_date: Date of the newest close (``None`` without a close).
     """
 
     ticker: str
@@ -1003,6 +1005,7 @@ def analyze(
         sector=sector,
     )
 
+    close = inputs.latest_close
     return Analysis(
         ticker=ticker,
         name=company_row.name,
@@ -1035,8 +1038,8 @@ def analyze(
         governance_discount=governance_discount,
         intrinsic_value_after_governance=intrinsic_after_governance,
         valuation_currency=inputs.assumption_inputs.valuation_currency,
-        listing_price=inputs.latest_close.close if inputs.latest_close else None,
-        price_currency=inputs.latest_close.currency if inputs.latest_close else None,
+        listing_price=close.close if close else None,
+        price_currency=close.currency if close else None,
         fx_rate=converted.fx_rate,
-        price_date=inputs.latest_close.date if inputs.latest_close else None,
+        price_date=close.date if close else None,
     )

@@ -323,3 +323,4 @@ def test_missing_rate_line(analysis: Analysis) -> None:
         "2026-05-29 — margin of safety cannot be computed."
     ) in md
     assert "Price conversion" not in md
+    assert "**Margin of safety" not in md
