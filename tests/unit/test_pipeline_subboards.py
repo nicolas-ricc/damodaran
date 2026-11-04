@@ -468,6 +468,9 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "2 \u00d7 the sector ROIC",
         "Only growth_reinvestment can be red",
         "only hypergrowth_story can be red",
+        "Execution order, not dependency",
+        "The flags change none of them",
+        "does not read the verdict",
     ],
     "analyze-verdict": [
         "potentially undervalued",
@@ -481,6 +484,9 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "governance discount",
         "value after governance",
         "scenario range",
+        "Execution order, not dependency",
+        "The flags change none of them",
+        "does not read the verdict",
     ],
 }
 # The gap notes a sub-board repeats because they change what the reader sees in the flow.
@@ -511,6 +517,13 @@ def test_analyze_verdict_outputs() -> None:
     json_outputs = [p for p in outputs if ".json" in nodes[p][2]]
     assert len(json_outputs) == 1
     assert _link(_block(text, json_outputs[0]) or "") == "./site.svg"
+
+
+def test_execution_order_note_is_the_same_on_three_boards() -> None:
+    stems = ("analyze", "analyze-flags", "analyze-verdict")
+    notes = {stem: node_labels(_text(stem)).get("execution_order") for stem in stems}
+    assert all(n is not None and n[1] == "note" for n in notes.values()), notes
+    assert len({n[2] for n in notes.values() if n is not None}) == 1
 
 
 @pytest.mark.parametrize("stem", sorted(_ANALYZE_SUBBOARDS))

@@ -30,6 +30,8 @@ always_unknown: |md Gap: analyze never supplies the foreign revenue share or the
 
 only_red: |md Only growth_reinvestment can be red among the five checks: three stop at yellow and country exposure is always unknown. Among the hypergrowth flags, only hypergrowth_story can be red (signals without a story file). | {class: note}
 
+execution_order: |md Execution order, not dependency: the margin of safety and the verdict read the value after the governance discount and the latest close; the sanity check reads the latest close, net income, diluted shares and revenue, the discounted cash flow's intrinsic value per share and enterprise value, and the sector multiples. The flags change none of them, and the sanity check does not read the verdict. | {class: note}
+
 # Neighbours
 # @symbol bot.valuator.sensitivity.scenario_range
 scenarios_done: "the scenario range is settled" {class: decision; link: "./analyze-sensitivity.svg"}  # No incoming edge: the flow enters from analyze-sensitivity
