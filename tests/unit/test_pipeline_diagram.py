@@ -1604,6 +1604,9 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
     "tickers": ["--from-screen", "latest", "by rank", "exit code 2"],
     "override": [
         "--override", "exactly one ticker", "config/assumptions/TICKER.yaml", "before the signals",
+        "not valid YAML", "not a mapping", "an unknown key", "a value that is not a finite number",
+        "a non-empty list of them for revenue_growth / operating_margin",
+        "an inconsistent story file", "cannot value, exit code 1",
     ],
     "cli.errors": ["exit code 2", "exit code 1", "worst"],
     "inputs.load": [
@@ -1749,6 +1752,15 @@ def test_analyze_text(key: str) -> None:
     block = _check().normalize(_analyze_block(key))
     missing = [w for w in _ANALYZE_TEXT[key] if _check().normalize(w) not in block]
     assert missing == []
+
+
+def test_analyze_override_names_every_list_key() -> None:
+    """The override decision names exactly the keys that take a per-year list (#212)."""
+    from bot.valuator.assumptions import _OVERRIDE_PATH_KEYS
+
+    lines = _analyze_block("override").split("\\n")
+    line = next((x for x in lines if "non-empty list" in x), "")
+    assert set(re.findall(r"[a-z]+_[a-z_]+", line)) == set(_OVERRIDE_PATH_KEYS)
 
 
 def _story(**fields: Any) -> StoryType:

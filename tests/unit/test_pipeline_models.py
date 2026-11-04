@@ -869,3 +869,11 @@ def test_analyze_rules_are_cited() -> None:
         while lines[j].lstrip().startswith("\\*"):
             j -= 1
         assert lines[j].rstrip().endswith("*)") and "Cites:" in "\n".join(lines[j - 3 : j + 1]), rule
+
+
+def test_analyze_model_and_boards_name_no_crash() -> None:
+    """A bad override file is cannot value, not a crash (#180, #212)."""
+    paths = [*_MODELS.glob("analyze.*"), *_MODELS.parent.glob("analyze*.d2")]
+    assert paths
+    hits = [p.name for p in paths if "crash" in p.read_text().lower()]
+    assert hits == []
