@@ -1,0 +1,91 @@
+# Execution order, not dependency: notes on three analyze boards — Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Say on `analyze-flags.d2`, `analyze-verdict.d2` and `analyze.d2` that the flags → verdict → sanity check chain is the order `analyze` runs them in, not a data dependency. Add a test that fails when that stops being true.
+
+**Architecture:** Three `note` nodes, each keyed `execution_order`. Two are top-level on the sub-boards. The third is top-level on `analyze.d2`, declared right after section 8 (`sanity_check`) and before section 9 (`reports`). Notes add no edges, and the statechart, its edges and `models/` stay as they are. One characterization test in `tests/unit/test_valuator_analysis.py` pins the claim against `analyze()`. The SVGs and `rendered.sha256` come from the `pipeline-render` artifact of the `pipeline-diagram` workflow, because d2 is not on `PATH` here and installing it was refused.
+
+**Tech Stack:** d2 v0.9.0 (CI), pytest, `docs/pipeline/check.py`.
+
+**Spec:** issue #221 and its Agent Brief comment. The board conventions are in `docs/pipeline/README.md`.
+
+## Global Constraints
+
+- No change under `models/` (`docs/pipeline/models/`) or `src/` (AC2).
+- The statechart and edges stay as they are. Redrawing the boards as parallel outputs is out of scope, and so are the verdict threshold constants (#220).
+- Notes use `class: note`, never `gap`. There is no `@` inside the `|md ... |` block, and no digits in the copy.
+- At most 24 edges per board (`test_edge_cap`). Notes add none.
+- Never edit an SVG or `rendered.sha256` by hand.
+
+## Decisions taken here
+
+1. **The brief's sentence is corrected to match the code.** The brief proposes: "Execution order, not dependency: the margin of safety, the verdict and the sanity check read the DCF result and the price only; the flags do not change them." Two parts of `analyze` (`src/bot/valuator/analysis.py:829-853`) make "the DCF result and the price only" false:
+   - The margin of safety reads `intrinsic_after_governance`, which applies the story file's governance discount.
+   - `_sanity_check` also reads the latest net income, revenue and shares, and the sector multiples. The issue body itself says "the price and the sector row".
+   
+   Precedent: #218 corrected a brief sentence for the same reason. The exact copy, identical on all three boards:
+
+   `Execution order, not dependency: the margin of safety and the verdict read the value after the governance discount and the latest close; the sanity check reads the latest close and figures, the DCF's enterprise value and the sector multiples. The flags change none of them, and the sanity check does not read the verdict.`
+2. **Note key `execution_order`** on all three boards, top-level. On `analyze.d2` it sits between sections 8 and 9. "Near sections 6–8" is met by declaration order; TALA chooses the final placement.
+3. **A guard test backs the note.** The test monkeypatches `bot.valuator.analysis.narrative_flags` and `bot.valuator.analysis.hypergrowth_flags` so that every flag comes out red. It then asserts that `margin_of_safety`, `margin_verdict(margin_of_safety)` and `sanity_check` equal the unpatched run. The test lives under `tests/`, so AC2 holds.
+
+## Review Focus
+
+- Someone makes a red flag cap the verdict → the Task 1 guard fails.
+- Someone feeds the verdict into the sanity check → there is no runtime test for it. `_sanity_check`'s signature (`analysis.py:614`) has no verdict parameter, and the Task 1 guard covers flags only. This is accepted: the note names it, and the check is a pure function of its six arguments.
+- A sub-board loses the note in a re-render → `rendered.sha256` (`check.py`) plus the `_ANALYZE_TEXT` phrases in Task 2.
+- A reader of `analyze-flags` thinks the note contradicts the edge `hypergrowth_checked -> discounted` → the note opens with "Execution order", the word the brief chose, and the edge stays because it mirrors `models/analyze.tla`.
+
+---
+
+### Task 1: Guard — flags change neither the margin of safety, the verdict nor the sanity check
+
+**Files:**
+- Test: `tests/unit/test_valuator_analysis.py` (after `test_analyze_sanity_check_vs_sector_multiples`)
+
+**Interfaces:**
+- Consumes: `analyze`, the `seeded_conn` fixture, `NarrativeFlag(name, color, reason)`, `FlagColor.RED`, and `bot.reporting.analysis_report.margin_verdict`.
+- Produces: nothing.
+
+- [ ] **Step 1: Write the test** `test_flags_change_neither_the_verdict_nor_the_sanity_check(seeded_conn, monkeypatch)`:
+
+```python
+baseline = analyze("AAPL", seeded_conn)
+red = lambda *a, **k: (NarrativeFlag("forced", FlagColor.RED, "forced red"),)
+monkeypatch.setattr("bot.valuator.analysis.narrative_flags", red)
+monkeypatch.setattr("bot.valuator.analysis.hypergrowth_flags", red)
+forced = analyze("AAPL", seeded_conn)
+assert all(f.color is FlagColor.RED for f in forced.narrative_flags)
+assert forced.margin_of_safety == baseline.margin_of_safety
+assert margin_verdict(forced.margin_of_safety) == margin_verdict(baseline.margin_of_safety)
+assert forced.sanity_check == baseline.sanity_check
+```
+
+(Write `red` as a `def` with typed `*args: object` for mypy and ruff.)
+
+- [ ] **Step 2: Run** `uv run pytest -q tests/unit/test_valuator_analysis.py -k flags_change_neither`. Expected: PASS. It is a characterization guard. To check its red state, temporarily make `analyze` multiply `margin_of_safety` by 0.5 when any flag is red, see the test fail, then revert. The revert is mandatory: `src/` must stay unchanged.
+- [ ] **Step 3: Commit** `test(#221): ...`.
+
+### Task 2: The three notes
+
+**Files:**
+- Modify: `docs/pipeline/analyze-flags.d2` (after `only_red`, before `# Neighbours`)
+- Modify: `docs/pipeline/analyze-verdict.d2` (after `back`, before `# States`)
+- Modify: `docs/pipeline/analyze.d2` (after the `sanity_check` block, before `# Section 9: reports`)
+- Test: `tests/unit/test_pipeline_subboards.py` (`_ANALYZE_TEXT["analyze-flags"]`, `_ANALYZE_TEXT["analyze-verdict"]`), `tests/unit/test_pipeline_diagram.py` (`_ANALYZE_NODES`, `_ANALYZE_TEXT`)
+
+- [ ] **Step 1: Failing tests.**
+  - In `test_pipeline_subboards.py`, add `"Execution order, not dependency"`, `"The flags change none of them"` and `"does not read the verdict"` to both `_ANALYZE_TEXT["analyze-flags"]` and `_ANALYZE_TEXT["analyze-verdict"]`.
+  - In `test_pipeline_diagram.py`, add `("execution_order", "note")` to `_ANALYZE_NODES`.
+  - Also in `test_pipeline_diagram.py`, add `"execution_order": [the same three phrases, plus "the value after the governance discount"]` to `_ANALYZE_TEXT`.
+- [ ] **Step 2: Run** `uv run pytest -q tests/unit/test_pipeline_diagram.py tests/unit/test_pipeline_subboards.py`. Expected: the new entries FAIL.
+- [ ] **Step 3: Add** `execution_order: |md <Decision 1 copy> | {class: note}` on each of the three boards.
+- [ ] **Step 4: Run** the same tests, plus `uv run pytest -q tests/unit/test_pipeline_models.py`. Expected: PASS. Also run `python3 docs/pipeline/check.py`. Expected: it fails only on the stale `rendered.sha256` (Task 3).
+- [ ] **Step 5: Commit** `docs(#221): ...`.
+
+### Task 3: Render
+
+- [ ] Push the branch. Wait for the `pipeline-diagram` run on its head commit: `gh run list --branch <b> --workflow pipeline-diagram`, then `gh run watch <id>`. Download the render with `gh run download <id> -n pipeline-render -D <tmpdir>`.
+- [ ] Copy `analyze.svg`, `analyze-flags.svg`, `analyze-verdict.svg` and `rendered.sha256` into `docs/pipeline/`. Any other SVG that d2 re-renders byte-identically shows no diff.
+- [ ] `python3 docs/pipeline/check.py` and the full suite must pass. Commit `docs(#221): render`.
