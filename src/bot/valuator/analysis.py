@@ -23,10 +23,12 @@ from typing import Any
 
 import duckdb
 
-from bot.reference.currencies import CurrencyTable
+from bot.reference.currencies import CurrencyTable, normalize_currency
 from bot.reference.regions import dataset_region
 from bot.reference.sectors import is_cyclical
 from bot.utils.finance import cagr
+from bot.utils.fx import ConvertedPrice, convert_price, get_fx_rate
+from bot.utils.logging import get_logger
 from bot.valuator.assumptions import (
     AssumptionInputs,
     bulk_load_assumption_inputs,
@@ -58,6 +60,8 @@ from bot.valuator.story_types import (
     StoryType,
     classify,
 )
+
+log = get_logger(__name__)
 
 # Plausible range for a diluted share count (bounds inclusive). Outside it the
 # figure is almost certainly mis-scaled (e.g. reported in millions), and a
@@ -114,7 +118,8 @@ class Analysis:
         narrative_flags: The five §7.5 consistency flags, plus the
             ``hypergrowth_story`` flag when it applies.
         sanity_check: Implied vs sector multiples (spec §7.7).
-        current_price: Latest close in the listing currency (``None`` if absent).
+        current_price: Latest close converted into the valuation currency (``None``
+            if absent or no exchange rate).
         margin_of_safety: ``intrinsic_value_after_governance / current_price``
             (``None`` if no price), i.e. measured on the value after the
             governance discount. > 1 means potentially undervalued (CONTEXT.md).
@@ -126,6 +131,14 @@ class Analysis:
             the raw value.
         intrinsic_value_after_governance: ``dcf_result.intrinsic_value *
             (1 - governance_discount)``; equals the intrinsic value at ``0.0``.
+        valuation_currency: Currency the DCF (and so ``current_price``) is in.
+        listing_price: The newest close as listed, before conversion
+            (``None`` without a close).
+        price_currency: Currency of ``listing_price`` (normalised; ``None``
+            when unknown or without a close).
+        fx_rate: Multiplier taking the listing price into the valuation
+            currency; ``None`` when no conversion applied or no rate was found.
+        price_date: Date of the newest close (``None`` without a close).
     """
 
     ticker: str
@@ -149,6 +162,11 @@ class Analysis:
     scenarios: tuple[ScenarioResult, ...] = ()
     governance_discount: float = 0.0
     intrinsic_value_after_governance: float = 0.0
+    valuation_currency: str | None = None
+    listing_price: float | None = None
+    price_currency: str | None = None
+    fx_rate: float | None = None
+    price_date: _date | None = None
 
 
 # --------------------------------------------------------------------------- #
@@ -257,15 +275,60 @@ def _histories_from_rows(
     return revenues, incomes, ebits
 
 
-def _load_latest_price(
-    conn: duckdb.DuckDBPyConnection, ticker: str
-) -> float | None:
+@dataclass(frozen=True)
+class LatestClose:
+    """The newest non-null ``prices_daily`` row: close, listing currency, date.
+
+    ``currency`` is normalised (strip + upper, blank -> ``None``) like the
+    valuation currency, so the two compare and key rate lookups in one spelling.
+    """
+
+    close: float
+    currency: str | None
+    date: _date
+
+
+def _load_latest_close(conn: duckdb.DuckDBPyConnection, ticker: str) -> LatestClose | None:
     row = conn.execute(
-        "SELECT close FROM prices_daily WHERE ticker = ? AND close IS NOT NULL "
+        "SELECT close, currency, date FROM prices_daily WHERE ticker = ? AND close IS NOT NULL "
         "ORDER BY date DESC LIMIT 1",
         [ticker],
     ).fetchone()
-    return float(row[0]) if row is not None and row[0] is not None else None
+    if row is None:
+        return None
+    return LatestClose(float(row[0]), normalize_currency(row[1]), row[2])
+
+
+def _needs_conversion(close: LatestClose | None, valuation: str | None) -> bool:
+    return (
+        close is not None
+        and close.currency is not None
+        and valuation is not None
+        and close.currency != valuation
+    )
+
+
+def _warn_price_fx_missing(
+    inputs: ValuationInput, warned: set[str | None] | None
+) -> None:
+    """Log a close that cannot be converted, once per currency pair per run."""
+    close, rates = inputs.latest_close, inputs.close_rates
+    valuation = inputs.assumption_inputs.valuation_currency
+    if close is None or rates is None or price_in_valuation_currency(inputs).price is not None:
+        return
+    key = f"price_fx:{close.currency}/{valuation}"
+    if warned is not None:
+        if key in warned:
+            return
+        warned.add(key)
+    log.warning(
+        "analysis.price_fx_missing",
+        listing=close.currency,
+        valuation=valuation,
+        date=close.date.isoformat(),
+        listing_rate=rates[0],
+        valuation_rate=rates[1],
+    )
 
 
 @dataclass(frozen=True)
@@ -353,7 +416,10 @@ class ValuationInput:
         latest: The latest non-restated annual financials.
         revenue_history / income_history / ebit_history: Oldest-first histories.
         sector: The Damodaran sector/country multiples.
-        current_price: Latest close, or ``None``.
+        latest_close: Newest close with its currency and date, or ``None``.
+        close_rates: ``(rate_to_usd(listing), rate_to_usd(valuation))`` on or
+            before the close's date, only when the two currencies are known and
+            differ; otherwise ``None``. A missing rate is ``None`` in the pair.
         assumption_inputs: The pre-loaded rows :func:`resolve_assumptions` needs.
     """
 
@@ -364,8 +430,22 @@ class ValuationInput:
     income_history: tuple[float, ...]
     ebit_history: tuple[float, ...]
     sector: _SectorMultiples
-    current_price: float | None
+    latest_close: LatestClose | None
+    close_rates: tuple[float | None, float | None] | None
     assumption_inputs: AssumptionInputs
+
+
+def price_in_valuation_currency(inputs: ValuationInput) -> ConvertedPrice:
+    """The newest close converted into the valuation currency (``None`` if it cannot be)."""
+    close = inputs.latest_close
+    if close is None:
+        return ConvertedPrice(None, None)
+    rates = inputs.close_rates
+    valuation = inputs.assumption_inputs.valuation_currency
+    lookup: dict[str, float | None] = {}
+    if rates is not None and close.currency is not None and valuation is not None:
+        lookup = {close.currency: rates[0], valuation: rates[1]}
+    return convert_price(close.close, close.currency, valuation, lookup.get)
 
 
 def load_valuation_input(
@@ -391,8 +471,19 @@ def load_valuation_input(
     latest = _load_latest_financials(conn, ticker)
     revenue_history, income_history, ebit_history = _load_history(conn, ticker)
     sector = _load_sector_multiples(conn, company)
-    current_price = _load_latest_price(conn, ticker)
-    return ValuationInput(
+    latest_close = _load_latest_close(conn, ticker)
+    assumption_inputs = load_assumption_inputs(
+        conn, ticker, currencies=currencies, warned=warned
+    )
+    valuation = assumption_inputs.valuation_currency
+    close_rates: tuple[float | None, float | None] | None = None
+    if latest_close is not None and _needs_conversion(latest_close, valuation):
+        assert latest_close.currency is not None and valuation is not None
+        close_rates = (
+            get_fx_rate(conn, latest_close.currency, latest_close.date),
+            get_fx_rate(conn, valuation, latest_close.date),
+        )
+    result = ValuationInput(
         ticker=ticker,
         company=company,
         latest=latest,
@@ -400,11 +491,12 @@ def load_valuation_input(
         income_history=income_history,
         ebit_history=ebit_history,
         sector=sector,
-        current_price=current_price,
-        assumption_inputs=load_assumption_inputs(
-            conn, ticker, currencies=currencies, warned=warned
-        ),
+        latest_close=latest_close,
+        close_rates=close_rates,
+        assumption_inputs=assumption_inputs,
     )
+    _warn_price_fx_missing(result, warned)
+    return result
 
 
 def bulk_load_valuation_inputs(
@@ -445,10 +537,10 @@ def bulk_load_valuation_inputs(
     kept = [t for t in wanted if t in companies and t in financials]
     if not kept:
         return {}
-    prices = {
-        t: float(c)
-        for t, c in conn.execute(
-            "SELECT ticker, close FROM prices_daily "
+    closes = {
+        t: LatestClose(float(c), normalize_currency(cur), d)
+        for t, c, cur, d in conn.execute(
+            "SELECT ticker, close, currency, date FROM prices_daily "
             "WHERE ticker IN (SELECT unnest(?::VARCHAR[])) AND close IS NOT NULL "
             "QUALIFY row_number() OVER (PARTITION BY ticker ORDER BY date DESC) = 1",
             [kept],
@@ -485,9 +577,41 @@ def bulk_load_valuation_inputs(
         conn, kept, currencies=currencies, warned=warned
     )
 
+    # Rates on or before each close's date, only for pairs that need converting.
+    def _currencies_needed(t: str) -> tuple[str, ...]:
+        close = closes.get(t)
+        valuation = assumption_inputs[t].valuation_currency
+        if close is None or not _needs_conversion(close, valuation):
+            return ()
+        assert close.currency is not None and valuation is not None
+        return (close.currency, valuation)
+
+    wanted_rates = sorted({
+        (cur, closes[t].date)
+        for t in kept
+        for cur in _currencies_needed(t)
+        if cur != "USD"
+    })
+    rate_at = {
+        (cur, d): None if rate is None else float(rate)
+        for cur, d, rate in conn.execute(
+            "SELECT n.currency, n.date, c.rate_to_usd "
+            "FROM (SELECT unnest(?::VARCHAR[]) AS currency, unnest(?::DATE[]) AS date) n "
+            "ASOF LEFT JOIN currencies c ON c.currency = n.currency AND c.date <= n.date",
+            [[w[0] for w in wanted_rates], [w[1] for w in wanted_rates]],
+        ).fetchall()
+    }
+
+    def _rate(cur: str, d: _date) -> float | None:
+        return 1.0 if cur == "USD" else rate_at.get((cur, d))
+
     result: dict[str, ValuationInput] = {}
     for t in kept:
         company = companies[t]
+        pair = _currencies_needed(t)
+        close_rates = (
+            (_rate(pair[0], closes[t].date), _rate(pair[1], closes[t].date)) if pair else None
+        )
         industry, region = company.industry_damodaran, regions[t]
         sector_row = sector_rows.get((industry, region)) if industry is not None else None
         country_row = country_rows.get(company.country) if company.country is not None else None
@@ -502,9 +626,20 @@ def bulk_load_valuation_inputs(
             income_history=income_history,
             ebit_history=ebit_history,
             sector=_sector_multiples_from(company, country_row, sector_row),
-            current_price=prices.get(t),
+            latest_close=closes.get(t),
+            close_rates=close_rates,
             assumption_inputs=assumption_inputs[t],
         )
+    # One warning per missing (listing, valuation) pair, sorted.
+    missing = {
+        (str(v.latest_close.currency), str(v.assumption_inputs.valuation_currency)): v
+        for v in reversed(result.values())
+        if v.latest_close is not None
+        and v.close_rates is not None
+        and price_in_valuation_currency(v).price is None
+    }
+    for pair_key in sorted(missing):
+        _warn_price_fx_missing(missing[pair_key], warned)
     return result
 
 
@@ -713,7 +848,8 @@ def analyze(
     income_history = inputs.income_history
     ebit_history = inputs.ebit_history
     sector = inputs.sector
-    current_price = inputs.current_price
+    converted = price_in_valuation_currency(inputs)
+    current_price = converted.price
 
     # Derive age from the company's ipoDate (FMP) when the caller didn't pass
     # one explicitly — an explicit age_years always wins.
@@ -869,6 +1005,7 @@ def analyze(
         sector=sector,
     )
 
+    close = inputs.latest_close
     return Analysis(
         ticker=ticker,
         name=company_row.name,
@@ -900,4 +1037,9 @@ def analyze(
         scenarios=scenario_results,
         governance_discount=governance_discount,
         intrinsic_value_after_governance=intrinsic_after_governance,
+        valuation_currency=inputs.assumption_inputs.valuation_currency,
+        listing_price=close.close if close else None,
+        price_currency=close.currency if close else None,
+        fx_rate=converted.fx_rate,
+        price_date=close.date if close else None,
     )

@@ -10,13 +10,14 @@ the cross-region sector fallback, missing prices).
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import date
 
 import duckdb
 import pytest
 from structlog.testing import capture_logs
 
 from bot.storage.db import apply_schema
-from bot.valuator.analysis import bulk_load_valuation_inputs, load_valuation_input
+from bot.valuator.analysis import LatestClose, bulk_load_valuation_inputs, load_valuation_input
 from bot.valuator.assumptions import bulk_load_assumption_inputs, load_assumption_inputs
 from tests.counting_conn import CountingConn
 
@@ -46,6 +47,8 @@ VALUABLE = (
 #: Tickers the bulk loaders must leave out: a companies row without financials,
 #: and a ticker that is not in companies at all.
 ABSENT = ("NOFIN", "UNKNOWN")
+#: Tickers reporting in a currency other than their USD listing (#222).
+MIXED = ("EURA", "JPYB")
 
 
 @pytest.fixture
@@ -70,15 +73,21 @@ def _company(
 
 
 def _financials(
-    conn: duckdb.DuckDBPyConnection, ticker: str, years: Sequence[_Year] = _SIX_YEARS
+    conn: duckdb.DuckDBPyConnection,
+    ticker: str,
+    years: Sequence[_Year] = _SIX_YEARS,
+    currency: str = "USD",
 ) -> None:
     for year, revenue, ebit, restated in years:
         conn.execute(
             "INSERT INTO financials_annual "
             "(ticker, fiscal_year, revenue, ebit, net_income, interest_expense, total_debt, "
             "cash, shares_diluted, total_equity, is_restated, source, currency) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
-            [ticker, year, revenue, ebit, 100.0, 10.0, 300.0, 50.0, 100.0, 900.0, restated, "t"],
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [
+                ticker, year, revenue, ebit, 100.0, 10.0, 300.0, 50.0, 100.0, 900.0, restated,
+                "t", currency,
+            ],
         )
 
 
@@ -152,6 +161,22 @@ def _seed(conn: duckdb.DuckDBPyConnection) -> None:
             _price(conn, ticker, "2026-05-29", 10.0)
     _price(conn, "NULLCLOSE", "2026-05-28", 8.0)
     _price(conn, "NULLCLOSE", "2026-05-29", None)
+
+    # #222: an EUR reporter with a rate three days before its USD close, and a
+    # JPY reporter whose only rate comes after its close.
+    for ticker, currency in (("EURA", "EUR"), ("JPYB", "JPY")):
+        _company(conn, ticker)
+        _financials(conn, ticker, currency=currency)
+        _price(conn, ticker, "2026-05-29", 110.0)
+    _rate(conn, "EUR", "2026-05-26", 1.10)
+    _rate(conn, "JPY", "2026-06-15", 0.0065)
+
+
+def _rate(conn: duckdb.DuckDBPyConnection, currency: str, day: str, rate: float) -> None:
+    conn.execute(
+        "INSERT INTO currencies (currency, date, rate_to_usd, source) VALUES (?, ?, ?, 'test')",
+        [currency, day, rate],
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -234,8 +259,32 @@ def test_bulk_valuation_inputs_match_per_ticker(conn: duckdb.DuckDBPyConnection)
     _seed(conn)
     bulk = bulk_load_valuation_inputs(conn, VALUABLE + ABSENT)
     assert bulk == {t: load_valuation_input(conn, t) for t in VALUABLE}
-    assert bulk["NOPRICE"].current_price is None
-    assert bulk["NULLCLOSE"].current_price == 8.0
+    assert bulk["NOPRICE"].latest_close is None
+    assert bulk["NULLCLOSE"].latest_close == LatestClose(8.0, "USD", date(2026, 5, 28))
+    assert bulk["USA"].close_rates is None
+
+
+def test_bulk_and_per_ticker_match_for_mixed_usd_eur(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed(conn)
+    bulk = bulk_load_valuation_inputs(conn, VALUABLE + MIXED)
+    assert bulk == {t: load_valuation_input(conn, t) for t in VALUABLE + MIXED}
+    assert bulk["EURA"].latest_close == LatestClose(110.0, "USD", date(2026, 5, 29))
+    assert bulk["EURA"].close_rates == (1.0, pytest.approx(1.10))
+    assert bulk["JPYB"].close_rates == (1.0, None)
+
+
+def test_bulk_loader_warns_once_per_missing_pair(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed(conn)
+    for ticker in ("JPYC", "JPYD"):
+        _company(conn, ticker)
+        _financials(conn, ticker, currency="JPY")
+        _price(conn, ticker, "2026-05-29", 50.0)
+    with capture_logs() as logs:
+        bulk_load_valuation_inputs(conn, ["JPYB", "JPYC", "JPYD", "EURA"], warned=set())
+    missing = [e for e in logs if e["event"] == "analysis.price_fx_missing"]
+    assert len(missing) == 1
+    assert missing[0]["listing"] == "USD"
+    assert missing[0]["valuation"] == "JPY"
 
 
 def test_bulk_valuation_inputs_key_by_upper_cased_ticker(
@@ -257,7 +306,7 @@ def test_bulk_valuation_inputs_query_count_is_constant(
     _seed(conn)
     one, many = CountingConn(conn), CountingConn(conn)
     bulk_load_valuation_inputs(one, ["USA"])  # type: ignore[arg-type]
-    bulk_load_valuation_inputs(many, VALUABLE + ABSENT)  # type: ignore[arg-type]
+    bulk_load_valuation_inputs(many, VALUABLE + MIXED + ABSENT)  # type: ignore[arg-type]
     assert one.executes == many.executes
 
 

@@ -20,7 +20,7 @@ override_picked: "the override file is settled\n--override path (only with exact
 # @symbol bot.cli.analyze
 not_found: "the ticker is skipped (exit code two)\nthe batch goes on with the next ticker" {class: step}  # No outgoing edge: the run of this ticker ends here
 # @symbol bot.valuator.analysis.load_valuation_input @symbol bot.valuator.assumptions.load_assumption_inputs
-loaded: "the company and its figures are loaded\ncompanies row (name, country, currency, industry_damodaran, ipo_date)\nthe newest non-restated financials_annual row\noldest-first revenue, net income and earnings before interest and taxes (EBIT) histories, empty years dropped\nnewest prices_daily close\nsector pe, ev_sales, op_margin, beta_levered from the newest damodaran_industry row of (industry, region)\nvaluation currency = currency of that newest non-restated row" {class: decision}
+loaded: "the company and its figures are loaded\ncompanies row (name, country, currency, industry_damodaran, ipo_date)\nthe newest non-restated financials_annual row\noldest-first revenue, net income and earnings before interest and taxes (EBIT) histories, empty years dropped\nnewest prices_daily close, its currency and date\nnearest rate_to_usd of each currency on or before that date, when they differ\nsector pe, ev_sales, op_margin, beta_levered from the newest damodaran_industry row of (industry, region)\nvaluation currency = currency of that newest non-restated row" {class: decision}
 # @symbol bot.reference.regions.dataset_region
 region_set: "the dataset region is set\nChina, India, Japan: their own dataset region\nelse from the country's grouping in its newest damodaran_country row\nunknown: US" {class: decision}
 # @symbol bot.valuator.assumptions.load_override
@@ -37,10 +37,11 @@ screener_candidates: {class: store}  # @table screener_candidates
 companies: {class: store}  # @table companies
 financials_annual: {class: store}  # @table financials_annual
 prices_daily: {class: store}  # @table prices_daily
+currencies: {class: store}  # @table currencies
 damodaran_industry: {class: store}  # @table damodaran_industry
 damodaran_country: {class: store}  # @table damodaran_country
 
-out: "Comes out:\none loaded company: its newest annual figures and histories, newest close, sector multiples, dataset region, valuation currency, the checked override file or none, and the signals" {class: output; link: "./analyze-story.svg"}
+out: "Comes out:\none loaded company: its newest annual figures and histories, newest close converted into the valuation currency, sector multiples, dataset region, valuation currency, the checked override file or none, and the signals" {class: output; link: "./analyze-story.svg"}
 
 # Edges
 asked -> chosen: "the ticker is named on the command line\n[tickers named, no --from-screen]"
@@ -52,7 +53,7 @@ chosen -> override_picked: "the override file is the one --override names [exact
 chosen -> override_picked: "the override file is config/assumptions/TICKER.yaml [it exists]"
 chosen -> override_picked: "no override file [no --override, no TICKER.yaml]"
 override_picked -> not_found: "the ticker is skipped, exit code two [not in companies, or no annual financials]"
-override_picked -> loaded: "the company, its newest annual figures, history, close and sector multiples are loaded"
+override_picked -> loaded: "the company, its newest annual figures, history, close in the valuation currency and sector multiples are loaded"
 loaded -> region_set: "the dataset region is its own [China, India, Japan]"
 loaded -> region_set: "the dataset region comes from its country's grouping\n[not China, India or Japan; grouping known]"
 loaded -> region_set: "the dataset region is US [grouping unknown]"
@@ -62,7 +63,8 @@ override_read -> signals: "net debt, interest coverage, age, founded age and the
 screener_candidates -> asked: "passed candidates of the latest run, by rank"
 companies -> loaded: "company row"
 financials_annual -> loaded: "annual rows"
-prices_daily -> loaded: "newest close"
+prices_daily -> loaded: "newest close, its currency and date"
+currencies -> loaded: "rates on or before that date"
 damodaran_industry -> loaded: "sector multiples"
 damodaran_country -> region_set: "country grouping"
 signals -> out: "the loaded company goes on to the story type [always]"

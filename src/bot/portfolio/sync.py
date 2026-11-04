@@ -18,12 +18,12 @@ this module (#28, #27); CLI wiring is in :mod:`bot.portfolio.command` (#29).
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
 from typing import TYPE_CHECKING, Protocol
 
-from bot.utils.fx import get_fx_rate
+from bot.utils.fx import FxLookup, convert_price, get_fx_rate
 from bot.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -32,10 +32,6 @@ if TYPE_CHECKING:
     from bot.ingest.ibkr import CashBalance, PortfolioPosition
 
 log = get_logger(__name__)
-
-#: A currency -> USD-rate lookup at a fixed as-of date. Keeping valuation behind
-#: this seam lets :func:`value_positions` stay pure (no ``conn``, no I/O).
-type FxLookup = Callable[[str], float | None]
 
 
 class PortfolioSource(Protocol):
@@ -116,20 +112,10 @@ def _market_value(
 ) -> float | None:
     if quote is None or quote.close <= 0.0:
         return None
-    price_ccy = quote.currency
-    pos_ccy = pos.currency
-    if (
-        price_ccy is None
-        or pos_ccy is None
-        or price_ccy.upper() == pos_ccy.upper()
-    ):
-        return pos.quantity * quote.close
-    rate_price = fx(price_ccy)
-    rate_pos = fx(pos_ccy)
-    if rate_price is None or rate_pos is None or rate_price <= 0.0 or rate_pos <= 0.0:
+    converted = convert_price(quote.close, quote.currency, pos.currency, fx)
+    if converted.price is None:
         return None
-    close_in_pos = quote.close * rate_price / rate_pos
-    return pos.quantity * close_in_pos
+    return pos.quantity * converted.price
 
 
 def sync_portfolio(

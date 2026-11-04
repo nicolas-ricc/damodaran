@@ -114,7 +114,7 @@ TheTickerIsUnknown ==
   /\ exitCode' = "2"
   /\ UNCHANGED << batch, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
-(* src/bot/valuator/analysis.py: load_valuation_input *)
+(* src/bot/valuator/analysis.py: load_valuation_input, price_in_valuation_currency; src/bot/utils/fx.py: convert_price *)
 TheCompanyIsLoaded ==
   /\ phase = "override_picked"
   /\ phase' = "loaded"
@@ -689,7 +689,7 @@ TheMarginIsBelowOne ==
   /\ verdict' = MarginVerdict("below 1.0")
   /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, reports, storyFile, signal, storyType >>
 
-(* src/bot/valuator/analysis.py: analyze, margin_of_safety from intrinsic_after_governance; src/bot/reporting/analysis_report.py: margin_verdict *)
+(* src/bot/valuator/analysis.py: analyze, margin_of_safety from intrinsic_after_governance, no price when the close is missing, not above 0, or has no exchange rate; src/bot/reporting/analysis_report.py: margin_verdict *)
 TheTickerHasNoPrice ==
   /\ phase = "discounted"
   /\ phase' = "verdict_given"

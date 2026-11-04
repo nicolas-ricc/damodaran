@@ -37,6 +37,7 @@ duckdb: "DuckDB (bot.duckdb)" {
   companies: {class: store}  # @table companies
   financials_annual: {class: store}  # @table financials_annual
   prices_daily: {class: store}  # @table prices_daily
+  currencies: {class: store}  # @table currencies
   damodaran_industry: {class: store}  # @table damodaran_industry
   damodaran_country: {class: store}  # @table damodaran_country
 }
@@ -49,7 +50,7 @@ report_json: "reports/YYYY-MM-DD/analysis/TICKER.json, read by the site" {class:
 # Section 1: inputs
 inputs: "1. inputs of one company" {
   link: "./analyze-inputs.svg"
-  load: "load the company\ncompanies row (name, country, currency, industry_damodaran, ipo_date)\nthe newest non-restated financials_annual row\noldest-first revenue, net income and\nearnings before interest and taxes (EBIT) histories,\nempty years dropped\nnewest prices_daily close\nsector pe, ev_sales, op_margin, beta_levered\nfrom the newest damodaran_industry row\nof (industry, region)\nvaluation currency = currency of that newest non-restated row" {  # @symbol bot.valuator.analysis.load_valuation_input @symbol bot.valuator.assumptions.load_assumption_inputs
+  load: "load the company\ncompanies row (name, country, currency, industry_damodaran, ipo_date)\nthe newest non-restated financials_annual row\noldest-first revenue, net income and\nearnings before interest and taxes (EBIT) histories,\nempty years dropped\nnewest prices_daily close, its currency and date\nsector pe, ev_sales, op_margin, beta_levered\nfrom the newest damodaran_industry row\nof (industry, region)\nvaluation currency = currency of that newest non-restated row\nclose converted into the valuation currency when they differ:\nrate_to_usd of both currencies, from currencies,\nnearest on or before the close's date" {  # @symbol bot.valuator.analysis.load_valuation_input @symbol bot.valuator.assumptions.load_assumption_inputs
     class: step
     exact_region: |md The sector multiples here (sanity check, flags) take the company's own dataset region only; the assumptions use the cross-region fallback. | {class: note}
   }
@@ -185,7 +186,7 @@ sensitivity: "5. sensitivity" {
   tornado: "tornado: each axis × 0.8 and × 1.2, one at a time\naxes: revenue_growth, operating_margin (every year scaled), tax_rate,\nsales_to_capital, terminal_growth, cost_of_equity, pretax_cost_of_debt\nswing = |intrinsic value at × 1.2 − intrinsic value at × 0.8|, widest first\nan end with g_terminal ≥ WACC: no value, ranked last\nwith a WACC path: pretax_cost_of_debt is skipped; cost_of_equity scales the whole path\ntax_rate scales tax_rate_path too" {  # @symbol bot.valuator.sensitivity.tornado @const bot.valuator.sensitivity._TORNADO_LOW @const bot.valuator.sensitivity._TORNADO_HIGH @enum bot.valuator.sensitivity.SensitivityAxis
     class: step
   }
-  grid: "five by five grid on the two widest tornado axes\nmultipliers 0.8, 0.9, 1.0, 1.1, 1.2 on each\ncell = intrinsic value ÷ price (margin of safety); no price, or price ≤ 0: intrinsic value\na cell with g_terminal ≥ WACC: empty" {  # @symbol bot.valuator.sensitivity.grid_2d @const bot.valuator.sensitivity._GRID_MULTIPLIERS
+  grid: "five by five grid on the two widest tornado axes\nmultipliers 0.8, 0.9, 1.0, 1.1, 1.2 on each\ncell = intrinsic value ÷ price in the valuation currency (margin of safety); no price, or price ≤ 0: intrinsic value\na cell with g_terminal ≥ WACC: empty" {  # @symbol bot.valuator.sensitivity.grid_2d @const bot.valuator.sensitivity._GRID_MULTIPLIERS
     class: step
   }
   # Step: the scenario range of a hypergrowth story
@@ -228,7 +229,7 @@ verdict: "7. margin of safety and verdict" {
   governance: "governance discount\nvalue after governance = intrinsic value per share × (1 − governance discount)\nthe story's discount, else none; tornado, grid and scenarios keep the raw value" {  # @symbol bot.valuator.analysis.analyze
     class: step
   }
-  mos: "margin of safety (MoS) = intrinsic value per share ÷ latest close\nwith a governance discount: the value after governance ÷ latest close\nno price, or price ≤ 0: none" {  # @symbol bot.valuator.analysis.analyze
+  mos: "margin of safety (MoS) = intrinsic value per share ÷ latest close\nwith a governance discount: the value after governance ÷ latest close\nlatest close = newest close, in the valuation currency:\nclose × rate_to_usd of its currency ÷ rate_to_usd of the valuation currency\neither currency unknown, or the same: the close as is\nno close, no exchange rate (a missing or non-positive rate), or price ≤ 0: none" {  # @symbol bot.valuator.analysis.analyze
     class: step
   }
   words: "verdict\nMoS ≥ 1.3: potentially undervalued\nMoS ≥ 1.0: around fair value\nMoS < 1.0: potentially overvalued\nno MoS: n/a" {  # @symbol bot.reporting.analysis_report.margin_verdict @const bot.reporting.analysis_report.MOS_UNDERVALUED @const bot.reporting.analysis_report.MOS_FAIR
@@ -270,7 +271,8 @@ override -> inputs.load: "ticker and override file"
 # Edges: inputs
 duckdb.companies -> inputs.load: "company row"
 duckdb.financials_annual -> inputs.load: "annual rows"
-duckdb.prices_daily -> inputs.load: "newest close"
+duckdb.prices_daily -> inputs.load: "newest close, its currency and date"
+duckdb.currencies -> inputs.load: "rates on or before the close's date"
 duckdb.damodaran_industry -> inputs.load: "sector multiples"
 duckdb.damodaran_country -> inputs.region: "country grouping"
 inputs.load -> inputs.region: "country"
@@ -328,7 +330,7 @@ dcf.equity -> dcf.blend: "going-concern value per share"
 
 # Edges: sensitivity
 dcf -> sensitivity.tornado: "the DCF re-run per scenario"
-inputs.load -> sensitivity.grid: "newest close"
+inputs.load -> sensitivity.grid: "close in the valuation currency"
 sensitivity.tornado -> sensitivity.grid: "two widest axes"
 assumptions.story -> sensitivity.scenario_range: "scenarios of the story file"
 dcf -> sensitivity.scenario_range: "the DCF re-run per scenario"
@@ -343,11 +345,11 @@ assumptions.story -> verdict.governance: "governance discount"
 inputs.load -> narrative_flags: "sector op_margin and beta_levered, latest EBIT and revenue"
 inputs.derived -> narrative_flags.beta_business_risk: "histories and balance sheet"
 dcf.blend -> verdict.governance: "intrinsic value per share"
-inputs.load -> verdict.mos: "newest close"
+inputs.load -> verdict.mos: "close in the valuation currency"
 verdict.mos -> verdict.words: "MoS"
 dcf.ev -> sanity_check.multiples: "EV"
 dcf.blend -> sanity_check.multiples: "intrinsic value per share"
-inputs.load -> sanity_check.multiples: "price, net income, sector multiples"
+inputs.load -> sanity_check.multiples: "price in the valuation currency, net income, sector multiples"
 
 # Edges: reports
 verdict.words -> reports: "verdict"

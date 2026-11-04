@@ -58,3 +58,10 @@ def test_adr_0005_section_4_is_implemented() -> None:
     status = ADR_0005.read_text().split("## Context", 1)[0]
     assert "§4" in status
     assert "Implemented" in status
+
+
+def test_adr_0005_records_the_price_conversion() -> None:
+    # #222 implements the price conversion of §3 and the first Consequences bullet; §1 stays open.
+    status = ADR_0005.read_text().split("## Context", 1)[0]
+    assert "#222" in status
+    assert "§1" in status

@@ -6,12 +6,16 @@ Accepted (2026-08-11). §4 Implemented (2026-10-28, #109): the per-currency
 table lives in `config/currencies.yaml` (loaded by `bot.reference.currencies`),
 the valuator resolves it by valuation currency in `valuator/assumptions.py`, and
 the coverage gate in `screener/engine.py` excludes companies whose currency it
-does not cover. §1–§3 are still not implemented: `companies.currency` remains one
-ambiguous column, and the price is not yet converted from listing currency into
-the valuation currency. Under the current US-only scope (S&P 500 universe,
-listing currency = reporting currency = USD) their consequences do not manifest —
+does not cover. The price conversion (the price half of §3 and the first
+*Consequences* bullet) is Implemented (2026-11-04, #222): `bot.utils.fx.convert_price`
+(the rule portfolio sync also uses), the valuator loaders `load_valuation_input` and
+`bulk_load_valuation_inputs` (newest close, its currency and date, and the rates on
+or before that date) and `analyze` (margin of safety on the converted price). §1
+(retiring `companies.currency`) is still not implemented: `companies.currency`
+remains one ambiguous column. Under the current US-only scope (S&P 500 universe,
+listing currency = reporting currency = USD) its consequences do not manifest —
 there is no mismatch to resolve when every company trades and reports in the same
-currency. They become blocking again once M2 (the global universe) reopens.
+currency. It becomes blocking again once M2 (the global universe) reopens.
 
 ## Context
 
