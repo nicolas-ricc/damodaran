@@ -109,6 +109,101 @@ def test_zero_qty_treated_as_closed() -> None:
     assert [e.event_type for e in events] == [EventType.POSITION_CLOSED]
 
 
+def test_long_to_short_flip_is_closed_then_opened() -> None:
+    events = detect_position_changes(
+        [_pos("AAPL", 100.0)],
+        [_pos("AAPL", -50.0)],
+        snapshot_date=CURR,
+        prev_date=PREV,
+    )
+    assert [(e.event_type, e.ticker) for e in events] == [
+        (EventType.POSITION_CLOSED, "AAPL"),
+        (EventType.POSITION_OPENED, "AAPL"),
+    ]
+    assert events[0].details == {"prev_qty": 100.0}
+    assert events[1].details == {"qty": -50.0}
+    assert all(e.curr_snapshot_date == CURR and e.prev_snapshot_date == PREV for e in events)
+
+
+def test_short_to_long_flip_is_closed_then_opened() -> None:
+    events = detect_position_changes(
+        [_pos("AAPL", -100.0)],
+        [_pos("AAPL", 20.0)],
+        snapshot_date=CURR,
+        prev_date=PREV,
+    )
+    assert [(e.event_type, e.ticker) for e in events] == [
+        (EventType.POSITION_CLOSED, "AAPL"),
+        (EventType.POSITION_OPENED, "AAPL"),
+    ]
+    assert events[0].details == {"prev_qty": -100.0}
+    assert events[1].details == {"qty": 20.0}
+
+
+def test_flip_ignores_the_size_threshold() -> None:
+    events = detect_position_changes(
+        [_pos("AAPL", 1.0)],
+        [_pos("AAPL", -1.0)],
+        snapshot_date=CURR,
+        prev_date=PREV,
+        size_change_threshold=1000.0,
+    )
+    assert [e.event_type for e in events] == [
+        EventType.POSITION_CLOSED,
+        EventType.POSITION_OPENED,
+    ]
+
+
+def test_flip_beside_other_tickers() -> None:
+    events = detect_position_changes(
+        [_pos("AAPL", 100.0), _pos("GOOG", 10.0)],
+        [_pos("AAPL", -50.0), _pos("MSFT", 5.0)],
+        snapshot_date=CURR,
+        prev_date=PREV,
+    )
+    pairs = [(e.event_type, e.ticker) for e in events]
+    assert len(pairs) == 4
+    assert set(pairs) == {
+        (EventType.POSITION_OPENED, "MSFT"),
+        (EventType.POSITION_CLOSED, "GOOG"),
+        (EventType.POSITION_CLOSED, "AAPL"),
+        (EventType.POSITION_OPENED, "AAPL"),
+    }
+    i = pairs.index((EventType.POSITION_CLOSED, "AAPL"))
+    assert pairs[i + 1] == (EventType.POSITION_OPENED, "AAPL")
+
+
+def test_size_change_15_percent_fires() -> None:
+    events = detect_position_changes(
+        [_pos("AAPL", 100.0)],
+        [_pos("AAPL", 115.0)],
+        snapshot_date=CURR,
+        prev_date=PREV,
+    )
+    assert [e.event_type for e in events] == [EventType.POSITION_SIZE_CHANGED]
+    assert events[0].details["change"] == pytest.approx(0.15)
+
+
+def test_short_position_size_change_keeps_the_rule() -> None:
+    events = detect_position_changes(
+        [_pos("AAPL", -100.0)],
+        [_pos("AAPL", -150.0)],
+        snapshot_date=CURR,
+        prev_date=PREV,
+    )
+    assert [e.event_type for e in events] == [EventType.POSITION_SIZE_CHANGED]
+    assert events[0].details["change"] == pytest.approx(-0.5)
+    assert (
+        detect_position_changes(
+            [_pos("AAPL", -100.0)],
+            [_pos("AAPL", -105.0)],
+            snapshot_date=CURR,
+            prev_date=PREV,
+        )
+        == []
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Currency change                                                              #
 # --------------------------------------------------------------------------- #

@@ -89,13 +89,13 @@ events: "4b. diff two snapshots into events" {  # @symbol bot.portfolio.events.c
   window: "previous snapshot = newest snapshot_date before today; none on the first run\npositions summed per ticker across accounts\nderived events diff the two persisted marks, never a recomputation" {  # @symbol bot.portfolio.marks.load_marks
     class: step
   }
-  position_opened: "position_opened\nquantity ≠ 0 now, absent or 0 in the previous snapshot\nfirst run: every position" {  # @symbol bot.portfolio.events.detect_position_changes
+  position_opened: "position_opened\nquantity ≠ 0 now, absent or 0 in the previous snapshot\nor held in both with the other sign (a flip)\nfirst run: every position" {  # @symbol bot.portfolio.events.detect_position_changes
     class: decision
   }
-  position_closed: "position_closed\nquantity ≠ 0 in the previous snapshot, absent or 0 now\n(an account that returns no positions closes each of its\nholdings no other account holds)" {
+  position_closed: "position_closed\nquantity ≠ 0 in the previous snapshot, absent or 0 now\nor held in both with the other sign (a flip), fired first\n(an account that returns no positions closes each of its\nholdings no other account holds)" {
     class: decision
   }
-  position_size_changed: "position_size_changed: held in both and\n|Δquantity ÷ |previous quantity|| > 10%\nexactly 10%: no event" {  # @const bot.portfolio.events.DEFAULT_SIZE_CHANGE_THRESHOLD
+  position_size_changed: "position_size_changed: held in both, same sign, and\n|Δquantity ÷ |previous quantity|| > 10%\nexactly 10%: no event" {  # @const bot.portfolio.events.DEFAULT_SIZE_CHANGE_THRESHOLD
     class: decision
   }
   currency_changed: "currency_changed\nthe ticker's portfolio_snapshots currency\n(the position's currency IBKR reports: its listing currency at the broker)\ndiffers from the previous snapshot's, both known;\ncompared per (account, ticker): one event per account whose currency changed;\nan account holding it on one side only: nothing\nnot on the first run" {  # @symbol bot.portfolio.events.detect_currency_changes
