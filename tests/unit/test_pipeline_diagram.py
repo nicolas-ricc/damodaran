@@ -1604,7 +1604,8 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
     "tickers": ["--from-screen", "latest", "by rank", "exit code 2"],
     "override": [
         "--override", "exactly one ticker", "config/assumptions/TICKER.yaml", "before the signals",
-        "not valid YAML", "not a mapping", "an unknown key", "a value that is not a finite number",
+        "not valid YAML", "not a mapping", "an unknown key", "a numeric value that is not a finite number",
+        "a founded_year that is not a whole year from 1600 to this year",
         "a non-empty list of them for revenue_growth / operating_margin",
         "an inconsistent story file", "cannot value, exit code 1",
     ],
@@ -1759,7 +1760,9 @@ def test_analyze_override_names_every_list_key() -> None:
     from bot.valuator.assumptions import _OVERRIDE_PATH_KEYS
 
     lines = _analyze_block("override").split("\\n")
-    line = next((x for x in lines if "non-empty list" in x), "")
+    found = [x for x in lines if "non-empty list" in x]
+    assert len(found) == 1, "the override decision has no single non-empty list line"
+    line = found[0]
     assert set(re.findall(r"[a-z]+_[a-z_]+", line)) == set(_OVERRIDE_PATH_KEYS)
 
 

@@ -21,7 +21,7 @@ tickers: "which tickers?\ntickers given: those\n--from-screen: passed candidates
   class: decision
 }
 
-override: "which override file?\n--override path (only with exactly one ticker)\nelse config/assumptions/TICKER.yaml when it exists, else none\nread after the company is loaded, before the signals\nany invalid file: cannot value, exit code 1, and the batch goes on\nnot valid YAML, not a mapping, an unknown key,\na value that is not a finite number (or a non-empty list of them for revenue_growth / operating_margin),\nor an inconsistent story file" {  # @symbol bot.valuator.assumptions.conventional_override_path @symbol bot.valuator.assumptions.load_override
+override: "which override file?\n--override path (only with exactly one ticker)\nelse config/assumptions/TICKER.yaml when it exists, else none\nread after the company is loaded, before the signals\nany invalid file: cannot value, exit code 1, and the batch goes on\nnot valid YAML, not a mapping, an unknown key,\na numeric value that is not a finite number (or a non-empty list of them for revenue_growth / operating_margin),\na founded_year that is not a whole year from 1600 to this year,\nor an inconsistent story file" {  # @symbol bot.valuator.assumptions.conventional_override_path @symbol bot.valuator.assumptions.load_override @const bot.valuator.assumptions._FOUNDED_YEAR_MIN
   class: decision
 }
 

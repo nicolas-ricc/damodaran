@@ -1,6 +1,6 @@
 # Analyze: a bad override file is "cannot value", not a crash — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (recommended) or executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** The analyze model and boards say that an invalid override file ends its ticker as `cannot value` (exit code 1, the batch goes on), with every cause listed on `analyze.d2`, and tests keep it that way.
 
