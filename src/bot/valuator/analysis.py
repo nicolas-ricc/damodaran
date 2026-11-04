@@ -76,7 +76,7 @@ class SanityCheck:
             when EPS is non-positive or unavailable, or the intrinsic value is
             non-positive.
         market_pe: Current price divided by that same EPS, or ``None`` when
-            the price or EPS is unavailable.
+            the price is unavailable or EPS is non-positive or unavailable.
         sector_pe: Damodaran sector-median price/earnings multiple.
         implied_ev_sales: Enterprise value / trailing revenue from the DCF, or
             ``None`` when revenue is unavailable.

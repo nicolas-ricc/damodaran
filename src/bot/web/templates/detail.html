@@ -76,7 +76,7 @@
   {% if detail.sanity %}
   <section class="sanity">
     <div class="head-row"><h2>Sanity</h2></div>
-    <p class="lede">Multiples implied by the intrinsic value, against the sector median: implied / sector.</p>
+    <p class="lede">Each multiple against the sector median: company / sector. The implied ones come from the intrinsic value, the market P/E from the price.</p>
     <p class="pairs">{% for s in detail.sanity %}<span class="pair"><span class="key">{{ s.label }}</span> <span class="num">{{ s.value }}</span></span> {% endfor %}</p>
   </section>
   {% endif %}

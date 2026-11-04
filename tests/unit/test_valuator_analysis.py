@@ -118,7 +118,9 @@ def conn() -> duckdb.DuckDBPyConnection:
     return c
 
 
-def _seed_company(conn: duckdb.DuckDBPyConnection, ticker: str, industry_damodaran: str) -> None:
+def _seed_company(
+    conn: duckdb.DuckDBPyConnection, ticker: str, industry_damodaran: str
+) -> None:
     """A minimal company + country + sector row, enough to run ``analyze``."""
     conn.execute(
         "INSERT INTO companies "
@@ -810,9 +812,7 @@ _SCENARIOS: dict[str, dict[str, float]] = {
 }
 
 
-def _seed_price(
-    conn: duckdb.DuckDBPyConnection, ticker: str = "ANTH", close: float = 300.0
-) -> None:
+def _seed_price(conn: duckdb.DuckDBPyConnection, ticker: str = "ANTH", close: float = 300.0) -> None:
     conn.execute(
         "INSERT INTO prices_daily (ticker, date, close, market_cap, currency, source) "
         "VALUES (?, ?, ?, ?, ?, ?)",
