@@ -311,11 +311,13 @@ def test_repo_probabilities_cite_table_5() -> None:
 
 
 def test_repo_header_carries_verified_line() -> None:
+    pattern = re.compile(
+        r"^# verified: (\d{4}-\d{2}-\d{2}), every row checked against its source on (\S.*) \(#213\)$"
+    )
     lines = REPO_FILE.read_text(encoding="utf-8").splitlines()
-    header = lines[: next(i for i, line in enumerate(lines) if not line.startswith("#"))]
-    pattern = re.compile(r"^# verified: (\d{4}-\d{2}-\d{2}), every row checked against its source on (\S.*) \(#213\)$")
-    [match] = [m for m in map(pattern.match, header) if m]
-    date.fromisoformat(match.group(1))
+    matches = [m for m in map(pattern.match, lines) if m]
+    assert len(matches) == 1, f"expected one '# verified:' line, found {len(matches)}"
+    date.fromisoformat(matches[0].group(1))
 
 
 def test_settings_default_spreads_path_default_and_override(

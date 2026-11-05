@@ -43,7 +43,7 @@
 - [ ] **Step 1: Write the failing tests**
   - `test_repo_brackets_match_ratings_page`: `[(b.lower, b.upper, b.rating) for b in table.brackets] == RATINGS_BRACKETS` (the 15 triples from the #243 plan's Decision 6 table), and every bracket has `source == RATINGS_URL` and `as_of == date(2026, 1, 1)`.
   - `test_repo_probabilities_cite_table_5`: every probability row has `source == PAPER_URL` and `as_of == date(2009, 6, 1)`.
-  - `test_repo_header_carries_verified_line`: the comment lines before the first non-comment line contain exactly one line matching `^# verified: (\d{4}-\d{2}-\d{2}), every row checked against its source on (\S.*) \(#213\)$`, and the date parses with `date.fromisoformat`.
+  - `test_repo_header_carries_verified_line`: the file contains exactly one line matching `^# verified: (\d{4}-\d{2}-\d{2}), every row checked against its source on (\S.*) \(#213\)$`, and the date parses with `date.fromisoformat`.
 - [ ] **Step 2: Run** `uv run pytest tests/unit/test_default_spreads.py -q`. Expected: only `test_repo_header_carries_verified_line` fails, because there is no line yet. The other two pass against the current seed.
 - [ ] **Step 3: Commit** `test(#245): evals`.
 
@@ -59,7 +59,7 @@
 - [ ] **Step 1: Run the verifier subagent** (model Fable). It works in two phases. First it reads both sources itself and transcribes the left block and the Table 5 10-year column **before** opening `config/default_spreads.yaml`, and it records the page's "data as of" line and the paper's date line. Then it opens the YAML and compares, returning for each of the 15 brackets and each of the 17 probability rows: table, row key, file value, source value, match yes/no. It must also report whether each row's `source` URL is the page the number comes from, whether each `as_of` equals the source date, and whether `BB+ == BB` and `D == C-`.
 - [ ] **Step 2: Post the result** on #213 and #245 with both model names (session Opus; verifier Fable), the full table and a one-line verdict.
 - [ ] **Step 3: Fix any mismatch** (one that the documented mapping decisions do not explain). Also update `RATINGS_BRACKETS`/`TABLE_5_TEN_YEAR` if the source differs from Decision 6, in the YAML, and in a pinned test value if one is affected. Name the source line in the commit message.
-- [ ] **Step 4: Add the header line** `# verified: 2026-11-05, every row checked against its source on <verifier model> (#213)` after the "To reproduce" block.
+- [ ] **Step 4: Add the header line** `# verified: 2026-11-05, every row checked against its source on <verifier model> (#213)` as the last header comment line, directly before `horizon_years`.
 - [ ] **Step 5: Run** `uv run pytest tests/unit/test_default_spreads.py -q`. Expected: all pass. Then run the full gate.
 - [ ] **Step 6: Commit** `docs(#213): default-spread tables verified against their sources`.
 
