@@ -123,9 +123,10 @@ def _batch_dcf_margins(
     valuator over those pre-loaded inputs with ``analyze(company=...)`` — so the
     second pass's query count is independent of the shortlist size. Per-ticker
     results are identical to calling :func:`_dcf_margin_of_safety` one ticker at
-    a time (with ``default_spreads=None``, which that seam always uses): a company that cannot be valued (unknown ticker, missing data, or
-    assumptions too incomplete for the DCF) yields ``None`` so the caller falls
-    back to the neutral :data:`~bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY`.
+    a time (with ``default_spreads=None``, which that seam always uses): a company
+    that cannot be valued (unknown ticker, missing data, or assumptions too
+    incomplete for the DCF) yields ``None`` so the caller falls back to the neutral
+    :data:`~bot.screener.ranking.PLACEHOLDER_MARGIN_OF_SAFETY`.
 
     When ``assumptions_dir`` is given, each ticker with a matching
     ``<assumptions_dir>/<TICKER>.yaml`` is valued with that file as its override
