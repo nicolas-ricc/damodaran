@@ -27,6 +27,8 @@ Regenerated for #216: 10-year horizon, growth fades to terminal growth.
 
 Re-run for #213 (mature-decline keeps its own margin): unchanged, no seeded company
 declines.
+
+Re-run for #213 (distressed p from coverage): unchanged — no seeded company is distressed.
 """
 
 from __future__ import annotations
