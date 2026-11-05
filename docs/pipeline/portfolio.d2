@@ -71,7 +71,7 @@ marks: "4a. mark every holding" {  # @symbol bot.portfolio.marks.mark_holdings
   held: "holdings = tickers whose summed quantity ≠ 0 on the snapshot date" {
     class: step
   }
-  valuation: "valuation: the analyze stage with config/assumptions/TICKER.yaml when present\n→ intrinsic value per share, latest close, red narrative flags\ncannot value: all three unknown\ncurrency table from config/currencies.yaml, loaded once per run" {  # @symbol bot.valuator.analysis.analyze @file config/currencies.yaml @symbol bot.portfolio.marks.mark_holdings
+  valuation: "valuation: the analyze stage with config/assumptions/TICKER.yaml when present\n→ intrinsic value per share, newest close on or before the snapshot date, red narrative flags\ncannot value: all three unknown\ncurrency table from config/currencies.yaml, loaded once per run" {  # @symbol bot.valuator.analysis.analyze @file config/currencies.yaml @symbol bot.portfolio.marks.mark_holdings
     class: step
   }
   gates: "gates: screener inputs built as the screen builds them\n(companies, financials_annual, prices_daily, currencies,\ndamodaran_industry, damodaran_country)\nfailed gates = the gates that fail; a skipped rule does not count\nsector weighted average cost of capital (WACC) from the sector benchmark\nno sector benchmark row: sector WACC unknown, gates judged without it\nticker not in companies: failed gates and sector WACC unknown" {  # @symbol bot.screener.engine.load_holding_inputs
@@ -173,7 +173,7 @@ override_yaml -> marks.valuation: "override of the holding"
 tws -> sync.snapshot: "accounts, positions, cash"
 duckdb.prices_daily -> sync.value: "latest close and its currency"
 duckdb.currencies -> sync.value: "rates to USD"
-duckdb.prices_daily -> marks.valuation: "latest close"
+duckdb.prices_daily -> marks.valuation: "newest close on or before the snapshot date"
 duckdb.prices_daily -> marks.gates: "latest close for the gates"
 duckdb.currencies -> marks.gates: "rates to USD for market cap"
 sync.snapshot -> sync.value: "positions"

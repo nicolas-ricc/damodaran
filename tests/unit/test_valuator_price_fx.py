@@ -126,3 +126,26 @@ def test_per_ticker_loader_warns_once_per_run(conn: duckdb.DuckDBPyConnection) -
         load_valuation_input(conn, "AAPL", warned=warned)
         load_valuation_input(conn, "AAPL", warned=warned)
     assert [e["event"] for e in logs].count("analysis.price_fx_missing") == 1
+
+
+def test_price_as_of_converts_with_the_rate_of_the_bounded_close(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    # #225 AC4: the bounded close (110 USD on 05-31) converts at the EUR rate of
+    # 05-31 (1.10), not at the newer one of 06-02 (1.20).
+    conn.execute("UPDATE financials_annual SET currency = 'EUR' WHERE ticker = 'AAPL'")
+    conn.execute("DELETE FROM prices_daily WHERE ticker = 'AAPL'")
+    conn.execute(
+        "INSERT INTO prices_daily (ticker, date, close, currency, source) VALUES "
+        "('AAPL', '2026-05-31', 110.0, 'USD', 'fmp'), ('AAPL', '2026-06-02', 132.0, 'USD', 'fmp')"
+    )
+    _rate(conn, "EUR", "2026-05-31", 1.10)
+    _rate(conn, "EUR", "2026-06-02", 1.20)
+
+    bounded = analyze("AAPL", conn, price_as_of=date(2026, 6, 1))
+    assert bounded.current_price == pytest.approx(100.0)
+    assert bounded.fx_rate == pytest.approx(1 / 1.10)
+    assert bounded.price_date == date(2026, 5, 31)
+
+    newest = analyze("AAPL", conn)
+    assert newest.current_price == pytest.approx(110.0)

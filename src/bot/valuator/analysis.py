@@ -119,8 +119,8 @@ class Analysis:
         narrative_flags: The five §7.5 consistency flags, plus the
             ``hypergrowth_story`` flag when it applies.
         sanity_check: Implied vs sector multiples (spec §7.7).
-        current_price: Latest close converted into the valuation currency (``None``
-            if absent or no exchange rate).
+        current_price: Latest close (on or before ``price_as_of`` when set) converted into
+            the valuation currency (``None`` if absent or no exchange rate).
         margin_of_safety: ``intrinsic_value_after_governance / current_price``
             (``None`` if no price), i.e. measured on the value after the
             governance discount. > 1 means potentially undervalued (CONTEXT.md).
@@ -139,7 +139,8 @@ class Analysis:
             when unknown or without a close).
         fx_rate: Multiplier taking the listing price into the valuation
             currency; ``None`` when no conversion applied or no rate was found.
-        price_date: Date of the newest close (``None`` without a close).
+        price_date: Date of the newest close (on or before ``price_as_of`` when set);
+            ``None`` without a close.
     """
 
     ticker: str
@@ -278,7 +279,9 @@ def _histories_from_rows(
 
 @dataclass(frozen=True)
 class LatestClose:
-    """The newest non-null ``prices_daily`` row: close, listing currency, date.
+    """The newest non-null ``prices_daily`` row (on or before ``price_as_of`` when set).
+
+    Holds the close, its listing currency and its date.
 
     ``currency`` is normalised (strip + upper, blank -> ``None``) like the
     valuation currency, so the two compare and key rate lookups in one spelling.
@@ -289,12 +292,19 @@ class LatestClose:
     date: _date
 
 
-def _load_latest_close(conn: duckdb.DuckDBPyConnection, ticker: str) -> LatestClose | None:
-    row = conn.execute(
-        "SELECT close, currency, date FROM prices_daily WHERE ticker = ? AND close IS NOT NULL "
-        "ORDER BY date DESC LIMIT 1",
-        [ticker],
-    ).fetchone()
+def _load_latest_close(
+    conn: duckdb.DuckDBPyConnection,
+    ticker: str,
+    *,
+    price_as_of: _date | None = None,
+) -> LatestClose | None:
+    """Newest non-null close for ``ticker``; on or before ``price_as_of`` when set."""
+    sql = "SELECT close, currency, date FROM prices_daily WHERE ticker = ? AND close IS NOT NULL"
+    params: list[Any] = [ticker]
+    if price_as_of is not None:
+        sql += " AND date <= ?"
+        params.append(price_as_of)
+    row = conn.execute(sql + " ORDER BY date DESC LIMIT 1", params).fetchone()
     if row is None:
         return None
     return LatestClose(float(row[0]), normalize_currency(row[1]), row[2])
@@ -417,7 +427,8 @@ class ValuationInput:
         latest: The latest non-restated annual financials.
         revenue_history / income_history / ebit_history: Oldest-first histories.
         sector: The Damodaran sector/country multiples.
-        latest_close: Newest close with its currency and date, or ``None``.
+        latest_close: Newest close (on or before ``price_as_of`` when set) with its
+            currency and date, or ``None``.
         close_rates: ``(rate_to_usd(listing), rate_to_usd(valuation))`` on or
             before the close's date, only when the two currencies are known and
             differ; otherwise ``None``. A missing rate is ``None`` in the pair.
@@ -455,6 +466,7 @@ def load_valuation_input(
     *,
     currencies: CurrencyTable | None = None,
     warned: set[str | None] | None = None,
+    price_as_of: _date | None = None,
 ) -> ValuationInput:
     """Load every DB row :func:`analyze` needs for ``ticker`` in one place.
 
@@ -462,7 +474,8 @@ def load_valuation_input(
     can be reused across calls so each company's per-ticker reads happen exactly
     once; :func:`bulk_load_valuation_inputs` builds the same bundles for many
     tickers in a constant number of queries. ``currencies`` is the per-currency
-    rate table (``None`` loads the default file).
+    rate table (``None`` loads the default file). ``price_as_of`` is the newest
+    close on or before that date (inclusive); ``None`` = the newest close.
 
     Raises:
         LookupError: If ``ticker`` is unknown or has no annual financials.
@@ -472,7 +485,7 @@ def load_valuation_input(
     latest = _load_latest_financials(conn, ticker)
     revenue_history, income_history, ebit_history = _load_history(conn, ticker)
     sector = _load_sector_multiples(conn, company)
-    latest_close = _load_latest_close(conn, ticker)
+    latest_close = _load_latest_close(conn, ticker, price_as_of=price_as_of)
     assumption_inputs = load_assumption_inputs(
         conn, ticker, currencies=currencies, warned=warned
     )
@@ -506,13 +519,16 @@ def bulk_load_valuation_inputs(
     *,
     currencies: CurrencyTable | None = None,
     warned: set[str | None] | None = None,
+    price_as_of: _date | None = None,
 ) -> dict[str, ValuationInput]:
     """Load :func:`load_valuation_input` for many tickers in a constant number of queries.
 
     Returns exactly what the per-ticker loader returns for each ticker, keyed by
     upper-cased ticker. Tickers for which the per-ticker loader would raise
     :class:`LookupError` (absent from ``companies``, or no non-restated annual
-    financials) are omitted, so a caller can pass a whole shortlist.
+    financials) are omitted, so a caller can pass a whole shortlist. ``price_as_of``
+    bounds each close like the per-ticker loader (newest close on or before it;
+    ``None`` = newest close).
     """
     wanted = sorted({t.upper() for t in tickers})
     if not wanted:
@@ -538,13 +554,19 @@ def bulk_load_valuation_inputs(
     kept = [t for t in wanted if t in companies and t in financials]
     if not kept:
         return {}
+    closes_sql = (
+        "SELECT ticker, close, currency, date FROM prices_daily "
+        "WHERE ticker IN (SELECT unnest(?::VARCHAR[])) AND close IS NOT NULL"
+    )
+    closes_params: list[Any] = [kept]
+    if price_as_of is not None:
+        closes_sql += " AND date <= ?"
+        closes_params.append(price_as_of)
     closes = {
         t: LatestClose(float(c), normalize_currency(cur), d)
         for t, c, cur, d in conn.execute(
-            "SELECT ticker, close, currency, date FROM prices_daily "
-            "WHERE ticker IN (SELECT unnest(?::VARCHAR[])) AND close IS NOT NULL "
-            "QUALIFY row_number() OVER (PARTITION BY ticker ORDER BY date DESC) = 1",
-            [kept],
+            closes_sql + " QUALIFY row_number() OVER (PARTITION BY ticker ORDER BY date DESC) = 1",
+            closes_params,
         ).fetchall()
     }
     countries = sorted({c.country for t in kept if (c := companies[t]).country is not None})
@@ -798,6 +820,7 @@ def analyze(
     company: ValuationInput | None = None,
     currencies: CurrencyTable | None = None,
     warned: set[str | None] | None = None,
+    price_as_of: _date | None = None,
 ) -> Analysis:
     """Run the full §7.7 analysis pipeline for ``ticker``.
 
@@ -824,6 +847,10 @@ def analyze(
             pre-loaded inputs already carry their currency rates.
         warned: Run-scoped set of currencies already logged as uncovered; share one
             across calls to warn once per currency per run. Used like ``currencies``.
+        price_as_of: Price the company at the newest close on or before this date
+            (``None`` = the newest close). Ignored when ``company`` is supplied,
+            like ``currencies`` and ``warned``: the pre-loaded inputs already
+            carry their close.
 
     A ``hypergrowth`` story file (resolved in :func:`resolve_assumptions`) also
     sets the DCF's ``fixed_commitments`` and ``extra_cash`` from the bundle; both
@@ -842,7 +869,9 @@ def analyze(
     """
     ticker = ticker.upper()
     if company is None:
-        company = load_valuation_input(conn, ticker, currencies=currencies, warned=warned)
+        company = load_valuation_input(
+            conn, ticker, currencies=currencies, warned=warned, price_as_of=price_as_of
+        )
     inputs = company
     company_row = inputs.company
     latest = inputs.latest

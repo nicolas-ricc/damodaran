@@ -122,7 +122,9 @@ def _diversified_client() -> _FakeIbkrClient:
     )
 
 
-def _no_analyze(ticker: str, conn: duckdb.DuckDBPyConnection) -> object:
+def _no_analyze(
+    ticker: str, conn: duckdb.DuckDBPyConnection, *, price_as_of: date | None = None
+) -> object:
     raise LookupError("no data for ticker in test")
 
 
@@ -317,7 +319,9 @@ class _Analysis:
 
 
 def _valued_at(iv: float) -> AnalyzeFn:
-    def fn(ticker: str, _conn: duckdb.DuckDBPyConnection) -> _Analysis:
+    def fn(
+        ticker: str, _conn: duckdb.DuckDBPyConnection, *, price_as_of: date | None = None
+    ) -> _Analysis:
         return _Analysis(ticker, _DCF(iv), current_price=100.0)
 
     return cast(AnalyzeFn, fn)

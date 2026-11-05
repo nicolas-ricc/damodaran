@@ -144,7 +144,7 @@ ItIsNoLongerAHolding ==
   /\ event' = "none"
   /\ UNCHANGED << channel, stored, flexFailed, held, valuation, gates, prevMark, above, prev, filing, anyFired, alerts >>
 
-(* src/bot/portfolio/marks.py: mark_holdings, `analyze_fn` gives `intrinsic_value`, `current_price`, and flags with `FlagColor.RED` *)
+(* src/bot/portfolio/marks.py: mark_holdings, `analyze_fn(..., price_as_of=snapshot_date)` gives `intrinsic_value`, `current_price`, and flags with `FlagColor.RED` *)
 TheValuatorValuesItWithARedFlag ==
   /\ phase = "holding"
   /\ phase' = "valuation_done"
@@ -152,7 +152,7 @@ TheValuatorValuesItWithARedFlag ==
   /\ event' = "none"
   /\ UNCHANGED << channel, stored, flexFailed, held, gates, prevMark, above, prev, filing, anyFired, alerts >>
 
-(* src/bot/portfolio/marks.py: mark_holdings, `analyze_fn` gives `intrinsic_value`, `current_price`, and no flag with `FlagColor.RED` *)
+(* src/bot/portfolio/marks.py: mark_holdings, `analyze_fn(..., price_as_of=snapshot_date)` gives `intrinsic_value`, `current_price`, and no flag with `FlagColor.RED` *)
 TheValuatorValuesItWithNoRedFlag ==
   /\ phase = "holding"
   /\ phase' = "valuation_done"
