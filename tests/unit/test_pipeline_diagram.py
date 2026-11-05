@@ -567,6 +567,8 @@ _REQUIRED_CONSTS: dict[str, set[str]] = {
         "bot.valuator.sensitivity._TORNADO_LOW",
         "bot.valuator.sensitivity._TORNADO_HIGH",
         "bot.valuator.sensitivity._GRID_MULTIPLIERS",
+        "bot.valuator.sensitivity._TORNADO_SHIFT",
+        "bot.valuator.sensitivity._GRID_SHIFTS",
         "bot.valuator.narrative_flags._TERMINAL_VALUE_SHARE_CEILING",
         "bot.valuator.narrative_flags._FOREIGN_REVENUE_MAJORITY",
         "bot.valuator.narrative_flags._ERP_GAP_THRESHOLD",
@@ -655,6 +657,8 @@ _REQUIRED_CONSTS: dict[str, set[str]] = {
         "bot.valuator.sensitivity._TORNADO_LOW",
         "bot.valuator.sensitivity._TORNADO_HIGH",
         "bot.valuator.sensitivity._GRID_MULTIPLIERS",
+        "bot.valuator.sensitivity._TORNADO_SHIFT",
+        "bot.valuator.sensitivity._GRID_SHIFTS",
     },
     "analyze-flags": {
         "bot.valuator.narrative_flags._TERMINAL_VALUE_SHARE_CEILING",
@@ -2770,3 +2774,15 @@ def test_analyze_converts_the_close_with_the_currencies_table() -> None:
 def test_portfolio_adr_0005_gap_no_longer_lists_the_price_conversion() -> None:
     block = _portfolio_block("sync.value.adr_0005")
     assert "prices converted into the valuation currency) are still not implemented" not in block
+
+
+def test_sensitivity_labels_describe_the_additive_shocks() -> None:
+    # #217: rate axes move by percentage points, sales_to_capital by a factor.
+    boards = _boards()
+    overview = boards["analyze"]
+    sub = boards["analyze-sensitivity"]
+    for text in (overview, sub, boards["analyze-dcf"]):
+        assert "percentage point" in text
+        assert "0.8 and 1.2 times" not in text
+    assert "sales_to_capital" in sub
+    assert "multipliers 0.8, 0.9, 1.0, 1.1, 1.2 on each" not in overview + sub
