@@ -96,6 +96,10 @@ class _UniqueKeyLoader(yaml.SafeLoader):
         seen: set[Any] = set()
         for key_node, _ in node.value:
             key = self.construct_object(key_node, deep=deep)
+            try:
+                hash(key)
+            except TypeError:
+                raise _MalformedError(f"unhashable key {key!r}") from None
             if key in seen:
                 raise _MalformedError(f"duplicate key {key!r}")
             seen.add(key)
@@ -195,7 +199,8 @@ def _parse(path: Path, data: Any) -> DefaultSpreadTable:
     if set(data) != set(_TOP_LEVEL):
         raise _MalformedError(f"top-level keys must be exactly {', '.join(_TOP_LEVEL)}")
     horizon = data["horizon_years"]
-    _number(horizon, "horizon_years", "value")
+    if isinstance(horizon, bool) or not isinstance(horizon, int | float):
+        raise _MalformedError("horizon_years: not a number")
     raw_brackets = data["coverage_to_rating"]
     if not isinstance(raw_brackets, list) or not raw_brackets:
         raise _MalformedError("coverage_to_rating: not a non-empty list")
@@ -207,6 +212,8 @@ def _parse(path: Path, data: Any) -> DefaultSpreadTable:
     for rating, raw in raw_probabilities.items():
         if not isinstance(rating, str) or not rating.strip():
             raise _MalformedError(f"rating key {rating!r} is not a non-empty string")
+        if rating.strip() in probabilities:
+            raise _MalformedError(f"duplicate rating {rating.strip()!r}")
         probabilities[rating.strip()] = _probability(raw, rating)
 
     if not (isinstance(horizon, int) and horizon > 0):

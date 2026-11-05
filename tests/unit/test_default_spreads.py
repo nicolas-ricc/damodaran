@@ -128,9 +128,10 @@ _MALFORMED = {
     "missing-top-level-key": _sub("horizon_years: 10\n", ""),
     "duplicate-key": _VALID + "horizon_years: 10\n",
     "brackets-not-a-list": _sub(_C_ROW + _BB_ROW + _AAA_ROW, "  C: 1\n"),
-    "probabilities-not-a-mapping": _sub(
-        "rating_to_default_probability:\n", "rating_to_default_probability: []\nignored:\n"
-    ).split("ignored:\n")[0],
+    "probabilities-not-a-mapping": _VALID.split("rating_to_default_probability:\n")[0]
+    + "rating_to_default_probability: []\n",
+    "padded-rating-collision": _VALID + f'  " BB": {{probability: 0.3, {_SRC}}}\n',
+    "unhashable-key": _VALID.replace("horizon_years: 10\n", "? [a]\n: 1\nhorizon_years: 10\n", 1),
     "bracket-not-a-mapping": _sub(_BB_ROW, "  - 7\n"),
     "probability-row-not-a-mapping": _sub(_BB_PROB, "  BB: 0.2\n"),
     "missing-field": _sub(_BB_ROW, "  - {lower: 1.0, upper: 3.0, rating: BB, source: https://example.org/x}\n"),
@@ -151,6 +152,13 @@ def test_malformed_file_warns_and_is_empty(tmp_path: Path, text: str) -> None:
         table = load_default_spreads(_write(tmp_path, text))
     assert table.is_empty
     assert "default_spreads.malformed" in [e["event"] for e in logs]
+
+
+def test_non_number_horizon_reason_names_the_key(tmp_path: Path) -> None:
+    with capture_logs() as logs:
+        load_default_spreads(_write(tmp_path, _MALFORMED["horizon-bool"]))
+    [event] = [e for e in logs if e["event"] == "default_spreads.malformed"]
+    assert event["reason"] == "horizon_years: not a number"
 
 
 def test_unreadable_path_warns_and_is_empty(tmp_path: Path) -> None:
@@ -221,7 +229,10 @@ TABLE_5_TEN_YEAR = {
 
 
 def test_repo_file_shape() -> None:
-    table = load_default_spreads(REPO_FILE)
+    with capture_logs() as logs:
+        table = load_default_spreads(REPO_FILE)
+    [loaded] = [e for e in logs if e["event"] == "default_spreads.loaded"]
+    assert (loaded["path"], loaded["brackets"], loaded["ratings"]) == (str(REPO_FILE), 15, 17)
     assert table.horizon_years == 10
     assert len(table.brackets) == 15
     assert table.brackets[0].lower is None
