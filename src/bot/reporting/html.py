@@ -40,10 +40,12 @@ import matplotlib.pyplot as plt
 from bot.reporting.analysis_report import (
     GRID_LABEL_INTRINSIC,
     GRID_LABEL_MOS,
+    fmt_shock,
+    fmt_step,
     render_analysis,
 )
 from bot.valuator.analysis import Analysis
-from bot.valuator.sensitivity import Grid2D, TornadoEntry
+from bot.valuator.sensitivity import Grid2D, ShockKind, TornadoEntry
 
 #: Round grid figures to this many decimals before handing them to Plotly, so the
 #: serialized z / customdata are stable and compact (4dp is finer than any tooltip).
@@ -79,7 +81,7 @@ def tornado_chart_png(tornado: Sequence[TornadoEntry]) -> bytes:
     """Render the tornado sensitivity chart to PNG bytes (spec §7.4, M4.3).
 
     Draws one horizontal bar per :class:`TornadoEntry`, spanning from the axis's
-    intrinsic value at -20% to its value at +20%. The entries are plotted in the
+    intrinsic value at the low shock to its value at the high shock. The entries are plotted in the
     order given — :func:`bot.valuator.sensitivity.tornado` returns them descending
     by impact — with the widest bar at the top, so the chart and the Markdown
     table share ordering and values.
@@ -112,7 +114,11 @@ def tornado_chart_png(tornado: Sequence[TornadoEntry]) -> bytes:
         ax.barh(list(positions), widths, left=lefts, color="#3b7dd8", height=0.6)
         ax.set_yticks(list(positions))
         ax.set_yticklabels(labels)
-        ax.set_xlabel("Intrinsic value per share (±20% per assumption)")
+        ax.set_xlabel(
+            "Intrinsic value per share "
+            f"(rates {fmt_shock(ShockKind.ADDITIVE)}, "
+            f"sales_to_capital {fmt_shock(ShockKind.MULTIPLICATIVE)})"
+        )
         ax.set_title("Sensitivity — tornado (ranked by impact)")
         ax.grid(axis="x", linestyle=":", alpha=0.4)
         fig.tight_layout()
@@ -132,8 +138,8 @@ def sensitivity_heatmap_html(grid: Grid2D) -> str:
     """Render the 2-D sensitivity grid as a self-contained Plotly heatmap (M6.2).
 
     The heatmap mirrors the Markdown grid table: ``axis_a`` runs down the rows and
-    ``axis_b`` across the columns, each labelled by its signed percentage delta
-    (``-20%`` … ``+20%``), and the cell colour encodes the margin of safety. Each
+    ``axis_b`` across the columns, each labelled by its step (``-1.0pp`` … ``+1.0pp``
+    for a rate axis, ``×0.8`` … ``×1.2`` for ``sales_to_capital``), and the cell colour encodes the margin of safety. Each
     cell's hover tooltip shows that margin of safety together with the per-share
     intrinsic value (carried as ``customdata``).
 
@@ -155,8 +161,8 @@ def sensitivity_heatmap_html(grid: Grid2D) -> str:
         ]
         for row in grid.cells
     ]
-    col_labels = [_pct_delta(m) for m in grid.col_steps]
-    row_labels = [_pct_delta(m) for m in grid.row_steps]
+    col_labels = [fmt_step(m, grid.col_kind) for m in grid.col_steps]
+    row_labels = [fmt_step(m, grid.row_kind) for m in grid.row_steps]
 
     if has_price:
         # Colour and hover by margin of safety, identical in meaning to the
@@ -217,11 +223,6 @@ def sensitivity_heatmap_html(grid: Grid2D) -> str:
             div_id="sensitivity-heatmap",
         )
     )
-
-
-def _pct_delta(multiplier: float) -> str:
-    """A grid multiplier (e.g. ``0.8``) as a signed percentage delta (``-20%``)."""
-    return f"{(multiplier - 1.0) * 100.0:+.0f}%"
 
 
 def render_analysis_html(analysis: Analysis, *, generated_on: date | None = None) -> str:

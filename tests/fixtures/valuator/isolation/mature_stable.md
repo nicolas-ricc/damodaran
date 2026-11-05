@@ -52,24 +52,26 @@ _Generated 2026-01-01 · currency USD · country United States_
 
 ## 5. Sensitivity
 
-### Tornado (±20% per assumption, ranked by impact)
+### Tornado (ranked by impact)
 
-| Assumption | Intrinsic @ -20% | Intrinsic @ +20% | Impact |
-|---|---|---|---|
-| cost_of_equity | 224.11 | 103.12 | 120.99 |
-| operating_margin (yr 1) | 110.56 | 172.86 | 62.30 |
-| terminal_growth | 123.24 | 168.88 | 45.63 |
-| tax_rate | 148.83 | 134.48 | 14.35 |
-| revenue_growth (yr 1) | 136.75 | 146.83 | 10.08 |
-| pretax_cost_of_debt | 145.98 | 137.67 | 8.31 |
-| sales_to_capital | 139.00 | 143.51 | 4.51 |
-### 2-D grid — cost_of_equity (rows) × operating_margin (cols), margin of safety (intrinsic ÷ price)| cost_of_equity ↓ / operating_margin → | -20% | -10% | +0% | +10% | +20% |
+Rate assumptions move ±1 percentage point (every year of a path); `sales_to_capital` moves ×0.8 / ×1.2.
+
+| Assumption | Shock | Intrinsic @ low | Intrinsic @ high | Impact |
+|---|---|---|---|---|
+| cost_of_equity | -1.0pp / +1.0pp | 178.27 | 117.40 | 60.87 |
+| terminal_growth | -1.0pp / +1.0pp | 119.29 | 178.39 | 59.10 |
+| revenue_growth (yr 1) | -1.0pp / +1.0pp | 135.83 | 147.81 | 11.98 |
+| operating_margin (yr 1) | -1.0pp / +1.0pp | 136.15 | 147.27 | 11.13 |
+| pretax_cost_of_debt | -1.0pp / +1.0pp | 146.47 | 137.24 | 9.24 |
+| sales_to_capital | ×0.8 / ×1.2 | 139.00 | 143.51 | 4.51 |
+| tax_rate | -1.0pp / +1.0pp | 143.41 | 140.00 | 3.42 |
+### 2-D grid — cost_of_equity (rows) × terminal_growth (cols), margin of safety (intrinsic ÷ price)| cost_of_equity ↓ / terminal_growth → | -1.0pp | -0.5pp | +0.0pp | +0.5pp | +1.0pp |
 |---|---|---|---|---|---|
-| -20% | 1.17x | 1.33x | 1.49x | 1.66x | 1.82x |
-| -10% | 0.91x | 1.03x | 1.16x | 1.29x | 1.41x |
-| +0% | 0.74x | 0.84x | 0.94x | 1.05x | 1.15x |
-| +10% | 0.62x | 0.71x | 0.80x | 0.88x | 0.97x |
-| +20% | 0.54x | 0.61x | 0.69x | 0.76x | 0.84x |
+| -1.0pp | 0.95x | 1.06x | 1.19x | 1.37x | 1.62x |
+| -0.5pp | 0.87x | 0.95x | 1.05x | 1.19x | 1.37x |
+| +0.0pp | 0.80x | 0.86x | 0.94x | 1.05x | 1.19x |
+| +0.5pp | 0.73x | 0.79x | 0.86x | 0.94x | 1.05x |
+| +1.0pp | 0.68x | 0.73x | 0.78x | 0.85x | 0.94x |
 ## 6. Narrative flags
 
 | Flag | Colour | Reason |

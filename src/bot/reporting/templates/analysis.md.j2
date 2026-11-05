@@ -97,12 +97,14 @@ _Generated {{ generated_at }} · currency {{ a.valuation_currency or "n/a" }} ·
 
 ## 5. Sensitivity
 
-### Tornado (±20% per assumption, ranked by impact)
+### Tornado (ranked by impact)
 
-| Assumption | Intrinsic @ -20% | Intrinsic @ +20% | Impact |
-|---|---|---|---|
+Rate assumptions move ±1 percentage point (every year of a path); `sales_to_capital` moves ×0.8 / ×1.2.
+
+| Assumption | Shock | Intrinsic @ low | Intrinsic @ high | Impact |
+|---|---|---|---|---|
 {% for t in a.tornado -%}
-| {{ t.axis | axis_label }} | {{ t.intrinsic_low | per_share }} | {{ t.intrinsic_high | per_share }} | {{ t.impact | per_share }} |
+| {{ t.axis | axis_label }} | {{ t.kind | shock }} | {{ t.intrinsic_low | per_share }} | {{ t.intrinsic_high | per_share }} | {{ t.impact | per_share }} |
 {% endfor %}
 {% if a.scenarios %}
 
