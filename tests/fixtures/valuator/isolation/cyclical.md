@@ -6,7 +6,7 @@ _Generated 2026-01-01 · currency USD · country United States_
 
 - **Intrinsic value (per share):** 14.28
 - **Current price:** 0.90
-- **Margin of safety:** 15.87x (potentially undervalued)
+- **Margin of safety:** 15.86x (potentially undervalued)
 - **Story type:** cyclical
 - **WACC (computed from the components in §3):** 8.8% (equity 76.9% / debt 23.1%)
 - **Terminal value share of EV:** 80.8%
@@ -67,7 +67,7 @@ _Generated 2026-01-01 · currency USD · country United States_
 |---|---|---|---|---|---|
 | -20% | 17.30x | 20.72x | 24.15x | 27.58x | 31.00x |
 | -10% | 13.67x | 16.45x | 19.22x | 22.00x | 24.78x |
-| +0% | 11.20x | 13.53x | 15.87x | 18.20x | 20.53x |
+| +0% | 11.20x | 13.53x | 15.86x | 18.20x | 20.53x |
 | +10% | 9.40x | 11.42x | 13.43x | 15.44x | 17.46x |
 | +20% | 8.04x | 9.81x | 11.58x | 13.35x | 15.12x |
 ## 6. Narrative flags
