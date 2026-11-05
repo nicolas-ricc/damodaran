@@ -172,7 +172,7 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.valuator.analysis._sanity_check",
         "bot.valuator.analysis._operating_leverage",
         "bot.valuator.story_types.classify",
-        "bot.valuator.story_types._cagr",
+        "bot.utils.finance.cagr",
         "bot.valuator.story_types._earnings_cv",
         "bot.valuator.assumptions.resolve_assumptions",
         "bot.valuator.assumptions.load_assumption_inputs",
@@ -301,7 +301,7 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
     "analyze-story": {
         "bot.valuator.story_types.classify",
         "bot.valuator.story_types._earnings_cv",
-        "bot.valuator.story_types._cagr",
+        "bot.utils.finance.cagr",
     },
     "analyze-assumptions": {
         "bot.valuator.assumptions.resolve_assumptions",

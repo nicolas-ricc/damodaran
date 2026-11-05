@@ -78,7 +78,7 @@ story_type: "2. story type: first rule that matches wins" {  # @symbol bot.valua
   cyclical: "cyclical: cyclical sector and coefficient of variation ≥ 0.50\ncoefficient of variation = standard deviation ÷ |mean| of net income\n(population standard deviation; fewer than 2 years or mean 0: not cyclical)" {  # @symbol bot.valuator.story_types._earnings_cv @const bot.valuator.story_types._CYCLICAL_EARNINGS_CV
     class: decision
   }
-  high_growth: "high-growth: revenue compound annual growth rate (CAGR) ≥ 15% and age ≤ 25 years\nwhere CAGR = (last ÷ first)^(1 ÷ (years − 1)) − 1\nunknown age counts as young\nfewer than 2 years, or first or last ≤ 0: mature-stable" {  # @symbol bot.valuator.story_types._cagr @const bot.valuator.story_types._HIGH_GROWTH_CAGR @const bot.valuator.story_types._MATURE_AGE_YEARS
+  high_growth: "high-growth: revenue compound annual growth rate (CAGR) ≥ 15% and age ≤ 25 years\nwhere CAGR = (last ÷ first)^(1 ÷ (years − 1)) − 1\nunknown age counts as young\nfewer than 2 years, or first or last ≤ 0: mature-stable" {  # @symbol bot.utils.finance.cagr @const bot.valuator.story_types._HIGH_GROWTH_CAGR @const bot.valuator.story_types._MATURE_AGE_YEARS
     class: decision
   }
   mature_decline: "mature-decline: CAGR ≤ −1%" {  # @const bot.valuator.story_types._DECLINE_CAGR
