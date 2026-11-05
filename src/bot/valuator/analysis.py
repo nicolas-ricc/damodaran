@@ -279,7 +279,9 @@ def _histories_from_rows(
 
 @dataclass(frozen=True)
 class LatestClose:
-    """The newest non-null ``prices_daily`` row: close, listing currency, date.
+    """The newest non-null ``prices_daily`` row (on or before ``price_as_of`` when set).
+
+    Holds the close, its listing currency and its date.
 
     ``currency`` is normalised (strip + upper, blank -> ``None``) like the
     valuation currency, so the two compare and key rate lookups in one spelling.
@@ -293,6 +295,7 @@ class LatestClose:
 def _load_latest_close(
     conn: duckdb.DuckDBPyConnection,
     ticker: str,
+    *,
     price_as_of: _date | None = None,
 ) -> LatestClose | None:
     """Newest non-null close for ``ticker``; on or before ``price_as_of`` when set."""
@@ -482,7 +485,7 @@ def load_valuation_input(
     latest = _load_latest_financials(conn, ticker)
     revenue_history, income_history, ebit_history = _load_history(conn, ticker)
     sector = _load_sector_multiples(conn, company)
-    latest_close = _load_latest_close(conn, ticker, price_as_of)
+    latest_close = _load_latest_close(conn, ticker, price_as_of=price_as_of)
     assumption_inputs = load_assumption_inputs(
         conn, ticker, currencies=currencies, warned=warned
     )

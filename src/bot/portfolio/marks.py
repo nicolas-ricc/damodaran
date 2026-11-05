@@ -156,8 +156,8 @@ def mark_holdings(
 
     The default valuator picks up ``<assumptions_dir>/<TICKER>.yaml`` the way
     ``bot analyze`` does, so a holding's mark agrees with its analysis report.
-    The mark's price is the newest close on or before ``snapshot_date``, the quote sync
-    values the position with.
+    The mark's price is the newest close on or before ``snapshot_date``: the same
+    quote sync values the position with.
     ``currencies`` is the per-currency rate table the default valuator uses; ``None``
     loads the default file once for the whole run.
     Persisting opens its own transaction: do not call this inside another one.
