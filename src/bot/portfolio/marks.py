@@ -56,7 +56,13 @@ class RedFlagBaseline:
 
 
 class AnalyzeFn(Protocol):
-    def __call__(self, ticker: str, conn: duckdb.DuckDBPyConnection) -> Analysis: ...
+    def __call__(
+        self,
+        ticker: str,
+        conn: duckdb.DuckDBPyConnection,
+        *,
+        price_as_of: date | None = None,
+    ) -> Analysis: ...
 
 
 def persist_marks(
@@ -150,6 +156,8 @@ def mark_holdings(
 
     The default valuator picks up ``<assumptions_dir>/<TICKER>.yaml`` the way
     ``bot analyze`` does, so a holding's mark agrees with its analysis report.
+    The mark's price is the newest close on or before ``snapshot_date``, the quote sync
+    values the position with.
     ``currencies`` is the per-currency rate table the default valuator uses; ``None``
     loads the default file once for the whole run.
     Persisting opens its own transaction: do not call this inside another one.
@@ -160,13 +168,19 @@ def mark_holdings(
         table = currencies if currencies is not None else load_currency_table()
         warned: set[str | None] = set()
 
-        def analyze_fn_default(ticker: str, conn: duckdb.DuckDBPyConnection) -> Analysis:
+        def analyze_fn_default(
+            ticker: str,
+            conn: duckdb.DuckDBPyConnection,
+            *,
+            price_as_of: date | None = None,
+        ) -> Analysis:
             return valuator.analyze(
                 ticker,
                 conn,
                 conventional_override_path(assumptions_dir, ticker),
                 currencies=table,
                 warned=warned,
+                price_as_of=price_as_of,
             )
 
         analyze_fn = analyze_fn_default
@@ -179,7 +193,7 @@ def mark_holdings(
         price: float | None = None
         red_flags: dict[str, str] | None = None
         try:
-            analysis = analyze_fn(ticker, conn)
+            analysis = analyze_fn(ticker, conn, price_as_of=snapshot_date)
         except (LookupError, ValueError) as exc:
             log.debug("marks.analyze_skipped", ticker=ticker, error=str(exc))
         else:
