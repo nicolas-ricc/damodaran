@@ -21,13 +21,22 @@
 - JSON sidecar `schema_version` stays `1`. Out of scope: configurable shock sizes, new axes.
 - `mypy --strict`, ruff and the full suite (`uv run pytest -q`) stay green. `valuator/` targets 100% coverage.
 
-## Decisions (technical assumptions, declared)
+## Assumptions
+
+These are technical assumptions, decided and declared. Each names the rejected alternative.
 
 - **Name.** `scale_axis` becomes `shift_axis(assumptions, axis, step)`. `step` is a pp delta for an additive axis and a factor for a multiplicative one. The old name is removed, together with its export in `bot.valuator.__init__`.
 - **Kind on the enum.** `SensitivityAxis.kind` is a property returning `ShockKind`. `ShockKind` is a `StrEnum` with values `"additive"` / `"multiplicative"`, so it serialises as a plain string in the sidecar.
 - **Public step tables.** `tornado_steps(kind) -> tuple[float, float]` and `grid_steps(kind) -> tuple[float, float, float, float, float]` are the single source the reporting layer formats from. The constants behind them are `_TORNADO_SHIFT = 0.01`, `_TORNADO_LOW = 0.8`, `_TORNADO_HIGH = 1.2`, `_GRID_SHIFTS`, `_GRID_MULTIPLIERS`.
 - **Grid2D fields.** `row_multipliers` / `col_multipliers` are replaced by `row_steps`, `col_steps`, `row_kind`, `col_kind`. A grid holding additive steps under a field called "multipliers" would mislead every reader. Sidecars written before #217 have `row_multipliers` and no kind; the site reads them as multiplicative steps. That keeps `schema_version` 1 with old sidecars still readable, which is the same approach `analysis_json` documented for #219. `TornadoEntry` gains `kind` (an additive field in the sidecar). An old tornado entry without `kind` reads as multiplicative.
-- **Domain guard scope.** The guards beyond `g ≥ WACC` apply only to the axes a scenario actually moved, i.e. those whose step is not the identity (`0.0` additive, `1.0` multiplicative). The base case and the grid centre therefore always value exactly as `dcf` does, even when a hand-written override sits on a domain edge (for example `pretax_cost_of_debt: 0`).
+- **Domain guard scope.** The guards beyond `g ≥ WACC` apply only to the axes a scenario actually moved, i.e. those whose step is not the identity (`0.0` additive, `1.0` multiplicative). The new guards therefore never touch the grid centre, even when a hand-written override sits on a domain edge (for example `pretax_cost_of_debt: 0`). The `g ≥ WACC` guard stays unconditional, as today. In production a base with `g ≥ WACC` never reaches the sensitivity, because `analyze` runs `dcf` on the base first (`analysis.py:937`) and that raises (`dcf.py:265`). Rejected alternative: guarding every scenario on every field, which would blank the centre of such an override.
+
+- **Coupled paths shift by the same pp.** A `wacc_path` is a story's all-in discount rate: it replaces the built-up WACC (`dcf.py` `Assumptions.wacc_path`), so on that path the cost-of-equity axis *is* the discount rate. Shifting it by the same pp is the additive analogue of today's same-factor scaling (`sensitivity.py:15-17`). Rejected alternative: an equity-weighted shift, which would invent a weighting the path never had.
+- **The tax guard lives in sensitivity, not in `dcf`.** `dcf` validates no tax rate today (`dcf.py:243-269`). The `[0, 1)` and `≤ 0` rules are a sensitivity wrapper only, and `dcf` semantics do not change.
+- **`fmt_step(…, kind)` coerces with `ShockKind(kind)`**, so an unknown kind string raises `ValueError`. In the site, `_renderable` (`site.py:108-118`) catches `KeyError`/`ValueError` and skips that sidecar, as it does for any malformed one. For the same reason the site reads `grid["row_multipliers"]` by index on the fallback path: a sidecar with neither key raises `KeyError` and is skipped. Rejected alternative: formatting unknown kinds silently.
+- **Signed zero.** The centre step reads `+0.0pp` / `×1.0`, continuing today's `+0%` (`fmt_mult`, golden `isolation/*.md` line 66). The constant is the literal `0.0`, so it is never `-0.0`.
+- **Commits per task with a red downstream suite.** Tasks 1–3 change a shared dataclass, so the suite turns green only after Task 3. Stage 3 commits failing evals by design. The branch is squash-merged, so `master` never sees a red commit. Rejected alternative: one big commit, which would leave nothing for the per-task reviewer to review.
+- **Scope of the prose docs.** The lesson and the plano are updated because CONTEXT.md says to: "update both when finishing one" (the plans) and that the lesson's `check.py` polices cited symbols. The spec §7.4 is the source of truth (CONTEXT.md "Source of truth") and would otherwise say ±20%.
 
 ## Review Focus
 
@@ -70,6 +79,7 @@
   - `test_tax_rate_995_plus_one_pp_is_none_not_a_crash`: `tax_rate=0.995` → the `TAX_RATE` entry's `intrinsic_high is None`, `intrinsic_low` is a float, and the entry is last.
   - `test_cost_of_capital_shifted_to_zero_is_none`: `pretax_cost_of_debt=0.005` → `intrinsic_low is None`. Likewise `cost_of_equity=0.005` with a `wacc_path` containing `0.005`.
   - `test_base_on_domain_edge_keeps_a_valued_centre`: `pretax_cost_of_debt=0.0`, grid over `PRETAX_COST_OF_DEBT` × `OPERATING_MARGIN` → `cells[2][2].intrinsic_value == dcf(fin, base).intrinsic_value`, and rows 0–2 (steps ≤ 0) are `None` except the centre row.
+  - Keep `test_grid_centre_matches_the_headline_margin_of_safety` (the existing test that compares against `analyze`'s headline MoS) passing unchanged.
   - `test_other_value_errors_still_surface`: rewrite the existing equivalent so it still holds (for example `shares_diluted=0` raises `ValueError` through `tornado`).
   - Update the existing ±20% tests (margin ends, grid multipliers, the diverging-cells test) to the new values.
 
@@ -126,6 +136,7 @@
   - `test_scenario_grid_labels_follow_kind`: a sidecar built from a current analysis → `row_labels`/`col_labels` are the `fmt_step` labels of its grid kinds (e.g. `("-1.0pp", …, "+1.0pp")` for `cost_of_equity`).
   - `test_pre_217_sidecar_reads_as_multiplicative`: take the payload, rename `grid.row_steps`/`col_steps` to `row_multipliers`/`col_multipliers`, and drop `row_kind`/`col_kind` and every tornado `kind`. `detail_view` does not raise, the labels are `("×0.8", "×0.9", "×1.0", "×1.1", "×1.2")`, and every `TornadoBar.shock == "×0.8 / ×1.2"`. The site build (`_renderable`) keeps this analysis.
   - `test_tornado_bar_carries_shock`: a current sidecar → the `revenue_growth (yr 1)` bar has `shock == "-1.0pp / +1.0pp"`.
+  - `test_sidecar_without_grid_steps_is_skipped`: drop both `row_steps` and `row_multipliers` → `_renderable` returns `None` for that entry (no crash). The same holds for a tornado `kind` of `"bogus"`.
   - `tornado_table` renders a non-empty `shock` next to the label (for example `<span class="shock">-1.0pp / +1.0pp</span>`) and renders nothing extra for an empty one. Update the `"-20%"` label fixtures in `test_web_svg.py` / `test_web_site_review.py` to the new label style.
   - The rendered detail page's Drivers and Scenarios ledes no longer say "20%" for every input. They say rates move by one percentage point and `sales_to_capital` by 20%.
 
@@ -155,3 +166,10 @@
 - [ ] **Step 4: Verify.** `python3 docs/pipeline/check.py` exits 0. `python3 docs/leccion/check.py` and `python3 docs/plano/build.py` succeed. Run `docs/pipeline/models/check.sh` if TLC is available locally; otherwise CI's `models` job is the check. `uv run pytest -q`, `uv run ruff check .` and `uv run mypy src` all pass.
 
 - [ ] **Step 5: Commit** `docs(#217): atlas, model labels and docs describe the additive shocks`.
+
+## Grilling
+
+- Rounds: 1. The plan was revised with assumptions and three extra tests, with no new seam, so there was no second round. Griller model: fable.
+- Questions: 17. By source: CODE 13, ISSUE 2, DOC 1, and 4 resolved as technical assumptions. Some answers cite more than one source.
+- Assumptions added: coupled paths shift by the same pp; the tax guard lives in sensitivity, not `dcf`; unknown kinds raise and the sidecar is skipped; signed zero `+0.0pp`; per-task commits with a red downstream suite; scope of the prose docs.
+- Spec ambiguities: none. Issues opened: none.
