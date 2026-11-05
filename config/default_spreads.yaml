@@ -1,0 +1,65 @@
+# Curated tables for a distressed company's probability of bankruptcy (#213, spec §7.3).
+#
+# coverage_to_rating: interest coverage (EBIT / interest expense) -> synthetic rating.
+#   Source: Damodaran, "Ratings, Interest Coverage Ratios and Default Spread", data as of
+#   January 2026, LEFT block (large non-financial firms):
+#   https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html
+#   Rating is the S&P half of the label (Caa/CCC -> CCC). Bounds are the clean numbers: the
+#   page's "<= 0.199999" is "< 0.2" and the next row's lower bound is the same number.
+# rating_to_default_probability: rating -> 10-year cumulative probability of default (decimal).
+#   Source: Damodaran, "Valuing Distressed and Declining Companies", June 2009, Table 5
+#   "Bond Rating and Probability of Default - 1971 - 2007" (Altman 2007), 10-year column,
+#   pp. 41-42:
+#   https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/NewDistress.pdf
+#   Table 5 is irregular (A- jumps to 5.00% from A's 0.66%; A+ 0.57% sits barely above AA
+#   0.51%). The seed copies the source; the loader does not check monotonicity.
+#
+# To reproduce: read the HTML page's left block; for the PDF, download it to a new empty
+#   directory outside the repo and run, with the script kept outside that directory,
+#   `uv run --with pypdf python -I <script> <pdf path>` extracting the text of pages 41-42.
+#
+# Two mapping decisions (Table 5 has no row for these bracket ratings):
+#   BB+ copies the BB row (the table's nearest class).
+#   D copies the C- row: a D rating means default already happened, the worst curated class
+#   is the nearest figure, and 1.0 is not a curated number (it would zero every company
+#   with coverage under 0.2).
+horizon_years: 10
+coverage_to_rating:
+  # Interest coverage = EBIT / interest expense. lower inclusive, upper exclusive, null = unbounded.
+  # Ordered from the lowest coverage up; the brackets must tile the whole line.
+  - {lower: null, upper: 0.2, rating: D, source: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html, as_of: 2026-01-01}
+  - {lower: 0.2, upper: 0.65, rating: C, source: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html, as_of: 2026-01-01}
+  - {lower: 0.65, upper: 0.8, rating: CC, source: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html, as_of: 2026-01-01}
+  - {lower: 0.8, upper: 1.25, rating: CCC, source: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html, as_of: 2026-01-01}
+  - {lower: 1.25, upper: 1.5, rating: B-, source: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html, as_of: 2026-01-01}
+  - {lower: 1.5, upper: 1.75, rating: B, source: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html, as_of: 2026-01-01}
+  - {lower: 1.75, upper: 2.0, rating: B+, source: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html, as_of: 2026-01-01}
+  - {lower: 2.0, upper: 2.25, rating: BB, source: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html, as_of: 2026-01-01}
+  - {lower: 2.25, upper: 2.5, rating: BB+, source: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html, as_of: 2026-01-01}
+  - {lower: 2.5, upper: 3.0, rating: BBB, source: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html, as_of: 2026-01-01}
+  - {lower: 3.0, upper: 4.25, rating: A-, source: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html, as_of: 2026-01-01}
+  - {lower: 4.25, upper: 5.5, rating: A, source: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html, as_of: 2026-01-01}
+  - {lower: 5.5, upper: 6.5, rating: A+, source: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html, as_of: 2026-01-01}
+  - {lower: 6.5, upper: 8.5, rating: AA, source: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html, as_of: 2026-01-01}
+  - {lower: 8.5, upper: null, rating: AAA, source: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html, as_of: 2026-01-01}
+rating_to_default_probability:
+  # 10-year cumulative probability of default, as a decimal.
+  AAA: {probability: 0.0007, source: https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/NewDistress.pdf, as_of: 2009-06-01}
+  AA: {probability: 0.0051, source: https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/NewDistress.pdf, as_of: 2009-06-01}
+  A+: {probability: 0.0057, source: https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/NewDistress.pdf, as_of: 2009-06-01}
+  A: {probability: 0.0066, source: https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/NewDistress.pdf, as_of: 2009-06-01}
+  A-: {probability: 0.0500, source: https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/NewDistress.pdf, as_of: 2009-06-01}
+  BBB: {probability: 0.0754, source: https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/NewDistress.pdf, as_of: 2009-06-01}
+  BB: {probability: 0.1963, source: https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/NewDistress.pdf, as_of: 2009-06-01}
+  # decision: copies BB (nearest class in Table 5)
+  BB+: {probability: 0.1963, source: https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/NewDistress.pdf, as_of: 2009-06-01}
+  B+: {probability: 0.2825, source: https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/NewDistress.pdf, as_of: 2009-06-01}
+  B: {probability: 0.3680, source: https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/NewDistress.pdf, as_of: 2009-06-01}
+  B-: {probability: 0.4212, source: https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/NewDistress.pdf, as_of: 2009-06-01}
+  CCC: {probability: 0.5902, source: https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/NewDistress.pdf, as_of: 2009-06-01}
+  CC: {probability: 0.6660, source: https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/NewDistress.pdf, as_of: 2009-06-01}
+  C+: {probability: 0.7516, source: https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/NewDistress.pdf, as_of: 2009-06-01}
+  C: {probability: 0.8103, source: https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/NewDistress.pdf, as_of: 2009-06-01}
+  C-: {probability: 0.8716, source: https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/NewDistress.pdf, as_of: 2009-06-01}
+  # decision: copies C- (default already happened; worst curated class; 1.0 is not curated)
+  D: {probability: 0.8716, source: https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/NewDistress.pdf, as_of: 2009-06-01}
