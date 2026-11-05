@@ -7,9 +7,10 @@ is always read back from ``holding_marks`` rather than recomputed.
 
 ``None`` fields mean "unknown": ``red_flags=None`` is a ticker that could not
 be valued, ``failed_gates=None`` one the gates could not be evaluated for. An
-unknown *current* value never fires an event. An unknown *prior* red-flag set
-counts as empty, by design, so standing red flags re-fire after a day without a
-valuation; an unknown prior gate set or WACC yields no event.
+unknown *current* value never fires an event. An unknown prior red-flag set is
+skipped, so ``new_red_flag`` compares with the last known mark
+(``load_red_flag_baselines``); an unknown prior gate set or WACC still yields
+no event.
 """
 
 from __future__ import annotations
