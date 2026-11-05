@@ -35,6 +35,31 @@
 4. **Stale `class="at"` line for the new lesson symbol**: `docs/leccion/check.py` only warns on a moved line. Pinned by `test_leccion_cites_load_default_spreads_at_its_line` (Task 3), which asserts the cited line equals the `def` line.
 5. **Committed SVGs that lag the d2**: `test_svgs_show_their_step_labels` checks the first lines of step nodes, and the CI step "committed render is current" checks `rendered.sha256`. Task 5 covers this by re-rendering from CI, and again after any later d2 edit.
 
+## Stage-3 evals (`tests/unit/test_story_branch_docs.py`)
+
+Written before Task 1 and committed failing (`test(#247): evals`). Helpers are reused from `tests/unit/test_pipeline_diagram.py` (`_analyze_block`, `_check().normalize`), `tests/unit/test_pipeline_subboards.py` (`edges`, `first_line`) and `tests/unit/test_pipeline_models.py` (`_map`). Each test compares whitespace-normalized text after replacing `\n` with a space.
+
+- `test_analyze_board_margin_node_carries_the_pinned_text`: all seven margin segments appear, in order.
+- `test_analyze_board_bankruptcy_node_carries_the_pinned_text`: all seven bankruptcy segments appear, and the directive names `_resolve_probability_of_bankruptcy`, `config/default_spreads.yaml` and `load_default_spreads`.
+- `test_analyze_board_altman_gap_replaces_manual_only`: `assumptions.bankruptcy.manual_only` is gone, `assumptions.bankruptcy.altman` is a gap with the pinned text, and `story_type.distressed.altman` is still a gap.
+- `test_assumptions_board_keeps_24_edges`.
+- `test_assumptions_board_first_lines_equal_the_view_labels`: both pinned first lines are drawn as edge first lines and equal `_map("analyze","steps")[...]`.
+- `test_assumptions_board_margin_edge_lists_mature_decline` and `test_assumptions_board_bankruptcy_edge_cites_the_table`: the edge text plus its directive.
+- `test_tla_comments_cite_the_new_branches`: the comment above `MarginIsResolved` names mature-decline. The comment above `TaxAndBankruptcyAreSet` names `_resolve_probability_of_bankruptcy` and `src/bot/reference/default_spreads.py`.
+- `test_leccion_cap6_splits_the_three_rows`, `test_leccion_caveat_describes_the_coverage_chain` (it contains `config/default_spreads.yaml`, `rating sintético`, `diez años`, `Altman` and does not contain `queda en 0 salvo`), `test_leccion_cap7_rule_based_mentions_the_chain`, `test_leccion_cites_load_default_spreads_at_its_line`.
+- `test_plano_estado_rows_describe_the_derivation` (`a-quiebra` names `default_spreads`, `story-altman` is still `falta`, and none of the four says p comes "solo de un override manual") and `test_plano_cards_describe_the_branches` (`s-md` names its own margin, `s-ds` and `a-default` name the coverage, and no card still says "se quedan en cero hasta").
+
+## Assumptions
+
+Decided during the plan review, with the rejected alternative:
+
+- **A1.** Rename the gap key to `altman` instead of keeping `manual_only` with the new text. Rejected: a key that contradicts its own text.
+- **A2.** Commits between Task 1 and Task 5 may leave `test_svgs_show_their_step_labels` and the CI "committed render is current" step red; the suite must be green at the end of stage 4. Rejected: rendering locally. d2 cannot be installed, and the issue says the SVGs come from CI.
+- **A3.** The issue pins only the key Spanish phrases for the lesson; the plano text is written by the implementer in Spanish. Tests match keywords, not whole sentences. Rejected: inventing a pinned Spanish text the issue does not give.
+- **A4.** The `estado.py` status tokens stay as they are (`story-uso` a-medias, `story-altman` falta, `a-quiebra` a-medias, `dcf-quiebra` hecho). The issue asks the text to say what is and is not derived; it does not ask for a re-audit. Rejected: changing tokens, since the audit stamp is pinned.
+- **A5.** The d2 syntax of the edited labels is validated only by the CI render. If the render fails, fix and push again. Rejected: none available locally.
+- **A6.** The margin edge's step 4 uses the short form "EBIT ÷ revenue", mirroring the node. Rejected: the long form, because EBIT is already expanded in step 2 of the same edge.
+
 ---
 
 ### Task 1: `analyze.d2` margin and bankruptcy nodes, the Altman-only gap
@@ -63,7 +88,7 @@
 - Test: `tests/unit/test_story_branch_docs.py`
 
 - [ ] **Step 1:** Confirm the stage-3 `assumptions_board` / `view` / `tla` tests fail.
-- [ ] **Step 2: `growth_set -> margin_set`.** The first line is exactly `operating margin gets a source [manual, story pattern, cycle average, own margin, or sector]`. Then the numbered steps mirror Task 1: insert step `4. mature-decline with a latest earnings before interest and taxes (EBIT) ÷ revenue: that margin each year → historical_average` (or the "EBIT ÷ revenue" short form, since EBIT is expanded in step 2) and renumber the sector step to `5.`. The directive is unchanged.
+- [ ] **Step 2: `growth_set -> margin_set`.** The first line is exactly `operating margin gets a source [manual, story pattern, cycle average, own margin, or sector]`. Then the numbered steps mirror Task 1: insert step `4. mature-decline with a latest EBIT ÷ revenue: that margin each year → historical_average` (short form: EBIT is already expanded in step 2) and renumber the sector step to `5.`. The directive is unchanged.
 - [ ] **Step 3: `tg_set -> ready`.** The first line is exactly `tax rate and bankruptcy odds are set [no story; tax manual, sector, country, or 25%; bankruptcy manual, from the coverage rating of a distressed company, or 0]`. Replace the last line (`bankruptcy odds and distress value per share: manual, else 0 → rule_based`) with the bankruptcy steps: `1. manual → manual`, `2. distressed: interest coverage → synthetic rating → ten-year cumulative default probability, both tables in config/default_spreads.yaml → rule_based; coverage unknown, or the file absent or malformed: 0 → rule_based, and the report says why`, `3. else 0 → rule_based`, `distress value per share: manual, else 0 → rule_based`. Append `@file config/default_spreads.yaml @symbol bot.reference.default_spreads.load_default_spreads` to the existing directive.
 - [ ] **Step 4: Update `analyze.view.js`.** Set `MarginIsResolved` and `TaxAndBankruptcyAreSet` to the two first lines above, byte for byte.
 - [ ] **Step 5: Update `analyze.tla`.** The comment above `MarginIsResolved` becomes `(* src/bot/valuator/assumptions.py: _resolve_operating_margin (manual; high-growth ramp; cyclical cycle average; mature-decline own latest margin, flat; sector) *)`. The comment above `TaxAndBankruptcyAreSet` becomes `(* src/bot/valuator/assumptions.py: _resolve_tax_rate, _resolve_probability_of_bankruptcy (manual; distressed: interest coverage -> rating -> default probability, src/bot/reference/default_spreads.py), _resolve_distress_value_per_share *)`. No other line changes.
@@ -110,7 +135,13 @@
 
 ### Task 5: Re-render from CI (run by the session, not a subagent)
 
-- [ ] Push the branch. In the foreground, run `gh run list --branch <branch> --workflow pipeline-diagram --limit 1 --json databaseId,status`, then `gh run watch <id> --exit-status` (timeout ≥ 10 min). The `render` job's "committed render is current" step fails as expected until the SVGs land; the artifact is uploaded regardless.
+- [ ] Push the branch. In the foreground, take the run for the pushed head SHA: `gh run list --branch <branch> --workflow pipeline-diagram --commit $(git rev-parse HEAD) --json databaseId,status`, then `gh run watch <id> --exit-status` (timeout ≥ 10 min). The `render` job's "committed render is current" step fails as expected until the SVGs land; the artifact is uploaded regardless.
 - [ ] `gh run download <id> -n pipeline-render -D <new empty dir outside the repo>`. Copy only `*.svg` and `rendered.sha256` into `docs/pipeline/`.
 - [ ] `python3 docs/pipeline/check.py` passes, and so does `uv run pytest -q`. Commit `docs(#213): re-render the boards` and push. The next run's `render` job (including "committed render is current") and `models` job must be green.
 - [ ] Repeat after any later d2 edit (review fixes, deslop).
+
+## Grilling
+
+- Rounds: 1 (griller model: fable). There was no second round: the revision added the evals list, the assumptions and a run-to-SHA match. It added or removed no task and did not change the seam.
+- Questions: 16. Answered from the ISSUE: 4 (Q3, Q7, Q8 in part, Q14). Answered from the CODE: 9 (Q2, Q5, Q6, Q9, Q10 for the artifact, Q13, Q15, Q16, Q11 via `gh run list --commit`). Answered from the DOCS: 1 (Q12, CONTEXT.md says estado is hand-curated). Answered with NO SOURCE, decided as technical assumptions: Q1 (the evals list was added), Q4 (A2), Q8 (A3), Q10 d2 syntax (A5), Q12 tokens (A4), Q14 (A6).
+- Spec ambiguities: none. Follow-up issues: none.
