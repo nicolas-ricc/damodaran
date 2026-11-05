@@ -440,3 +440,24 @@ def test_mark_holdings_passes_the_snapshot_date(conn: duckdb.DuckDBPyConnection)
     mark_holdings(conn, DAY, analyze_fn=cast(AnalyzeFn, fn))
 
     assert seen == [DAY]
+
+
+def test_mark_holdings_forwards_the_default_spread_table(
+    conn: duckdb.DuckDBPyConnection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The default valuator hands ``default_spreads`` to ``analyze`` (#246)."""
+    from tests.unit.test_valuator_assumptions import _spreads
+
+    table = _spreads()
+    seen: dict[str, object] = {}
+
+    def fake_analyze(ticker: str, _conn: duckdb.DuckDBPyConnection, *_args: object, **kwargs: object) -> _Analysis:
+        seen[ticker] = kwargs.get("default_spreads")
+        return _Analysis(ticker, _DCF(1.0), current_price=1.0)
+
+    monkeypatch.setattr("bot.valuator.analysis.analyze", fake_analyze)
+    _hold(conn, "AAPL")
+
+    mark_holdings(conn, DAY, default_spreads=table)
+
+    assert seen == {"AAPL": table}

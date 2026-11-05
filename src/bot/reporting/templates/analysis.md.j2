@@ -72,6 +72,10 @@ _Generated {{ generated_at }} · currency {{ a.valuation_currency or "n/a" }} ·
 {% if a.assumptions.governance_discount is not none %}
 | Governance discount | {{ a.assumptions.governance_discount.value | pct }} | {{ a.assumptions.governance_discount.source }} |
 {% endif %}
+{% if a.assumptions.bankruptcy_derivation is not none %}
+
+- **Probability of bankruptcy chain:** {{ a.assumptions.bankruptcy_derivation.reason }}
+{% endif %}
 
 ## 4. DCF detail
 

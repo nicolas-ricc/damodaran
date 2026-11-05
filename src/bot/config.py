@@ -84,6 +84,10 @@ class Settings(BaseSettings):
         default=Path("./config/currencies.yaml"),
         description="Curated per-currency risk-free rate and nominal GDP growth table (#109).",
     )
+    default_spreads_path: Path = Field(
+        default=Path("./config/default_spreads.yaml"),
+        description="Curated interest coverage → synthetic rating → cumulative default probability tables for distressed stories (#213).",
+    )
     assumptions_dir: Path = Field(
         default=Path("./config/assumptions"),
         description="Convention-based overrides directory: <TICKER>.yaml (spec §7.6).",

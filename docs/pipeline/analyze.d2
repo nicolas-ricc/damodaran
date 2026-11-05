@@ -113,7 +113,7 @@ assumptions: "3. assumptions: the first source that yields a value wins; paths o
     class: step
     consensus: |md Gap: spec §7.3 starts revenue growth from analyst consensus converging to nominal GDP by year 10; there is no consensus layer (AssumptionSource has no analyst_consensus). | {class: gap}
   }
-  margin: "operating margin, a 10-year path\n1. manual → manual\n2. high-growth with a latest EBIT ÷ revenue: straight line from it\nto the sector op_margin → story_pattern\n3. cyclical with ≥ 4 years: mean of the yearly\nEBIT ÷ revenue → historical_average\n4. sector op_margin each year → sector label\nno sector op_margin: unresolved" {  # @symbol bot.valuator.assumptions._resolve_operating_margin @const bot.valuator.assumptions._HORIZON @const bot.valuator.assumptions._MIN_CYCLE_YEARS
+  margin: "operating margin, a 10-year path\n1. manual → manual\n2. high-growth with a latest EBIT ÷ revenue: straight line from it\nto the sector op_margin → story_pattern\n3. cyclical with ≥ 4 years: mean of the yearly\nEBIT ÷ revenue → historical_average\n4. mature-decline with a latest EBIT ÷ revenue: that margin each year → historical_average\n5. sector op_margin each year → sector label\nno sector op_margin: unresolved" {  # @symbol bot.valuator.assumptions._resolve_operating_margin @const bot.valuator.assumptions._HORIZON @const bot.valuator.assumptions._MIN_CYCLE_YEARS
     class: step
   }
   sales_to_capital: "sales-to-capital: manual → manual;\nsector sales_to_capital → sector label; else unresolved" {  # @symbol bot.valuator.assumptions.resolve_assumptions
@@ -133,9 +133,9 @@ assumptions: "3. assumptions: the first source that yields a value wins; paths o
   tax: "tax rate\n1. manual → manual\n2. sector tax_rate → sector label\n3. country tax_rate (newest damodaran_country row)\n→ sector_default_damodaran\n4. else 25% → rule_based" {  # @symbol bot.valuator.assumptions._resolve_tax_rate @const bot.valuator.assumptions._DEFAULT_TAX_RATE
     class: step
   }
-  bankruptcy: "probability of bankruptcy p and distress value per share\nmanual → manual; else 0 → rule_based" {  # @symbol bot.valuator.assumptions.resolve_assumptions
+  bankruptcy: "probability of bankruptcy p and distress value per share\n1. manual → manual\n2. distressed: interest coverage → synthetic rating → ten-year cumulative default probability,\nboth tables in config/default_spreads.yaml → rule_based\ncoverage unknown, or the file absent or malformed: 0 → rule_based, and the report says why\n3. else 0 → rule_based\ndistress value per share: manual, else 0 → rule_based" {  # @symbol bot.valuator.assumptions._resolve_probability_of_bankruptcy @file config/default_spreads.yaml @symbol bot.reference.default_spreads.load_default_spreads
     class: step
-    manual_only: |md Gap: spec §7.3 derives the probability of bankruptcy of a distressed company from its rating or Altman Z; p and the distress value only come from a manual override, otherwise both are 0. | {class: gap}
+    altman: |md Gap: spec §7.3 derives a distressed company's p from its rating or Altman Z; Altman Z is computed nowhere, so the rating is synthetic, from interest coverage alone; the distress value per share is still manual or 0. | {class: gap}
   }
   sources: |md
     The source label of each value:

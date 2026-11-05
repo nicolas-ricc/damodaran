@@ -29,6 +29,11 @@ growth): last-digit drift. That run also pinned the optional keys added since
 
 Regenerated for #216: 10-year horizon, every non-manual growth path fades to
 terminal growth. The manual-list override fixture values exactly as before.
+
+Regenerated for #213 (a mature-decline company keeps its own latest margin): only
+the mature_decline fixture moved.
+
+Re-run for #213 (distressed p from coverage): unchanged — the distressed fixture has a manual p.
 """
 
 from __future__ import annotations

@@ -1579,7 +1579,7 @@ _ANALYZE_NODES: list[tuple[str, str]] = (
         ("assumptions.growth.consensus", "gap"),
         ("assumptions.sales_to_capital.story", "gap"),
         ("assumptions.weights.company", "gap"),
-        ("assumptions.bankruptcy.manual_only", "gap"),
+        ("assumptions.bankruptcy.altman", "gap"),
         ("assumptions.sources", "note"),
         ("assumptions.story", "step"),
         ("dcf.guard", "decision"),
@@ -1679,6 +1679,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "story_pattern",
         "historical_average",
         "≥ 4 years",
+        "mature-decline",
         "sector label",
         "unresolved",
     ],
@@ -1693,7 +1694,13 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "unresolved",
     ],
     "assumptions.tax": ["sector label", "country tax_rate", "sector_default_damodaran", "25%"],
-    "assumptions.bankruptcy": ["manual", "else 0 → rule_based"],
+    "assumptions.bankruptcy": [
+        "manual",
+        "interest coverage",
+        "synthetic rating",
+        "rule_based",
+        "config/default_spreads.yaml",
+    ],
     "dcf.guard": ["1,000,000 ≤ diluted shares ≤ 100,000,000,000", "exit code 1"],
     "dcf.wacc": [
         f"equity weight {_TIMES} cost of equity + debt weight {_TIMES} pre-tax cost of debt"
@@ -1966,7 +1973,7 @@ def test_analyze_report_sections_match_template() -> None:
 
 _ANALYZE_GAPS: dict[str, list[str]] = {
     "story_type.distressed.altman": ["Altman Z", "computed nowhere"],
-    "assumptions.bankruptcy.manual_only": ["manual override"],
+    "assumptions.bankruptcy.altman": ["Altman Z", "computed nowhere", "interest coverage alone"],
     "narrative_flags.country_exposure.always_unknown": ["always unknown"],
     "assumptions.growth.consensus": ["analyst consensus", "analyst_consensus"],
     "assumptions.sales_to_capital.story": ["sales-to-capital and terminal growth"],
