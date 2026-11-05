@@ -256,6 +256,41 @@ def test_revenue_growth_uses_historical_average_when_no_consensus(
     assert all(g == pytest.approx(0.10) for g in result.revenue_growth.value)
 
 
+_SAWTOOTH = ((2021, 100.0, 18.0), (2022, 150.0, 27.0), (2023, 100.0, 18.0), (2024, 150.0, 27.0))
+
+
+def test_revenue_growth_path_is_the_cagr_not_the_mean_of_yearly_growth(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """100 → 150 → 100 → 150: CAGR ≈ 14.47%, not the 22.2% mean of yearly growth (#215)."""
+    _seed_full_sector(conn)
+    _seed_financials(conn, rows=_SAWTOOTH)
+    result = resolve_assumptions("ACME", conn)
+    assert result.revenue_growth.source is AssumptionSource.HISTORICAL_AVERAGE
+    assert result.revenue_growth.value is not None
+    assert all(g == pytest.approx(1.5 ** (1 / 3) - 1) for g in result.revenue_growth.value)
+
+
+def test_both_loaders_give_the_cagr_growth_path(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_full_sector(conn)
+    _seed_financials(conn, rows=_SAWTOOTH)
+    expected = (pytest.approx(1.5 ** (1 / 3) - 1),) * 5
+    single = assumptions_mod.load_assumption_inputs(conn, "ACME", currencies=_usd())
+    bulk = assumptions_mod.bulk_load_assumption_inputs(conn, ["ACME"], currencies=_usd())
+    assert single.historical_growth_path == expected
+    assert bulk["ACME"].historical_growth_path == expected
+
+
+def test_revenue_growth_with_a_non_positive_last_revenue_has_no_history(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    """A last revenue ≤ 0 makes the CAGR undefined: no history, GDP rule instead."""
+    _seed_full_sector(conn)
+    _seed_financials(conn, rows=((2023, 100.0, 18.0), (2024, -10.0, -5.0)))
+    result = resolve_assumptions("ACME", conn, currencies=_usd())
+    assert result.revenue_growth.source is AssumptionSource.RULE_BASED
+
+
 def test_revenue_growth_without_history_falls_back_to_rule_based_gdp(
     conn: duckdb.DuckDBPyConnection,
 ) -> None:
