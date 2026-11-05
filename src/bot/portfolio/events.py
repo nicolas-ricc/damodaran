@@ -23,9 +23,9 @@ snapshot, read back from ``holding_marks``: the baseline is what was persisted
 on the previous run, never a recomputation, so an event fires once on the diff
 where the state changes. The exception is ``new_red_flag``, which diffs against
 the last *known* red-flag set, possibly older than the previous snapshot (an
-unknown mark in between is skipped). :func:`compute_events` is the reader-orchestrator: it
-gathers snapshot/filing/mark inputs off the connection, fans them through the
-detectors, and returns the events. It never writes — persisting marks (via
+unknown mark in between is skipped). :func:`compute_events` is the
+reader-orchestrator: it gathers snapshot/filing/mark inputs off the connection,
+fans them through the detectors, and returns the events. It never writes — persisting marks (via
 ``mark_holdings``) before calling it, and persisting events after, is the
 caller's job.
 """
@@ -33,7 +33,7 @@ caller's job.
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
@@ -387,7 +387,7 @@ def detect_intrinsic_value_cross(
 
 
 def detect_new_red_flags(
-    baseline: set[str],
+    baseline: Collection[str],
     curr: HoldingMark,
     *,
     baseline_date: date | None,
@@ -397,11 +397,11 @@ def detect_new_red_flags(
     """Narrative flags that newly turned red on a held position (spec §8.3).
 
     ``baseline`` is the red-flag names of the holding's newest *known* mark
-    before this snapshot (``set()`` when it has none, ``{}`` clean included) and
-    ``baseline_date`` that mark's snapshot date (``None`` when there is none). A
-    flag fires only if it is red now *and* not in ``baseline``, so a
-    persistently-red flag is not re-reported, even across days with an unknown
-    mark. Each event carries ``baseline_snapshot_date`` (ISO string or ``None``)
+    before this snapshot: empty both when there is no known mark and when that
+    mark is clean. ``baseline_date`` is that mark's snapshot date (``None`` when
+    there is none). A flag fires only if it is red now *and* not in
+    ``baseline``, so a persistently-red flag is not re-reported, even across days
+    with an unknown mark. Each event carries ``baseline_snapshot_date`` (ISO string or ``None``)
     in its details. A current mark with unknown flags yields nothing: it is not
     an all-clear, but there is nothing to report either.
     """
@@ -730,9 +730,7 @@ def compute_events(
     # --- Valuation-derived (diff of persisted holding marks) ---------------
     prev_marks = load_marks(conn, prev_snapshot_date) if prev_snapshot_date else {}
     curr_marks = load_marks(conn, curr_snapshot_date)
-    red_flag_baselines = load_red_flag_baselines(
-        conn, curr_snapshot_date, sorted(held_tickers)
-    )
+    red_flag_baselines = load_red_flag_baselines(conn, curr_snapshot_date, held_tickers)
     for ticker in sorted(held_tickers):
         curr_mark = curr_marks.get(ticker)
         if curr_mark is None:
@@ -749,7 +747,7 @@ def compute_events(
         red_baseline = red_flag_baselines.get(ticker)
         events.extend(
             detect_new_red_flags(
-                set(red_baseline.red_flags) if red_baseline is not None else set(),
+                red_baseline.red_flags.keys() if red_baseline is not None else (),
                 curr_mark,
                 baseline_date=(
                     red_baseline.snapshot_date if red_baseline is not None else None

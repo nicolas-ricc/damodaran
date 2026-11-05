@@ -86,8 +86,8 @@ def persist_marks(
     return len(rows)
 
 
-def _parse_red_flags(raw: str | None) -> dict[str, str] | None:
-    return None if raw is None else dict(json.loads(raw))
+def _parse_red_flags(raw: str) -> dict[str, str]:
+    return dict(json.loads(raw))
 
 
 def load_marks(conn: duckdb.DuckDBPyConnection, snapshot_date: date) -> dict[str, HoldingMark]:
@@ -101,7 +101,7 @@ def load_marks(conn: duckdb.DuckDBPyConnection, snapshot_date: date) -> dict[str
             ticker=r[0],
             intrinsic_value=r[1],
             price=r[2],
-            red_flags=_parse_red_flags(r[3]),
+            red_flags=None if r[3] is None else _parse_red_flags(r[3]),
             failed_gates=None if r[4] is None else tuple(r[4]),
             sector_wacc=r[5],
         )
@@ -125,7 +125,7 @@ def load_red_flag_baselines(
         "QUALIFY ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY snapshot_date DESC) = 1",
         [before, *tickers],
     ).fetchall()
-    return {r[0]: RedFlagBaseline(r[1], _parse_red_flags(r[2]) or {}) for r in rows}
+    return {r[0]: RedFlagBaseline(r[1], _parse_red_flags(r[2])) for r in rows}
 
 
 def _held_tickers(conn: duckdb.DuckDBPyConnection, snapshot_date: date) -> list[str]:

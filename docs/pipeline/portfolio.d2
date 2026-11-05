@@ -117,7 +117,7 @@ events: "4b. diff two snapshots into events" {  # @symbol bot.portfolio.events.c
     class: decision
     link: "./portfolio-mark-events.svg"
   }
-  new_red_flag: "new_red_flag: one per narrative flag red now\nand not red in the last known mark\nunknown previous flags: the mark before is used\nno known mark: every red flag is new\nunknown flags now: nothing" {  # @symbol bot.portfolio.events.detect_new_red_flags @symbol bot.portfolio.marks.load_red_flag_baselines
+  new_red_flag: "new_red_flag: one per narrative flag red now\nand not red in the last known mark\nunknown previous flags: the known mark before it is used\nno known mark: every red flag is new\nunknown flags now: nothing" {  # @symbol bot.portfolio.events.detect_new_red_flags @symbol bot.portfolio.marks.load_red_flag_baselines
     class: decision
     link: "./portfolio-mark-events.svg"
     label.near: outside-top-center
