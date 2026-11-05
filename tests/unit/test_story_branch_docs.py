@@ -209,8 +209,9 @@ def test_leccion_cap7_rule_based_mentions_the_chain() -> None:
 
 def test_leccion_cites_load_default_spreads_at_its_line() -> None:
     src = (_ROOT / "src" / "bot" / "reference" / "default_spreads.py").read_text(encoding="utf-8")
-    line = src.splitlines().index("def load_default_spreads(path: Path | None = None) -> "
-                                  "DefaultSpreadTable:") + 1
+    found = re.search(r"^def load_default_spreads\(", src, re.M)
+    assert found, "src/bot/reference/default_spreads.py has no load_default_spreads"
+    line = src.count("\n", 0, found.start()) + 1
     cited = re.search(
         r'data-symbol="bot\.reference\.default_spreads\.load_default_spreads">[^<]*</code>'
         r' · <code class="at">src/bot/reference/default_spreads\.py:(\d+)</code>',
