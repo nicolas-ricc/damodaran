@@ -101,6 +101,20 @@ def fmt_margin_path(value: Any) -> str:
     return f"{path[0]:.1%} → {path[-1]:.1%}"
 
 
+def fmt_growth_label(path: Any) -> str:
+    """Label the revenue-growth row with the length of the path it shows."""
+    if not path:
+        return "Revenue growth (yr 1)"
+    return f"Revenue growth (yr 1 → yr {len(path)})"
+
+
+def fmt_growth_path(path: Any) -> str:
+    """Render a revenue-growth path as its first and last year, flat paths included."""
+    if not path:
+        return _DASH
+    return f"{fmt_pct(path[0])} → {fmt_pct(path[-1])}"
+
+
 def fmt_ratio(value: Any) -> str:
     if value is None:
         return _DASH
@@ -161,6 +175,8 @@ def _environment() -> Environment:
     env.filters["per_share"] = fmt_per_share
     env.filters["pct"] = fmt_pct
     env.filters["margin_path"] = fmt_margin_path
+    env.filters["growth_label"] = fmt_growth_label
+    env.filters["growth_path"] = fmt_growth_path
     env.filters["axis_label"] = fmt_axis_label
     env.filters["ratio"] = fmt_ratio
     env.filters["num"] = fmt_num

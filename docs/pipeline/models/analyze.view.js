@@ -84,7 +84,7 @@ const steps = {
   TheCurrencyIsCovered: "the valuation currency is in the currency table",
   TheCurrencyIsUncovered: "the valuation currency is not in the currency table",
   GrowthIsResolved: "revenue growth gets a source [manual, story pattern, history, or nominal gross domestic product (GDP) growth]",
-  GrowthIsUnresolved: "revenue growth is unresolved [no history and an uncovered currency]",
+  GrowthIsUnresolved: "revenue growth is unresolved [uncovered currency, and no history or no terminal growth set by hand]",
   MarginIsResolved: "operating margin gets a source [manual, story pattern, cycle average, or sector]",
   MarginIsUnresolved: "operating margin is unresolved [no sector operating margin]",
   ScalarsAreResolved: "sales-to-capital and the costs of equity and debt get a source [manual or sector]",

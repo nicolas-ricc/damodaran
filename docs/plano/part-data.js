@@ -231,7 +231,7 @@ assumptions:{role:"valua",titulo:"Los seis supuestos",lead:"Acá vive casi todo 
 
 "a-growth":{role:"valua",titulo:"Crecimiento de ingresos",lead:"El supuesto que más mueve el resultado y el que peor información tiene.",
  idea:["El método de Damodaran pide acá el consenso de analistas para los primeros años, y después hacerlo converger hacia el crecimiento nominal de la economía. La convergencia no es una concesión conservadora: es aritmética. Una empresa que crece por encima de la economía para siempre termina siendo más grande que la economía.",
-  "El programa todavía no hace eso. El feed de estimaciones nunca se conectó, así que el default es el promedio histórico de la propia empresa, repetido plano por cinco años; y si no hay serie suficiente, una regla sobre el PBI nominal.",
+  "El programa todavía no hace eso. El feed de estimaciones nunca se conectó, así que el default es el promedio histórico de la propia empresa (la tasa anual compuesta de sus ventas), que baja en línea recta hasta el crecimiento terminal en diez años; y si no hay serie suficiente, una regla sobre el PBI nominal.",
   "La diferencia importa para leer el resultado: el consenso de analistas tiende a ser optimista, y el promedio histórico tiene el sesgo contrario, el inercial. Proyecta hacia adelante lo que ya pasó, que es exactamente lo que falla en una empresa que está cambiando."],
  code:{where:[["origen real","historical_average"],["respaldo","rule_based sobre PBI nominal"],["lo que pide el spec","analyst_consensus"]],
   notes:["Es el override manual más frecuente, justamente porque ningún default automático es bueno acá."]}},
@@ -282,7 +282,7 @@ dcf:{role:"valua",titulo:"DCF de dos etapas",lead:"El valor de un activo es lo q
 
 "dcf-formula":{role:"valua",titulo:"Por qué dos etapas",lead:"Y por qué la segunda suele valer más que la primera.",
  idea:["En la mayoría de las valuaciones, más de la mitad del valor está en el valor terminal, es decir, en el resumen de todo lo que pasa después del último año proyectado. Eso incomoda y debería.",
-  "No es un defecto del método: una empresa efectivamente vive más allá del año cinco. Pero significa que el número final depende sobre todo de dos supuestos de perpetuidad (crecimiento terminal y WACC) y no del detalle año por año que da la sensación de precisión.",
+  "No es un defecto del método: una empresa efectivamente vive más allá del año diez. Pero significa que el número final depende sobre todo de dos supuestos de perpetuidad (crecimiento terminal y WACC) y no del detalle año por año que da la sensación de precisión.",
   "Por eso el bot marca en amarillo cuando el valor terminal supera el 80% del total. No es que esté mal: es que la valuación es frágil y conviene saberlo antes de creerle."],
  code:{where:[["flag relacionado","terminal_value_share"],["umbral","80%"]],notes:[]}},
 

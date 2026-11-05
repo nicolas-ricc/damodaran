@@ -26,6 +26,9 @@ for these story types.
 Regenerated for #215 (growth path is the revenue CAGR, not the mean of yearly
 growth): last-digit drift. That run also pinned the optional keys added since
 ``4caf8e1`` (``wacc_path``, ``story``, ``scenarios``, ...).
+
+Regenerated for #216: 10-year horizon, every non-manual growth path fades to
+terminal growth. The manual-list override fixture values exactly as before.
 """
 
 from __future__ import annotations

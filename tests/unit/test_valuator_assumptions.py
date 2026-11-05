@@ -33,6 +33,7 @@ from bot.valuator.assumptions import (
     Assumptions,
     AssumptionSource,
     Sourced,
+    _linear_path,
     _resolve_revenue_growth,
     conventional_override_path,
     load_override,
@@ -182,7 +183,7 @@ def test_returns_assumptions_with_sourced_fields(conn: duckdb.DuckDBPyConnection
 def test_operating_margin_uses_sector_default(conn: duckdb.DuckDBPyConnection) -> None:
     _seed_full_sector(conn)
     result = resolve_assumptions("ACME", conn)
-    assert result.operating_margin.value == pytest.approx((0.18,) * 5)
+    assert result.operating_margin.value == pytest.approx((0.18,) * 10)
     assert result.operating_margin.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
 
 
@@ -253,7 +254,9 @@ def test_revenue_growth_uses_historical_average_when_no_consensus(
     )
     result = resolve_assumptions("ACME", conn)
     assert result.revenue_growth.source is AssumptionSource.HISTORICAL_AVERAGE
-    assert all(g == pytest.approx(0.10) for g in result.revenue_growth.value)
+    assert result.revenue_growth.value == pytest.approx(
+        tuple(0.10 + (0.0395 - 0.10) * i / 9 for i in range(10))
+    )
 
 
 _SAWTOOTH = ((2021, 100.0, 18.0), (2022, 150.0, 27.0), (2023, 100.0, 18.0), (2024, 150.0, 27.0))
@@ -267,14 +270,17 @@ def test_revenue_growth_path_is_the_cagr_not_the_mean_of_yearly_growth(
     _seed_financials(conn, rows=_SAWTOOTH)
     result = resolve_assumptions("ACME", conn)
     assert result.revenue_growth.source is AssumptionSource.HISTORICAL_AVERAGE
-    assert result.revenue_growth.value is not None
-    assert all(g == pytest.approx(1.5 ** (1 / 3) - 1) for g in result.revenue_growth.value)
+    path = result.revenue_growth.value
+    assert path is not None
+    # The fade starts at the CAGR (#215) and ends at terminal growth (#216).
+    assert path[0] == pytest.approx(1.5 ** (1 / 3) - 1)
+    assert path[-1] == result.terminal_growth.value
 
 
 def test_both_loaders_give_the_cagr_growth_path(conn: duckdb.DuckDBPyConnection) -> None:
     _seed_full_sector(conn)
     _seed_financials(conn, rows=_SAWTOOTH)
-    expected = (pytest.approx(1.5 ** (1 / 3) - 1),) * 5
+    expected = (pytest.approx(1.5 ** (1 / 3) - 1),) * 10
     single = assumptions_mod.load_assumption_inputs(conn, "ACME", currencies=_usd())
     bulk = assumptions_mod.bulk_load_assumption_inputs(conn, ["ACME"], currencies=_usd())
     assert single.historical_growth_path == expected
@@ -294,12 +300,15 @@ def test_revenue_growth_with_a_non_positive_last_revenue_has_no_history(
 def test_revenue_growth_without_history_falls_back_to_rule_based_gdp(
     conn: duckdb.DuckDBPyConnection,
 ) -> None:
-    """No financial history → rule-based growth path anchored on nominal GDP."""
+    """No financial history → rule-based path from nominal GDP fading to terminal growth."""
     _seed_full_sector(conn)
     _seed_financials(conn, rows=((2024, 100.0, 18.0),))
     result = resolve_assumptions("ACME", conn, currencies=_usd())
+    path = result.revenue_growth.value
     assert result.revenue_growth.source is AssumptionSource.RULE_BASED
-    assert all(g == pytest.approx(GDP_NOMINAL_US) for g in result.revenue_growth.value)
+    assert len(path) == 10
+    assert path[0] == pytest.approx(GDP_NOMINAL_US)
+    assert path[-1] == result.terminal_growth.value
 
 
 # --------------------------------------------------------------------------- #
@@ -333,7 +342,7 @@ def test_manual_override_wins_for_every_field(
     )
     result = resolve_assumptions("ACME", conn, override_path=override)
 
-    assert result.operating_margin.value == pytest.approx((0.30,) * 5)
+    assert result.operating_margin.value == pytest.approx((0.30,) * 10)
     assert result.operating_margin.source is AssumptionSource.MANUAL
     assert result.sales_to_capital.value == pytest.approx(3.0)
     assert result.sales_to_capital.source is AssumptionSource.MANUAL
@@ -353,7 +362,7 @@ def test_manual_override_is_partial_other_fields_keep_defaults(
     override = _write_override(tmp_path, "operating_margin: 0.40\n")
     result = resolve_assumptions("ACME", conn, override_path=override)
 
-    assert result.operating_margin.value == pytest.approx((0.40,) * 5)
+    assert result.operating_margin.value == pytest.approx((0.40,) * 10)
     assert result.operating_margin.source is AssumptionSource.MANUAL
     # Untouched field keeps the sector default.
     assert result.sales_to_capital.value == pytest.approx(2.5)
@@ -508,7 +517,7 @@ def test_invalid_manual_story_type_warns_and_stays_non_branching(
 # --------------------------------------------------------------------------- #
 
 
-def test_high_growth_revenue_path_fades_from_history_to_gdp(
+def test_high_growth_revenue_path_fades_from_history_to_terminal_growth(
     conn: duckdb.DuckDBPyConnection,
 ) -> None:
     _seed_company(conn)
@@ -522,7 +531,7 @@ def test_high_growth_revenue_path_fades_from_history_to_gdp(
     assert path is not None
     assert a.revenue_growth.source == AssumptionSource.STORY_PATTERN
     assert path[0] == pytest.approx(0.30, abs=0.01)
-    assert path[-1] == pytest.approx(0.04, abs=1e-9)
+    assert path[-1] == pytest.approx(a.terminal_growth.value, abs=1e-9)
     assert all(x >= y for x, y in itertools.pairwise(path))  # monotone descending
 
 
@@ -562,7 +571,7 @@ def test_cyclical_margin_averages_the_cycle_not_the_current_year(
         ),
     )
     a = resolve_assumptions("ACME", conn, auto_story_type=StoryType.CYCLICAL)
-    assert a.operating_margin.value == (pytest.approx(0.10),) * 5
+    assert a.operating_margin.value == (pytest.approx(0.10),) * 10
     assert a.operating_margin.source == AssumptionSource.HISTORICAL_AVERAGE
 
 
@@ -593,7 +602,7 @@ def test_manual_override_beats_the_story_pattern(
     a = resolve_assumptions(
         "ACME", conn, override_path=override, auto_story_type=StoryType.HIGH_GROWTH
     )
-    assert a.operating_margin.value == (0.25,) * 5
+    assert a.operating_margin.value == (0.25,) * 10
     assert a.operating_margin.source == AssumptionSource.MANUAL
 
 
@@ -682,7 +691,7 @@ def test_sector_joins_on_the_dataset_region_not_the_geographic_grouping(
     _seed_industry(conn, region="US")
     _seed_country(conn, region="North America")
     result = resolve_assumptions("ACME", conn)
-    assert result.operating_margin.value == pytest.approx((0.18,) * 5)
+    assert result.operating_margin.value == pytest.approx((0.18,) * 10)
     assert result.operating_margin.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
 
 
@@ -696,7 +705,7 @@ def test_cross_region_substitution_is_disclosed(conn: duckdb.DuckDBPyConnection)
     _seed_industry(conn, region="US")
     _seed_country(conn, country="Germany", region="Western Europe")
     result = resolve_assumptions("DEU", conn)
-    assert result.operating_margin.value == pytest.approx((0.18,) * 5)
+    assert result.operating_margin.value == pytest.approx((0.18,) * 10)
     cross = AssumptionSource.SECTOR_DEFAULT_DAMODARAN_CROSS_REGION
     assert result.operating_margin.source is cross
     assert result.equity_weight.source is cross
@@ -740,7 +749,7 @@ def test_resolved_assumption_still_reports_the_sector(conn: duckdb.DuckDBPyConne
     _seed_company(conn, ticker="SEMI", industry_damodaran="Software")
     _seed_industry(conn, op_margin=0.22)
     result = resolve_assumptions("SEMI", conn)
-    assert result.operating_margin.value == pytest.approx((0.22,) * 5)
+    assert result.operating_margin.value == pytest.approx((0.22,) * 10)
     assert result.operating_margin.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
 
 
@@ -907,7 +916,7 @@ def test_high_growth_fade_starts_at_the_historical_average_not_year_one() -> Non
     # the start is the mean, not whatever happens to sit in historical[0].
     historical = (0.50, 0.10, 0.10, 0.10, 0.10)
     resolved = _resolve_revenue_growth(
-        historical, {}, 0.04, story_type=StoryType.HIGH_GROWTH
+        historical, {}, 0.04, terminal_growth=0.04, story_type=StoryType.HIGH_GROWTH
     )
     path = resolved.value
     assert path is not None
@@ -1113,7 +1122,7 @@ def test_override_mapping_wins_over_path(
     result = resolve_assumptions(
         "ACME", conn, override_path=path, override={"operating_margin": 0.35}
     )
-    assert result.operating_margin.value == pytest.approx((0.35,) * 5)
+    assert result.operating_margin.value == pytest.approx((0.35,) * 10)
     assert result.operating_margin.source is AssumptionSource.MANUAL
 
 
@@ -1249,3 +1258,149 @@ def test_resolve_without_scenarios_leaves_them_none(
     plain = resolve_assumptions("ACME", conn, currencies=_usd())
     assert storied.scenarios is None
     assert plain.scenarios is None
+
+
+# --------------------------------------------------------------------------- #
+# #216: every non-manual growth path fades to terminal growth over 10 years    #
+# --------------------------------------------------------------------------- #
+
+#: Terminal growth of the default USD row: min(rfr 0.0395, GDP 0.04).
+_G_TERMINAL_USD = 0.0395
+
+
+def _seed_18pct_history(conn: duckdb.DuckDBPyConnection) -> None:
+    # 100 -> 118 -> 139.24: two YoY growths of 18% (mean == CAGR here).
+    _seed_financials(
+        conn, rows=((2022, 100.0, 18.0), (2023, 118.0, 20.0), (2024, 139.24, 22.0))
+    )
+
+
+def test_mature_stable_growth_fades_from_history_to_terminal_growth(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_full_sector(conn)
+    _seed_18pct_history(conn)
+    a = resolve_assumptions("ACME", conn, auto_story_type=StoryType.MATURE_STABLE)
+    path = a.revenue_growth.value
+    assert path is not None
+    assert a.revenue_growth.source is AssumptionSource.HISTORICAL_AVERAGE
+    assert path == pytest.approx(
+        tuple(0.18 + (_G_TERMINAL_USD - 0.18) * i / 9 for i in range(10))
+    )
+    assert len(path) == 10
+    assert path[-1] == a.terminal_growth.value == _G_TERMINAL_USD
+
+
+def test_high_growth_fades_to_terminal_growth_not_gdp(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_full_sector(conn)
+    _seed_financials(
+        conn,
+        rows=((2022, 100.0, 18.0), (2023, 130.0, 20.0), (2024, 169.0, 22.0)),
+    )
+    a = resolve_assumptions("ACME", conn, auto_story_type=StoryType.HIGH_GROWTH)
+    path = a.revenue_growth.value
+    assert path is not None
+    assert a.revenue_growth.source is AssumptionSource.STORY_PATTERN
+    assert len(path) == 10
+    assert path[0] == pytest.approx(0.30)
+    assert path[-1] == _G_TERMINAL_USD
+
+
+def test_manual_terminal_growth_is_the_fade_target(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)
+    _seed_18pct_history(conn)
+    override = _write_override(tmp_path, "terminal_growth: 0.02\n")
+    a = resolve_assumptions("ACME", conn, override_path=override)
+    path = a.revenue_growth.value
+    assert path is not None
+    assert len(path) == 10
+    assert path[0] == pytest.approx(0.18)
+    assert path[-1] == 0.02
+
+
+def test_manual_terminal_growth_fades_even_with_an_uncovered_currency(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)
+    _seed_18pct_history(conn)
+    override = _write_override(tmp_path, "terminal_growth: 0.02\n")
+    a = resolve_assumptions("ACME", conn, override_path=override, currencies={})
+    path = a.revenue_growth.value
+    assert path is not None
+    assert a.revenue_growth.source is AssumptionSource.HISTORICAL_AVERAGE
+    assert len(path) == 10
+    assert path[-1] == 0.02
+
+
+def test_growth_without_history_fades_from_gdp_to_terminal_growth(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_full_sector(conn)
+    _seed_financials(conn, rows=((2024, 100.0, 18.0),))
+    a = resolve_assumptions("ACME", conn, currencies=_usd(rfr=0.03))
+    path = a.revenue_growth.value
+    assert path is not None
+    assert a.revenue_growth.source is AssumptionSource.RULE_BASED
+    assert len(path) == 10
+    assert path[0] == pytest.approx(GDP_NOMINAL_US)
+    assert path[-1] == 0.03
+
+
+def test_growth_is_unresolved_without_terminal_growth() -> None:
+    resolved = _resolve_revenue_growth((0.1,) * 10, {}, None, terminal_growth=None)
+    assert resolved.value is None
+    assert resolved.source is AssumptionSource.UNRESOLVED
+
+
+def test_manual_growth_list_keeps_its_length(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)
+    _seed_18pct_history(conn)
+    override = _write_override(tmp_path, "revenue_growth: [0.1, 0.1, 0.1, 0.1, 0.1]\n")
+    a = resolve_assumptions("ACME", conn, override_path=override)
+    assert a.revenue_growth.value == (0.1,) * 5
+    assert a.revenue_growth.source is AssumptionSource.MANUAL
+    assert len(a.to_dcf_assumptions().operating_margin) == 5
+
+
+def test_manual_growth_scalar_repeats_over_ten_years(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)
+    _seed_18pct_history(conn)
+    override = _write_override(tmp_path, "revenue_growth: 0.07\n")
+    a = resolve_assumptions("ACME", conn, override_path=override)
+    assert a.revenue_growth.value == (0.07,) * 10
+    assert a.revenue_growth.source is AssumptionSource.MANUAL
+
+
+def test_high_growth_margin_ramp_has_ten_points(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_company(conn)
+    _seed_industry(conn, op_margin=0.20)
+    _seed_country(conn)
+    _seed_financials(
+        conn,
+        rows=((2022, 100.0, 8.0), (2023, 110.0, 8.8), (2024, 121.0, 9.68)),
+    )
+    a = resolve_assumptions("ACME", conn, auto_story_type=StoryType.HIGH_GROWTH)
+    path = a.operating_margin.value
+    assert path is not None
+    assert len(path) == 10
+    assert path[0] == pytest.approx(0.08)
+    assert path[-1] == pytest.approx(0.20)
+
+
+def test_linear_path_of_zero_or_one_steps() -> None:
+    assert _linear_path(0.18, 0.0395, 0) == ()
+    assert _linear_path(0.18, 0.0395, 1) == (0.0395,)
+
+
+def test_linear_path_ends_exactly_on_its_target() -> None:
+    path = _linear_path(0.18, 0.0395, 10)
+    assert len(path) == 10
+    assert path[-1] == 0.0395

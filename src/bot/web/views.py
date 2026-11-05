@@ -16,6 +16,8 @@ from bot.reporting.analysis_report import (
     MOS_FAIR,
     MOS_UNDERVALUED,
     fmt_axis_label,
+    fmt_growth_label,
+    fmt_growth_path,
     fmt_margin_path,
     fmt_money,
     fmt_num,
@@ -322,13 +324,9 @@ def row_view(ref: AnalysisRef) -> RowView:
     )
 
 
-def _fmt_first_year(path: Any) -> str:
-    return fmt_pct(path[0]) if path else _DASH
-
-
 #: Label, assumption key and formatter, in the order of the Markdown report (analysis.md.j2).
-_ASSUMPTION_ROWS: tuple[tuple[str, str, Callable[[Any], str]], ...] = (
-    ("Revenue growth (yr 1)", "revenue_growth", _fmt_first_year),
+_ASSUMPTION_ROWS: tuple[tuple[str | Callable[[Any], str], str, Callable[[Any], str]], ...] = (
+    (fmt_growth_label, "revenue_growth", fmt_growth_path),
     ("Operating margin", "operating_margin", fmt_margin_path),
     ("Sales-to-capital", "sales_to_capital", fmt_num),
     ("Cost of equity", "cost_of_equity", fmt_pct),
@@ -344,7 +342,9 @@ _ASSUMPTION_ROWS: tuple[tuple[str, str, Callable[[Any], str]], ...] = (
 def _assumptions(assumptions: Mapping[str, Any]) -> tuple[LabelledValue, ...]:
     return tuple(
         LabelledValue(
-            label, fmt(assumptions[key]["value"]), source_label(str(assumptions[key]["source"]))
+            label(assumptions[key]["value"]) if callable(label) else label,
+            fmt(assumptions[key]["value"]),
+            source_label(str(assumptions[key]["source"])),
         )
         for label, key, fmt in _ASSUMPTION_ROWS
     )
@@ -378,7 +378,9 @@ def _dcf_totals(dcf: Mapping[str, Any], financials: Mapping[str, Any]) -> tuple[
     pv_sum = sum(float(p["present_value"]) for p in dcf["projections"])
     enterprise = float(dcf["enterprise_value"])
     return (
-        LabelledValue("Present value of FCFF, years 1-5", fmt_money(pv_sum), ""),
+        LabelledValue(
+            f"Present value of FCFF, years 1-{len(dcf['projections'])}", fmt_money(pv_sum), ""
+        ),
         LabelledValue("Terminal value, discounted", fmt_money(enterprise - pv_sum), ""),
         LabelledValue("Enterprise value", fmt_money(enterprise), ""),
         LabelledValue("Net debt", fmt_money(financials["net_debt"]), ""),

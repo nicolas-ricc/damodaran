@@ -4,12 +4,12 @@ _Generated 2026-01-01 · currency USD · country United States_
 
 ## 1. Executive summary
 
-- **Intrinsic value (per share):** 454.20
+- **Intrinsic value (per share):** 597.83
 - **Current price:** 40.00
-- **Margin of safety:** 11.35x (potentially undervalued)
+- **Margin of safety:** 14.95x (potentially undervalued)
 - **Story type:** high-growth
 - **WACC (computed from the components in §3):** 8.8% (equity 76.9% / debt 23.1%)
-- **Terminal value share of EV:** 85.5%
+- **Terminal value share of EV:** 74.7%
 
 > A single intrinsic value is a point in a cloud — read the sensitivity section
 > below before drawing any conclusion (spec §7.4).
@@ -25,7 +25,7 @@ _Generated 2026-01-01 · currency USD · country United States_
 
 | Assumption | Value | Source |
 |---|---|---|
-| Revenue growth (yr 1) | 20.0% | story_pattern |
+| Revenue growth (yr 1 → yr 10) | 20.0% → 4.0% | story_pattern |
 | Operating margin | 15.0% → 12.0% | story_pattern |
 | Sales-to-capital | 2.00 | sector_default_damodaran |
 | Cost of equity | 10.0% | sector_default_damodaran |
@@ -41,14 +41,19 @@ _Generated 2026-01-01 · currency USD · country United States_
 | Year | Revenue | EBIT | NOPAT | Reinvestment | FCFF | PV |
 |---|---|---|---|---|---|---|
 | 1 | 248.83B | 37.32B | 29.49B | 20.74B | 8.75B | 8.04B |
-| 2 | 288.65B | 41.13B | 32.49B | 19.91B | 12.59B | 10.64B |
-| 3 | 323.28B | 43.64B | 34.48B | 17.32B | 17.16B | 13.33B |
-| 4 | 349.15B | 44.52B | 35.17B | 12.93B | 22.24B | 15.88B |
-| 5 | 363.11B | 43.57B | 34.42B | 6.98B | 27.44B | 18.01B |
-| Terminal | — | — | — | — | 591.61B | — |
+| 2 | 294.16B | 43.14B | 34.08B | 22.66B | 11.42B | 9.65B |
+| 3 | 342.50B | 49.09B | 38.78B | 24.17B | 14.61B | 11.35B |
+| 4 | 392.68B | 54.97B | 43.43B | 25.09B | 18.34B | 13.10B |
+| 5 | 443.20B | 60.57B | 47.85B | 25.26B | 22.59B | 14.83B |
+| 6 | 492.32B | 65.64B | 51.86B | 24.56B | 27.30B | 16.47B |
+| 7 | 538.11B | 69.95B | 55.26B | 22.89B | 32.37B | 17.95B |
+| 8 | 578.56B | 73.28B | 57.89B | 20.22B | 37.67B | 19.20B |
+| 9 | 611.73B | 75.45B | 59.60B | 16.59B | 43.02B | 20.16B |
+| 10 | 635.89B | 76.31B | 60.28B | 12.08B | 48.20B | 20.76B |
+| Terminal | — | — | — | — | 1,036.05B | — |
 
-- **Enterprise value:** 454.20B
-- **Equity value:** 454.20B
+- **Enterprise value:** 597.83B
+- **Equity value:** 597.83B
 - **Net debt:** 0.00
 
 ## 5. Sensitivity
@@ -59,20 +64,20 @@ Rate assumptions move ±1 percentage point (every year of a path); `sales_to_cap
 
 | Assumption | Shock | Intrinsic @ low | Intrinsic @ high | Impact |
 |---|---|---|---|---|
-| cost_of_equity | -1.0pp / +1.0pp | 545.92 | 387.76 | 158.16 |
-| terminal_growth | -1.0pp / +1.0pp | 404.21 | 530.24 | 126.03 |
-| operating_margin (yr 1) | -1.0pp / +1.0pp | 404.16 | 504.23 | 100.08 |
-| sales_to_capital | ×0.8 / ×1.2 | 414.08 | 480.94 | 66.87 |
-| pretax_cost_of_debt | -1.0pp / +1.0pp | 473.18 | 436.60 | 36.58 |
-| revenue_growth (yr 1) | -1.0pp / +1.0pp | 439.98 | 468.91 | 28.93 |
-| tax_rate | -1.0pp / +1.0pp | 460.57 | 447.78 | 12.79 |
+| cost_of_equity | -1.0pp / +1.0pp | 728.24 | 503.83 | 224.41 |
+| terminal_growth | -1.0pp / +1.0pp | 540.38 | 685.24 | 144.87 |
+| operating_margin (yr 1) | -1.0pp / +1.0pp | 529.47 | 666.20 | 136.73 |
+| sales_to_capital | ×0.8 / ×1.2 | 534.30 | 640.19 | 105.90 |
+| revenue_growth (yr 1) | -1.0pp / +1.0pp | 562.01 | 636.40 | 74.39 |
+| pretax_cost_of_debt | -1.0pp / +1.0pp | 624.77 | 572.89 | 51.89 |
+| tax_rate | -1.0pp / +1.0pp | 606.62 | 588.99 | 17.63 |
 ### 2-D grid — cost_of_equity (rows) × terminal_growth (cols), margin of safety (intrinsic ÷ price)| cost_of_equity ↓ / terminal_growth → | -1.0pp | -0.5pp | +0.0pp | +0.5pp | +1.0pp |
 |---|---|---|---|---|---|
-| -1.0pp | 11.78x | 12.61x | 13.65x | 14.97x | 16.73x |
-| -0.5pp | 10.88x | 11.57x | 12.40x | 13.45x | 14.80x |
-| +0.0pp | 10.11x | 10.67x | 11.35x | 12.20x | 13.26x |
-| +0.5pp | 9.42x | 9.90x | 10.46x | 11.15x | 11.99x |
-| +1.0pp | 8.82x | 9.22x | 9.69x | 10.26x | 10.94x |
+| -1.0pp | 15.98x | 16.97x | 18.21x | 19.79x | 21.88x |
+| -0.5pp | 14.66x | 15.45x | 16.43x | 17.66x | 19.24x |
+| +0.0pp | 13.51x | 14.16x | 14.95x | 15.91x | 17.13x |
+| +0.5pp | 12.51x | 13.04x | 13.68x | 14.46x | 15.41x |
+| +1.0pp | 11.63x | 12.07x | 12.60x | 13.22x | 13.98x |
 ## 6. Narrative flags
 
 | Flag | Colour | Reason |
@@ -80,7 +85,7 @@ Rate assumptions move ±1 percentage point (every year of a path); `sales_to_cap
 | story_margin | yellow | high-growth story but operating margin 15.0% already exceeds sector 12.0% — little room to improve |
 | growth_reinvestment | green | projected reinvestment is comfortably funded by NOPAT every year |
 | beta_business_risk | unknown | not evaluated: sector beta, operating leverage or company leverage unavailable |
-| terminal_value_share | yellow | terminal value is 85% of enterprise value (> 80%) — valuation is fragile |
+| terminal_value_share | green | terminal value is 75% of enterprise value (<= 80%) |
 | country_exposure | unknown | not evaluated: needs revenue by geography and a revenue-weighted ERP; no ingest path supplies either |
 ## 7. Manual overrides
 
@@ -90,6 +95,6 @@ historical averages.
 
 | Multiple | Implied | Sector (Damodaran) |
 |---|---|---|
-| P/E implied (DCF) | 21.90 | 10.00 |
+| P/E implied (DCF) | 28.83 | 10.00 |
 | P/E market | 1.93 | 10.00 |
-| EV/Sales | 2.19 | 1.20 |
+| EV/Sales | 2.88 | 1.20 |

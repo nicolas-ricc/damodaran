@@ -9,9 +9,10 @@ sector defaults, and which are pure rules.
 Resolution order (highest-priority source wins, spec §7.3/§7.6)::
 
     1. Manual override    — config/assumptions/<TICKER>.yaml, if present
-    2. Analyst consensus  — FMP (M2). For the M1 universe there is no consensus
-                            feed, so this layer falls back to the company's own
-                            historical average (HISTORICAL_AVERAGE).
+    2. Analyst consensus  — FMP (M2). There is no consensus feed, so revenue
+                            growth starts at the company's own historical average
+                            (HISTORICAL_AVERAGE) and fades to terminal growth over
+                            ten years.
     3. Sector default     — medians from damodaran_industry (and the country's
                             ERP / tax rate from damodaran_country).
     4. Rule-based         — e.g. terminal_growth = min(rfr_ccy, gdp_ccy), where
@@ -71,10 +72,12 @@ log = get_logger(__name__)
 T = TypeVar("T")
 
 # Length of the explicit forecast horizon when a path is synthesised from a
-# single scalar (sector/rule-based growth or margin). Spec §7.3 forecasts years
-# 1-5 explicitly before convergence; a richer year-by-year path comes from the
-# analyst-consensus / story-type layer (M4.3+), which overrides this default.
-_HORIZON = 5
+# single scalar (sector/rule-based growth or margin), and the span over which
+# revenue growth fades to terminal growth. Ten years gives a fast grower time to
+# converge to the steady state instead of capitalising its growth into the terminal
+# value; a richer year-by-year path comes from the analyst-consensus / story-type
+# layer (M4.3+), which overrides this default.
+_HORIZON = 10
 
 # A cyclical company's "cycle average" margin is only meaningful once we hold at
 # least one full business cycle of annual margins; fewer years fall back to the
@@ -641,9 +644,9 @@ def _historical_growth_path(
 ) -> tuple[float, ...] | None:
     """Historical revenue CAGR from financials_annual.
 
-    Returns a flat path of ``_HORIZON`` years at the historical revenue CAGR,
-    or ``None`` when it is undefined (< 2 years of revenue, or a non-positive
-    first or last revenue).
+    Returns a flat path of ``_HORIZON`` years at the historical revenue CAGR
+    (_resolve_revenue_growth takes it as the fade start), or ``None`` when it is
+    undefined (< 2 years of revenue, or a non-positive first or last revenue).
     """
     rows = conn.execute(
         "SELECT revenue FROM financials_annual "
@@ -879,10 +882,12 @@ def resolve_assumptions(
     story_type = StoryType(story_label) if story_label in _STORY_TYPE_VALUES else None
 
     rates = db_inputs.currency_rates
+    terminal_growth = _resolve_terminal_growth(override, rates)
     revenue_growth = _resolve_revenue_growth(
         db_inputs.historical_growth_path,
         override,
         rates.nominal_gdp_growth if rates is not None else None,
+        terminal_growth=terminal_growth.value,
         story_type=story_type,
     )
     operating_margin = _resolve_operating_margin(
@@ -902,7 +907,6 @@ def resolve_assumptions(
         override, sector, key="pretax_cost_of_debt", attr="cost_of_debt"
     )
     equity_weight, debt_weight = _resolve_weights(override, sector)
-    terminal_growth = _resolve_terminal_growth(override, rates)
     probability_of_bankruptcy = _resolve_probability_of_bankruptcy(override)
     distress_value_per_share = _resolve_distress_value_per_share(override)
     tax_rate = _resolve_tax_rate(override, sector, country)
@@ -968,11 +972,15 @@ def _resolve_story_type(
 
 
 def _linear_path(start: float, end: float, n: int = _HORIZON) -> tuple[float, ...]:
-    """Interpolate linearly and inclusively from ``start`` to ``end`` over ``n`` steps."""
-    if n == 1:
-        return (end,)
+    """Interpolate linearly and inclusively from ``start`` to ``end`` over ``n`` steps.
+
+    The last element is ``end`` itself, not ``start + step * (n - 1)``, so float
+    rounding cannot leave the path off its target.
+    """
+    if n <= 1:
+        return (end,) * n
     step = (end - start) / (n - 1)
-    return tuple(start + step * i for i in range(n))
+    return (*(start + step * i for i in range(n - 1)), end)
 
 
 def _resolve_revenue_growth(
@@ -980,37 +988,43 @@ def _resolve_revenue_growth(
     override: dict[str, Any],
     gdp: float | None,
     *,
+    terminal_growth: float | None,
     story_type: StoryType | None = None,
 ) -> Sourced[tuple[float, ...] | None]:
-    """Resolve the revenue-growth path.
+    """Resolve the revenue-growth path: ``_HORIZON`` (10) years fading to terminal growth.
 
     Spec §7.3 wants analyst consensus for years 1-5 with convergence to nominal GDP by
-    year 10. Neither is implemented: the path is the historical revenue CAGR repeated over a
-    5-year horizon, sourced as HISTORICAL_AVERAGE. There is no ANALYST_CONSENSUS source
-    because nothing can emit it — FMP's analyst-estimates endpoint is not wired.
+    year 10. Consensus is not implemented (FMP's analyst-estimates endpoint is not
+    wired, so there is no ANALYST_CONSENSUS source). Every path instead starts at the
+    company's own growth and fades linearly to the terminal growth rate, so the last
+    explicit year already grows at the rate the terminal value assumes.
 
-    A high-growth story is the one archetype that does branch here (spec §7.1): fast
-    growth fades toward the economy, so the path linearly fades from the historical
-    revenue CAGR (the flat path's value) down to the valuation currency's nominal GDP
-    over the explicit horizon instead of staying flat. Without a GDP figure (uncovered
-    currency) the fade has no target, so it falls through to the flat CAGR; with no
-    history either the path is ``UNRESOLVED``.
+    With history the start is the historical revenue CAGR (the flat path's value; a
+    high-growth story is sourced STORY_PATTERN, anything else HISTORICAL_AVERAGE). With
+    no history the start is the valuation currency's nominal GDP (RULE_BASED). Without
+    terminal growth there is no target, and with neither a history nor a GDP figure no
+    start, so the path is ``UNRESOLVED``. ``gdp`` is only ever that no-history start,
+    never the target.
+
+    A manual override (scalar or list) always wins and keeps its own length.
     """
     manual = _override_path_field(override, "revenue_growth")
     if manual is not None:
         return manual
-    if story_type is StoryType.HIGH_GROWTH and historical is not None and gdp is not None:
-        return Sourced(
-            value=_linear_path(fmean(historical), gdp),
-            source=AssumptionSource.STORY_PATTERN,
-        )
-    # M1 universe: no analyst-consensus feed → historical average.
-    if historical is not None:
-        return Sourced(value=historical, source=AssumptionSource.HISTORICAL_AVERAGE)
-    # No history at all: rule-based flat path anchored on nominal GDP.
-    if gdp is None:
+    if terminal_growth is None:
         return Sourced(value=None, source=AssumptionSource.UNRESOLVED)
-    return Sourced(value=(gdp,) * _HORIZON, source=AssumptionSource.RULE_BASED)
+    if historical is not None:
+        source = (
+            AssumptionSource.STORY_PATTERN
+            if story_type is StoryType.HIGH_GROWTH
+            else AssumptionSource.HISTORICAL_AVERAGE
+        )
+        return Sourced(value=_linear_path(fmean(historical), terminal_growth), source=source)
+    if gdp is not None:
+        return Sourced(
+            value=_linear_path(gdp, terminal_growth), source=AssumptionSource.RULE_BASED
+        )
+    return Sourced(value=None, source=AssumptionSource.UNRESOLVED)
 
 
 def _resolve_sector_scalar(
@@ -1040,7 +1054,8 @@ def _resolve_operating_margin(
     """Operating-margin path, branched by archetype (spec §7.1).
 
     high-growth: linear ramp from the company's own current margin to the
-    sector median — margin improvement is half of a high-growth story.
+    sector median — margin improvement is half of a high-growth story. The
+    ramp and the flat paths below all run over `_HORIZON` (10) years.
     cyclical: the cycle's own average margin, not the current year's, so a
     trough or peak year does not get projected forward as steady state,
     given at least `_MIN_CYCLE_YEARS` years of margin history.

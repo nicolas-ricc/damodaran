@@ -62,8 +62,11 @@ def test_row_uses_the_stored_verdict() -> None:
 
 
 def test_row_flags_are_only_red_and_yellow() -> None:
-    row = row_view(_ref(make_sidecar("AAA", red_flag=True)))
-    # seeded flags: green, green, unknown, yellow, unknown; the first turned red
+    payload = make_sidecar("AAA", red_flag=True)
+    # seeded flags: green, green, unknown, green, unknown; the first turned red. The
+    # terminal-value share is green (68% of EV over 10 years), so turn it yellow here.
+    payload["analysis"]["narrative_flags"][3]["color"] = "yellow"
+    row = row_view(_ref(payload))
     assert [f.color for f in row.flags] == ["red", "yellow"]
     assert [f.severity for f in row.flags] == ["fail", "warning"]
 
@@ -160,8 +163,9 @@ def test_detail_from_a_real_analysis() -> None:
     assert detail.ticker == "AAPL"
     assert detail.name == "Apple Inc"
     assert detail.history == (date(2026, 10, 1), date(2026, 9, 1))
+    growth = payload["analysis"]["assumptions"]["revenue_growth"]["value"]
     assert [a.label for a in detail.assumptions] == [
-        "Revenue growth (yr 1)",
+        f"Revenue growth (yr 1 → yr {len(growth)})",
         "Operating margin",
         "Sales-to-capital",
         "Cost of equity",
@@ -173,11 +177,12 @@ def test_detail_from_a_real_analysis() -> None:
         "Probability of bankruptcy",
     ]
     assert all(a.source for a in detail.assumptions)
-    assert [f.color for f in detail.flags] == ["green", "green", "unknown", "yellow", "unknown"]
+    assert detail.assumptions[0].value == f"{growth[0]:.1%} → {growth[-1]:.1%}"
+    assert [f.color for f in detail.flags] == ["green", "green", "unknown", "green", "unknown"]
     assert [s.label for s in detail.sanity] == ["P/E implied (DCF)", "P/E market", "EV/Sales"]
     assert len(detail.dcf_rows) == len(payload["analysis"]["dcf_result"]["projections"])
     assert [t.label for t in detail.dcf_totals] == [
-        "Present value of FCFF, years 1-5",
+        f"Present value of FCFF, years 1-{len(payload['analysis']['dcf_result']['projections'])}",
         "Terminal value, discounted",
         "Enterprise value",
         "Net debt",

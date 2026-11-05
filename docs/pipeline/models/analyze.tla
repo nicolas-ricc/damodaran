@@ -297,7 +297,7 @@ GrowthIsResolved ==
   /\ phase' = "growth_set"
   /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
-(* src/bot/valuator/assumptions.py: _resolve_revenue_growth returns UNRESOLVED when `gdp is None` *)
+(* src/bot/valuator/assumptions.py: _resolve_revenue_growth returns UNRESOLVED when there is no terminal growth (uncovered currency, none by hand) or no start (no history, `gdp is None`) *)
 GrowthIsUnresolved ==
   /\ phase = "currency_read"
   /\ phase' = "growth_set"

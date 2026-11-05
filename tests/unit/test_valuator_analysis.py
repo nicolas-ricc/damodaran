@@ -298,11 +298,14 @@ def test_analyze_returns_complete_result(seeded_conn: duckdb.DuckDBPyConnection)
     assert analysis.currency == "USD"
     # DCF ran and produced an intrinsic value and year-by-year projections.
     assert analysis.dcf_result.intrinsic_value > 0.0
-    assert len(analysis.dcf_result.projections) == 5
+    assert len(analysis.dcf_result.projections) == 10
+    assert analysis.assumptions.revenue_growth.value is not None
+    assert len(analysis.assumptions.revenue_growth.value) == 10
     # Story type was auto-assigned (mature-stable for this steady grower).
     assert analysis.story_type == StoryType.MATURE_STABLE
     assert analysis.story_reasons  # at least one reason string
-    # Sensitivity: tornado has one entry per axis; the 2-D grid is 5x5.
+    # Sensitivity runs on the 10-year paths: one tornado entry per axis; the
+    # 2-D multiplier grid is 5x5.
     assert len(analysis.tornado) == len(list(SensitivityAxis))
     assert len(analysis.grid.cells) == 5
     assert all(len(row) == 5 for row in analysis.grid.cells)
@@ -433,7 +436,7 @@ def test_analyze_manual_override_applied(
     )
     analysis = analyze("AAPL", seeded_conn, override_path=override)
     assert analysis.story_type == "high-growth"
-    assert analysis.assumptions.operating_margin.value == pytest.approx((0.35,) * 5)
+    assert analysis.assumptions.operating_margin.value == pytest.approx((0.35,) * 10)
     assert analysis.assumptions.operating_margin.source == AssumptionSource.MANUAL
     assert analysis.override_notes == "Services mix lifts steady-state margin."
 
