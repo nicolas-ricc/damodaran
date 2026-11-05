@@ -8,6 +8,7 @@ sensitivity and narrative flags, and packages everything the §7.7 report needs.
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -15,7 +16,8 @@ import duckdb
 import pytest
 import yaml
 
-from bot.reporting.analysis_report import margin_verdict
+from bot.reference.default_spreads import load_default_spreads
+from bot.reporting.analysis_report import margin_verdict, render_analysis
 from bot.storage.db import apply_schema, connect
 from bot.valuator.analysis import (
     Analysis,
@@ -28,6 +30,7 @@ from bot.valuator.analysis import (
     load_valuation_input,
 )
 from bot.valuator.assumptions import AssumptionSource
+from bot.valuator.dcf import dcf
 from bot.valuator.hypergrowth import margin_path, parse_story
 from bot.valuator.narrative_flags import FlagColor, NarrativeFlag
 from bot.valuator.sensitivity import SensitivityAxis
@@ -990,3 +993,97 @@ def test_analyze_without_bound_uses_newest_close(
     analysis = analyze("AAPL", seeded_conn)
     assert analysis.current_price == pytest.approx(120.0)
     assert analysis.price_date == date(2026, 6, 2)
+
+
+# --------------------------------------------------------------------------- #
+# Distressed: probability of bankruptcy from interest coverage (#246)          #
+# --------------------------------------------------------------------------- #
+
+
+def _seed_distressed(conn: duckdb.DuckDBPyConnection, *, interest: float | None = 60.0) -> None:
+    """The isolation golden's ``distressed`` seed (EBIT 40 / interest 60), no override.
+
+    Local copy: the golden module imports from this one, so importing back is circular.
+    """
+    _seed_company(conn, "DIST", "Retail (General)")
+    rows = (
+        (2022, 1_000.0, 60.0, -10.0, 900.0, 30.0),
+        (2023, 990.0, 50.0, -20.0, 920.0, 25.0),
+        (2024, 1_000.0, 45.0, -25.0, 930.0, 20.0),
+        (2025, 1_010.0, 40.0, -30.0, 940.0, 20.0),
+    )
+    for year, revenue, ebit, net_income, debt, cash in rows:
+        conn.execute(
+            "INSERT INTO financials_annual "
+            "(ticker, fiscal_year, revenue, ebit, net_income, interest_expense, "
+            "total_debt, cash, shares_diluted, is_restated, source, currency) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
+            [
+                "DIST",
+                year,
+                revenue * _MILLIONS,
+                ebit * _MILLIONS,
+                net_income * _MILLIONS,
+                None if interest is None else interest * _MILLIONS,
+                debt * _MILLIONS,
+                cash * _MILLIONS,
+                1_000.0 * _MILLIONS,
+                False,
+                "sec_edgar",
+            ],
+        )
+    conn.execute(
+        "INSERT INTO prices_daily (ticker, date, close, market_cap, currency, source) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ["DIST", "2025-12-31", 1.5, 1.5 * 1_000.0 * _MILLIONS, "USD", "stooq"],
+    )
+
+
+def test_distressed_company_is_valued_survival_weighted(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    from tests.unit.test_valuator_assumptions import _spreads
+
+    _seed_distressed(conn)
+    a = analyze("DIST", conn, default_spreads=_spreads())
+    assert a.story_type == StoryType.DISTRESSED.value
+    assert a.assumptions.probability_of_bankruptcy.value == 0.59
+    assert a.assumptions.probability_of_bankruptcy.source is AssumptionSource.RULE_BASED
+    going_concern = dcf(
+        a.financials,
+        replace(a.assumptions.to_dcf_assumptions(), probability_of_bankruptcy=0.0),
+    )
+    assert a.dcf_result.intrinsic_value == pytest.approx(0.41 * going_concern.intrinsic_value)
+
+
+def test_distressed_with_the_repo_table_uses_its_own_numbers(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_distressed(conn)
+    a = analyze("DIST", conn)
+    derivation = a.assumptions.bankruptcy_derivation
+    assert derivation is not None
+    assert derivation.interest_coverage == pytest.approx(40 / 60)
+    t = load_default_spreads()
+    rating = t.rating_for(derivation.interest_coverage)
+    assert rating is not None
+    assert a.assumptions.probability_of_bankruptcy.value == t.probability_for(rating)
+    assert a.assumptions.probability_of_bankruptcy.source is AssumptionSource.RULE_BASED
+
+
+def test_manual_distressed_without_interest_expense_says_why(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_distressed(conn, interest=None)
+    override = tmp_path / "DIST.yaml"
+    override.write_text("story_type: distressed\n")
+    a = analyze("DIST", conn, override_path=override)
+    assert a.assumptions.probability_of_bankruptcy.value == 0.0
+    derivation = a.assumptions.bankruptcy_derivation
+    assert derivation is not None
+    assert derivation.reason == (
+        "distressed, but interest coverage is unknown (no EBIT or no interest expense): "
+        "p stays 0"
+    )
+    md = render_analysis(a, generated_on=date(2026, 1, 1))
+    assert "**Probability of bankruptcy chain:** distressed, but interest coverage is unknown" in md

@@ -17,6 +17,7 @@ from bot.reporting import analysis_report
 from bot.reporting.analysis_report import render_analysis
 from bot.storage.db import apply_schema, connect
 from bot.valuator.analysis import Analysis, analyze
+from bot.valuator.assumptions import BankruptcyDerivation
 
 # Fixture money and share counts are written in millions; the valuator refuses
 # share counts below 1,000,000, so seeds are scaled up by this factor.
@@ -351,3 +352,27 @@ def test_report_shows_the_ten_year_growth_path_and_ten_dcf_rows(analysis: Analys
         line for line in dcf_section.splitlines() if line.startswith("| ") and line[2:3].isdigit()
     ]
     assert len(year_rows) == 10
+
+
+_DERIVED_REASON = (
+    "interest coverage 0.60 → rating CCC → 10-year cumulative default probability 59.0%"
+)
+
+
+def test_bankruptcy_chain_line_renders_when_the_chain_ran(analysis: Analysis) -> None:
+    derived = dataclasses.replace(
+        analysis,
+        assumptions=dataclasses.replace(
+            analysis.assumptions,
+            bankruptcy_derivation=BankruptcyDerivation(0.6, "CCC", 10, 0.59, _DERIVED_REASON),
+        ),
+    )
+    md = render_analysis(derived, generated_on=date(2026, 1, 1))
+    line = f"\n\n- **Probability of bankruptcy chain:** {_DERIVED_REASON}\n"
+    assert line in md
+    assert md.index("| Probability of bankruptcy |") < md.index(line) < md.index("## 4. DCF detail")
+
+
+def test_bankruptcy_chain_line_absent_by_default(analysis: Analysis) -> None:
+    md = render_analysis(analysis, generated_on=date(2026, 1, 1))
+    assert "Probability of bankruptcy chain" not in md

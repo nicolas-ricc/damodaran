@@ -11,6 +11,7 @@ from pathlib import Path
 
 import duckdb
 import pytest
+from structlog.testing import capture_logs
 from typer.testing import CliRunner
 
 from bot.cli import app
@@ -494,3 +495,36 @@ def test_analyze_malformed_override_fails_its_ticker_and_continues_batch(
     out_dir = next(reports_dir.glob("*/analysis"))
     assert (out_dir / "MSFT.md").exists()
     assert not (out_dir / "AAPL.md").exists()
+
+
+def test_analyze_with_a_missing_default_spreads_file_values_with_p_zero(
+    tmp_path: Path, monkeypatch
+) -> None:
+    db_path = tmp_path / "bot.duckdb"
+    reports_dir = tmp_path / "reports"
+    monkeypatch.setenv("BOT_DB_PATH", str(db_path))
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(reports_dir))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.setenv("BOT_DEFAULT_SPREADS_PATH", str(tmp_path / "missing.yaml"))
+
+    conn = connect(db_path)
+    apply_schema(conn)
+    _seed(conn)
+    # A known interest coverage, so the chain reaches the (empty) table.
+    conn.execute("UPDATE financials_annual SET interest_expense = ebit / 0.6")
+    conn.close()
+
+    override = tmp_path / "AAPL.yaml"
+    override.write_text("story_type: distressed\n")
+
+    with capture_logs() as logs:
+        result = CliRunner().invoke(app, ["analyze", "AAPL", "--override", str(override)])
+    assert result.exit_code == 0, result.stdout
+    assert [e["event"] for e in logs].count("default_spreads.absent") == 1
+
+    md = next(reports_dir.glob("*/analysis/AAPL.md")).read_text()
+    assert (
+        "**Probability of bankruptcy chain:** distressed, but the default-spread table is empty"
+        in md
+    )
+    assert "| Probability of bankruptcy | 0.0% | rule_based |" in md
