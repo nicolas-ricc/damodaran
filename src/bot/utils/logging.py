@@ -5,7 +5,6 @@ import sys
 from typing import Any, cast
 
 import structlog
-from structlog.testing import LogCapture
 
 _LEVELS = logging.getLevelNamesMapping()
 
@@ -42,11 +41,6 @@ def configure_logging(level: str = "INFO", json_output: bool = True) -> None:
     else:
         processors.append(structlog.dev.ConsoleRenderer())
 
-    # Keep an active ``structlog.testing.capture_logs`` capture across the
-    # reconfiguration, so a CLI command run inside one still records its events.
-    captures = [p for p in structlog.get_config()["processors"] if isinstance(p, LogCapture)]
-    if captures:
-        processors = [*captures]
     structlog.configure(
         processors=processors,
         wrapper_class=structlog.make_filtering_bound_logger(numeric_level),

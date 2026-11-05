@@ -14,6 +14,7 @@ import pytest
 from structlog.testing import capture_logs
 from typer.testing import CliRunner
 
+import bot.cli
 from bot.cli import app
 from bot.storage.db import apply_schema, connect
 
@@ -517,6 +518,8 @@ def test_analyze_with_a_missing_default_spreads_file_values_with_p_zero(
     override = tmp_path / "AAPL.yaml"
     override.write_text("story_type: distressed\n")
 
+    # The CLI's logging setup would replace the capture_logs processors.
+    monkeypatch.setattr(bot.cli, "configure_logging", lambda **_: None)
     with capture_logs() as logs:
         result = CliRunner().invoke(app, ["analyze", "AAPL", "--override", str(override)])
     assert result.exit_code == 0, result.stdout
