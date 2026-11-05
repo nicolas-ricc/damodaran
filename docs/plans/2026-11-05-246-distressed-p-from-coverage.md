@@ -53,7 +53,7 @@
 - Test: `tests/unit/test_valuator_assumptions.py`
 
 **Interfaces:**
-- Consumes: `bot.reference.default_spreads.DefaultSpreadTable`, `CoverageBracket`, `DefaultProbability`, `EMPTY_DEFAULT_SPREADS`, `load_default_spreads(path: Path | None = None) -> DefaultSpreadTable`.
+- Consumes: `bot.reference.default_spreads.DefaultSpreadTable` (attributes `horizon_years: int | None`, `brackets`, `probabilities`; `is_empty`; `rating_for(coverage: float) -> str | None`, lower bound inclusive, upper exclusive, first bracket unbounded below; `probability_for(rating: str) -> float | None`, one cumulative figure at the table-wide horizon), `CoverageBracket`, `DefaultProbability`, `EMPTY_DEFAULT_SPREADS`, `load_default_spreads(path: Path | None = None) -> DefaultSpreadTable`.
 - Produces:
   ```python
   @dataclass(frozen=True)
@@ -142,3 +142,27 @@
 - [ ] **Step 3: Implement.** Each layer forwards the keyword exactly as `currencies` is forwarded. `run_screen` passes it to `_batch_dcf_margins`, which passes it to `analyze(company=...)`. `mark_holdings`' default valuator closure passes it to `valuator.analyze`; `run_portfolio` passes it to `mark_holdings`. The CLI loads `load_default_spreads(settings.default_spreads_path)` once per command next to `load_currency_table(settings.currencies_path)`. Document each new keyword in its docstring like `currencies`.
 - [ ] **Step 4: Run.** `uv run pytest -q` → green; `uv run ruff check . && uv run mypy src` clean; `grep -l default_spreads src/bot/cli.py src/bot/screener/engine.py src/bot/portfolio/command.py src/bot/portfolio/marks.py src/bot/valuator/analysis.py src/bot/valuator/assumptions.py` lists all six.
 - [ ] **Step 5: Commit** `feat(#246): thread the default-spread table from the CLI to analyze`.
+
+## Assumptions
+
+Technical decisions taken by the author, each satisfying the issue either way:
+
+- **Check order in the chain**: coverage `None` is tested before the table is loaded, so a distressed company without coverage never triggers a `default_spreads.absent` warning. Rejected: loading first, then testing coverage (a needless file read and warning).
+- **`_analyze_one` takes `default_spreads` as a required positional** after `currencies`, mirroring how `currencies` is passed today (`src/bot/cli.py:465-472`; its only caller is `cli.py:458`). Rejected: an optional keyword with a `None` default, which would hide a forgotten argument.
+- **An injected valuator in `mark_holdings` / `run_screen` owns its own table**, the same contract `currencies` already has (`src/bot/portfolio/marks.py:161-181`, `src/bot/screener/engine.py` `run_screen` docstring on `assumptions_dir`). The new keyword's docstring says so.
+- **Commit subjects use `#246`**, following the pipeline's convention. The golden docstring notes keep the issue's verbatim `#213` wording, matching the existing #213 notes in those docstrings.
+
+## Grilling
+
+- Rounds: 1. The plan changed only locally: Task 1 Interfaces now spells out `DefaultSpreadTable`. No step was added or removed, so there was no second round.
+- Questions: 18. Sources: CODE 15, ISSUE 3 (Q12, Q17, Q18; Q14 also cites the issue), NO SOURCE 0. Q8, Q9 and the check order are technical assumptions, recorded above.
+- Key answers:
+  - Story type resolves before the bankruptcy resolver (`assumptions.py:879-886` vs `914`).
+  - Coverage is `float | None` from the latest non-restated year (`analysis.py:906-908`, `427`). A zero interest expense yields `None`, never `inf` (the truthiness test at l.907).
+  - A story file requires `story_type: hypergrowth` (`assumptions.py:768-773`), so distressed plus a story file cannot happen.
+  - A null or non-finite numeric override is refused at load (`_check_override_values`).
+  - The absent and malformed files each warn and return the empty table (`default_spreads.py` `load_default_spreads`; `tests/unit/test_default_spreads.py:147`). Bracket edges are pinned by `test_rating_for_bounds` (l.71).
+  - Jinja runs with `trim_blocks`/`lstrip_blocks` (`analysis_report.py:170-172`).
+  - `tests/` is a package (`tests/__init__.py`, `tests/unit/__init__.py`).
+  - Distress value 0 and zero recovery is the issue's decision ("Distress value per share stays manual-or-0").
+- Issues opened: none. Spec ambiguities: none.
