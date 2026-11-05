@@ -26,7 +26,8 @@ The valuation currency is the currency of the company's latest non-restated
 leaves the GDP-anchored assumptions ``UNRESOLVED``; there is no USD fallback.
 
 This module is a pure function of ``(ticker, conn, override_path)`` plus a
-currency table: it reads, it does not write, and it holds no global state.
+currency table and a default-spread table: it reads, it does not write, and it
+holds no global state.
 
 The DCF's WACC is *computed* from its components (``cost_of_equity``,
 ``pretax_cost_of_debt``, the weights and the tax rate) by ``dcf._wacc``; there is

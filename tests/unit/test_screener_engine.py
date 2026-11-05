@@ -947,3 +947,27 @@ def test_run_screen_second_pass_never_calls_per_ticker_loader(
 
     assert len(result.shortlist) == 3
     assert all(c.margin_of_safety != PLACEHOLDER_MARGIN_OF_SAFETY for c in result.shortlist)
+
+
+def test_run_screen_forwards_the_default_spread_table_to_analyze(
+    conn: duckdb.DuckDBPyConnection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``run_screen`` → ``_batch_dcf_margins`` → ``analyze`` carries ``default_spreads`` (#246)."""
+    from bot.screener import engine
+    from tests.unit.test_valuator_assumptions import _spreads
+
+    _seed_valuable_sector(conn)
+    for tkr in ("AAA", "BBB"):
+        _seed_company(conn, tkr)
+    table = _spreads()
+    seen: list[object] = []
+    real_analyze = engine.analyze
+
+    def spying_analyze(ticker: str, c: duckdb.DuckDBPyConnection, *args: object, **kwargs: object) -> object:
+        seen.append(kwargs.get("default_spreads"))
+        return real_analyze(ticker, c, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(engine, "analyze", spying_analyze)
+    run_screen(conn, _value_preset(), top=2, default_spreads=table)
+
+    assert seen == [table, table]

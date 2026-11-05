@@ -856,7 +856,7 @@ def analyze(
         default_spreads: Interest-coverage to rating to default-probability table
             that derives a distressed company's probability of bankruptcy (``None``
             loads the default file lazily, only when a distressed company needs it).
-            Used like ``currencies``.
+            Unlike ``currencies``, still used when ``company`` is supplied.
 
     A ``hypergrowth`` story file (resolved in :func:`resolve_assumptions`) also
     sets the DCF's ``fixed_commitments`` and ``extra_cash`` from the bundle; both
