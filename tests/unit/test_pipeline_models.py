@@ -719,6 +719,13 @@ def test_portfolio_rules_are_all_present() -> None:
     assert len(checked) >= 9
 
 
+def test_portfolio_red_flag_baseline_is_the_last_known_mark() -> None:
+    """#224: an older known mark can hold the flag, so no previous mark may stay silent."""
+    bodies = {name: body for name, _, body in _definitions("portfolio")}
+    assert "prevMark" not in bodies["NoNewRedFlag"]
+    assert "new_red_flag" not in bodies["NoPreviousMarkOnlyRedFlags"]
+
+
 @pytest.mark.parametrize("stem", _STEMS)
 def test_rules_cite_the_code(stem: str) -> None:
     """A `(* Cites: ... *)` line sits directly above each rule's `\\*` sentence."""

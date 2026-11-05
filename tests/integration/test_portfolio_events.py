@@ -14,11 +14,12 @@ import duckdb
 import pytest
 
 from bot.portfolio.events import (
+    Event,
     EventType,
     compute_events,
     persist_events,
 )
-from bot.portfolio.marks import HoldingMark, persist_marks
+from bot.portfolio.marks import HoldingMark, load_red_flag_baselines, persist_marks
 from bot.storage.db import apply_schema
 
 PREV = date(2026, 5, 1)
@@ -364,3 +365,78 @@ def test_filing_without_fetched_at_falls_back_to_filing_date(
 
     # Filed before the window with no ingestion time: old news, and no crash.
     assert compute_events(conn, PREV, CURR) == []
+
+
+# --------------------------------------------------------------------------- #
+# new_red_flag against the last known mark (#224)                              #
+# --------------------------------------------------------------------------- #
+
+D1, D2, D3, D4 = (date(2026, 5, d) for d in (1, 2, 3, 4))
+_RED = {"growth_reinvestment": "reinvestment does not match growth"}
+
+
+def _hold(conn: duckdb.DuckDBPyConnection, day: date, red: dict[str, str] | None) -> None:
+    _insert_snapshot(conn, day, [("T", 10.0, 1000.0, "USD")])
+    persist_marks(conn, day, [HoldingMark("T", red_flags=red)])
+
+
+def _red_flags(events: list[Event]) -> list[Event]:
+    return [e for e in events if e.event_type is EventType.NEW_RED_FLAG]
+
+
+def test_red_through_an_unknown_day_does_not_refire(conn: duckdb.DuckDBPyConnection) -> None:
+    _hold(conn, D1, _RED)
+    _hold(conn, D2, None)
+    _hold(conn, D3, _RED)
+    assert _red_flags(compute_events(conn, D2, D3)) == []
+    assert load_red_flag_baselines(conn, D3, ["T"])["T"].snapshot_date == D1
+
+
+def test_red_after_green_after_unknown_fires(conn: duckdb.DuckDBPyConnection) -> None:
+    _hold(conn, D1, _RED)
+    _hold(conn, D2, None)
+    _hold(conn, D3, {})
+    _hold(conn, D4, _RED)
+    events = _red_flags(compute_events(conn, D3, D4))
+    assert [(e.ticker, e.details["flag"]) for e in events] == [("T", "growth_reinvestment")]
+    assert events[0].details["baseline_snapshot_date"] == "2026-05-03"
+
+
+def test_never_valued_holding_red_now_fires(conn: duckdb.DuckDBPyConnection) -> None:
+    _hold(conn, D1, None)
+    _hold(conn, D2, _RED)
+    events = _red_flags(compute_events(conn, D1, D2))
+    assert [e.details["flag"] for e in events] == ["growth_reinvestment"]
+    assert events[0].details["baseline_snapshot_date"] is None
+
+
+def test_first_run_red_fires(conn: duckdb.DuckDBPyConnection) -> None:
+    _hold(conn, D1, _RED)
+    events = _red_flags(compute_events(conn, None, D1))
+    assert [e.details["flag"] for e in events] == ["growth_reinvestment"]
+    assert events[0].details["baseline_snapshot_date"] is None
+
+
+def test_unknown_now_fires_nothing(conn: duckdb.DuckDBPyConnection) -> None:
+    _hold(conn, D1, _RED)
+    _hold(conn, D2, None)
+    assert _red_flags(compute_events(conn, D1, D2)) == []
+
+
+def test_rebought_holding_compares_with_old_known_mark(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _hold(conn, D1, _RED)
+    _hold(conn, D3, _RED)
+    assert _red_flags(compute_events(conn, D2, D3)) == []
+
+
+def test_baseline_date_survives_persist(conn: duckdb.DuckDBPyConnection) -> None:
+    _hold(conn, D1, {})
+    _hold(conn, D2, _RED)
+    persist_events(conn, compute_events(conn, D1, D2))
+    row = conn.execute(
+        "SELECT json_extract_string(details, '$.baseline_snapshot_date') "
+        "FROM events_log WHERE event_type = 'new_red_flag'"
+    ).fetchone()
+    assert row == ("2026-05-01",)
