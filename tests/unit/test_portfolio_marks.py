@@ -50,7 +50,9 @@ class _Analysis:
 
 
 def _analyze_with(results: dict[str, _Analysis]) -> AnalyzeFn:
-    def fn(ticker: str, _conn: duckdb.DuckDBPyConnection) -> _Analysis:
+    def fn(
+        ticker: str, _conn: duckdb.DuckDBPyConnection, *, price_as_of: date | None = None
+    ) -> _Analysis:
         if ticker not in results:
             raise LookupError(ticker)
         return results[ticker]
@@ -339,3 +341,102 @@ def test_baselines_are_per_ticker(conn: duckdb.DuckDBPyConnection) -> None:
 def test_baselines_empty_tickers(conn: duckdb.DuckDBPyConnection) -> None:
     persist_marks(conn, D1, [HoldingMark("T", red_flags=_RED)])
     assert load_red_flag_baselines(conn, D2, []) == {}
+
+
+# --------------------------------------------------------------------------- #
+# The mark's close is on or before the snapshot date (#225)                    #
+# --------------------------------------------------------------------------- #
+
+
+def _closes(conn: duckdb.DuckDBPyConnection, *rows: tuple[str, float]) -> None:
+    """Replace AAPL's USD closes with ``(date, close)`` rows."""
+    conn.execute("DELETE FROM prices_daily WHERE ticker = 'AAPL'")
+    for day, close in rows:
+        conn.execute(
+            "INSERT INTO prices_daily (ticker, date, close, currency, source) "
+            "VALUES ('AAPL', ?, ?, 'USD', 'fmp')",
+            [day, close],
+        )
+
+
+def test_mark_holdings_prices_on_or_before_the_snapshot_date(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    # AC1: D-1 = 100, D+1 = 120 -> the mark for D stores 100.
+    _seed_valuable(conn)
+    _closes(conn, ("2026-05-31", 100.0), ("2026-06-02", 120.0))
+    _hold(conn, "AAPL")
+
+    marks = mark_holdings(conn, DAY, assumptions_dir=tmp_path)
+
+    assert marks[0].price == pytest.approx(100.0)
+    assert load_marks(conn, DAY)["AAPL"].price == pytest.approx(100.0)
+
+
+def test_mark_holdings_rerun_of_an_old_snapshot_uses_that_dates_close(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    # AC2: re-marking an old snapshot reads that date's close, not today's.
+    old = date(2026, 5, 4)
+    _seed_valuable(conn)
+    _closes(conn, ("2026-05-01", 90.0), ("2026-05-31", 100.0), ("2026-06-02", 120.0))
+    conn.execute(
+        "INSERT INTO portfolio_snapshots "
+        "(snapshot_date, account, ticker, con_id, qty, market_value, currency) "
+        "VALUES (?, 'DU1', 'AAPL', 1, 10.0, 900.0, 'USD')",
+        [old],
+    )
+
+    marks = mark_holdings(conn, old, assumptions_dir=tmp_path)
+
+    assert marks[0].price == pytest.approx(90.0)
+    assert load_marks(conn, old)["AAPL"].price == pytest.approx(90.0)
+
+
+def test_mark_holdings_no_close_before_snapshot_has_no_price(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    # Only a close after the snapshot date: the price is unknown, the value is not.
+    _seed_valuable(conn)
+    _closes(conn, ("2026-06-02", 120.0))
+    _hold(conn, "AAPL")
+
+    (mark,) = mark_holdings(conn, DAY, assumptions_dir=tmp_path)
+
+    assert mark.price is None
+    assert mark.intrinsic_value is not None
+
+
+def test_mark_holdings_converts_the_bounded_close(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    # AC4: an EUR reporter; the bounded close (110 USD on 05-31) converts at that
+    # date's EUR rate (1.10), not at the newer 1.20.
+    _seed_valuable(conn)
+    conn.execute("UPDATE financials_annual SET currency = 'EUR' WHERE ticker = 'AAPL'")
+    _closes(conn, ("2026-05-31", 110.0), ("2026-06-02", 132.0))
+    conn.execute(
+        "INSERT INTO currencies (currency, date, rate_to_usd, source) VALUES "
+        "('EUR', '2026-05-31', 1.10, 'test'), ('EUR', '2026-06-02', 1.20, 'test')"
+    )
+    _hold(conn, "AAPL")
+
+    (mark,) = mark_holdings(conn, DAY, assumptions_dir=tmp_path)
+
+    assert mark.price == pytest.approx(100.0)
+
+
+def test_mark_holdings_passes_the_snapshot_date(conn: duckdb.DuckDBPyConnection) -> None:
+    seen: list[date | None] = []
+
+    def fn(
+        ticker: str, _conn: duckdb.DuckDBPyConnection, *, price_as_of: date | None = None
+    ) -> _Analysis:
+        seen.append(price_as_of)
+        return _Analysis(ticker, _DCF(1.0), current_price=1.0)
+
+    _hold(conn, "AAPL")
+
+    mark_holdings(conn, DAY, analyze_fn=cast(AnalyzeFn, fn))
+
+    assert seen == [DAY]

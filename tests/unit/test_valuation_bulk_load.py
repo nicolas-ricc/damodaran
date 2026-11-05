@@ -315,3 +315,17 @@ def test_bulk_valuation_inputs_without_financials_returns_empty(
 ) -> None:
     _seed(conn)
     assert bulk_load_valuation_inputs(conn, ["NOFIN", "UNKNOWN"]) == {}
+
+
+@pytest.mark.parametrize("bound", [date(2026, 5, 28), date(2026, 5, 29)])
+def test_bulk_and_per_ticker_match_with_a_price_bound(
+    conn: duckdb.DuckDBPyConnection, bound: date
+) -> None:
+    # #225: both loaders apply `price_as_of` before picking the newest close.
+    _seed(conn)
+    tickers = VALUABLE + MIXED
+    bulk = bulk_load_valuation_inputs(conn, tickers, price_as_of=bound)
+    assert bulk == {t: load_valuation_input(conn, t, price_as_of=bound) for t in tickers}
+    if bound == date(2026, 5, 28):
+        assert bulk["USA"].latest_close == LatestClose(9.0, "USD", date(2026, 5, 28))
+        assert bulk["EURA"].latest_close is None

@@ -19,6 +19,7 @@ from bot.reporting.analysis_report import margin_verdict
 from bot.storage.db import apply_schema, connect
 from bot.valuator.analysis import (
     Analysis,
+    LatestClose,
     SanityCheck,
     _sanity_check,
     _SectorMultiples,
@@ -918,3 +919,74 @@ def test_mature_company_margin_unchanged(seeded_conn: duckdb.DuckDBPyConnection)
     assert a.intrinsic_value_after_governance == a.dcf_result.intrinsic_value
     assert a.current_price is not None
     assert a.margin_of_safety == a.dcf_result.intrinsic_value / a.current_price
+
+
+# --------------------------------------------------------------------------- #
+# price_as_of: the close on or before a date (#225)                            #
+# --------------------------------------------------------------------------- #
+
+_BOUND = date(2026, 6, 1)
+
+
+def _two_closes(conn: duckdb.DuckDBPyConnection) -> None:
+    """AAPL closes at 100 the day before ``_BOUND`` and 120 the day after."""
+    conn.execute("DELETE FROM prices_daily WHERE ticker = 'AAPL'")
+    conn.execute(
+        "INSERT INTO prices_daily (ticker, date, close, currency, source) VALUES "
+        "('AAPL', '2026-05-31', 100.0, 'USD', 'fmp'), ('AAPL', '2026-06-02', 120.0, 'USD', 'fmp')"
+    )
+
+
+def test_load_valuation_input_price_as_of_bounds_the_close(
+    seeded_conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _two_closes(seeded_conn)
+    inputs = load_valuation_input(seeded_conn, "AAPL", price_as_of=_BOUND)
+    assert inputs.latest_close == LatestClose(100.0, "USD", date(2026, 5, 31))
+
+
+def test_load_valuation_input_bound_is_inclusive(
+    seeded_conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _two_closes(seeded_conn)
+    inputs = load_valuation_input(seeded_conn, "AAPL", price_as_of=date(2026, 6, 2))
+    assert inputs.latest_close == LatestClose(120.0, "USD", date(2026, 6, 2))
+
+
+def test_load_valuation_input_null_close_on_the_bound_date(
+    seeded_conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _two_closes(seeded_conn)
+    seeded_conn.execute(
+        "INSERT INTO prices_daily (ticker, date, close, currency, source) "
+        "VALUES ('AAPL', '2026-06-01', NULL, 'USD', 'fmp')"
+    )
+    inputs = load_valuation_input(seeded_conn, "AAPL", price_as_of=_BOUND)
+    assert inputs.latest_close == LatestClose(100.0, "USD", date(2026, 5, 31))
+
+
+def test_load_valuation_input_no_close_before_bound(
+    seeded_conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _two_closes(seeded_conn)
+    inputs = load_valuation_input(seeded_conn, "AAPL", price_as_of=date(2026, 5, 1))
+    assert inputs.latest_close is None
+
+
+def test_analyze_price_as_of_uses_the_bounded_close(
+    seeded_conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _two_closes(seeded_conn)
+    analysis = analyze("AAPL", seeded_conn, price_as_of=_BOUND)
+    assert analysis.current_price == pytest.approx(100.0)
+    assert analysis.price_date == date(2026, 5, 31)
+
+
+def test_analyze_without_bound_uses_newest_close(
+    seeded_conn: duckdb.DuckDBPyConnection,
+) -> None:
+    # `bot analyze` passes no bound: the newest close, as before #225.
+    _two_closes(seeded_conn)
+    analysis = analyze("AAPL", seeded_conn)
+    assert analysis.current_price == pytest.approx(120.0)
+    assert analysis.price_date == date(2026, 6, 2)
