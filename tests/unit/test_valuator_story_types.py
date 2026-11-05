@@ -18,6 +18,7 @@ import dataclasses
 
 import pytest
 
+import bot.valuator.story_types as story_types
 from bot.valuator.story_types import (
     ClassificationFinancials,
     SectorContext,
@@ -288,9 +289,7 @@ def test_hypergrowth_needs_two_positive_points(history: tuple[float, ...]) -> No
 
 def test_module_docstring_drops_the_gdp_anchor() -> None:
     """#244: no story anchors growth on nominal GDP since #216."""
-    import bot.valuator.story_types as module
-
-    doc = " ".join((module.__doc__ or "").split())
+    doc = " ".join((story_types.__doc__ or "").split())
     assert "anchors growth on nominal GDP" not in doc
     assert (
         "The story type drives default assumption resolution (see "
