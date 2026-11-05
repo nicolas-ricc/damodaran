@@ -10,6 +10,14 @@
 
 **Spec:** issue #225 and its "Agent Brief" comment (maintainer decision of 2026-11-05: an optional price date bound on `analyze`, which the portfolio sets to the snapshot date).
 
+## Acceptance criteria (verbatim from the Agent Brief)
+
+- AC1: Prices on D−1 = 100 and D+1 = 120; `mark_holdings` for snapshot D stores 100. (Task 2)
+- AC2: A rerun of an old snapshot date stores that date's close, not today's. (Task 2)
+- AC3: `bot analyze` with the same data uses 120 (unchanged). (Task 1)
+- AC4: With #222 in place: a EUR-reporting holding converts the bounded close with the rate on or before that close's date. (Tasks 1 and 2)
+- AC5: Pipeline check, TLC on `portfolio.cfg`, ruff, mypy and the full suite pass. (Task 3 Step 4, and every task's run step)
+
 ## Global Constraints
 
 - Signature: `analyze(..., price_as_of: date | None = None)`, keyword-only. The same keyword on `load_valuation_input` and `bulk_load_valuation_inputs`. `None` = no bound = today's behaviour (newest non-null close).
@@ -27,7 +35,7 @@
 2. **`analyze(company=..., price_as_of=...)`:** `price_as_of` is ignored when `company` is supplied, the way `currencies` and `warned` already are. The bundle was loaded with its own bound. The docstring says so.
 3. **No close on or before the bound** → `latest_close=None` → `current_price=None`, margin of safety `None`. This is the existing no-price path, not a `LookupError`, so the mark keeps its intrinsic value and red flags and only `price` is unknown.
 4. **`AnalyzeFn`:** `def __call__(self, ticker: str, conn: duckdb.DuckDBPyConnection, *, price_as_of: date | None = None) -> Analysis: ...`. `mark_holdings` always passes `price_as_of=snapshot_date`. Test doubles accept the keyword.
-5. **Bulk loader:** the bound goes in the existing `closes` query's `WHERE` clause (`AND (?::DATE IS NULL OR date <= ?::DATE)`, or a branch on `price_as_of is None` that adds the predicate). The query count stays the same.
+5. **Bulk loader:** a Python branch on `price_as_of is None` appends `AND date <= ?` to the `WHERE` clause of the existing `closes` query (`... WHERE ticker IN (...) AND close IS NOT NULL [AND date <= ?] QUALIFY row_number() OVER (PARTITION BY ticker ORDER BY date DESC) = 1`), so the bound filters rows **before** the newest-row pick. The per-ticker `_load_latest_close` does the same before `ORDER BY date DESC LIMIT 1`. The query count stays the same.
 
 ## Review Focus
 
@@ -50,11 +58,12 @@
 
 Fixture for the tests below: `_seed(conn)`, then replace AAPL's prices with two rows, `2026-05-31` close 100.0 and `2026-06-02` close 120.0 (USD). `D = date(2026, 6, 1)`.
 
-- [ ] **Step 1: Write the failing tests** in `tests/unit/test_valuator_analysis.py`:
+- [ ] **Step 1: Write the failing tests** in `tests/unit/test_valuator_analysis.py` (the loader and `analyze` tests), `tests/unit/test_valuation_bulk_load.py` (the agreement test, with its own `_seed`) and `tests/unit/test_valuator_price_fx.py` (the EUR test, with its `_eur_reporter`/`_rate` helpers):
+  - `test_load_valuation_input_null_close_on_the_bound_date`: an extra row on 2026-06-01 with `close NULL`. `price_as_of=D` gives the 2026-05-31 close (100.0). Nulls are skipped, as in `sync._load_latest_prices`.
   - `test_load_valuation_input_price_as_of_bounds_the_close`: `load_valuation_input(conn, "AAPL", price_as_of=D).latest_close == LatestClose(100.0, "USD", date(2026, 5, 31))`.
   - `test_load_valuation_input_bound_is_inclusive`: `price_as_of=date(2026, 6, 2)` gives close 120.0.
   - `test_load_valuation_input_no_close_before_bound`: `price_as_of=date(2026, 5, 1)` gives `latest_close is None`.
-  - `test_bulk_loader_price_as_of_matches_per_ticker`: for `price_as_of` in `(None, D, date(2026, 5, 1))`, `bulk_load_valuation_inputs(conn, ["AAPL"], price_as_of=b)["AAPL"] == load_valuation_input(conn, "AAPL", price_as_of=b)`.
+  - `test_bulk_and_per_ticker_match_with_a_price_bound` (in `test_valuation_bulk_load.py`): over that file's `_seed` tickers (`VALUABLE + MIXED`), for `price_as_of` in `(date(2026, 5, 28), date(2026, 5, 29))`, `bulk_load_valuation_inputs(conn, tickers, price_as_of=b) == {t: load_valuation_input(conn, t, price_as_of=b) for t in tickers}`. Also assert that at least one ticker's `latest_close.date <= b` differs from its unbounded close, so the test actually bounds something. Adjust the dates to that fixture's price rows if they differ.
   - `test_analyze_price_as_of_uses_the_bounded_close`: `analyze("AAPL", conn, price_as_of=D).current_price == pytest.approx(100.0)`.
   - `test_analyze_without_bound_uses_newest_close` (AC3): `analyze("AAPL", conn).current_price == pytest.approx(120.0)`.
   - `test_analyze_price_as_of_converts_with_the_rate_of_the_bounded_close` (AC4): set `financials_annual.currency = 'EUR'`, closes 110.0 on 2026-05-31 and 132.0 on 2026-06-02 (USD). `currencies` EUR rows: 1.10 on 2026-05-31, 1.20 on 2026-06-02. `analyze(..., price_as_of=D)` gives `current_price ≈ 100.0`, `fx_rate ≈ 1/1.10`, `price_date == date(2026, 5, 31)`. Without a bound: `current_price ≈ 110.0` (132/1.20).
@@ -98,3 +107,23 @@ Fixture for the tests below: `_seed(conn)`, then replace AAPL's prices with two 
 - [ ] **Step 2: Run** `uv run pytest -q tests/unit/test_pipeline_diagram.py tests/unit/test_pipeline_subboards.py tests/unit/test_pipeline_models.py` and `python3 docs/leccion/check.py`. Expected: PASS. `python3 docs/pipeline/check.py` fails only on the stale `rendered.sha256`.
 - [ ] **Step 3: Commit** `docs(#225): the atlas says a mark's close is on or before the snapshot date`.
 - [ ] **Step 4 (orchestrator, after push):** download the `pipeline-render` artifact of the push's `pipeline-diagram` run (`gh run download <id> -n pipeline-render`). Copy the SVGs and `rendered.sha256` into `docs/pipeline/` and run `python3 docs/pipeline/check.py` (PASS). Commit `docs(#225): render`, naming the run id. Check that the same run's `models` job (TLC, `portfolio.cfg` included) is green.
+
+## Assumptions
+
+Technical decisions taken without a written source (listed for the PR description):
+
+- A1. **`price_as_of` is ignored when `company=` is supplied** (Decision 2). The only `company=` caller is the screener (`src/bot/screener/engine.py:144`), which passes no bound. This mirrors `currencies`/`warned`, which `analyze`'s docstring already says are ignored in that case. Rejected: a `ValueError` when both are given (an error path no caller can reach).
+- A2. **The bound is applied in a Python branch, not with `? IS NULL OR date <= ?`** (Decision 5). This keeps the unbounded SQL text identical to today's. Rejected: one parametrised predicate (it changes the screener's query for no gain).
+- A3. **FX rates stay keyed on the close's date, while sync converts with rates on or before the snapshot date** (`sync._fx_lookup(conn, as_of)`, `src/bot/portfolio/sync.py:220-222`). The brief fixes the mark's rule ("The FX rate of #222 is looked up on or before that close's date"). Sync converts into the *position* currency, while the mark converts into the *valuation* currency, so the two prices are different quantities anyway. What #225 aligns is the close, not the conversion.
+- A4. **No mark ≡ snapshot parity test.** `portfolio_snapshots` stores `market_value` (qty × converted close, in the position currency; schema `src/bot/storage/schema.sql`), not a price, so there is no column to compare against. AC1/AC2 pin the close itself.
+- A5. **The render and TLC come from CI.** The `pipeline-diagram` `render` job is red between the Task 3 docs commit and the render commit. This is the same sequence as #222. A missing artifact means re-running the workflow (`gh run rerun`). A red `models` job means fixing the `.tla` comments, which are the only model edits. Nothing is reverted.
+
+## Grilling
+
+- Rounds: 1. The revision added no task and changed no seam: it adds tests to existing tasks, fixes Decision 5, and adds the AC list and the assumptions. Griller model: fable.
+- Questions: 16. Sources: ISSUE 3, CODE 10, DOC 1, NO SOURCE 4 (assumptions A1, A2, A4, A5; A3 is ISSUE plus CODE).
+  - ISSUE: Q2 (brief: "The FX rate of #222 is looked up on or before that close's date"), Q5 (AC list above, quoted from the brief), Q10 (the brief says nothing on `company=` with a bound, so it is A1).
+  - CODE: Q2 `sync.py:220-222` (`_fx_lookup` at `as_of`); Q3 `analysis.py:292-300` and `sync.py:194-217`, both `close IS NOT NULL` (a test was added); Q4 `analysis.py:543-551` `QUALIFY row_number()`; Q6 `analysis.py:478-484` (`get_fx_rate(..., latest_close.date)`), bulk `rate_at` keyed on `closes[t].date`, test `tests/unit/test_valuator_price_fx.py:85` (`test_no_rate_on_or_before_close_date_gives_no_price`); Q7 `analysis.py:439-449` (`ConvertedPrice(None, None)` without a close), `schema.sql:279` (`price DOUBLE`, nullable), `tests/unit/test_portfolio_marks.py:109` (round trip with a `None` price), `events.py:361-363` (no event on a `None` price); Q8 grep of `AnalyzeFn|analyze_fn` over `src` and `tests` (doubles: `_analyze_with`, `_no_analyze`, `_valued_at`; `fake_analyze` takes `**_kwargs`); Q9 `command.py:126-129` catches `Exception` only around the corporate-actions import, and `mark_holdings` catches `(LookupError, ValueError)`; Q13 `analysis.py:402` frozen dataclass, with the same pattern in `tests/unit/test_valuation_bulk_load.py:258-272`; Q14 `utils/fx.py:52-59` (`fx_rate` = `rate_listing / rate_valuation`, so a USD close into EUR at 1.10 gives 1/1.10), `currencies` created by `apply_schema`, `_seed` prices in USD; Q15 `marks.py` `snapshot_date: date`, `schema.sql:51` `prices_daily.date DATE`.
+  - DOC: Q16 AGENTS.md lists `subagent-driven-development` (the skill executing this plan); CONTEXT.md *Conventions*: Conventional Commits (`feat` for the new parameter, `fix` for the marks bug). Q11 `docs/leccion/check.py` exists.
+- Plan changes: the AC list; a null-close-on-the-bound test; the agreement test moved to `test_valuation_bulk_load.py` over its mixed USD/EUR fixture; the EUR test in `test_valuator_price_fx.py`; Decision 5 fixed (a Python branch, the predicate before `QUALIFY`); assumptions A1–A5.
+- Issues opened: none.
