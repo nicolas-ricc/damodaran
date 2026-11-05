@@ -18,7 +18,14 @@ from dotenv import dotenv_values
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 VENV_BIN = Path(sys.executable).parent
-SCRIPTS = ["bootstrap.sh", "install_cron.sh", "daily.sh", "weekly.sh", "publish_site.sh"]
+SCRIPTS = [
+    "bootstrap.sh",
+    "install_cron.sh",
+    "daily.sh",
+    "weekly.sh",
+    "publish_site.sh",
+    "sync_master.sh",
+]
 
 # `uv run <cmd> ...` -> `<test venv>/bin/<cmd> ...`: real `bot`, no new venv.
 _UV_SHIM = f"""#!/usr/bin/env bash
@@ -878,3 +885,58 @@ def test_publish_fails_loudly_when_the_push_is_refused(git_repo: Path, shim_bin:
 
     assert result.returncode != 0
     assert "publish_site: push failed" in result.stdout + result.stderr
+
+
+@pytest.fixture
+def behind_origin(git_repo: Path, tmp_path: Path) -> Path:
+    """``git_repo`` one commit (a NEW file) behind its origin's master."""
+    other = tmp_path / "other"
+    _git(tmp_path, "clone", "-q", str(tmp_path / "origin.git"), str(other))
+    (other / "NEW").write_text("from origin\n")
+    _git(other, "add", "NEW")
+    _git(other, "commit", "-q", "-m", "new")
+    _git(other, "push", "-q", "origin", "master")
+    return git_repo
+
+
+@pytest.mark.parametrize("name", list(_WRAPPERS))
+def test_wrapper_pulls_origin_master_before_running(
+    name: str, behind_origin: Path, recorder_bin: Path, calls: Path
+) -> None:
+    repo = behind_origin
+
+    result = _run(repo / "scripts" / name, env=_env(recorder_bin, **_GIT_ENV))
+
+    assert result.returncode == 0, result.stderr
+    assert (repo / "NEW").read_text() == "from origin\n"
+    assert _calls(calls) == _WRAPPERS[name]
+    log = (repo / ".cache" / name.replace(".sh", ".log")).read_text()
+    assert log.index(" sync ===") < log.index(" run ===")
+    assert "sync_master: master " in log
+
+
+def test_wrapper_off_master_skips_the_pull_and_still_runs(
+    behind_origin: Path, recorder_bin: Path, calls: Path
+) -> None:
+    repo = behind_origin
+    _git(repo, "checkout", "-q", "-b", "feature")
+
+    result = _run(repo / "scripts" / "daily.sh", env=_env(recorder_bin, **_GIT_ENV))
+
+    assert result.returncode == 0, result.stderr
+    assert not (repo / "NEW").exists()
+    assert _calls(calls) == _WRAPPERS["daily.sh"]
+    assert "on feature, not master, skipped" in (repo / ".cache" / "daily.log").read_text()
+
+
+def test_wrapper_with_a_failing_pull_logs_it_and_still_runs(
+    behind_origin: Path, recorder_bin: Path, calls: Path
+) -> None:
+    repo = behind_origin
+    _git(repo, "remote", "set-url", "origin", str(repo.parent / "missing.git"))
+
+    result = _run(repo / "scripts" / "daily.sh", env=_env(recorder_bin, **_GIT_ENV))
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls) == _WRAPPERS["daily.sh"]
+    assert "sync_master: pull failed" in (repo / ".cache" / "daily.log").read_text()
