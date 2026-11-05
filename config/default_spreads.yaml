@@ -2,7 +2,7 @@
 #
 # coverage_to_rating: interest coverage (EBIT / interest expense) -> synthetic rating.
 #   Source: Damodaran, "Ratings, Interest Coverage Ratios and Default Spread", data as of
-#   January 2026, LEFT block (large non-financial firms):
+#   January 2026, LEFT block (large non-financial service firms):
 #   https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html
 #   Rating is the S&P half of the label (Caa/CCC -> CCC). Bounds are the clean numbers: the
 #   page's "<= 0.199999" is "< 0.2" and the next row's lower bound is the same number.
@@ -23,6 +23,7 @@
 #   D copies the C- row: a D rating means default already happened, the worst curated class
 #   is the nearest figure, and 1.0 is not a curated number (it would zero every company
 #   with coverage under 0.2).
+# verified: 2026-11-05, every row checked against its source on Claude Fable 5.1 (#213)
 horizon_years: 10
 coverage_to_rating:
   # Interest coverage = EBIT / interest expense. lower inclusive, upper exclusive, null = unbounded.
