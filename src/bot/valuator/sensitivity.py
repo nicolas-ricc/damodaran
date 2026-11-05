@@ -307,9 +307,8 @@ def tornado(financials: Financials, base_assumptions: Assumptions) -> list[Torna
     and high end (base -1pp / +1pp for a rate axis, ×0.8 / ×1.2 for
     ``sales_to_capital``; see :func:`tornado_steps`), and the swing in per-share
     intrinsic value is recorded. An end outside the DCF's domain is ``None`` and
-    its entry is ranked last. The
-    returned list is ordered descending by absolute impact, so the first entry
-    is the assumption the valuation is most sensitive to.
+    its entry is ranked last. The returned list is ordered descending by absolute
+    impact, so the first entry is the assumption the valuation is most sensitive to.
 
     Args:
         financials: The company's current-year financial state.

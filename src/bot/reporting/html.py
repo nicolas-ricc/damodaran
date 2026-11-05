@@ -81,10 +81,10 @@ def tornado_chart_png(tornado: Sequence[TornadoEntry]) -> bytes:
     """Render the tornado sensitivity chart to PNG bytes (spec §7.4, M4.3).
 
     Draws one horizontal bar per :class:`TornadoEntry`, spanning from the axis's
-    intrinsic value at the low shock to its value at the high shock. The entries are plotted in the
-    order given — :func:`bot.valuator.sensitivity.tornado` returns them descending
-    by impact — with the widest bar at the top, so the chart and the Markdown
-    table share ordering and values.
+    intrinsic value at the low shock to its value at the high shock. The entries
+    are plotted in the order given — :func:`bot.valuator.sensitivity.tornado`
+    returns them descending by impact — with the widest bar at the top, so the
+    chart and the Markdown table share ordering and values.
 
     Args:
         tornado: The ordered tornado entries from the analysis.
@@ -139,8 +139,8 @@ def sensitivity_heatmap_html(grid: Grid2D) -> str:
 
     The heatmap mirrors the Markdown grid table: ``axis_a`` runs down the rows and
     ``axis_b`` across the columns, each labelled by its step (``-1.0pp`` … ``+1.0pp``
-    for a rate axis, ``×0.8`` … ``×1.2`` for ``sales_to_capital``), and the cell colour encodes the margin of safety. Each
-    cell's hover tooltip shows that margin of safety together with the per-share
+    for a rate axis, ``×0.8`` … ``×1.2`` for ``sales_to_capital``), and the cell
+    colour encodes the margin of safety. Each cell's hover tooltip shows that margin of safety together with the per-share
     intrinsic value (carried as ``customdata``).
 
     Plotly's JavaScript library is inlined into the returned fragment, so it
