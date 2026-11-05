@@ -65,7 +65,7 @@
   - `test_baselines_are_per_ticker`: A known on D2; B known on D1 and unknown on D2; C not asked for. `before=D3, tickers=["A", "B"]` → A@D2, B@D1, and no C.
   - `test_baselines_empty_tickers`: `tickers=[]` → `{}`.
 - [ ] **Step 2: Run** `uv run pytest -q tests/unit/test_portfolio_marks.py`. Expected: ImportError / FAIL.
-- [ ] **Step 3: Implement.** One query: `SELECT ticker, snapshot_date, red_flags FROM holding_marks WHERE snapshot_date < ? AND red_flags IS NOT NULL AND ticker IN (<placeholders>) QUALIFY ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY snapshot_date DESC) = 1`. Parse `red_flags` the way `load_marks` does. Rewrite the module docstring's last two sentences: an unknown prior red-flag set is skipped, and `new_red_flag` compares with the last known mark (`load_red_flag_baselines`); an unknown prior gate set or WACC still yields no event.
+- [ ] **Step 3: Implement.** One query: `SELECT ticker, snapshot_date, red_flags FROM holding_marks WHERE snapshot_date < ? AND red_flags IS NOT NULL AND ticker IN (<placeholders>) QUALIFY ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY snapshot_date DESC) = 1`. Parse the `red_flags` column (a JSON string) with `dict(json.loads(...))`, as `load_marks` does (`marks.py:95`). Pull that parse into a private `_parse_red_flags(raw: str | None) -> dict[str, str] | None` that both loaders use. The module docstring is not touched here: it changes in Task 2, together with the behaviour (A6).
 - [ ] **Step 4: Run** the same tests, then `uv run mypy src`. Expected: PASS.
 - [ ] **Step 5: Commit** `fix(#224): load the last known red-flag set per holding`.
 
@@ -81,7 +81,7 @@
 
 - [ ] **Step 1: Failing tests.**
   - Unit (rewrite the four existing red-flag tests to the new signature):
-    - newly red fires and persistent red does not (`baseline={"story_margin"}`);
+    - newly red fires and persistent red does not (`baseline={"story_margin"}`). `details["reason"]` is the *current* mark's reason;
     - an empty baseline with `baseline_date=None` → all red fire, `details["baseline_snapshot_date"] is None`;
     - a baseline date → `details["baseline_snapshot_date"] == "2026-05-01"`;
     - the current mark unknown → `[]`.
@@ -97,7 +97,7 @@
   - Change the detector per Decision 2.
   - In `compute_events`, call `load_red_flag_baselines(conn, curr_snapshot_date, held_tickers)` once, beside `load_marks`. For each ticker, pass `set(b.red_flags)` and `b.snapshot_date`, or `set()` and `None`.
   - Leave the other three detectors' calls untouched.
-  - Docstrings: the module docstring says `new_red_flag` diffs against the last known mark. `compute_events` no longer says "no baseline mark, so only red flags (all new) fire": the red flags compare with the last known mark, all new when there is none.
+  - Docstrings: rewrite the last two sentences of `marks.py`'s module docstring. An unknown prior red-flag set is skipped, so `new_red_flag` compares with the last known mark (`load_red_flag_baselines`); an unknown prior gate set or WACC still yields no event. The `events.py` module docstring says `new_red_flag` diffs against the last known mark. `compute_events` no longer says "no baseline mark, so only red flags (all new) fire": the red flags compare with the last known mark, all new when there is none.
 - [ ] **Step 4: Run** the same tests, then `uv run pytest -q`, `uv run ruff check . && uv run mypy src`. Expected: PASS.
 - [ ] **Step 5: Commit** `fix(#224): new_red_flag compares with the last known mark`.
 
@@ -120,5 +120,24 @@
 - [ ] **Step 1: Failing tests.** Change the Decision 5 pins. Run `uv run pytest -q tests/unit/test_pipeline_diagram.py tests/unit/test_pipeline_subboards.py tests/unit/test_pipeline_models.py`. Expected: the pinned-text tests FAIL.
 - [ ] **Step 2: Edit** the boards, the model and the view as listed above. Keep every other pinned phrase verbatim (for example "only growth_reinvestment can fire new_red_flag"). Step labels must match `portfolio.view.js` exactly (`test_step_labels_are_drawn`).
 - [ ] **Step 3: Run** the same tests. Expected: PASS.
-- [ ] **Step 4: Render.** `PATH=/usr/local/lib/d2/d2-v0.9.0/bin:$PATH docs/pipeline/build.sh`, then `python3 docs/pipeline/check.py`. Expected: `0 errors`. In `git status`, only SVGs and `rendered.sha256` change besides the sources (PNGs are git-ignored).
+- [ ] **Step 4: Render.** `PATH=/usr/local/lib/d2/d2-v0.9.0/bin:$PATH docs/pipeline/build.sh`, then `python3 docs/pipeline/check.py`. `build.sh` itself refuses any d2 other than v0.9.0. Expected: `0 errors`. In `git status`, only `portfolio.svg`, `portfolio-mark-events.svg` and `rendered.sha256` change besides the sources (PNGs are git-ignored). Any other SVG that changes is environment drift: `git checkout` it, keeping only the boards whose source changed. The CI `render` job compares only `rendered.sha256`.
 - [ ] **Step 5: Commit** `docs(#224): boards and model say new_red_flag compares with the last known mark`.
+
+## Assumptions
+
+Technical choices made in the plan review, each with the alternative it rejected:
+
+- **A1. The model's semantics change, not just its labels (Decision 4).** The brief asks for "the model labels in `models/portfolio.tla`" to be updated, and requires "TLC on `portfolio.cfg`" to pass. With the guard kept, the model would say that a ticker which was not marked yesterday but red on an older day fires, which the new code does not do. The rejected alternative was to keep the guard and change only the labels. TLC runs in the CI `models` job (`.github/workflows/pipeline-diagram.yml`), which must be green before the merge.
+- **A2. A known empty set `'{}'` is a baseline.** Backing: the brief's acceptance criterion "Red on D1, unknown on D2, green on D3, red on D4: an event on D4", where green = known, no red. Rejected: treating `{}` as nothing to compare.
+- **A3. One `_parse_red_flags` helper shared by `load_marks` and the new loader.** Rejected: duplicating the expression.
+- **A4. `IN (placeholders)` over `held_tickers` (a `set[str]`, so no duplicates, `events.py:848`).** This follows `_load_filings` and `_load_corporate_actions` (`events.py:752`, `:798`). Rejected: a temporary table. The set holds a personal portfolio's tickers.
+- **A5. `PARTITION BY ticker` alone.** `holding_marks` is keyed `(snapshot_date, ticker)` (`schema.sql:283`), and `_held_tickers` sums accounts per ticker, so a day has at most one row per ticker.
+- **A6. The `marks.py` docstring changes in Task 2, with the behaviour.** Rejected: changing it in Task 1, which would leave a commit whose docstring contradicts runtime.
+
+## Grilling
+
+- **Rounds:** one. The revision moved a docstring edit and added assertions and a drift check. It changed no steps and no seams.
+- **Questions:** 18.
+- **Answers by source:** ISSUE 3, CODE 13, DOC 2, NO SOURCE 0 (A1, A3, A4 and A6 are technical choices recorded above, with their backing).
+- **Assumptions:** A1 to A6.
+- **Issues opened:** none.
