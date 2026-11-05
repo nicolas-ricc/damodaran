@@ -34,6 +34,13 @@ LOG="$REPO/.cache/price_fill.log"
 DONE="$REPO/.cache/price_fill.DONE"
 [ -f "$DONE" ] && exit 0   # already complete; remove this file to re-fill
 
+# Run on the latest origin/master (scripts/sync_master.sh). The pull can rewrite
+# this very script, which bash reads as it goes, so re-exec once on the new copy.
+if [ -z "${BOT_SYNCED:-}" ]; then
+  "$SCRIPT_DIR/sync_master.sh" >> "$LOG" 2>&1
+  BOT_SYNCED=1 exec "$SCRIPT_DIR/price_fill.sh" "$@"
+fi
+
 echo "=== $(date -Is) run ===" >> "$LOG"
 "$UV" run bot refresh --prices --only-missing >> "$LOG" 2>&1
 

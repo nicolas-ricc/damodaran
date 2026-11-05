@@ -19,6 +19,13 @@ export PATH="$PATH:$HOME/.local/bin:/usr/local/bin:/usr/bin"
 mkdir -p "$REPO/.cache"
 LOG="$REPO/.cache/weekly.log"
 
+# Run on the latest origin/master (scripts/sync_master.sh). The pull can rewrite
+# this very script, which bash reads as it goes, so re-exec once on the new copy.
+if [ -z "${BOT_SYNCED:-}" ]; then
+  "$SCRIPT_DIR/sync_master.sh" >> "$LOG" 2>&1
+  BOT_SYNCED=1 exec "$SCRIPT_DIR/weekly.sh" "$@"
+fi
+
 {
   echo "=== $(date -Is) run ==="
   uv run bot refresh --all \

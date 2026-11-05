@@ -26,6 +26,13 @@ export PATH="$PATH:$HOME/.local/bin:/usr/local/bin:/usr/bin"
 mkdir -p "$REPO/.cache"
 LOG="$REPO/.cache/daily.log"
 
+# Run on the latest origin/master (scripts/sync_master.sh). The pull can rewrite
+# this very script, which bash reads as it goes, so re-exec once on the new copy.
+if [ -z "${BOT_SYNCED:-}" ]; then
+  "$SCRIPT_DIR/sync_master.sh" >> "$LOG" 2>&1
+  BOT_SYNCED=1 exec "$SCRIPT_DIR/daily.sh" "$@"
+fi
+
 ROUNDS="${BOT_PRICE_ROUNDS:-10}"
 # At least one round, whatever the value: non-numeric or < 1 means one.
 [[ "$ROUNDS" =~ ^[0-9]+$ ]] && ROUNDS=$((10#$ROUNDS)) || ROUNDS=1

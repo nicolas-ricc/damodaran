@@ -126,6 +126,9 @@ uv run bot show AAPL             # show a US company's fundamentals (M1)
 0 10 * * 6    <repo>/scripts/weekly.sh  # bot-weekly
 ```
 
+- **Before each run** `daily.sh`, `weekly.sh` and `price_fill.sh` call `scripts/sync_master.sh`,
+  which fast-forwards the checkout to `origin/master` (`git pull --ff-only`). It skips a checkout
+  on another branch, and a failed pull is logged and the run goes ahead on the code it has.
 - **Daily** (weekdays 09:00): `bot refresh --prices --fx && bot portfolio`. Fundamentals are
   quarterly and are not refreshed daily. `bot portfolio` fails while TWS is not running and
   logged in; that is logged, not a bug.
