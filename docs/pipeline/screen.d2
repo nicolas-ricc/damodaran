@@ -182,7 +182,7 @@ trap_detection: "5. trap detection: every detector must pass" {
 # Layer 6: ranking
 ranking: "6. ranking of the survivors" {
   link: "./screen-ranking.svg"
-  metrics: "survivor metrics\nvalue = highest passing value indicator score\nquality = (ROIC − sector WACC) + ROE; a missing ROE counts 0\ngrowth = revenue compound annual growth rate (CAGR)\n= (last ÷ first)^(1 ÷ (years − 1)) − 1\ngrowth = 0 when fewer than two years or first ≤ 0" {  # @symbol bot.screener.engine._quality_metric @symbol bot.screener.engine._growth_metric @symbol bot.utils.finance.cagr
+  metrics: "survivor metrics\nvalue = highest passing value indicator score\nquality = (ROIC − sector WACC) + ROE; a missing ROE counts 0\ngrowth = revenue compound annual growth rate (CAGR)\n= (last ÷ first)^(1 ÷ (years − 1)) − 1\ngrowth = 0 when fewer than two years, or first or last ≤ 0" {  # @symbol bot.screener.engine._quality_metric @symbol bot.screener.engine._growth_metric @symbol bot.utils.finance.cagr
     class: step
     spec_scores: |md Gap: spec §6.5 puts margin stability in the quality score and free cash flow growth in the growth score; the code uses (ROIC − WACC) + ROE and revenue CAGR only. | {class: gap}
   }

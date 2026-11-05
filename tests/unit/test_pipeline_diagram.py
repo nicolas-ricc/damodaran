@@ -1669,7 +1669,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "rule_based",
         "nominal GDP growth of the valuation currency",
         "unresolved",
-        "(revenue_t - revenue_t-1) ÷ revenue_t-1",
+        "revenue CAGR = (last ÷ first)^(1 ÷ (years - 1)) - 1",
     ],
     "assumptions.margin": [
         "story_pattern",
