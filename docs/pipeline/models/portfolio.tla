@@ -233,7 +233,7 @@ NoCross ==
   /\ event' = "none"
   /\ UNCHANGED << channel, stored, flexFailed, held, valuation, gates, prevMark, above, prev, filing, anyFired, alerts >>
 
-(* src/bot/portfolio/events.py: detect_new_red_flags *)
+(* src/bot/portfolio/events.py: detect_new_red_flags, comparing with the last known mark from bot.portfolio.marks.load_red_flag_baselines *)
 NewRedFlagFires ==
   /\ phase = "cross_checked"
   /\ valuation = "red"
@@ -242,10 +242,9 @@ NewRedFlagFires ==
   /\ anyFired' = TRUE
   /\ UNCHANGED << channel, stored, flexFailed, held, valuation, gates, prevMark, above, prev, filing, alerts >>
 
-(* src/bot/portfolio/events.py: detect_new_red_flags returns `[]` *)
+(* src/bot/portfolio/events.py: detect_new_red_flags returns `[]`, comparing with the last known mark from bot.portfolio.marks.load_red_flag_baselines *)
 NoNewRedFlag ==
   /\ phase = "cross_checked"
-  /\ valuation # "red" \/ prevMark = "present"
   /\ phase' = "flags_checked"
   /\ event' = "none"
   /\ UNCHANGED << channel, stored, flexFailed, held, valuation, gates, prevMark, above, prev, filing, anyFired, alerts >>
@@ -653,11 +652,10 @@ FirstRunOpensEveryPosition ==
   prev = "none" => (event \notin {"position_closed", "currency_changed", "position_size_changed"}
       /\ (phase = "positions_diffed" => event = "position_opened"))
 
-(* Cites: compute_events: without a previous mark detect_intrinsic_value_cross, detect_below_quality_gate and detect_sector_recalibration return nothing; detect_new_red_flags compares only with the previous red flags. *)
-\* With no previous mark, intrinsic value cross, below quality gate and sector recalibration never fire, while a red flag now does fire.
+(* Cites: compute_events: without a previous mark detect_intrinsic_value_cross, detect_below_quality_gate and detect_sector_recalibration return nothing; detect_new_red_flags compares with the last known mark from load_red_flag_baselines, not the previous snapshot's mark. *)
+\* With no previous mark, intrinsic value cross, below quality gate and sector recalibration never fire; detect_new_red_flags compares with the last known mark from load_red_flag_baselines, so it is not tied to the previous mark.
 NoPreviousMarkOnlyRedFlags ==
-  prevMark = "absent" => (event \notin {"intrinsic_value_crossed_price", "below_quality_gate", "sector_recalibrated"}
-      /\ ((phase = "flags_checked" /\ valuation = "red") => event = "new_red_flag"))
+  prevMark = "absent" => event \notin {"intrinsic_value_crossed_price", "below_quality_gate", "sector_recalibrated"}
 
 (* Cites: detect_new_filings: `in reported: continue`, with `_load_reported_filings` reading the events log. *)
 \* A filing already in the events log never fires new filing again.
