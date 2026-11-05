@@ -142,3 +142,16 @@ Run: `uv run pytest -q` → green. Run `uv run ruff check . && uv run mypy src` 
 - [ ] **Step 5: Commit**
 
 `git commit -m "test(#213): regenerate the mature-decline golden"`
+
+## Assumptions
+
+- **A negative latest margin is kept as-is** (Review Focus 1). The issue's rule is "keeps its own latest margin, flat, with no convergence to the sector", and `_margins_from_rows` (`assumptions.py:518-522`) keeps negative ratios (it drops only NULL and zero revenue). Rejected: clamping at 0 or falling back to the sector, neither of which the issue asks for.
+- **Two commits, the first one leaves the isolation golden red** until the second one lands. The issue prescribes the two commit titles, and the PR is squash-merged, so the feature branch never sees the red state. Rejected: a single commit, which would contradict the issue's commit list.
+- **"(spec §7.1)" stays on the attribute docs** because it is already there (`assumptions.py:150-153`). It cites the archetype table (§7.1, "márgenes erosionándose"), not the own-margin rule. The own-margin rule is the maintainer decision recorded in the issue.
+
+## Grilling
+
+- Rounds: 1. The plan's revision was not substantial (one Assumptions section, no step added or removed), so there was no second round.
+- Questions: 16. Sources: ISSUE 7 (Q3, Q5, Q7, Q8, Q13, Q16 and the decision half of Q1), CODE 12 (Q1, Q2, Q4, Q7, Q8, Q9, Q10, Q11, Q12, Q14; one answer can cite both), DOC 1 (Q6, spec §7.1). NO SOURCE: 1 (Q15), handled as a technical assumption.
+- Assumptions: the three above.
+- Issues opened: none. Spec ambiguities: none.
