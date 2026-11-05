@@ -56,9 +56,6 @@ def _sub(old: str, new: str) -> str:
     return _VALID.replace(old, new, 1)
 
 
-# --- loader on tmp files ---------------------------------------------------
-
-
 def test_loads_a_valid_table(tmp_path: Path) -> None:
     table = load_default_spreads(_write(tmp_path, _VALID))
     assert table.horizon_years == 10
@@ -206,8 +203,6 @@ def test_datetime_as_of_is_narrowed_to_date(tmp_path: Path) -> None:
     as_of = load_default_spreads(_write(tmp_path, text)).probabilities["BB"].as_of
     assert type(as_of) is date
 
-
-# --- the repo file -----------------------------------------------------------
 
 TABLE_5_TEN_YEAR = {
     "AAA": 0.0007,
