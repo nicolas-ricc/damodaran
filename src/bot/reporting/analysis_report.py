@@ -128,17 +128,6 @@ def fmt_axis_label(axis: SensitivityAxis) -> str:
     return f"{label} (yr 1)" if axis in PATH_AXES else label
 
 
-def fmt_mult(value: Any) -> str:
-    """A grid multiplier like 0.8 rendered as a signed percentage delta.
-
-    Kept for :mod:`bot.web.views` until it switches to :func:`fmt_step` (#217).
-    """
-    if value is None:
-        return _DASH
-    delta = (float(value) - 1.0) * 100.0
-    return f"{delta:+.0f}%"
-
-
 def fmt_step(value: float | None, kind: ShockKind | str) -> str:
     """A sensitivity step: ``-1.0pp`` for an additive shift, ``×0.8`` for a factor.
 

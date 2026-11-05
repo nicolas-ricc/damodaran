@@ -278,8 +278,9 @@ def tornado_table(bars: Sequence[TornadoBar], *, price: float | None) -> Markup:
             track += _line(
                 px, 0, px, 12, _INK, 2.0, ' data-role="price" vector-effect="non-scaling-stroke"'
             )
+        shock = f' <span class="shock">{escape(bar.shock)}</span>' if bar.shock else ""
         rows.append(
-            f'<tr><th scope="row">{escape(bar.label)}</th>'
+            f'<tr><th scope="row">{escape(bar.label)}{shock}</th>'
             f'<td class="num low">{_num(lo_val)}</td>'
             f'<td class="track"><svg viewBox="0 0 100 12" preserveAspectRatio="none" '
             f'aria-hidden="true" focusable="false">{track}</svg></td>'
