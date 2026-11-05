@@ -305,7 +305,7 @@ GrowthIsUnresolved ==
   /\ unresolved' = TRUE
   /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
-(* src/bot/valuator/assumptions.py: _resolve_operating_margin *)
+(* src/bot/valuator/assumptions.py: _resolve_operating_margin (manual; high-growth ramp; cyclical cycle average; mature-decline own latest margin, flat; sector) *)
 MarginIsResolved ==
   /\ phase = "growth_set"
   /\ phase' = "margin_set"
@@ -375,7 +375,7 @@ TerminalGrowthIsUnresolved ==
   /\ unresolved' = TRUE
   /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
-(* src/bot/valuator/assumptions.py: _resolve_tax_rate, _resolve_probability_of_bankruptcy, _resolve_distress_value_per_share *)
+(* src/bot/valuator/assumptions.py: _resolve_tax_rate, _resolve_probability_of_bankruptcy (manual; distressed: interest coverage -> rating -> default probability, src/bot/reference/default_spreads.py), _resolve_distress_value_per_share *)
 TaxAndBankruptcyAreSet ==
   /\ phase = "tg_set"
   /\ phase' = "ready"
