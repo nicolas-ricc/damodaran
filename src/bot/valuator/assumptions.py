@@ -17,7 +17,9 @@ Resolution order (highest-priority source wins, spec §7.3/§7.6)::
                             ERP / tax rate from damodaran_country).
     4. Rule-based         — e.g. terminal_growth = min(rfr_ccy, gdp_ccy), where
                             both come from the company's valuation currency in
-                            ``config/currencies.yaml`` (#109).
+                            ``config/currencies.yaml`` (#109), or a distressed
+                            company's probability of bankruptcy from its interest
+                            coverage via ``config/default_spreads.yaml`` (#213).
 
 The valuation currency is the currency of the company's latest non-restated
 ``financials_annual`` row. A currency missing from the table (or a NULL one)
@@ -54,6 +56,7 @@ from bot.reference.currencies import (
     load_currency_table,
     normalize_currency,
 )
+from bot.reference.default_spreads import DefaultSpreadTable, load_default_spreads
 from bot.reference.regions import dataset_region
 from bot.utils.finance import cagr
 from bot.utils.logging import get_logger
@@ -136,6 +139,27 @@ class Sourced[T]:
 
 
 @dataclass(frozen=True)
+class BankruptcyDerivation:
+    """How a distressed company's probability of bankruptcy was derived (#213).
+
+    Attributes:
+        interest_coverage: The coverage ratio the chain started from (``None``
+            when it is unknown).
+        rating: The rating the coverage maps to (``None`` when none was found).
+        horizon_years: Horizon of the table's cumulative default probability
+            (``None`` when the table was not read or is empty).
+        probability: The probability the chain produced (0.0 on every fallback).
+        reason: One line for the report: the chain, or why ``p`` stays 0.
+    """
+
+    interest_coverage: float | None
+    rating: str | None
+    horizon_years: int | None
+    probability: float
+    reason: str
+
+
+@dataclass(frozen=True)
 class Assumptions:
     """The six critical DCF assumptions, each carrying its provenance (§7.3).
 
@@ -149,12 +173,13 @@ class Assumptions:
         sales_to_capital: Incremental sales per unit of reinvested capital.
         terminal_growth: Perpetual growth ``g`` past the horizon.
         probability_of_bankruptcy: Probability the firm fails (0 outside
-            distressed stories).
+            distressed stories). A distressed company's comes from its interest
+            coverage via the default-spread table unless the override sets it.
         distress_value_per_share: Per-share value recovered in bankruptcy,
             paired with ``probability_of_bankruptcy`` to blend a going-concern
             and liquidation value (0 outside distressed stories). Never
-            derived automatically — §7.3's rating/Altman-Z derivation is not
-            implemented — so it comes from a manual override or stays 0.0.
+            derived automatically, so it comes from a manual override or
+            stays 0.0.
         cost_of_equity / pretax_cost_of_debt / equity_weight / debt_weight:
             The WACC components, kept so a downstream DCF can rebuild WACC from
             its parts and report the weights actually used.
@@ -177,6 +202,9 @@ class Assumptions:
             risk, from a hypergrowth story (``None`` outside it).
         story: The validated hypergrowth story behind the story fields
             (``None`` outside it).
+        bankruptcy_derivation: The coverage → rating → probability chain behind
+            ``probability_of_bankruptcy`` (``None`` unless the chain ran, i.e.
+            a distressed story without a manual probability).
     """
 
     revenue_growth: Sourced[tuple[float, ...] | None]
@@ -201,6 +229,7 @@ class Assumptions:
     governance_discount: Sourced[float] | None = None
     story: StoryInputs | None = None
     scenarios: Mapping[str, StoryInputs] | None = None
+    bankruptcy_derivation: BankruptcyDerivation | None = None
 
     def to_dcf_assumptions(self) -> DCFAssumptions:
         """Project the resolved bundle onto the pure :class:`dcf.Assumptions`.
@@ -831,6 +860,8 @@ def resolve_assumptions(
     auto_story_type: StoryType | None = None,
     db_inputs: AssumptionInputs | None = None,
     currencies: CurrencyTable | None = None,
+    interest_coverage: float | None = None,
+    default_spreads: DefaultSpreadTable | None = None,
 ) -> Assumptions:
     """Resolve the six critical DCF assumptions for ``ticker`` (spec §7.3).
 
@@ -853,6 +884,11 @@ def resolve_assumptions(
         currencies: Per-currency rates used when ``db_inputs`` is ``None``;
             ``None`` loads the default file. Ignored when ``db_inputs`` is given
             (its ``currency_rates`` already hold the lookup).
+        interest_coverage: EBIT over interest expense, the start of a distressed
+            company's coverage → rating → probability chain. ``None`` when
+            unknown; the probability then stays 0.
+        default_spreads: Coverage-to-rating and rating-to-probability tables;
+            ``None`` loads the default file, and only when the chain needs it.
 
     Returns:
         An :class:`Assumptions` bundle where every field carries its source.
@@ -911,7 +947,12 @@ def resolve_assumptions(
         override, sector, key="pretax_cost_of_debt", attr="cost_of_debt"
     )
     equity_weight, debt_weight = _resolve_weights(override, sector)
-    probability_of_bankruptcy = _resolve_probability_of_bankruptcy(override)
+    probability_of_bankruptcy, bankruptcy_derivation = _resolve_probability_of_bankruptcy(
+        override,
+        story_type=story_type,
+        interest_coverage=interest_coverage,
+        default_spreads=default_spreads,
+    )
     distress_value_per_share = _resolve_distress_value_per_share(override)
     tax_rate = _resolve_tax_rate(override, sector, country)
 
@@ -929,6 +970,7 @@ def resolve_assumptions(
         tax_rate=tax_rate,
         story_type=story_label,
         notes=override.get("notes"),
+        bankruptcy_derivation=bankruptcy_derivation,
     )
     if story_type is not StoryType.HYPERGROWTH:
         return bundle
@@ -1189,20 +1231,78 @@ def _resolve_tax_rate(
     return Sourced(value=_DEFAULT_TAX_RATE, source=AssumptionSource.RULE_BASED)
 
 
-def _resolve_probability_of_bankruptcy(override: dict[str, Any]) -> Sourced[float]:
+def _resolve_probability_of_bankruptcy(
+    override: dict[str, Any],
+    *,
+    story_type: StoryType | None,
+    interest_coverage: float | None,
+    default_spreads: DefaultSpreadTable | None,
+) -> tuple[Sourced[float], BankruptcyDerivation | None]:
+    """Manual wins; a distressed story derives it from coverage; else 0 (spec §7.3).
+
+    The chain is interest coverage → rating → cumulative default probability
+    (#213). Every gap in it leaves ``p`` at 0 and says why in the derivation.
+    """
     manual = _override_scalar(override, "probability_of_bankruptcy")
     if manual is not None and manual.value is not None:
-        return Sourced(value=manual.value, source=AssumptionSource.MANUAL)
+        return Sourced(value=manual.value, source=AssumptionSource.MANUAL), None
     # Default 0 outside distressed stories (spec §7.3).
-    return Sourced(value=0.0, source=AssumptionSource.RULE_BASED)
+    if story_type is not StoryType.DISTRESSED:
+        return Sourced(value=0.0, source=AssumptionSource.RULE_BASED), None
+
+    def fallback(
+        rating: str | None, horizon_years: int | None, reason: str
+    ) -> tuple[Sourced[float], BankruptcyDerivation]:
+        derivation = BankruptcyDerivation(interest_coverage, rating, horizon_years, 0.0, reason)
+        return Sourced(value=0.0, source=AssumptionSource.RULE_BASED), derivation
+
+    if interest_coverage is None:
+        return fallback(
+            None,
+            None,
+            "distressed, but interest coverage is unknown (no EBIT or no interest expense): "
+            "p stays 0",
+        )
+    table = default_spreads if default_spreads is not None else load_default_spreads()
+    if table.is_empty:
+        return fallback(
+            None,
+            None,
+            "distressed, but the default-spread table is empty "
+            "(config/default_spreads.yaml absent or malformed): p stays 0",
+        )
+    rating = table.rating_for(interest_coverage)
+    if rating is None:
+        return fallback(
+            None,
+            table.horizon_years,
+            f"distressed, but coverage {interest_coverage:.2f} has no rating in the "
+            "default-spread table: p stays 0",
+        )
+    probability = table.probability_for(rating)
+    if probability is None:
+        return fallback(
+            rating,
+            table.horizon_years,
+            f"distressed, but rating {rating} has no default probability in the table: "
+            "p stays 0",
+        )
+    reason = (
+        f"interest coverage {interest_coverage:.2f} → rating {rating} → "
+        f"{table.horizon_years}-year cumulative default probability {probability:.1%}"
+    )
+    derivation = BankruptcyDerivation(
+        interest_coverage, rating, table.horizon_years, probability, reason
+    )
+    return Sourced(value=probability, source=AssumptionSource.RULE_BASED), derivation
 
 
 def _resolve_distress_value_per_share(override: dict[str, Any]) -> Sourced[float]:
     """Per-share liquidation value, paired with ``probability_of_bankruptcy``.
 
-    Spec §7.3's rating/Altman-Z derivation for distressed companies is not
-    implemented, so this is never populated automatically: it comes from a
-    manual override or stays at the neutral 0.0 default.
+    Never populated automatically (only the probability has a derivation, from
+    interest coverage): it comes from a manual override or stays at the neutral
+    0.0 default.
     """
     manual = _override_scalar(override, "distress_value_per_share")
     if manual is not None and manual.value is not None:

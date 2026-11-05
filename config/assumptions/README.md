@@ -42,3 +42,9 @@ the batch continues with the others. The rules:
   scenario a non-empty mapping.
 
 The story is parsed and validated; the valuation does not read it yet.
+
+## Probability of bankruptcy
+
+A distressed company's `probability_of_bankruptcy` is derived from its interest
+coverage via `config/default_spreads.yaml`. A manual `probability_of_bankruptcy`
+in the override file wins over the default-spread table.

@@ -119,9 +119,10 @@ class Assumptions:
             ``distress_value_per_share`` is ignored.
 
     ``distress_value_per_share`` pairs with ``probability_of_bankruptcy`` to blend a
-    going-concern value with a liquidation value. Neither is populated automatically —
-    §7.3's rating/Altman-Z derivation for distressed companies is not implemented — so
-    both come from a manual override or stay at 0.0.
+    going-concern value with a liquidation value. ``distress_value_per_share`` is never
+    populated automatically (manual override or 0.0); a distressed company's
+    ``probability_of_bankruptcy`` is derived from its interest coverage upstream, in
+    ``resolve_assumptions``, unless a manual override sets it.
     """
 
     revenue_growth: tuple[float, ...]
