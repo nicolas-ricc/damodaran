@@ -200,7 +200,8 @@ story:{role:"valua",titulo:"Story type",lead:"Qué clase de historia es esta emp
 "s-md":{role:"valua",titulo:"mature-decline",lead:"Crecimiento negativo y controlado.",
  idea:["Una empresa que se achica no vale cero. Vale los flujos que todavía va a generar mientras se achica, y a veces eso es bastante más de lo que cotiza.",
   "El patrón: crecimiento negativo, márgenes que se erosionan, reinversión mínima porque no tiene sentido invertir en un negocio que se retira. La pregunta no es si cae, sino a qué velocidad."],
- code:{where:[["valor","\"mature-decline\""]],notes:[]}},
+ code:{where:[["valor","\"mature-decline\""]],
+  notes:["El bot conserva el margen operativo propio más reciente de la empresa, plano durante los diez años, sin converger al del sector (si no tiene margen propio, usa la mediana sectorial). El crecimiento se desvanece como en cualquier arquetipo sin story, desde la historia hacia el crecimiento terminal. Ni el crecimiento negativo ni la reinversión mínima se derivan."]}},
 
 "s-cy":{role:"valua",titulo:"cyclical",lead:"Promediar a través del ciclo, nunca el año actual.",
  idea:["El error más caro con una cíclica es valuarla en el pico o en el piso del ciclo. En el pico parece barata (ganancias infladas, múltiplo bajo) justo cuando está más cara; en el piso parece carísima justo cuando está más barata.",
@@ -211,7 +212,7 @@ story:{role:"valua",titulo:"Story type",lead:"Qué clase de historia es esta emp
  idea:["El único arquetipo donde el DCF no alcanza. Si hay una probabilidad real de quiebra, el valor esperado no es el valor de los flujos: es el valor de los flujos multiplicado por la probabilidad de que la empresa llegue a cobrarlos, más lo que quede en liquidación si no llega.",
   "Damodaran insiste en que esa probabilidad se haga explícita en vez de esconderse en un WACC inflado. Un descuento más alto y una probabilidad de quiebra son cosas distintas y no se sustituyen."],
  code:{where:[["valor","\"distressed\""],["clasifica con","Altman Z, o cobertura ≤ 1"]],
-  notes:["El Altman Z decide la clasificación, no el número: la probabilidad de quiebra sigue en cero hasta que se la pone a mano. La derivación automática desde el rating no está implementada."]}},
+  notes:["El Altman Z decide la clasificación, no el número: la probabilidad de quiebra sale de la cobertura de intereses, pasa por un rating sintético y termina en la probabilidad de default acumulada a diez años de <code>config/default_spreads.yaml</code>. Un valor manual le gana. Si falta la cobertura, no cae en ningún tramo, falta su fila o falta el archivo, queda en cero y el reporte dice por qué. El valor de liquidación sigue siendo manual o cero."]}},
 
 "s-hy":{role:"valua",titulo:"hypergrowth",lead:"La historia manda, no el balance.",
  idea:["Una empresa que recién arranca no se puede valuar extrapolando lo que hizo: el balance de ayer no dice nada de dónde va a estar en diez años. Damodaran lo resuelve al revés, empezando por la historia y bajándola a números con cuatro preguntas: cuánto va a facturar en el año diez (el mercado total por la participación que se queda), qué margen le queda cuando madura, cuánta venta compra cada peso reinvertido y a qué costo de capital.",
@@ -263,13 +264,13 @@ assumptions:{role:"valua",titulo:"Los seis supuestos",lead:"Acá vive casi todo 
  code:{where:[["origen","rule_based"],["insumo","config/currencies.yaml: risk_free_rate, nominal_gdp_growth"]],
   notes:["Un detalle que conviene tener presente: la tasa libre de riesgo correcta es la de la <em>moneda</em> en la que se valúa, no la del país donde la empresa está listada. Y así se hace: la moneda de valuación es la de la última fila anual no reexpresada, y su tasa y su PBI salen de <code>config/currencies.yaml</code>, una tabla curada a mano. Si la moneda no está en la tabla, el crecimiento terminal queda sin resolver y la empresa sale del universo (<code>currency_uncovered</code>)."]}},
 
-"a-default":{role:"valua",titulo:"Probabilidad de quiebra",lead:"Cero por defecto; a mano en distressed, y del archivo de historia en hypergrowth.",
+"a-default":{role:"valua",titulo:"Probabilidad de quiebra",lead:"Cero por defecto; en distressed sale de la cobertura de intereses, y en hypergrowth del archivo de historia.",
  idea:["Para una empresa que pasó los quality gates (deuda dentro de capacidad, intereses cubiertos, caja operativa positiva) suponer cero es razonable y evita agregar un parámetro más que nadie puede estimar bien.",
   "En una distressed deja de serlo. Ahí el método pide derivarla del rating o de un Altman Z, y valuar la mezcla entre el negocio en marcha y lo que quede en liquidación.",
-  "Esa derivación no está hecha. El clasificador sí mira el Altman Z, pero solo para decidir que la empresa es distressed; la probabilidad y el valor de liquidación se quedan en cero hasta que alguien los escribe a mano en el override. Lo que sí se sostiene es que sea un número visible y no un ajuste escondido en la tasa de descuento.",
-  "En una hypergrowth la probabilidad no sale de una regla: la escribís vos en el archivo de historia, como <code>failure_probability</code>, junto con lo que se recupera si la empresa no llega, como porcentaje del valor de la empresa (<code>failure_proceeds_pct_of_value</code>). Es el único camino por el que hoy este supuesto deja de ser cero sin un override manual de la quiebra."],
- code:{where:[["origen","rule_based; story con hypergrowth"],["default","0.0"],["se mueve con","override manual, o failure_probability del story"]],
-  notes:["En distressed va de a pares con <code>distress_value_per_share</code>, el valor por acción que se recupera si la empresa no llega. Los dos arrancan en cero y los dos se mueven solo a mano.",
+  "En una distressed el bot la deriva de la cobertura de intereses: cobertura, rating sintético y probabilidad de default acumulada a diez años, leída de <code>config/default_spreads.yaml</code>. El Altman Z no se calcula: el clasificador lo mira solo para decidir que la empresa es distressed. El valor de liquidación por acción sigue siendo manual (o cero). Si falta la cobertura, no cae en ningún tramo, falta su fila o falta el archivo, la probabilidad queda en cero y el reporte dice por qué. Lo que importa es que sea un número visible y no un ajuste escondido en la tasa de descuento.",
+  "En una hypergrowth la probabilidad no sale de una regla: la escribís vos en el archivo de historia, como <code>failure_probability</code>, junto con lo que se recupera si la empresa no llega, como porcentaje del valor de la empresa (<code>failure_proceeds_pct_of_value</code>). Este camino y la derivación por cobertura de una distressed son los dos únicos por los que hoy este supuesto deja de ser cero sin un override manual de la quiebra."],
+ code:{where:[["origen","rule_based; story con hypergrowth"],["default","0.0"],["se mueve con","override manual, la cobertura de intereses (distressed) o failure_probability del story"]],
+  notes:["En distressed va de a pares con <code>distress_value_per_share</code>, el valor por acción que se recupera si la empresa no llega. La probabilidad sale de la cobertura de intereses; el valor de liquidación arranca en cero y se mueve solo a mano.",
    "En hypergrowth el par es <code>failure_probability</code> y <code>failure_proceeds_pct_of_value</code>, y los dos vienen del archivo de historia."]}},
 
 dcf:{role:"valua",titulo:"DCF de dos etapas",lead:"El valor de un activo es lo que va a producir, traído a hoy.",
