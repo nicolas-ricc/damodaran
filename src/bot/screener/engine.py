@@ -655,9 +655,7 @@ def _quality_metric(company: CompanyData, benchmarks: IndustryBenchmarks) -> flo
 def _growth_metric(company: CompanyData) -> float:
     """Revenue CAGR over the available history (spec §6.5, higher better).
 
-    A missing growth signal counts 0, the same rule as the missing ROE in
-    ``_quality_metric``. Behaviour change: a positive base with a last value
-    <= 0 used to give -1.0 (last = 0) or a complex/negative number; now 0.0.
+    An undefined CAGR counts 0, like the missing ROE in ``_quality_metric``.
     """
     rate = cagr(company.revenue_history)
     return rate if rate is not None else 0.0
