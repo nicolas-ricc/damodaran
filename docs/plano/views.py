@@ -277,7 +277,7 @@ def plan_c():
                  f'stroke="var(--p-valua)" stroke-width="1.3"/>')
         o.append(txt(250 + wd / 2 + 10, y + 14, nm, "t-s"))
     o.append('<path class="axis dimmable" d="M250 892V1046"/>')
-    o.append(txt(250, 1062, "tornado: mover cada eje ±20%. Son siete, acá van cinco",
+    o.append(txt(250, 1062, "tornado: mover cada eje ±1 punto porcentual. Son siete, acá van cinco",
                  "t-s", "middle"))
     o.append(hot("sens-tornado", "valua", 100, 892, 320, 160, "",
                  "Tornado: cuál supuesto decide el resultado"))
