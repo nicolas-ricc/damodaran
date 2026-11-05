@@ -24,6 +24,8 @@ Note: the seeded companies are USD and the USD pair now comes from
 growth is ``min(0.0395, 0.04)``, so the golden was regenerated for #109.
 
 Regenerated for #216: 10-year horizon, growth fades to terminal growth.
+
+Re-run for #213 (mature-decline keeps its own margin): unchanged, no seeded company declines.
 """
 
 from __future__ import annotations
