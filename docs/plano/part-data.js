@@ -290,11 +290,11 @@ sensitivity:{role:"valua",titulo:"Sensitivity",lead:"Un valor intrínseco solo e
  idea:["Si el resultado de todo esto es «esta acción vale 42,17», el método falló. Los supuestos que entran tienen incertidumbre y el resultado también, así que reportar un número sin su dispersión es una mentira estadística.",
   "El tornado contesta cuál supuesto decide de verdad. La grilla contesta la otra pregunta: sobre los dos supuestos más sensibles, ¿en qué parte del espacio la compra tiene sentido?",
   "El titular con supuestos por defecto se muestra, pero el reporte deja claro que es un punto dentro de una nube."],
- code:{where:[["módulo","valuator/sensitivity.py"],["tornado","±1 punto porcentual por supuesto de tasa"],["grilla","5 × 5"]],
+ code:{where:[["módulo","valuator/sensitivity.py"],["tornado","±1 pp en tasas, ×0,8/×1,2 en sales_to_capital"],["grilla","5 × 5"]],
   notes:["No es opcional: ningún reporte de análisis se emite sin esta sección."]}},
 
 "sens-tornado":{role:"valua",titulo:"Tornado",lead:"Cuál supuesto decide el resultado.",
- idea:["Se mueve cada supuesto de tasa 1 punto porcentual para arriba y para abajo (ventas por unidad de capital, ×0,8 y ×1,2), se recalcula el valor, y se ordenan las barras por amplitud. La barra más larga es el supuesto sobre el que conviene gastar el esfuerzo de investigación.",
+ idea:["Se mueve cada supuesto de tasa 1 punto porcentual para arriba y para abajo, y sales_to_capital ×0,8 y ×1,2, se recalcula el valor, y se ordenan las barras por amplitud. La barra más larga es el supuesto sobre el que conviene gastar el esfuerzo de investigación.",
   "Es una herramienta de asignación de atención tanto como de análisis: te dice qué vale la pena ir a leer en el 10-K. Casi siempre gana el crecimiento o el margen, y casi nunca el que uno pasó más tiempo estimando."],
  code:{where:[["función","tornado"],["ejes","7 (SensitivityAxis)"],["salida","TornadoEntry"]],
   notes:["Los siete ejes son los campos desplazables de <code>Assumptions</code>. No hay un eje «WACC»: se mueven el costo del patrimonio, el de la deuda y la tasa de impuestos por separado, que es la misma razón por la que el WACC no es un supuesto guardado."]}},
