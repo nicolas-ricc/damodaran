@@ -164,16 +164,16 @@ def _grid_table(analysis: Analysis) -> list[str]:
     each Markdown row on its own line regardless of whitespace control.
     """
     grid = analysis.grid
-    header_cells = " | ".join(fmt_mult(m) for m in grid.col_multipliers)
+    header_cells = " | ".join(fmt_mult(m) for m in grid.col_steps)
     lines = [
         f"| {grid.axis_a} ↓ / {grid.axis_b} → | {header_cells} |",
-        "|---|" + "---|" * len(grid.col_multipliers),
+        "|---|" + "---|" * len(grid.col_steps),
     ]
     # Without a reference price every cell's margin of safety is None; falling
     # back to the intrinsic value keeps the table useful instead of all dashes.
     has_price = grid.reference_price is not None
     for row_index, row in enumerate(grid.cells):
-        row_label = fmt_mult(grid.row_multipliers[row_index])
+        row_label = fmt_mult(grid.row_steps[row_index])
         if has_price:
             cells = " | ".join(fmt_ratio(cell.margin_of_safety) for cell in row)
         else:

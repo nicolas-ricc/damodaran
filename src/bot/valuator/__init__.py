@@ -19,11 +19,14 @@ from bot.valuator.sensitivity import (
     Grid2D,
     GridCell,
     SensitivityAxis,
+    ShockKind,
     TornadoEntry,
     active_axes,
     grid_2d,
-    scale_axis,
+    grid_steps,
+    shift_axis,
     tornado,
+    tornado_steps,
 )
 
 __all__ = [
@@ -35,13 +38,16 @@ __all__ = [
     "GridCell",
     "SanityCheck",
     "SensitivityAxis",
+    "ShockKind",
     "TornadoEntry",
     "YearProjection",
     "active_axes",
     "analyze",
     "dcf",
     "grid_2d",
-    "scale_axis",
+    "grid_steps",
+    "shift_axis",
     "terminal_wacc",
     "tornado",
+    "tornado_steps",
 ]

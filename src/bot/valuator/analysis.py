@@ -113,7 +113,8 @@ class Analysis:
         assumptions: The six critical assumptions, each carrying its source.
         financials: The current-year DCF inputs (revenue, net debt, shares).
         dcf_result: The two-stage DCF output (intrinsic value + projections).
-        tornado: Per-axis ±20% impacts, descending by impact (spec §7.4).
+        tornado: Per-axis impacts (±1pp on rate axes, ×0.8/×1.2 on
+            sales-to-capital), descending by impact (spec §7.4).
         grid: 5x5 margin-of-safety grid over the two widest tornado axes.
         narrative_flags: The five §7.5 consistency flags, plus the
             ``hypergrowth_story`` flag when it applies.

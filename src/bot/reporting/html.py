@@ -155,8 +155,8 @@ def sensitivity_heatmap_html(grid: Grid2D) -> str:
         ]
         for row in grid.cells
     ]
-    col_labels = [_pct_delta(m) for m in grid.col_multipliers]
-    row_labels = [_pct_delta(m) for m in grid.row_multipliers]
+    col_labels = [_pct_delta(m) for m in grid.col_steps]
+    row_labels = [_pct_delta(m) for m in grid.row_steps]
 
     if has_price:
         # Colour and hover by margin of safety, identical in meaning to the
