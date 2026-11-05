@@ -4,7 +4,7 @@ _Generated 2026-01-01 · currency USD · country United States_
 
 ## 1. Executive summary
 
-- **Intrinsic value (per share):** 141.72
+- **Intrinsic value (per share):** 141.71
 - **Current price:** 150.00
 - **Margin of safety:** 0.94x (potentially overvalued)
 - **Story type:** mature-stable
@@ -39,15 +39,15 @@ _Generated 2026-01-01 · currency USD · country United States_
 
 | Year | Revenue | EBIT | NOPAT | Reinvestment | FCFF | PV |
 |---|---|---|---|---|---|---|
-| 1 | 448.09B | 125.47B | 99.12B | 7.24B | 91.88B | 85.00B |
-| 2 | 466.95B | 130.75B | 103.29B | 7.54B | 95.75B | 81.95B |
-| 3 | 486.59B | 136.25B | 107.63B | 7.86B | 99.78B | 79.00B |
-| 4 | 507.07B | 141.98B | 112.16B | 8.19B | 103.97B | 76.16B |
-| 5 | 528.40B | 147.95B | 116.88B | 8.53B | 108.35B | 73.43B |
-| Terminal | — | — | — | — | 2,731.47B | — |
+| 1 | 448.09B | 125.46B | 99.12B | 7.24B | 91.88B | 85.00B |
+| 2 | 466.94B | 130.74B | 103.29B | 7.54B | 95.75B | 81.95B |
+| 3 | 486.58B | 136.24B | 107.63B | 7.86B | 99.77B | 79.00B |
+| 4 | 507.05B | 141.97B | 112.16B | 8.19B | 103.97B | 76.16B |
+| 5 | 528.38B | 147.95B | 116.88B | 8.53B | 108.35B | 73.42B |
+| Terminal | — | — | — | — | 2,731.32B | — |
 
-- **Enterprise value:** 2,246.59B
-- **Equity value:** 2,196.59B
+- **Enterprise value:** 2,246.49B
+- **Equity value:** 2,196.49B
 - **Net debt:** 50.00B
 
 ## 5. Sensitivity
@@ -56,13 +56,13 @@ _Generated 2026-01-01 · currency USD · country United States_
 
 | Assumption | Intrinsic @ -20% | Intrinsic @ +20% | Impact |
 |---|---|---|---|
-| cost_of_equity | 224.12 | 103.13 | 121.00 |
-| operating_margin (yr 1) | 110.56 | 172.87 | 62.31 |
-| terminal_growth | 123.25 | 168.88 | 45.63 |
-| tax_rate | 148.84 | 134.48 | 14.36 |
+| cost_of_equity | 224.11 | 103.12 | 120.99 |
+| operating_margin (yr 1) | 110.56 | 172.86 | 62.30 |
+| terminal_growth | 123.24 | 168.88 | 45.63 |
+| tax_rate | 148.83 | 134.48 | 14.35 |
 | revenue_growth (yr 1) | 136.75 | 146.83 | 10.08 |
-| pretax_cost_of_debt | 145.99 | 137.68 | 8.31 |
-| sales_to_capital | 139.01 | 143.52 | 4.51 |
+| pretax_cost_of_debt | 145.98 | 137.67 | 8.31 |
+| sales_to_capital | 139.00 | 143.51 | 4.51 |
 ### 2-D grid — cost_of_equity (rows) × operating_margin (cols), margin of safety (intrinsic ÷ price)| cost_of_equity ↓ / operating_margin → | -20% | -10% | +0% | +10% | +20% |
 |---|---|---|---|---|---|
 | -20% | 1.17x | 1.33x | 1.49x | 1.66x | 1.82x |
@@ -87,6 +87,6 @@ historical averages.
 
 | Multiple | Implied | Sector (Damodaran) |
 |---|---|---|
-| P/E implied (DCF) | 21.97 | 22.00 |
+| P/E implied (DCF) | 21.96 | 22.00 |
 | P/E market | 23.25 | 22.00 |
 | EV/Sales | 5.22 | 5.00 |

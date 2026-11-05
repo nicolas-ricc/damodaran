@@ -8,6 +8,8 @@
     "country": "United States",
     "currency": "USD",
     "story_type": "mature-stable",
+    "auto_story_type": "mature-stable",
+    "story_file_present": false,
     "story_reasons": [
       "historical revenue CAGR 4.2% over 3 years",
       "classified as mature-stable"
@@ -70,13 +72,24 @@
         "source": "manual"
       },
       "story_type": "mature-stable",
-      "notes": "isolation golden override"
+      "notes": "isolation golden override",
+      "wacc_path": null,
+      "tax_rate_path": null,
+      "terminal_roic": null,
+      "distress_proceeds_pct": null,
+      "fixed_commitments": null,
+      "extra_cash": null,
+      "governance_discount": null,
+      "story": null,
+      "scenarios": null
     },
     "financials": {
       "revenue": 430000000000.0,
       "net_debt": 50000000000.0,
       "shares_diluted": 15500000000.0,
-      "adjustments": 0.0
+      "adjustments": 0.0,
+      "fixed_commitments": 0.0,
+      "extra_cash": 0.0
     },
     "dcf_result": {
       "intrinsic_value": 136.68369121060192,
@@ -138,7 +151,9 @@
       "terminal_value_share": 0.8162193204712778,
       "wacc": 0.0816975,
       "equity_weight": 0.85,
-      "debt_weight": 0.15000000000000002
+      "debt_weight": 0.15000000000000002,
+      "enterprise_value_after_failure": null,
+      "wacc_path": null
     },
     "tornado": [
       {
@@ -365,6 +380,14 @@
     },
     "current_price": 150.0,
     "margin_of_safety": 0.9112246080706795,
-    "override_notes": "isolation golden override"
+    "override_notes": "isolation golden override",
+    "scenarios": [],
+    "governance_discount": 0.0,
+    "intrinsic_value_after_governance": 136.68369121060192,
+    "valuation_currency": "USD",
+    "listing_price": 150.0,
+    "price_currency": "USD",
+    "fx_rate": null,
+    "price_date": "2026-05-29"
   }
 }

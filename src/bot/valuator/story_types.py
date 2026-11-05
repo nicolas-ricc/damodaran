@@ -29,6 +29,8 @@ import statistics
 from dataclasses import dataclass
 from enum import StrEnum
 
+from bot.utils.finance import cagr
+
 # --------------------------------------------------------------------------- #
 # Classification thresholds (spec §7.1 signals). Tuned for the representative   #
 # fixtures; deliberately conservative so the default is the benign             #
@@ -140,21 +142,6 @@ class SectorContext:
     operating_margin: float | None = None
 
 
-def _cagr(history: tuple[float, ...]) -> float | None:
-    """Compound annual growth rate from the first to the last positive figure.
-
-    Returns ``None`` when there is too little history (< 2 points) or the
-    endpoints are non-positive (a CAGR is undefined through zero/negative).
-    """
-    if len(history) < 2:
-        return None
-    start, end = history[0], history[-1]
-    if start <= 0.0 or end <= 0.0:
-        return None
-    periods = len(history) - 1
-    return float((end / start) ** (1.0 / periods)) - 1.0
-
-
 def _earnings_cv(history: tuple[float, ...]) -> float | None:
     """Coefficient of variation (stdev / |mean|) of an earnings history.
 
@@ -177,8 +164,8 @@ def _is_hypergrowth(financials: ClassificationFinancials, sector: SectorContext)
     last_year = history[-1] / history[-2] - 1.0
     if last_year < _HYPERGROWTH_LAST_YEAR_GROWTH - _THRESHOLD_TOLERANCE:
         return False
-    cagr = _cagr(history)
-    if cagr is None or cagr < _HYPERGROWTH_CAGR - _THRESHOLD_TOLERANCE:
+    rate = cagr(history)
+    if rate is None or rate < _HYPERGROWTH_CAGR - _THRESHOLD_TOLERANCE:
         return False
     company_margin = financials.operating_margin
     sector_margin = sector.operating_margin
@@ -243,15 +230,15 @@ def classify(
     if _is_cyclical(financials, sector_data):
         return StoryType.CYCLICAL
 
-    cagr = _cagr(financials.revenue_history)
-    if cagr is None:
+    rate = cagr(financials.revenue_history)
+    if rate is None:
         # No reliable growth signal: fall back to the benign default.
         return StoryType.MATURE_STABLE
 
     age = financials.age_years
     is_young = age is None or age <= _MATURE_AGE_YEARS
-    if cagr >= _HIGH_GROWTH_CAGR and is_young:
+    if rate >= _HIGH_GROWTH_CAGR and is_young:
         return StoryType.HIGH_GROWTH
-    if cagr <= _DECLINE_CAGR:
+    if rate <= _DECLINE_CAGR:
         return StoryType.MATURE_DECLINE
     return StoryType.MATURE_STABLE

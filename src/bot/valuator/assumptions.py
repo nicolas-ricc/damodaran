@@ -36,7 +36,6 @@ directly.
 
 from __future__ import annotations
 
-import itertools
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, fields, replace
 from datetime import date
@@ -55,6 +54,7 @@ from bot.reference.currencies import (
     normalize_currency,
 )
 from bot.reference.regions import dataset_region
+from bot.utils.finance import cagr
 from bot.utils.logging import get_logger
 from bot.valuator.dcf import Assumptions as DCFAssumptions
 from bot.valuator.hypergrowth import (
@@ -310,8 +310,8 @@ class AssumptionInputs:
         country: The latest ``damodaran_country`` row, or ``None``.
         sector: The latest ``damodaran_industry`` row for the company's
             industry/region, or ``None``.
-        historical_growth_path: The historical-average revenue-growth path, or
-            ``None`` when there is too little history.
+        historical_growth_path: The flat revenue-growth path at the historical
+            revenue CAGR, or ``None`` when that CAGR is undefined.
         sector_is_cross_region: Whether ``sector`` came from a different dataset
             region than the company's own (see
             :func:`_load_sector_with_fallback`). Every assumption drawn from that
@@ -626,29 +626,24 @@ def _pick_sector(
 
 
 def _growth_path_from_revenues(revenues: Sequence[float]) -> tuple[float, ...] | None:
-    """Flat ``_HORIZON``-year path at the mean year-over-year growth of ``revenues``.
+    """Flat ``_HORIZON``-year path at the revenue CAGR (``bot.utils.finance.cagr``).
 
-    ``None`` when there is too little history (< 2 years, or no non-zero base).
+    ``None`` when the CAGR is undefined (< 2 years, or a first or last revenue ≤ 0).
     """
-    if len(revenues) < 2:
+    rate = cagr(revenues)
+    if rate is None:
         return None
-    growths = [
-        (curr - prev) / prev
-        for prev, curr in itertools.pairwise(revenues)
-        if prev != 0.0
-    ]
-    if not growths:
-        return None
-    return (fmean(growths),) * _HORIZON
+    return (rate,) * _HORIZON
 
 
 def _historical_growth_path(
     conn: duckdb.DuckDBPyConnection, ticker: str
 ) -> tuple[float, ...] | None:
-    """Average year-over-year revenue growth from financials_annual.
+    """Historical revenue CAGR from financials_annual.
 
-    Returns a flat path of ``_HORIZON`` years at the historical average growth
-    rate, or ``None`` when there is too little history (< 2 years of revenue).
+    Returns a flat path of ``_HORIZON`` years at the historical revenue CAGR,
+    or ``None`` when it is undefined (< 2 years of revenue, or a non-positive
+    first or last revenue).
     """
     rows = conn.execute(
         "SELECT revenue FROM financials_annual "
@@ -990,16 +985,16 @@ def _resolve_revenue_growth(
     """Resolve the revenue-growth path.
 
     Spec §7.3 wants analyst consensus for years 1-5 with convergence to nominal GDP by
-    year 10. Neither is implemented: the path is the historical average repeated over a
+    year 10. Neither is implemented: the path is the historical revenue CAGR repeated over a
     5-year horizon, sourced as HISTORICAL_AVERAGE. There is no ANALYST_CONSENSUS source
     because nothing can emit it — FMP's analyst-estimates endpoint is not wired.
 
     A high-growth story is the one archetype that does branch here (spec §7.1): fast
-    growth fades toward the economy, so the path linearly fades from the mean of the
-    historical path down to the valuation currency's nominal GDP over the explicit horizon
-    instead of staying flat. Without a GDP figure (uncovered currency) the fade has no
-    target, so it falls through to the historical average; with no history either the
-    path is ``UNRESOLVED``.
+    growth fades toward the economy, so the path linearly fades from the historical
+    revenue CAGR (the flat path's value) down to the valuation currency's nominal GDP
+    over the explicit horizon instead of staying flat. Without a GDP figure (uncovered
+    currency) the fade has no target, so it falls through to the flat CAGR; with no
+    history either the path is ``UNRESOLVED``.
     """
     manual = _override_path_field(override, "revenue_growth")
     if manual is not None:

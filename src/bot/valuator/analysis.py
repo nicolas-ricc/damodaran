@@ -682,9 +682,9 @@ def _story_reasons(
             hypergrowth_fallback,
         )
     reasons: list[str] = []
-    if len(revenue_history) >= 2 and revenue_history[0] > 0.0:
+    rate = cagr(revenue_history)
+    if rate is not None:
         periods = len(revenue_history) - 1
-        rate = cagr(revenue_history)
         reasons.append(f"historical revenue CAGR {rate:.1%} over {periods} years")
     else:
         reasons.append("too little revenue history for a reliable growth signal")
@@ -705,10 +705,11 @@ def _hypergrowth_reasons(
     growth = revenue_history[-1] / revenue_history[-2] - 1.0
     cagr_rate = cagr(revenue_history)
     periods = len(revenue_history) - 1
-    reasons = [
-        f"last-year revenue growth {growth:.1%}",
-        f"revenue CAGR {cagr_rate:.1%} over {periods} years",
-    ]
+    reasons = [f"last-year revenue growth {growth:.1%}"]
+    if cagr_rate is not None:
+        reasons.append(f"revenue CAGR {cagr_rate:.1%} over {periods} years")
+    else:
+        reasons.append("too little revenue history for a reliable growth signal")
     if operating_margin is not None and sector_operating_margin is not None:
         reasons.append(
             f"operating margin {operating_margin:.1%} below sector {sector_operating_margin:.1%}"

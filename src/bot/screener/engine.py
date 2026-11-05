@@ -653,8 +653,12 @@ def _quality_metric(company: CompanyData, benchmarks: IndustryBenchmarks) -> flo
 
 
 def _growth_metric(company: CompanyData) -> float:
-    """Revenue CAGR over the available history (spec §6.5, higher better)."""
-    return cagr(company.revenue_history)
+    """Revenue CAGR over the available history (spec §6.5, higher better).
+
+    An undefined CAGR counts 0, like the missing ROE in ``_quality_metric``.
+    """
+    rate = cagr(company.revenue_history)
+    return rate if rate is not None else 0.0
 
 
 def evaluate_company(
