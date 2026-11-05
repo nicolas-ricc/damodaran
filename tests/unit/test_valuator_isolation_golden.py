@@ -19,6 +19,10 @@ commit ``4caf8e1`` (the ``src`` tree before the DCF changes of #193) with::
 
 Regenerate them the same way only when a deliberate behavior change is intended
 for these story types.
+
+Regenerated for #215 (growth path is the revenue CAGR, not the mean of yearly
+growth): last-digit drift. That run also pinned the optional keys added since
+``4caf8e1`` (``wacc_path``, ``story``, ``scenarios``, ...).
 """
 
 from __future__ import annotations

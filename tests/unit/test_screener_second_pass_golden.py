@@ -17,7 +17,7 @@ The golden file was captured on commit ``556aa2b`` (before the refactor) with::
 
 Regenerate it the same way only when a deliberate behavior change is intended.
 
-Regenerated for #215: growth path is CAGR.
+Re-run for #215 (growth path is CAGR): unchanged, the seeded series are geometric.
 
 Note: the seeded companies are USD and the USD pair now comes from
 ``config/currencies.yaml`` (#109), not from ``damodaran_country``; terminal
