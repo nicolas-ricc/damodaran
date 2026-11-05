@@ -18,6 +18,7 @@ import dataclasses
 
 import pytest
 
+import bot.valuator.story_types as story_types
 from bot.valuator.story_types import (
     ClassificationFinancials,
     SectorContext,
@@ -284,3 +285,17 @@ def test_hypergrowth_needs_both_margins() -> None:
 def test_hypergrowth_needs_two_positive_points(history: tuple[float, ...]) -> None:
     fin = _anthropic(revenue_history=history)
     assert classify(fin, _AI_SECTOR) is StoryType.DISTRESSED
+
+
+def test_module_docstring_drops_the_gdp_anchor() -> None:
+    """#244: no story anchors growth on nominal GDP since #216."""
+    doc = " ".join((story_types.__doc__ or "").split())
+    assert "anchors growth on nominal GDP" not in doc
+    assert (
+        "The story type drives default assumption resolution (see "
+        ":mod:`bot.valuator.assumptions`): every story fades revenue growth from "
+        "its own history to terminal growth; a ``high-growth`` story ramps its "
+        "margin to the sector median, a ``cyclical`` one averages its own cycle, "
+        "a ``mature-decline`` one keeps its own latest margin, and "
+        "``mature-stable`` has no branch of its own."
+    ) in doc

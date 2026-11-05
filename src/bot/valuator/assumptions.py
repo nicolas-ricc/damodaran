@@ -143,7 +143,9 @@ class Assumptions:
         revenue_growth: Year-by-year revenue-growth path (years 1..N).
         operating_margin: Year-by-year operating-margin path (years 1..N). Flat
             across the horizon for most archetypes, but a high-growth story ramps
-            it and a cyclical story flattens it to the cycle average (spec §7.1).
+            it, a cyclical story flattens it to the cycle average, a
+            mature-decline story keeps the company's own latest margin
+            (spec §7.1).
         sales_to_capital: Incremental sales per unit of reinvested capital.
         terminal_growth: Perpetual growth ``g`` past the horizon.
         probability_of_bankruptcy: Probability the firm fails (0 outside
@@ -322,7 +324,8 @@ class AssumptionInputs:
             :attr:`AssumptionSource.SECTOR_DEFAULT_DAMODARAN_CROSS_REGION`.
         company_operating_margin: The company's own most-recent EBIT / revenue
             ratio, used as the starting point of the high-growth margin ramp
-            (spec §7.1). ``None`` when there is no usable financials history.
+            and as a mature-decline story's flat margin (spec §7.1). ``None``
+            when there is no usable financials history.
         operating_margin_history: The company's own EBIT / revenue ratio for
             every year of financials history, used to average a cyclical
             story's own cycle (spec §7.1). Empty when there is no history.
@@ -527,8 +530,9 @@ def _operating_margin_history(
 ) -> tuple[float, ...]:
     """The company's own EBIT / revenue ratio for every year of history.
 
-    Feeds the high-growth margin ramp's starting point (most recent year) and
-    the cyclical margin's cycle average (spec §7.1).
+    Feeds the high-growth margin ramp's starting point and the mature-decline
+    flat margin (both the most recent year), and the cyclical margin's cycle
+    average (spec §7.1).
     """
     rows = conn.execute(
         "SELECT ebit, revenue FROM financials_annual "
@@ -1059,6 +1063,8 @@ def _resolve_operating_margin(
     cyclical: the cycle's own average margin, not the current year's, so a
     trough or peak year does not get projected forward as steady state,
     given at least `_MIN_CYCLE_YEARS` years of margin history.
+    mature-decline: the company's own latest margin, flat — no convergence to
+    the sector — falling back to the sector median when there is no own margin.
     Every other archetype keeps the previous behaviour: a flat sector median.
     A manual override (scalar or list) always wins.
     """
@@ -1079,6 +1085,11 @@ def _resolve_operating_margin(
         cycle_avg = fmean(margin_history)
         return Sourced(
             value=(cycle_avg,) * _HORIZON, source=AssumptionSource.HISTORICAL_AVERAGE
+        )
+    if story_type is StoryType.MATURE_DECLINE and company_margin is not None:
+        return Sourced(
+            value=(company_margin,) * _HORIZON,
+            source=AssumptionSource.HISTORICAL_AVERAGE,
         )
     if sector_margin is None:
         return Sourced(value=None, source=AssumptionSource.UNRESOLVED)

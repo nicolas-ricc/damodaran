@@ -10,9 +10,11 @@ Damodaran's life-cycle classification has five archetypes; the bot adds
     cyclical        average through the cycle, not the current year
     distressed      explicit bankruptcy probability, survival-conditional value
 
-The story type drives default assumption resolution: a ``mature-stable`` story
-anchors growth on nominal GDP, a ``high-growth`` story ramps down toward the
-sector, and so on (see :mod:`bot.valuator.assumptions`).
+The story type drives default assumption resolution (see
+:mod:`bot.valuator.assumptions`): every story fades revenue growth from its own
+history to terminal growth; a ``high-growth`` story ramps its margin to the
+sector median, a ``cyclical`` one averages its own cycle, a ``mature-decline``
+one keeps its own latest margin, and ``mature-stable`` has no branch of its own.
 
 :func:`classify` is a *pure* function of a :class:`ClassificationFinancials`
 snapshot and a :class:`SectorContext` — it reads, it does not write, and it
