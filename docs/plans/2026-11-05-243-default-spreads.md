@@ -23,10 +23,10 @@
 
 ## Decisions
 
-1. **Malformed vs. `ValueError`.** Malformed means the shape or a type is wrong: not YAML, top level not a mapping, an unknown or missing top-level key (`horizon_years`, `coverage_to_rating`, `rating_to_default_probability` are the only ones), a duplicate key, `coverage_to_rating` not a list, `rating_to_default_probability` not a mapping, a row not a mapping, a missing field, a non-number (a `bool` is not a number), a bad date, a rating (bracket `rating` or probability key) that is not a non-empty string, a `source` that is not a non-empty string. Everything else raises `ValueError`: probability outside [0, 1], `horizon_years` not a positive `int` (a `bool`, a float such as `10.0`, `0` or `-1` included), `lower >= upper` in a bracket, brackets that overlap or leave a gap once sorted by `lower`, a first `lower` or last `upper` that is not `null`, a `null` bound anywhere else, and a bracket rating with no probability row.
+1. **Malformed vs. `ValueError`.** Malformed means the shape or a type is wrong: not YAML, top level not a mapping, an unknown or missing top-level key (`horizon_years`, `coverage_to_rating`, `rating_to_default_probability` are the only ones), a duplicate key, `coverage_to_rating` not a list, `rating_to_default_probability` not a mapping, a row not a mapping, a missing field, a non-number (a `bool` is not a number), a bad date, a rating (bracket `rating` or probability key) that is not a non-empty string, a `source` that is not a non-empty string. Everything else raises `ValueError`: probability outside [0, 1], `horizon_years` a number that is not a positive integer (`10.0`, `2.5`, `0`, `-1`; a `bool` or a string is a non-number, hence malformed), `lower >= upper` in a bracket, brackets that overlap or leave a gap once sorted by `lower`, a first `lower` or last `upper` that is not `null`, a `null` bound anywhere else, and a bracket rating with no probability row.
 2. **`horizon_years` may be `null`.** The field `DefaultSpreadTable.horizon_years: int | None` exists for the empty table. In the file the key is required and must be a positive integer.
 3. **Missing field vs. `null` bound.** A bracket must have all five keys `lower, upper, rating, source, as_of`. `lower` and `upper` may be `null`; the other three may not. A missing key is malformed.
-4. **Sorting.** Brackets are sorted by `lower` (with `null` first) before the tiling check. The table stores them sorted. A `null` lower anywhere but first, or a `null` upper anywhere but last, is a `ValueError` ("unbounded bracket in the middle").
+4. **Sorting.** Brackets are sorted by `lower` (with `null` first) before the tiling check. The table stores them sorted. A `null` lower anywhere but first, or a `null` upper anywhere but last, is a `ValueError` ("unbounded bracket in the middle"), so two brackets with `lower: null` raise.
 5. **`rating_for`.** It returns `None` when the table is empty or the coverage is NaN. Otherwise it returns the rating of the bracket with `lower <= coverage < upper`. `±inf` falls into the unbounded end brackets.
 6. **Seed values** (read from the sources on 2026-11-05):
    - Coverage → rating, `source: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html`, `as_of: 2026-01-01`, left block (large non-financial firms):
@@ -54,10 +54,22 @@
      plus BB+ 0.1963 (copies BB, the table's nearest class) and D 0.8716 (copies C-; a D rating means default already happened, the worst curated class is the nearest figure, and 1.0 is not a curated number that would zero every company with coverage under 0.2). Both decisions go in comments on their rows.
    - Table 5 is irregular: A- jumps to 5.00% from A's 0.66%, and A+ (0.57%) sits barely above AA (0.51%). That is the source. The loader does not check monotonicity, and the seed copies the source.
 
+## Assumptions
+
+Technical decisions taken in plan review (stage 2), each with the alternative it rejects:
+
+- **`horizon_years` type errors.** A non-number (`true`, `"ten"`) is malformed, matching the issue's malformed clause "a non-number". A number that is not a positive integer (`10.0`, `0`, `-1`) raises `ValueError`, matching "`horizon_years` not a positive integer". Rejected alternative: raising `ValueError` for every non-int, which would contradict the malformed clause.
+- **Probability rows without a bracket** (C+, C-) are allowed. The issue says "Seed every Table 5 row", and three of those rows have no bracket. The consistency check runs one way only. Rejected alternative: a two-way check, which would reject the seed the issue prescribes.
+- **Tiling compares floats exactly** (`upper == next lower`), per the issue: "each `upper` must equal the next `lower`". Rejected alternative: a tolerance, which nobody asked for.
+- **Datetime `as_of`** is narrowed to its date, as `bot.reference.currencies._date` does (`src/bot/reference/currencies.py:87`). Rejected alternative: rejecting datetimes, which would diverge from the model the issue says to copy.
+- **The malformed result is `EMPTY_DEFAULT_SPREADS` itself.** The contract callers rely on is `is_empty`, which is what the issue names. Rejected alternative: a fresh empty instance per call.
+- **Relative default path.** `DEFAULT_SPREADS_PATH` is relative to the cwd, like `DEFAULT_CURRENCIES_PATH` (`currencies.py:25`). The acceptance one-liner runs from the repo root. Rejected alternative: resolving the path against the package location, which would make it diverge from currencies.
+- **Two commits.** Task 1 commits `feat(#213): default-spread table loader`, and Task 2 commits with the message the issue prescribes. The PR is squash-merged into a single commit. Rejected alternative: one commit for both tasks, which would lose the per-task review gate.
+
 ## Review Focus
 
 - A value that YAML reads as a `bool` (`probability: yes`, `lower: true`) must be malformed, not `1.0`. Task 1 test case `bool-probability`.
-- `horizon_years: 10.0` or `true` must be a `ValueError`, not accepted as 10 or 1. Task 1 parametrised case.
+- `horizon_years: 10.0` must be a `ValueError` and `horizon_years: true` malformed, neither accepted as 10 or 1. Task 1 parametrised cases `horizon-float` and `horizon-bool`.
 - Coverage exactly on a bound belongs to the upper bracket (`rating_for(2.5) == "BBB"`, `rating_for(8.5) == "AAA"`). Task 2 lookup tests.
 - `rating_for(float("nan"))` returns `None`, and `rating_for(float("inf"))` / `float("-inf")` return the end ratings. Task 1 test `test_rating_for_nan_and_infinities`.
 - Brackets written out of order in the file still load (they are sorted), and the probabilities mapping is read-only. Task 1 tests `test_brackets_out_of_order_are_sorted` and `test_probabilities_are_read_only`.
@@ -113,9 +125,9 @@
   - `test_probabilities_are_read_only`: assigning `table.probabilities["X"] = ...` raises `TypeError`.
   - `test_absent_file_warns_and_is_empty`: `load_default_spreads(tmp_path / "absent.yaml") is EMPTY_DEFAULT_SPREADS`; `is_empty`; `rating_for(0.5) is None`; `probability_for("C") is None`; exactly one `default_spreads.absent` event.
   - `test_empty_table_constant`: `EMPTY_DEFAULT_SPREADS.horizon_years is None`, `brackets == ()`, `dict(probabilities) == {}`.
-  - `test_malformed_file_warns_and_is_empty` (parametrised, each a mutation of `_VALID`): ids `unparsable`, `not-a-mapping`, `unknown-top-level-key`, `missing-top-level-key`, `duplicate-key`, `brackets-not-a-list`, `probabilities-not-a-mapping`, `bracket-not-a-mapping`, `probability-row-not-a-mapping`, `missing-field` (a bracket without `as_of`), `missing-probability-field`, `non-number-bound` (`lower: abc`), `bool-probability` (`probability: true`), `bad-date`, `empty-rating` (`rating: ""`), `non-string-rating` (`rating: 5`), `empty-source`. Each → result `is_empty` and `default_spreads.malformed` in the events.
+  - `test_malformed_file_warns_and_is_empty` (parametrised, each a mutation of `_VALID`): ids `unparsable`, `not-a-mapping`, `unknown-top-level-key`, `missing-top-level-key`, `duplicate-key`, `brackets-not-a-list`, `probabilities-not-a-mapping`, `bracket-not-a-mapping`, `probability-row-not-a-mapping`, `missing-field` (a bracket without `as_of`), `missing-probability-field`, `non-number-bound` (`lower: abc`), `bool-probability` (`probability: true`), `horizon-bool` (`horizon_years: true`), `bad-date`, `empty-rating` (`rating: ""`), `non-string-rating` (`rating: 5`), `empty-source`. Each → result `is_empty` and `default_spreads.malformed` in the events.
   - `test_unreadable_path_warns_and_is_empty`: a directory as path → empty + `default_spreads.malformed`.
-  - `test_invalid_value_fails_at_load` (parametrised): ids `probability-above-one` (1.2), `probability-negative` (-0.01), `horizon-zero`, `horizon-negative`, `horizon-float` (10.0), `horizon-bool` (true), `lower-not-below-upper` (a bracket 3.0–1.0), `gap` (1.0–3.0 changed to 1.5–3.0), `overlap` (1.0–3.0 changed to 0.5–3.0), `first-lower-bounded` (`lower: 0.0` on the first), `last-upper-bounded` (`upper: 100.0` on the last), `rating-without-probability` (drop the `BB` probability row). Each raises `ValueError` and `str(path) in str(excinfo.value)`.
+  - `test_invalid_value_fails_at_load` (parametrised): ids `probability-above-one` (1.2), `probability-negative` (-0.01), `horizon-zero`, `horizon-negative`, `horizon-float` (10.0), `lower-not-below-upper` (a bracket 3.0–1.0), `gap` (1.0–3.0 changed to 1.5–3.0), `overlap` (1.0–3.0 changed to 0.5–3.0), `first-lower-bounded` (`lower: 0.0` on the first), `last-upper-bounded` (`upper: 100.0` on the last), `two-unbounded-lowers` (the middle bracket's `lower: null`), `rating-without-probability` (drop the `BB` probability row). Each raises `ValueError` and `str(path) in str(excinfo.value)`.
   - `test_probability_bounds_are_closed`: probabilities 0.0 and 1.0 load.
   - `test_datetime_as_of_is_narrowed_to_date`: `as_of: 2026-01-01T00:00:00` gives `type(as_of) is date`.
 
@@ -146,7 +158,7 @@
   - `test_repo_file_shape`: `horizon_years == 10`; `len(brackets) == 15`; `brackets[0].lower is None`; `brackets[-1].upper is None`; `[b.rating for b in brackets] == ["D", "C", "CC", "CCC", "B-", "B", "B+", "BB", "BB+", "BBB", "A-", "A", "A+", "AA", "AAA"]`.
   - `test_every_repo_row_has_https_source_and_as_of`: for every bracket and every probability row, `source.startswith("https://")` and `isinstance(as_of, date)`.
   - `test_every_repo_bracket_rating_has_a_probability`.
-  - `test_repo_lookups`: `rating_for(0.6) == "C"`, `rating_for(0.67) == "CC"`, `rating_for(-3.0) == "D"`, `rating_for(2.5) == "BBB"`, `rating_for(8.5) == "AAA"`, `rating_for(100.0) == "AAA"`; `probability_for("C") == pytest.approx(0.8103)`; `probability_for("BB+") == probability_for("BB")`; `probability_for("D") == probability_for("C-")`; `probability_for("ZZZ") is None`.
+  - `test_repo_lookups`: `rating_for(0.6) == "C"`, `rating_for(0.67) == "CC"`, `rating_for(-3.0) == "D"`, `rating_for(2.5) == "BBB"`, `rating_for(8.5) == "AAA"`, `rating_for(100.0) == "AAA"`; `probability_for("C") == pytest.approx(0.8103)`; `probability_for("BB+") == probability_for("BB")`; `probability_for("D") == probability_for("C-")`; `probability_for("ZZZ") is None`; `probability_for("C+") == pytest.approx(0.7516)` (a probability row with no bracket is allowed).
   - `test_repo_probabilities_match_table_5`: the 15 Table 5 ten-year values from Decision 6, exact (`pytest.approx`).
   - `test_settings_default_spreads_path_default_and_override`: copy of `test_settings_currencies_path_default_and_override` with `BOT_DEFAULT_SPREADS_PATH`.
 
@@ -163,3 +175,10 @@
 - [ ] **Step 5: Full gate and commit.**
   Run: `uv run ruff check . && uv run mypy src && uv run pytest -q`
   Then: `git add config/default_spreads.yaml src/bot/config.py tests/unit/test_default_spreads.py && git commit -m "feat(#213): default-spread tables (coverage → rating → default probability) with a pure loader"`
+
+## Grilling
+
+- Rounds: 1 (the revisions are local: three test cases, one reclassification and an Assumptions section; no step added or removed, no different seam).
+- Questions: 18. Sources: ISSUE 9 (Q1, Q2, Q3, Q6, Q9, Q11, Q15, Q16, Q18), CODE 5 (Q5 `currencies.py:104,148,157`; Q12 `currencies.py:152-157`; Q13 `currencies.py:87`; Q14 `tests/unit/test_currencies.py:118-122`; Q17 the loader tests use tmp files only), NO SOURCE → technical assumption 4 (Q4, Q7, Q8, Q10). Spec ambiguities: none. Out of scope: none.
+- Assumptions: see `## Assumptions`.
+- Issues opened: none.
