@@ -37,6 +37,7 @@ from bot.ingest.universe import (
 from bot.notifier import NotificationError, NotifierConfigError, build_notifier, notify_alerts
 from bot.portfolio.command import run_portfolio
 from bot.reference.currencies import CurrencyTable, load_currency_table
+from bot.reference.default_spreads import DefaultSpreadTable, load_default_spreads
 from bot.reporting.analysis_json import render_analysis_json
 from bot.reporting.analysis_report import analysis_summary, render_analysis
 from bot.reporting.html import render_analysis_html
@@ -451,11 +452,13 @@ def analyze(
         tickers = [str(r[0]) for r in rows]
 
     currencies = load_currency_table(settings.currencies_path)
+    default_spreads = load_default_spreads(settings.default_spreads_path)
     warned: set[str | None] = set()
     exit_code = 0
     for ticker in tickers:
         exit_code = max(
-            exit_code, _analyze_one(conn, settings, ticker, override, currencies, warned)
+            exit_code,
+            _analyze_one(conn, settings, ticker, override, currencies, default_spreads, warned),
         )
     raise typer.Exit(code=exit_code)
 
@@ -466,6 +469,7 @@ def _analyze_one(
     ticker: str,
     override: Path | None,
     currencies: CurrencyTable,
+    default_spreads: DefaultSpreadTable,
     warned: set[str | None],
 ) -> int:
     """Analyze one ticker and write its §7.7 reports. Returns its exit code.
@@ -481,7 +485,12 @@ def _analyze_one(
 
     try:
         analysis = run_analysis(
-            ticker, conn, override_path=override, currencies=currencies, warned=warned
+            ticker,
+            conn,
+            override_path=override,
+            currencies=currencies,
+            default_spreads=default_spreads,
+            warned=warned,
         )
     except LookupError as exc:
         typer.echo(f"{ticker}: {exc}", err=True)
@@ -549,6 +558,7 @@ def screen(
         top=top,
         assumptions_dir=settings.assumptions_dir,
         currencies=load_currency_table(settings.currencies_path),
+        default_spreads=load_default_spreads(settings.default_spreads_path),
     )
     run_id = persist_candidates(conn, result)
 
@@ -620,6 +630,7 @@ def portfolio(
             quality_gates=gates,
             assumptions_dir=settings.assumptions_dir,
             currencies=load_currency_table(settings.currencies_path),
+            default_spreads=load_default_spreads(settings.default_spreads_path),
             corporate_actions_fn=lambda c: import_corporate_actions(c, settings),
         )
     except (ConnectionError, TimeoutError) as exc:

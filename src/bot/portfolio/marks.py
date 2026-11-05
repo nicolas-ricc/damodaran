@@ -26,6 +26,7 @@ import duckdb
 
 from bot.ingest.base import transaction
 from bot.reference.currencies import CurrencyTable, load_currency_table
+from bot.reference.default_spreads import DefaultSpreadTable
 from bot.screener.engine import load_holding_inputs
 from bot.screener.rules import Rule
 from bot.screener.types import IndustryBenchmarks
@@ -151,6 +152,7 @@ def mark_holdings(
     quality_gates: Sequence[Rule] = (),
     assumptions_dir: Path | None = None,
     currencies: CurrencyTable | None = None,
+    default_spreads: DefaultSpreadTable | None = None,
 ) -> list[HoldingMark]:
     """Value and gate every ticker held on ``snapshot_date``, and persist the marks.
 
@@ -160,6 +162,9 @@ def mark_holdings(
     quote sync values the position with.
     ``currencies`` is the per-currency rate table the default valuator uses; ``None``
     loads the default file once for the whole run.
+    ``default_spreads`` is the default-spread table the default valuator uses for a
+    distressed company's bankruptcy chain; ``None`` lets ``analyze`` load it lazily.
+    An injected ``analyze_fn`` owns its own table.
     Persisting opens its own transaction: do not call this inside another one.
     """
     if analyze_fn is None:
@@ -179,6 +184,7 @@ def mark_holdings(
                 conn,
                 conventional_override_path(assumptions_dir, ticker),
                 currencies=table,
+                default_spreads=default_spreads,
                 warned=warned,
                 price_as_of=price_as_of,
             )

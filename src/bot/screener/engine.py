@@ -29,6 +29,7 @@ import duckdb
 import structlog
 
 from bot.reference.currencies import CurrencyTable, load_currency_table, normalize_currency
+from bot.reference.default_spreads import DefaultSpreadTable
 from bot.reference.regions import dataset_region
 from bot.reference.sectors import is_financial_services as industry_is_financial_services
 from bot.screener.benchmarks import load_industry_benchmarks
@@ -111,6 +112,7 @@ def _batch_dcf_margins(
     assumptions_dir: Path | None = None,
     currencies: CurrencyTable | None = None,
     warned: set[str | None] | None = None,
+    default_spreads: DefaultSpreadTable | None = None,
 ) -> dict[str, float | None]:
     """Real DCF margin of safety for every shortlisted ticker (the F7 N+1 fix).
 
@@ -129,6 +131,9 @@ def _batch_dcf_margins(
     ``<assumptions_dir>/<TICKER>.yaml`` is valued with that file as its override
     (spec §7.6), so the screener's second pass agrees with ``bot analyze`` for
     the same ticker.
+
+    ``default_spreads`` is the default-spread table the bankruptcy chain reads for a
+    distressed company; ``None`` lets ``analyze`` load the default file lazily.
     """
     preloaded = bulk_load_valuation_inputs(
         conn, tickers, currencies=currencies, warned=warned
@@ -141,7 +146,13 @@ def _batch_dcf_margins(
             continue
         override_path = conventional_override_path(assumptions_dir, ticker)
         try:
-            analysis = analyze(ticker, conn, override_path=override_path, company=inputs)
+            analysis = analyze(
+                ticker,
+                conn,
+                override_path=override_path,
+                company=inputs,
+                default_spreads=default_spreads,
+            )
         except (LookupError, ValueError, ZeroDivisionError):
             margins[ticker] = None
             continue
@@ -743,6 +754,7 @@ def run_screen(
     valuator: Valuator | None = _dcf_margin_of_safety,
     assumptions_dir: Path | None = None,
     currencies: CurrencyTable | None = None,
+    default_spreads: DefaultSpreadTable | None = None,
 ) -> ScreenResult:
     """Screen the DB universe with ``config`` and return the ranked shortlist.
 
@@ -771,6 +783,9 @@ def run_screen(
             its own overrides, if any).
         currencies: Per-currency rate table for the batched DCF valuator; ``None``
             loads the default file once for this run.
+        default_spreads: Default-spread table for the batched DCF valuator's
+            bankruptcy chain; ``None`` lets ``analyze`` load it lazily. Ignored when
+            ``valuator`` is not the default (an injected valuator owns its own table).
 
     Returns:
         The re-ranked shortlist whose ``margin_of_safety`` reflects the real DCF
@@ -875,7 +890,12 @@ def run_screen(
     shortlist_tickers = tuple(s.ticker for s in first_pass)
     if valuator is _dcf_margin_of_safety:
         raw_margins = _batch_dcf_margins(
-            conn, shortlist_tickers, assumptions_dir, table, warned=set()
+            conn,
+            shortlist_tickers,
+            assumptions_dir,
+            table,
+            warned=set(),
+            default_spreads=default_spreads,
         )
     elif valuator is None:
         raw_margins = {ticker: None for ticker in shortlist_tickers}
