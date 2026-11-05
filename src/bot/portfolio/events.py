@@ -25,9 +25,9 @@ where the state changes. The exception is ``new_red_flag``, which diffs against
 the last *known* red-flag set, possibly older than the previous snapshot (an
 unknown mark in between is skipped). :func:`compute_events` is the
 reader-orchestrator: it gathers snapshot/filing/mark inputs off the connection,
-fans them through the detectors, and returns the events. It never writes — persisting marks (via
-``mark_holdings``) before calling it, and persisting events after, is the
-caller's job.
+fans them through the detectors, and returns the events. It never writes —
+persisting marks (via ``mark_holdings``) before calling it, and persisting
+events after, is the caller's job.
 """
 
 from __future__ import annotations
@@ -401,8 +401,8 @@ def detect_new_red_flags(
     mark is clean. ``baseline_date`` is that mark's snapshot date (``None`` when
     there is none). A flag fires only if it is red now *and* not in
     ``baseline``, so a persistently-red flag is not re-reported, even across days
-    with an unknown mark. Each event carries ``baseline_snapshot_date`` (ISO string or ``None``)
-    in its details. A current mark with unknown flags yields nothing: it is not
+    with an unknown mark. Each event carries ``baseline_snapshot_date`` (ISO
+    string or ``None``) in its details. A current mark with unknown flags yields nothing: it is not
     an all-clear, but there is nothing to report either.
     """
     if curr.red_flags is None:
