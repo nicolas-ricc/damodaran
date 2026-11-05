@@ -164,7 +164,6 @@ def _environment() -> Environment:
     env.filters["axis_label"] = fmt_axis_label
     env.filters["ratio"] = fmt_ratio
     env.filters["num"] = fmt_num
-    env.filters["step"] = fmt_step
     env.filters["shock"] = fmt_shock
     return env
 
