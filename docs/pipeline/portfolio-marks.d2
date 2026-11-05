@@ -39,8 +39,8 @@ out: "Comes out:\none holding_marks row per holding for the snapshot date" {clas
 
 # Edges
 trades_synced -> holding: "it is held today [its summed quantity is not 0]"
-holding -> valuation_done: "the valuator values it [a narrative flag is red]\nintrinsic value per share, latest close, red narrative flags"
-holding -> valuation_done: "the valuator values it [no narrative flag is red]\nintrinsic value per share, latest close, red narrative flags"
+holding -> valuation_done: "the valuator values it [a narrative flag is red]\nintrinsic value per share, newest close on or before the snapshot date, red narrative flags"
+holding -> valuation_done: "the valuator values it [no narrative flag is red]\nintrinsic value per share, newest close on or before the snapshot date, red narrative flags"
 holding -> valuation_done: "the valuator cannot value it, so all three stay unknown\n[a lookup or value error: an unknown ticker or missing data]"
 valuation_done -> gates_done: "the gates are judged and the sector WACC is read [in companies, with a sector benchmark that has a WACC]\nscreener inputs built as the screen builds them (companies, financials_annual, prices_daily, currencies, damodaran_industry, damodaran_country); failed gates = the gates that fail; a skipped rule does not count; sector WACC from the sector benchmark"
 valuation_done -> gates_done: "the gates are judged without a sector WACC [no sector benchmark, or no WACC in it]\nfailed gates = the gates that fail; a skipped rule does not count; sector WACC unknown"

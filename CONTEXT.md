@@ -13,7 +13,7 @@ Current version: US-only (S&P 500).
   _Avoid_: story override, narrative file.
 - **Governance discount**: the `governance_discount` story key. A haircut applied to the intrinsic value before the margin of safety, never inside the DCF.
   _Avoid_: governance haircut in the WACC.
-- **Margin of safety (MoS)**: `intrinsic_value_after_governance / current_price`, which equals `intrinsic_value / current_price` when there is no governance discount. `current_price` is the newest close converted into the valuation currency (a missing exchange rate means no price, hence no margin). > 1 = potentially undervalued.
+- **Margin of safety (MoS)**: `intrinsic_value_after_governance / current_price`, which equals `intrinsic_value / current_price` when there is no governance discount. `current_price` is the newest close converted into the valuation currency (a missing exchange rate means no price, hence no margin). > 1 = potentially undervalued. A holding mark uses the newest close on or before the snapshot date.
 - **Verdict**: the one-word reading of the MoS: `>=1.3` potentially undervalued, `>=1.0` around fair value, `<1.0` potentially overvalued, `n/a` without a price. `margin_verdict` in `bot.reporting.analysis_report` is the single source.
 - **Quality gates**: eliminatory filters in the screener (Capa B) that disqualify a company outright.
 - **Value indicators**: filters checking cheapness relative to sector medians (Damodaran datasets).
