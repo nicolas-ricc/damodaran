@@ -32,6 +32,8 @@ terminal growth. The manual-list override fixture values exactly as before.
 
 Regenerated for #213 (a mature-decline company keeps its own latest margin): only
 the mature_decline fixture moved.
+
+Re-run for #213 (distressed p from coverage): unchanged — the distressed fixture has a manual p.
 """
 
 from __future__ import annotations

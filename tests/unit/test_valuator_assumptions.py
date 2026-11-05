@@ -27,11 +27,18 @@ import pytest
 import yaml
 
 from bot.reference.currencies import CurrencyRates, CurrencyTable
+from bot.reference.default_spreads import (
+    EMPTY_DEFAULT_SPREADS,
+    CoverageBracket,
+    DefaultProbability,
+    DefaultSpreadTable,
+)
 from bot.storage.db import apply_schema, connect
 from bot.valuator import assumptions as assumptions_mod
 from bot.valuator.assumptions import (
     Assumptions,
     AssumptionSource,
+    BankruptcyDerivation,
     Sourced,
     _linear_path,
     _resolve_revenue_growth,
@@ -1233,6 +1240,7 @@ def test_generic_bundle_has_no_story_fields(conn: duckdb.DuckDBPyConnection) -> 
         "extra_cash",
         "governance_discount",
         "story",
+        "bankruptcy_derivation",
     ):
         assert getattr(result, name) is None, name
     dcf_assumptions = result.to_dcf_assumptions()
@@ -1495,3 +1503,211 @@ def test_linear_path_ends_exactly_on_its_target() -> None:
     path = _linear_path(0.18, 0.0395, 10)
     assert len(path) == 10
     assert path[-1] == 0.0395
+
+
+# --------------------------------------------------------------------------- #
+# Distressed: probability of bankruptcy from interest coverage (#246)          #
+# --------------------------------------------------------------------------- #
+
+_SPREADS_SOURCE = "https://example.org/spreads"
+
+
+def _spreads() -> DefaultSpreadTable:
+    """Inline table: horizon 10; coverage < 1.0 is CCC (0.59), the rest BBB (0.075)."""
+    as_of = date(2026, 1, 1)
+    return DefaultSpreadTable(
+        horizon_years=10,
+        brackets=(
+            CoverageBracket(None, 1.0, "CCC", _SPREADS_SOURCE, as_of),
+            CoverageBracket(1.0, None, "BBB", _SPREADS_SOURCE, as_of),
+        ),
+        probabilities={
+            "CCC": DefaultProbability(0.59, _SPREADS_SOURCE, as_of),
+            "BBB": DefaultProbability(0.075, _SPREADS_SOURCE, as_of),
+        },
+    )
+
+
+_UNKNOWN_COVERAGE_REASON = (
+    "distressed, but interest coverage is unknown (no EBIT or no interest expense): p stays 0"
+)
+_EMPTY_TABLE_REASON = (
+    "distressed, but the default-spread table is empty "
+    "(config/default_spreads.yaml absent or malformed): p stays 0"
+)
+
+
+def test_distressed_probability_comes_from_the_coverage_rating(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_full_sector(conn)
+    result = resolve_assumptions(
+        "ACME",
+        conn,
+        auto_story_type=StoryType.DISTRESSED,
+        interest_coverage=0.6,
+        default_spreads=_spreads(),
+        currencies=_usd(),
+    )
+    assert result.probability_of_bankruptcy.value == 0.59
+    assert result.probability_of_bankruptcy.source is AssumptionSource.RULE_BASED
+    assert result.bankruptcy_derivation == BankruptcyDerivation(
+        0.6,
+        "CCC",
+        10,
+        0.59,
+        "interest coverage 0.60 → rating CCC → 10-year cumulative default probability 59.0%",
+    )
+
+
+def test_manual_probability_beats_the_table(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_full_sector(conn)
+    result = resolve_assumptions(
+        "ACME",
+        conn,
+        _write_override(tmp_path, "probability_of_bankruptcy: 0.1\n"),
+        auto_story_type=StoryType.DISTRESSED,
+        interest_coverage=0.6,
+        default_spreads=_spreads(),
+        currencies=_usd(),
+    )
+    assert result.probability_of_bankruptcy.value == pytest.approx(0.1)
+    assert result.probability_of_bankruptcy.source is AssumptionSource.MANUAL
+    assert result.bankruptcy_derivation is None
+
+
+def test_distressed_without_coverage_keeps_zero_and_says_why(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_full_sector(conn)
+    result = resolve_assumptions(
+        "ACME",
+        conn,
+        auto_story_type=StoryType.DISTRESSED,
+        interest_coverage=None,
+        default_spreads=_spreads(),
+        currencies=_usd(),
+    )
+    assert result.probability_of_bankruptcy.value == 0.0
+    assert result.probability_of_bankruptcy.source is AssumptionSource.RULE_BASED
+    derivation = result.bankruptcy_derivation
+    assert derivation is not None
+    assert derivation.reason == _UNKNOWN_COVERAGE_REASON
+    assert derivation.rating is None
+    assert derivation.probability == 0.0
+
+
+def test_distressed_with_an_empty_table_keeps_zero_and_says_why(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_full_sector(conn)
+    result = resolve_assumptions(
+        "ACME",
+        conn,
+        auto_story_type=StoryType.DISTRESSED,
+        interest_coverage=0.6,
+        default_spreads=EMPTY_DEFAULT_SPREADS,
+        currencies=_usd(),
+    )
+    assert result.probability_of_bankruptcy.value == 0.0
+    assert result.probability_of_bankruptcy.source is AssumptionSource.RULE_BASED
+    derivation = result.bankruptcy_derivation
+    assert derivation is not None
+    assert derivation.reason == _EMPTY_TABLE_REASON
+    assert derivation.rating is None
+
+
+def test_non_distressed_story_ignores_coverage(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_full_sector(conn)
+    result = resolve_assumptions(
+        "ACME",
+        conn,
+        auto_story_type=StoryType.MATURE_STABLE,
+        interest_coverage=0.6,
+        default_spreads=_spreads(),
+        currencies=_usd(),
+    )
+    assert result.probability_of_bankruptcy.value == 0.0
+    assert result.probability_of_bankruptcy.source is AssumptionSource.RULE_BASED
+    assert result.bankruptcy_derivation is None
+
+
+def test_negative_coverage_takes_the_lowest_bracket(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_full_sector(conn)
+    result = resolve_assumptions(
+        "ACME",
+        conn,
+        auto_story_type=StoryType.DISTRESSED,
+        interest_coverage=-0.5,
+        default_spreads=_spreads(),
+        currencies=_usd(),
+    )
+    assert result.probability_of_bankruptcy.value == 0.59
+    derivation = result.bankruptcy_derivation
+    assert derivation is not None
+    assert derivation.rating == "CCC"
+    assert derivation.reason.startswith("interest coverage -0.50 → rating CCC")
+
+
+def _count_default_loads(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    calls: list[int] = []
+
+    def _load() -> DefaultSpreadTable:
+        calls.append(1)
+        return _spreads()
+
+    monkeypatch.setattr(assumptions_mod, "load_default_spreads", _load)
+    return calls
+
+
+def test_distressed_loads_the_default_table_when_none_is_given(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_full_sector(conn)
+    calls = _count_default_loads(monkeypatch)
+
+    distressed = resolve_assumptions(
+        "ACME",
+        conn,
+        auto_story_type=StoryType.DISTRESSED,
+        interest_coverage=0.6,
+        currencies=_usd(),
+    )
+    assert len(calls) == 1
+    assert distressed.probability_of_bankruptcy.value == 0.59
+
+    resolve_assumptions(
+        "ACME",
+        conn,
+        auto_story_type=StoryType.MATURE_STABLE,
+        interest_coverage=0.6,
+        currencies=_usd(),
+    )
+    assert len(calls) == 1
+
+    resolve_assumptions(
+        "ACME",
+        conn,
+        _write_override(tmp_path, "probability_of_bankruptcy: 0.1\n"),
+        auto_story_type=StoryType.DISTRESSED,
+        interest_coverage=0.6,
+        currencies=_usd(),
+    )
+    assert len(calls) == 1
+
+
+def test_distressed_without_coverage_does_not_load_the_table(
+    conn: duckdb.DuckDBPyConnection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_full_sector(conn)
+    calls = _count_default_loads(monkeypatch)
+    resolve_assumptions(
+        "ACME",
+        conn,
+        auto_story_type=StoryType.DISTRESSED,
+        interest_coverage=None,
+        currencies=_usd(),
+    )
+    assert calls == []

@@ -24,6 +24,7 @@ from typing import Any
 import duckdb
 
 from bot.reference.currencies import CurrencyTable, normalize_currency
+from bot.reference.default_spreads import DefaultSpreadTable
 from bot.reference.regions import dataset_region
 from bot.reference.sectors import is_cyclical
 from bot.utils.finance import cagr
@@ -821,6 +822,7 @@ def analyze(
     currencies: CurrencyTable | None = None,
     warned: set[str | None] | None = None,
     price_as_of: _date | None = None,
+    default_spreads: DefaultSpreadTable | None = None,
 ) -> Analysis:
     """Run the full §7.7 analysis pipeline for ``ticker``.
 
@@ -851,6 +853,10 @@ def analyze(
             (``None`` = the newest close). Ignored when ``company`` is supplied,
             like ``currencies`` and ``warned``: the pre-loaded inputs already
             carry their close.
+        default_spreads: Interest-coverage to rating to default-probability table
+            that derives a distressed company's probability of bankruptcy (``None``
+            loads the default file lazily, only when a distressed company needs it).
+            Unlike ``currencies``, still used when ``company`` is supplied.
 
     A ``hypergrowth`` story file (resolved in :func:`resolve_assumptions`) also
     sets the DCF's ``fixed_commitments`` and ``extra_cash`` from the bundle; both
@@ -932,6 +938,8 @@ def analyze(
         override=override,
         auto_story_type=auto_story,
         db_inputs=inputs.assumption_inputs,
+        interest_coverage=interest_coverage,
+        default_spreads=default_spreads,
     )
     story_type = assumptions.story_type or auto_story.value
     manual = override.get("story_type")
