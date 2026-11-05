@@ -566,7 +566,7 @@ _PORTFOLIO_TEXT: dict[str, list[str]] = {
         "100 bps",
         "market value \u00f7 total market value > 15%",
         "fires on every run while above",
-        "counts as none red",
+        "no known mark: every red flag is new",
         "only growth_reinvestment can fire new_red_flag",
         "hypergrowth_story",
     ],

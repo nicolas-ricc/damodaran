@@ -2101,7 +2101,7 @@ _PORTFOLIO_TEXT: dict[str, list[str]] = {
         "config/currencies.yaml", "once per run",
     ],
     "marks.gates": ["skipped rule does not count", "sector WACC"],
-    "marks.persist.unknowns": ["never fires", "counts as empty"],
+    "marks.persist.unknowns": ["never fires", "last known mark"],
     "events.window": ["per ticker across accounts", "never a recomputation"],
     "events.position_opened": ["≠ 0", "first run", "other sign"],
     "events.position_closed": ["absent or 0 now", "returns no positions", "other sign"],
@@ -2113,7 +2113,7 @@ _PORTFOLIO_TEXT: dict[str, list[str]] = {
     "events.split": ["split"],
     "events.new_filing": ["absent from events_log", "ingested"],
     "events.intrinsic_value_crossed_price": ["equality is not a cross"],
-    "events.new_red_flag": ["not red in the previous mark"],
+    "events.new_red_flag": ["not red in the last known mark", "no known mark: every red flag is new"],
     "events.new_red_flag.only_red": [
         "only growth_reinvestment can fire it", "hypergrowth_story", "see analyze flags",
     ],

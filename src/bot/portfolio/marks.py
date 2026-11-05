@@ -7,15 +7,16 @@ is always read back from ``holding_marks`` rather than recomputed.
 
 ``None`` fields mean "unknown": ``red_flags=None`` is a ticker that could not
 be valued, ``failed_gates=None`` one the gates could not be evaluated for. An
-unknown *current* value never fires an event. An unknown *prior* red-flag set
-counts as empty, by design, so standing red flags re-fire after a day without a
-valuation; an unknown prior gate set or WACC yields no event.
+unknown *current* value never fires an event. An unknown prior red-flag set is
+skipped, so ``new_red_flag`` compares with the last known mark
+(``load_red_flag_baselines``); an unknown prior gate set or WACC still yields
+no event.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -46,6 +47,12 @@ class HoldingMark:
     red_flags: dict[str, str] | None = None  # flag name -> reason; None = not valued
     failed_gates: tuple[str, ...] | None = None  # None = gates not evaluable
     sector_wacc: float | None = None
+
+
+@dataclass(frozen=True)
+class RedFlagBaseline:
+    snapshot_date: date
+    red_flags: dict[str, str]  # flag name -> reason; {} = known to be clean
 
 
 class AnalyzeFn(Protocol):
@@ -79,6 +86,10 @@ def persist_marks(
     return len(rows)
 
 
+def _parse_red_flags(raw: str) -> dict[str, str]:
+    return dict(json.loads(raw))
+
+
 def load_marks(conn: duckdb.DuckDBPyConnection, snapshot_date: date) -> dict[str, HoldingMark]:
     rows = conn.execute(
         "SELECT ticker, intrinsic_value, price, red_flags, failed_gates, sector_wacc "
@@ -90,12 +101,31 @@ def load_marks(conn: duckdb.DuckDBPyConnection, snapshot_date: date) -> dict[str
             ticker=r[0],
             intrinsic_value=r[1],
             price=r[2],
-            red_flags=None if r[3] is None else dict(json.loads(r[3])),
+            red_flags=None if r[3] is None else _parse_red_flags(r[3]),
             failed_gates=None if r[4] is None else tuple(r[4]),
             sector_wacc=r[5],
         )
         for r in rows
     }
+
+
+def load_red_flag_baselines(
+    conn: duckdb.DuckDBPyConnection, before: date, tickers: Collection[str]
+) -> dict[str, RedFlagBaseline]:
+    """Newest known red-flag set per ticker strictly before ``before``.
+
+    Marks with unknown flags (NULL) are skipped; a known empty set is a baseline.
+    """
+    if not tickers:
+        return {}
+    placeholders = ", ".join("?" for _ in tickers)
+    rows = conn.execute(
+        "SELECT ticker, snapshot_date, red_flags FROM holding_marks "
+        f"WHERE snapshot_date < ? AND red_flags IS NOT NULL AND ticker IN ({placeholders}) "
+        "QUALIFY ROW_NUMBER() OVER (PARTITION BY ticker ORDER BY snapshot_date DESC) = 1",
+        [before, *tickers],
+    ).fetchall()
+    return {r[0]: RedFlagBaseline(r[1], _parse_red_flags(r[2])) for r in rows}
 
 
 def _held_tickers(conn: duckdb.DuckDBPyConnection, snapshot_date: date) -> list[str]:

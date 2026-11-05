@@ -436,28 +436,39 @@ def test_iv_cross_needs_intrinsic_values() -> None:
 
 
 def test_newly_red_flag_fires_persistent_red_does_not() -> None:
-    prev = _mark(red={"story_margin": "high"})
     curr = _mark(red={"story_margin": "high", "beta_risk": "levered"})
-    events = detect_new_red_flags(prev, curr, snapshot_date=CURR, prev_date=PREV)
+    events = detect_new_red_flags(
+        {"story_margin"}, curr, baseline_date=PREV, snapshot_date=CURR, prev_date=PREV
+    )
     assert [e.details["flag"] for e in events] == ["beta_risk"]
     assert events[0].details["reason"] == "levered"
 
 
-def test_all_red_new_when_no_prior_mark() -> None:
+def test_all_red_new_without_a_baseline() -> None:
     curr = _mark(red={"story_margin": "high"})
-    events = detect_new_red_flags(None, curr, snapshot_date=CURR, prev_date=None)
+    events = detect_new_red_flags(
+        set(), curr, baseline_date=None, snapshot_date=CURR, prev_date=None
+    )
     assert [e.details["flag"] for e in events] == ["story_margin"]
+    assert events[0].details["baseline_snapshot_date"] is None
 
 
-def test_all_red_new_when_prior_mark_unvalued() -> None:
+def test_red_flag_event_names_its_baseline_date() -> None:
     curr = _mark(red={"story_margin": "high"})
-    events = detect_new_red_flags(_mark(red=None), curr, snapshot_date=CURR, prev_date=PREV)
-    assert [e.details["flag"] for e in events] == ["story_margin"]
+    events = detect_new_red_flags(
+        set(), curr, baseline_date=date(2026, 4, 28), snapshot_date=CURR, prev_date=PREV
+    )
+    assert events[0].details["baseline_snapshot_date"] == "2026-04-28"
+    assert events[0].prev_snapshot_date == PREV
 
 
 def test_no_red_flag_event_when_current_unvalued() -> None:
-    prev = _mark(red={})
-    assert detect_new_red_flags(prev, _mark(red=None), snapshot_date=CURR, prev_date=PREV) == []
+    assert (
+        detect_new_red_flags(
+            set(), _mark(red=None), baseline_date=PREV, snapshot_date=CURR, prev_date=PREV
+        )
+        == []
+    )
 
 
 # --------------------------------------------------------------------------- #

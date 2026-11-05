@@ -14,7 +14,9 @@ import pytest
 from bot.portfolio.marks import (
     AnalyzeFn,
     HoldingMark,
+    RedFlagBaseline,
     load_marks,
+    load_red_flag_baselines,
     mark_holdings,
     persist_marks,
 )
@@ -282,3 +284,58 @@ def test_mark_holdings_stores_the_converted_price(
     assert marks[0].intrinsic_value is not None
     assert marks[0].price == pytest.approx(100.0)
     assert load_marks(conn, DAY)["AAPL"].price == pytest.approx(100.0)
+
+
+# --------------------------------------------------------------------------- #
+# Last known red-flag set (#224)                                               #
+# --------------------------------------------------------------------------- #
+
+D1, D2, D3, D4 = (date(2026, 5, d) for d in (1, 2, 3, 4))
+_RED = {"growth_reinvestment": "r"}
+
+
+def test_baseline_skips_unknown_marks(conn: duckdb.DuckDBPyConnection) -> None:
+    persist_marks(conn, D1, [HoldingMark("T", red_flags=_RED)])
+    persist_marks(conn, D2, [HoldingMark("T", red_flags=None)])
+    assert load_red_flag_baselines(conn, D3, ["T"]) == {"T": RedFlagBaseline(D1, _RED)}
+
+
+def test_known_empty_set_is_a_baseline(conn: duckdb.DuckDBPyConnection) -> None:
+    persist_marks(conn, D1, [HoldingMark("T", red_flags={})])
+    assert load_red_flag_baselines(conn, D2, ["T"]) == {"T": RedFlagBaseline(D1, {})}
+
+
+def test_no_known_mark_no_baseline(conn: duckdb.DuckDBPyConnection) -> None:
+    assert load_red_flag_baselines(conn, D3, ["T"]) == {}
+    persist_marks(conn, D1, [HoldingMark("T", red_flags=None)])
+    persist_marks(conn, D2, [HoldingMark("T", red_flags=None)])
+    assert load_red_flag_baselines(conn, D3, ["T"]) == {}
+
+
+def test_baseline_ignores_current_and_later_marks(conn: duckdb.DuckDBPyConnection) -> None:
+    persist_marks(conn, D1, [HoldingMark("T", red_flags=_RED)])
+    persist_marks(conn, D3, [HoldingMark("T", red_flags={})])
+    persist_marks(conn, D4, [HoldingMark("T", red_flags={})])
+    assert load_red_flag_baselines(conn, D3, ["T"]) == {"T": RedFlagBaseline(D1, _RED)}
+
+
+def test_baselines_are_per_ticker(conn: duckdb.DuckDBPyConnection) -> None:
+    persist_marks(
+        conn,
+        D1,
+        [HoldingMark("A", red_flags={}), HoldingMark("B", red_flags=_RED), HoldingMark("C", red_flags={})],
+    )
+    persist_marks(
+        conn,
+        D2,
+        [HoldingMark("A", red_flags=_RED), HoldingMark("B", red_flags=None), HoldingMark("C", red_flags={})],
+    )
+    assert load_red_flag_baselines(conn, D3, ["A", "B"]) == {
+        "A": RedFlagBaseline(D2, _RED),
+        "B": RedFlagBaseline(D1, _RED),
+    }
+
+
+def test_baselines_empty_tickers(conn: duckdb.DuckDBPyConnection) -> None:
+    persist_marks(conn, D1, [HoldingMark("T", red_flags=_RED)])
+    assert load_red_flag_baselines(conn, D2, []) == {}

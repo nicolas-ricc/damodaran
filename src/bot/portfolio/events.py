@@ -21,23 +21,25 @@ red flag) is isolated and unit-testable at its boundaries. The valuation-derived
 detectors diff two :class:`~bot.portfolio.marks.HoldingMark` values, one per
 snapshot, read back from ``holding_marks``: the baseline is what was persisted
 on the previous run, never a recomputation, so an event fires once on the diff
-where the state changes. :func:`compute_events` is the reader-orchestrator: it
-gathers snapshot/filing/mark inputs off the connection, fans them through the
-detectors, and returns the events. It never writes — persisting marks (via
-``mark_holdings``) before calling it, and persisting events after, is the
-caller's job.
+where the state changes. The exception is ``new_red_flag``, which diffs against
+the last *known* red-flag set, possibly older than the previous snapshot (an
+unknown mark in between is skipped). :func:`compute_events` is the
+reader-orchestrator: it gathers snapshot/filing/mark inputs off the connection,
+fans them through the detectors, and returns the events. It never writes —
+persisting marks (via ``mark_holdings``) before calling it, and persisting
+events after, is the caller's job.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from bot.portfolio.marks import HoldingMark, load_marks
+from bot.portfolio.marks import HoldingMark, load_marks, load_red_flag_baselines
 
 if TYPE_CHECKING:
     import duckdb
@@ -385,33 +387,42 @@ def detect_intrinsic_value_cross(
 
 
 def detect_new_red_flags(
-    prev: HoldingMark | None,
+    baseline: Collection[str],
     curr: HoldingMark,
     *,
+    baseline_date: date | None,
     snapshot_date: date,
     prev_date: date | None,
 ) -> list[Event]:
     """Narrative flags that newly turned red on a held position (spec §8.3).
 
-    A flag fires only if it is red now *and* was not red in the prior mark (so a
-    persistently-red flag is not re-reported every run). With no prior mark, or
-    one whose flags are unknown (``None``), every currently-red flag is new. A
-    current mark with unknown flags yields nothing: it is not an all-clear, but
-    there is nothing to report either.
+    ``baseline`` is the red-flag names of the holding's newest *known* mark
+    before this snapshot: empty both when there is no known mark and when that
+    mark is clean. ``baseline_date`` is that mark's snapshot date (``None`` when
+    there is none). A flag fires only if it is red now *and* not in
+    ``baseline``, so a persistently-red flag is not re-reported, even across days
+    with an unknown mark. Each event carries ``baseline_snapshot_date`` (ISO
+    string or ``None``) in its details. A current mark with unknown flags yields nothing: it is not
+    an all-clear, but there is nothing to report either.
     """
     if curr.red_flags is None:
         return []
-    prev_red = set(prev.red_flags) if prev is not None and prev.red_flags else set()
     return [
         Event(
             event_type=EventType.NEW_RED_FLAG,
             ticker=curr.ticker.upper(),
             curr_snapshot_date=snapshot_date,
             prev_snapshot_date=prev_date,
-            details={"flag": name, "reason": reason},
+            details={
+                "flag": name,
+                "reason": reason,
+                "baseline_snapshot_date": (
+                    baseline_date.isoformat() if baseline_date is not None else None
+                ),
+            },
         )
         for name, reason in curr.red_flags.items()
-        if name not in prev_red
+        if name not in baseline
     ]
 
 
@@ -647,7 +658,8 @@ def compute_events(
     current snapshot's marks (``mark_holdings``) first; a held ticker with no
     current mark still produces its broker events. ``prev_snapshot_date`` of
     ``None`` treats ``curr`` as the first snapshot: every current position is
-    "opened" and there is no baseline mark, so only red flags (all new) fire.
+    "opened". Red flags compare with the holding's last known mark
+    (``load_red_flag_baselines``), all new when there is none.
 
     This function is a pure reader: it never writes to ``events_log`` — the
     caller persists the returned events (and may run auto-analyze on
@@ -718,6 +730,7 @@ def compute_events(
     # --- Valuation-derived (diff of persisted holding marks) ---------------
     prev_marks = load_marks(conn, prev_snapshot_date) if prev_snapshot_date else {}
     curr_marks = load_marks(conn, curr_snapshot_date)
+    red_flag_baselines = load_red_flag_baselines(conn, curr_snapshot_date, held_tickers)
     for ticker in sorted(held_tickers):
         curr_mark = curr_marks.get(ticker)
         if curr_mark is None:
@@ -731,10 +744,14 @@ def compute_events(
         )
         if cross is not None:
             events.append(cross)
+        red_baseline = red_flag_baselines.get(ticker)
         events.extend(
             detect_new_red_flags(
-                prev_mark,
+                red_baseline.red_flags.keys() if red_baseline is not None else (),
                 curr_mark,
+                baseline_date=(
+                    red_baseline.snapshot_date if red_baseline is not None else None
+                ),
                 snapshot_date=curr_snapshot_date,
                 prev_date=prev_snapshot_date,
             )

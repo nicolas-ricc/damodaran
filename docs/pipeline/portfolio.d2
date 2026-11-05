@@ -79,7 +79,7 @@ marks: "4a. mark every holding" {  # @symbol bot.portfolio.marks.mark_holdings
   }
   persist: "holding_marks: one row per holding;\nthe snapshot date's rows deleted, then inserted\nunknown values stored empty" {  # @symbol bot.portfolio.marks.persist_marks
     class: step
-    unknowns: |md An unknown current value never fires an event. An unknown previous red-flag set counts as empty, so standing red flags re-fire after a day without a valuation. Unknown previous gates or sector WACC fire nothing. | {class: note}
+    unknowns: |md An unknown current value never fires an event. An unknown red-flag set is skipped as a baseline and never fires new_red_flag; new_red_flag compares with the last known mark, an earlier mark whose flags are known. Unknown previous gates or sector WACC fire nothing. | {class: note}
   }
 }
 
@@ -117,7 +117,7 @@ events: "4b. diff two snapshots into events" {  # @symbol bot.portfolio.events.c
     class: decision
     link: "./portfolio-mark-events.svg"
   }
-  new_red_flag: "new_red_flag: one per narrative flag red now\nand not red in the previous mark\nno previous mark or unknown previous flags: counts as none red\nunknown flags now: nothing" {  # @symbol bot.portfolio.events.detect_new_red_flags
+  new_red_flag: "new_red_flag: one per narrative flag red now\nand not red in the last known mark\nunknown previous flags: the known mark before it is used\nno known mark: every red flag is new\nunknown flags now: nothing" {  # @symbol bot.portfolio.events.detect_new_red_flags @symbol bot.portfolio.marks.load_red_flag_baselines
     class: decision
     link: "./portfolio-mark-events.svg"
     label.near: outside-top-center
@@ -206,7 +206,7 @@ duckdb.corporate_actions -> events.split: "actions in the window"
 duckdb.filings_log -> events.new_filing: "filings of holdings"
 duckdb.events_log -> events.new_filing: "filings already reported"
 duckdb.holding_marks -> events.intrinsic_value_crossed_price: "previous and current marks"
-duckdb.holding_marks -> events.new_red_flag: "previous and current marks"
+duckdb.holding_marks -> events.new_red_flag: "current and last known marks"
 duckdb.holding_marks -> events.below_quality_gate: "previous and current marks"
 duckdb.holding_marks -> events.sector_recalibrated: "previous and current marks"
 events.position_opened -> events.persist: "fires"
