@@ -588,6 +588,84 @@ def test_mature_stable_keeps_sector_margin_and_historical_growth(
     assert a.revenue_growth.source == AssumptionSource.HISTORICAL_AVERAGE
 
 
+def _seed_declining(conn: duckdb.DuckDBPyConnection) -> None:
+    """Sector margin 12%; the company's own margin erodes to 3.6 / 90 = 4%."""
+    _seed_company(conn)
+    _seed_industry(conn, op_margin=0.12)
+    _seed_country(conn)
+    _seed_financials(
+        conn,
+        rows=((2022, 100.0, 5.0), (2023, 95.0, 4.5), (2024, 90.0, 3.6)),
+    )
+
+
+def test_mature_decline_keeps_its_own_margin_flat(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_declining(conn)
+    a = resolve_assumptions(
+        "ACME", conn, auto_story_type=StoryType.MATURE_DECLINE, currencies=_usd()
+    )
+    assert a.operating_margin.value == (pytest.approx(0.04),) * 10
+    assert a.operating_margin.source == AssumptionSource.HISTORICAL_AVERAGE
+    assert a.revenue_growth.source == AssumptionSource.HISTORICAL_AVERAGE
+
+
+def test_mature_decline_without_own_margin_falls_back_to_sector(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_company(conn)
+    _seed_industry(conn, op_margin=0.12)
+    _seed_country(conn)
+    a = resolve_assumptions(
+        "ACME", conn, auto_story_type=StoryType.MATURE_DECLINE, currencies=_usd()
+    )
+    assert a.operating_margin.value == (0.12,) * 10
+    assert a.operating_margin.source == AssumptionSource.SECTOR_DEFAULT_DAMODARAN
+
+
+def test_manual_margin_beats_mature_decline(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_declining(conn)
+    override = _write_override(
+        tmp_path, "operating_margin: 0.25\nstory_type: mature-decline\n"
+    )
+    a = resolve_assumptions(
+        "ACME",
+        conn,
+        override_path=override,
+        auto_story_type=StoryType.MATURE_DECLINE,
+        currencies=_usd(),
+    )
+    assert a.operating_margin.value == (0.25,) * 10
+    assert a.operating_margin.source == AssumptionSource.MANUAL
+
+
+def test_mature_decline_keeps_a_negative_own_margin(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_company(conn)
+    _seed_industry(conn, op_margin=0.12)
+    _seed_country(conn)
+    _seed_financials(conn, rows=((2023, 100.0, 2.0), (2024, 90.0, -4.5)))
+    a = resolve_assumptions(
+        "ACME", conn, auto_story_type=StoryType.MATURE_DECLINE, currencies=_usd()
+    )
+    assert a.operating_margin.value == (pytest.approx(-0.05),) * 10
+    assert a.operating_margin.source == AssumptionSource.HISTORICAL_AVERAGE
+
+
+def test_manual_story_type_mature_decline_uses_own_margin(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _seed_declining(conn)
+    override = _write_override(tmp_path, "story_type: mature-decline\n")
+    a = resolve_assumptions("ACME", conn, override_path=override, currencies=_usd())
+    assert a.operating_margin.value == (pytest.approx(0.04),) * 10
+    assert a.operating_margin.source == AssumptionSource.HISTORICAL_AVERAGE
+
+
 def test_manual_override_beats_the_story_pattern(
     conn: duckdb.DuckDBPyConnection, tmp_path: Path
 ) -> None:
