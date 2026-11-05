@@ -1,0 +1,64 @@
+# Verify `config/default_spreads.yaml` against its sources — Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Check every row of `config/default_spreads.yaml` against its cited source, using a model different from the one that seeded the file. Then record the result on #213 and #245, fix any mismatch, and stamp the YAML header with a `verified:` line.
+
+**Architecture:** No production code changes. The verification is a subagent run that fetches both sources itself and returns a row-by-row table. The executable part is a set of tests in `tests/unit/test_default_spreads.py`. They pin the per-table `source`/`as_of`, the 15 bracket bounds, and the header's `verified:` line. A YAML row changes only if the verifier finds a mismatch, and it changes to the source's value.
+
+**Tech Stack:** Python 3.12, PyYAML, pytest; WebFetch for the HTML page; `uv run --with pypdf python -I` for the PDF.
+
+**Spec:** issue #245 (parent story #213; the file and loader come from #243, plan `docs/plans/2026-11-05-243-default-spreads.md`).
+
+## Global Constraints
+
+- Sources: ratings page `https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html` (left block, data as of January 2026, `as_of: 2026-01-01`); paper `https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/NewDistress.pdf` (Table 5, pp. 41-42, 10-year column, `as_of: 2009-06-01`).
+- These mapping decisions are documented and do not count as mismatches: S&P half of the label; clean bounds, lower inclusive and upper exclusive (`≤ 0.199999` is `< 0.2`); the 10-year column; `BB+` = `BB` row; `D` = `C-` row.
+- Verifier model: different from the seeder (Sonnet, #243 stage 4) and from this session (Opus), so **Fable**, with Haiku as the fallback.
+- The PDF is downloaded into a new empty directory outside the repo. The extraction script lives in a different directory and runs as `uv run --with pypdf python -I <script> <pdf>`.
+- Header line, exact format: `# verified: <YYYY-MM-DD>, every row checked against its source on <model> (#213)`.
+- A pinned test value changes only when the source says so, and the commit message names the source line.
+- Feature commit message: `docs(#213): default-spread tables verified against their sources`.
+- `uv run ruff check . && uv run mypy src` clean; `uv run pytest -q` green.
+
+## Review Focus
+
+1. A copied row (`BB+`, `D`) that drifts from the row it copies after a fix. This is already pinned by `test_repo_lookups` (`probability_for("BB+") == probability_for("BB")`). The pin must survive any fix.
+2. A bracket bound typo (e.g. `4.2` instead of `4.25`) that the existing tests would miss, because they only pin ratings and a few lookups. Task 1 pins all 15 `(lower, upper, rating)` triples.
+3. A row whose `source` or `as_of` is the other table's value. The existing tests only check `https://` and that the value is a date. Task 1 pins each table's exact URL and date.
+4. A header `verified:` line in the wrong format, or one naming the session model instead of the verifier model. Task 1 tests the format, and Task 2 writes the verifier's model.
+5. A probability given as a percentage (`81.03`) instead of a decimal. This is caught by the loader's [0, 1] check and by `TABLE_5_TEN_YEAR`.
+
+---
+
+### Task 1: Evals — pin sources, dates, bounds and the header line
+
+**Files:**
+- Test: `tests/unit/test_default_spreads.py`
+
+**Interfaces:**
+- Consumes: `load_default_spreads(REPO_FILE)`, `CoverageBracket(lower, upper, rating, source, as_of)`, `DefaultProbability(probability, source, as_of)`, `REPO_FILE`.
+- Produces: the constants `RATINGS_URL`, `PAPER_URL`, `RATINGS_BRACKETS` (list of `(lower, upper, rating)`), used by Task 2's fixes if any.
+
+- [ ] **Step 1: Write the failing tests**
+  - `test_repo_brackets_match_ratings_page`: `[(b.lower, b.upper, b.rating) for b in table.brackets] == RATINGS_BRACKETS` (the 15 triples from the #243 plan's Decision 6 table), and every bracket has `source == RATINGS_URL` and `as_of == date(2026, 1, 1)`.
+  - `test_repo_probabilities_cite_table_5`: every probability row has `source == PAPER_URL` and `as_of == date(2009, 6, 1)`.
+  - `test_repo_header_carries_verified_line`: the comment lines before the first non-comment line contain exactly one line matching `^# verified: (\d{4}-\d{2}-\d{2}), every row checked against its source on (\S.*) \(#213\)$`, and the date parses with `date.fromisoformat`.
+- [ ] **Step 2: Run** `uv run pytest tests/unit/test_default_spreads.py -q`. Expected: only `test_repo_header_carries_verified_line` fails, because there is no line yet. The other two pass against the current seed.
+- [ ] **Step 3: Commit** `test(#245): evals`.
+
+### Task 2: Independent verification, fixes, header stamp
+
+**Files:**
+- Modify: `config/default_spreads.yaml` (header line; any mismatching row)
+- Modify, only if a source value differs: `tests/unit/test_default_spreads.py` (`TABLE_5_TEN_YEAR`, `RATINGS_BRACKETS`, `test_repo_lookups` pins)
+
+**Interfaces:**
+- Consumes: Task 1's tests.
+
+- [ ] **Step 1: Run the verifier subagent** (model Fable). It must read both sources itself and return, for each of the 15 brackets and each of the 17 probability rows: table, row key, file value, source value, match yes/no. It must also report whether each row's `source` URL is the page the number comes from, whether each `as_of` equals the source date, and whether `BB+ == BB` and `D == C-`.
+- [ ] **Step 2: Post the result** on #213 and #245 with both model names (session Opus; verifier Fable), the full table and a one-line verdict.
+- [ ] **Step 3: Fix any mismatch** in the YAML, and in a pinned test value if one is affected. Name the source line in the commit message.
+- [ ] **Step 4: Add the header line** `# verified: 2026-11-05, every row checked against its source on <verifier model> (#213)` after the "To reproduce" block.
+- [ ] **Step 5: Run** `uv run pytest tests/unit/test_default_spreads.py -q`. Expected: all pass. Then run the full gate.
+- [ ] **Step 6: Commit** `docs(#213): default-spread tables verified against their sources`.
