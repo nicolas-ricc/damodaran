@@ -722,7 +722,8 @@ def test_portfolio_rules_are_all_present() -> None:
 def test_portfolio_red_flag_baseline_is_the_last_known_mark() -> None:
     """#224: an older known mark can hold the flag, so no previous mark may stay silent."""
     bodies = {name: body for name, _, body in _definitions("portfolio")}
-    assert 'prevMark = "present"' not in bodies["NoNewRedFlag"]
+    guard = [ln for ln in bodies["NoNewRedFlag"].splitlines() if "UNCHANGED" not in ln]
+    assert not any("prevMark" in ln for ln in guard)
     assert "new_red_flag" not in bodies["NoPreviousMarkOnlyRedFlags"]
 
 

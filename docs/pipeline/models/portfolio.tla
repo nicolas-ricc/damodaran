@@ -653,7 +653,7 @@ FirstRunOpensEveryPosition ==
       /\ (phase = "positions_diffed" => event = "position_opened"))
 
 (* Cites: compute_events: without a previous mark detect_intrinsic_value_cross, detect_below_quality_gate and detect_sector_recalibration return nothing; detect_new_red_flags compares with the last known mark from load_red_flag_baselines, not the previous snapshot's mark. *)
-\* With no previous mark, intrinsic value cross, below quality gate and sector recalibration never fire; detect_new_red_flags compares with the last known mark from load_red_flag_baselines, so it is not tied to the previous mark.
+\* With no previous mark, intrinsic value cross, below quality gate and sector recalibration never fire.
 NoPreviousMarkOnlyRedFlags ==
   prevMark = "absent" => event \notin {"intrinsic_value_crossed_price", "below_quality_gate", "sector_recalibrated"}
 
