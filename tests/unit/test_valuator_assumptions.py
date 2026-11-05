@@ -666,6 +666,19 @@ def test_manual_story_type_mature_decline_uses_own_margin(
     assert a.operating_margin.source == AssumptionSource.HISTORICAL_AVERAGE
 
 
+def test_mature_decline_own_margin_needs_no_sector_row(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_company(conn, industry_damodaran="Obscure")
+    _seed_country(conn)
+    _seed_financials(conn, rows=((2023, 100.0, 5.0), (2024, 90.0, 3.6)))
+    a = resolve_assumptions(
+        "ACME", conn, auto_story_type=StoryType.MATURE_DECLINE, currencies=_usd()
+    )
+    assert a.operating_margin.value == (pytest.approx(0.04),) * 10
+    assert a.operating_margin.source == AssumptionSource.HISTORICAL_AVERAGE
+
+
 def test_manual_override_beats_the_story_pattern(
     conn: duckdb.DuckDBPyConnection, tmp_path: Path
 ) -> None:

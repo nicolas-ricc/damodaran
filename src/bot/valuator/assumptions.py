@@ -324,7 +324,8 @@ class AssumptionInputs:
             :attr:`AssumptionSource.SECTOR_DEFAULT_DAMODARAN_CROSS_REGION`.
         company_operating_margin: The company's own most-recent EBIT / revenue
             ratio, used as the starting point of the high-growth margin ramp
-            and as a mature-decline story's flat margin (spec §7.1). ``None`` when there is no usable financials history.
+            and as a mature-decline story's flat margin (spec §7.1). ``None``
+            when there is no usable financials history.
         operating_margin_history: The company's own EBIT / revenue ratio for
             every year of financials history, used to average a cyclical
             story's own cycle (spec §7.1). Empty when there is no history.
@@ -529,8 +530,9 @@ def _operating_margin_history(
 ) -> tuple[float, ...]:
     """The company's own EBIT / revenue ratio for every year of history.
 
-    Feeds the high-growth margin ramp's starting point (most recent year) and
-    the cyclical margin's cycle average (spec §7.1).
+    Feeds the high-growth margin ramp's starting point and the mature-decline
+    flat margin (both the most recent year), and the cyclical margin's cycle
+    average (spec §7.1).
     """
     rows = conn.execute(
         "SELECT ebit, revenue FROM financials_annual "
