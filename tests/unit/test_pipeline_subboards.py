@@ -453,7 +453,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "before the bridge",
     ],
     "analyze-sensitivity": [
-        "swing = |intrinsic value at \u00d7 1.2 \u2212 intrinsic value at \u00d7 0.8|",
+        "swing = |intrinsic value at the high end \u2212 intrinsic value at the low end|",
         "two widest",
         "cell = intrinsic value \u00f7 price",
         "pretax_cost_of_debt is skipped",

@@ -239,6 +239,7 @@ table { border-collapse: collapse; width: 100%; }
 .tornado thead th.num { text-align: right; }
 .tornado thead .track-head { font-family: var(--font-mono); font-weight: 400; color: var(--color-ink); text-align: center; }
 .tornado tbody th { font-weight: 400; color: var(--color-ink-2); text-align: left; padding-left: 0; }
+.tornado .shock { font-family: var(--font-mono); color: var(--color-muted); margin-left: var(--space-xs); }
 .tornado td.num { text-align: right; color: var(--color-muted); width: 1%; }
 .tornado td.high { text-align: left; padding-right: 0; }
 .tornado td.track { width: 100%; padding-inline: var(--space-xs); }

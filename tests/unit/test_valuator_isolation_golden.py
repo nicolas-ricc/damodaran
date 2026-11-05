@@ -17,6 +17,9 @@ commit ``4caf8e1`` (the ``src`` tree before the DCF changes of #193) with::
     regenerate()
     "
 
+Regenerated for #217 (deliberate: rate axes now shock by +/-1pp, so the
+tornado ranking and values and the grid labels changed).
+
 Regenerate them the same way only when a deliberate behavior change is intended
 for these story types.
 

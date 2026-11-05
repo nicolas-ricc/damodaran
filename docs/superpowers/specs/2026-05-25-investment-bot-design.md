@@ -285,7 +285,7 @@ Cada supuesto tiene `source ∈ {manual, analyst_consensus, sector_default_damod
 
 Cada reporte de análisis incluye:
 
-1. **Tornado**: impacto en intrinsic value de mover cada supuesto ±20%, ordenado por impacto.
+1. **Tornado**: impacto en intrinsic value de mover cada supuesto ±1 punto porcentual en los supuestos de tasa y ×0,8 y ×1,2 en sales_to_capital, ordenado por impacto.
 2. **Tabla 2D**: grilla 5×5 sobre los dos supuestos más sensibles (típicamente growth × margin) con margin of safety por celda.
 3. **Margin of safety headline**: con supuestos default — pero el reporte deja claro que es un punto en una nube.
 

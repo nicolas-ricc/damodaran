@@ -21,7 +21,7 @@ from jinja2 import Environment, PackageLoader, select_autoescape
 
 from bot.valuator.analysis import Analysis
 from bot.valuator.narrative_flags import FlagColor
-from bot.valuator.sensitivity import PATH_AXES, SensitivityAxis
+from bot.valuator.sensitivity import PATH_AXES, SensitivityAxis, ShockKind, tornado_steps
 
 _DASH = "—"
 
@@ -118,7 +118,7 @@ def fmt_axis_label(axis: SensitivityAxis) -> str:
 
     The tornado's swung low/high values for ``revenue_growth`` /
     ``operating_margin`` are year 1 only (:func:`bot.valuator.sensitivity.
-    _axis_endpoint_value`): every year is scaled by the same multiplier, but a
+    _axis_endpoint_value`): every year is shifted by the same step, but a
     story-branched path (a high-growth fade or margin ramp, spec §7.1) is not
     flat across years, so year 1 is not the whole path. The "(yr 1)" suffix
     matches the convention the §3 assumptions table already uses for
@@ -128,12 +128,24 @@ def fmt_axis_label(axis: SensitivityAxis) -> str:
     return f"{label} (yr 1)" if axis in PATH_AXES else label
 
 
-def fmt_mult(value: Any) -> str:
-    """A grid multiplier like 0.8 rendered as a signed percentage delta."""
+def fmt_step(value: float | None, kind: ShockKind | str) -> str:
+    """A sensitivity step: ``-1.0pp`` for an additive shift, ``×0.8`` for a factor.
+
+    ``kind`` is coerced with :class:`ShockKind`, so an unknown kind raises
+    :class:`ValueError` instead of being formatted silently.
+    """
+    shock_kind = ShockKind(kind)
     if value is None:
         return _DASH
-    delta = (float(value) - 1.0) * 100.0
-    return f"{delta:+.0f}%"
+    if shock_kind is ShockKind.ADDITIVE:
+        return f"{float(value) * 100.0:+.1f}pp"
+    return f"×{float(value):.1f}"
+
+
+def fmt_shock(kind: ShockKind | str) -> str:
+    """The tornado's low / high shock of ``kind``, e.g. ``-1.0pp / +1.0pp``."""
+    low, high = tornado_steps(ShockKind(kind))
+    return f"{fmt_step(low, kind)} / {fmt_step(high, kind)}"
 
 
 @lru_cache(maxsize=1)
@@ -152,7 +164,7 @@ def _environment() -> Environment:
     env.filters["axis_label"] = fmt_axis_label
     env.filters["ratio"] = fmt_ratio
     env.filters["num"] = fmt_num
-    env.filters["mult"] = fmt_mult
+    env.filters["shock"] = fmt_shock
     return env
 
 
@@ -164,16 +176,16 @@ def _grid_table(analysis: Analysis) -> list[str]:
     each Markdown row on its own line regardless of whitespace control.
     """
     grid = analysis.grid
-    header_cells = " | ".join(fmt_mult(m) for m in grid.col_multipliers)
+    header_cells = " | ".join(fmt_step(step, grid.col_kind) for step in grid.col_steps)
     lines = [
         f"| {grid.axis_a} ↓ / {grid.axis_b} → | {header_cells} |",
-        "|---|" + "---|" * len(grid.col_multipliers),
+        "|---|" + "---|" * len(grid.col_steps),
     ]
     # Without a reference price every cell's margin of safety is None; falling
     # back to the intrinsic value keeps the table useful instead of all dashes.
     has_price = grid.reference_price is not None
     for row_index, row in enumerate(grid.cells):
-        row_label = fmt_mult(grid.row_multipliers[row_index])
+        row_label = fmt_step(grid.row_steps[row_index], grid.row_kind)
         if has_price:
             cells = " | ".join(fmt_ratio(cell.margin_of_safety) for cell in row)
         else:

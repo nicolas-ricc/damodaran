@@ -159,38 +159,34 @@
     "tornado": [
       {
         "axis": "cost_of_equity",
-        "low_value": 0.08000000000000002,
-        "high_value": 0.12,
-        "intrinsic_low": 680.645795811425,
-        "intrinsic_high": 337.46297659566994,
-        "impact": 343.1828192157551
-      },
-      {
-        "axis": "operating_margin",
-        "low_value": 0.12,
-        "high_value": 0.18,
-        "intrinsic_low": 331.2611166452634,
-        "intrinsic_high": 577.1310586262382,
-        "impact": 245.86994198097477
+        "kind": "additive",
+        "low_value": 0.09000000000000001,
+        "high_value": 0.11,
+        "intrinsic_low": 545.9212793527543,
+        "intrinsic_high": 387.76329015690425,
+        "impact": 158.15798919585
       },
       {
         "axis": "terminal_growth",
-        "low_value": 0.0316,
-        "high_value": 0.0474,
-        "intrinsic_low": 413.23256084963805,
-        "intrinsic_high": 511.1556379995581,
-        "impact": 97.92307714992006
+        "kind": "additive",
+        "low_value": 0.0295,
+        "high_value": 0.0495,
+        "intrinsic_low": 404.2093123032569,
+        "intrinsic_high": 530.2437444329494,
+        "impact": 126.03443212969245
       },
       {
-        "axis": "revenue_growth",
-        "low_value": 0.15999999999999998,
-        "high_value": 0.23999999999999994,
-        "intrinsic_low": 420.41049214362056,
-        "intrinsic_high": 490.63823871812315,
-        "impact": 70.22774657450259
+        "axis": "operating_margin",
+        "kind": "additive",
+        "low_value": 0.13999999999999999,
+        "high_value": 0.16,
+        "intrinsic_low": 404.15727428808196,
+        "intrinsic_high": 504.23490098341966,
+        "impact": 100.0776266953377
       },
       {
         "axis": "sales_to_capital",
+        "kind": "multiplicative",
         "low_value": 1.6,
         "high_value": 2.4,
         "intrinsic_low": 414.07639580657934,
@@ -198,148 +194,161 @@
         "impact": 66.86615304861914
       },
       {
-        "axis": "tax_rate",
-        "low_value": 0.168,
-        "high_value": 0.252,
-        "intrinsic_low": 480.7328586520419,
-        "intrinsic_high": 427.01982694045654,
-        "impact": 53.71303171158536
+        "axis": "pretax_cost_of_debt",
+        "kind": "additive",
+        "low_value": 0.049999999999999996,
+        "high_value": 0.06999999999999999,
+        "intrinsic_low": 473.1803672022533,
+        "intrinsic_high": 436.59847011014136,
+        "impact": 36.581897092111944
       },
       {
-        "axis": "pretax_cost_of_debt",
-        "low_value": 0.048,
-        "high_value": 0.072,
-        "intrinsic_low": 477.1580826138977,
-        "intrinsic_high": 433.2321376501992,
-        "impact": 43.9259449636985
+        "axis": "revenue_growth",
+        "kind": "additive",
+        "low_value": 0.18999999999999995,
+        "high_value": 0.20999999999999996,
+        "intrinsic_low": 439.9756986797581,
+        "intrinsic_high": 468.9075981169187,
+        "impact": 28.931899437160553
+      },
+      {
+        "axis": "tax_rate",
+        "kind": "additive",
+        "low_value": 0.19999999999999998,
+        "high_value": 0.22,
+        "intrinsic_low": 460.57151009308234,
+        "intrinsic_high": 447.7844178667679,
+        "impact": 12.787092226314428
       }
     ],
     "grid": {
       "axis_a": "cost_of_equity",
-      "axis_b": "operating_margin",
-      "row_multipliers": [
-        0.8,
-        0.9,
-        1.0,
-        1.1,
-        1.2
+      "axis_b": "terminal_growth",
+      "row_kind": "additive",
+      "col_kind": "additive",
+      "row_steps": [
+        -0.01,
+        -0.005,
+        0.0,
+        0.005,
+        0.01
       ],
-      "col_multipliers": [
-        0.8,
-        0.9,
-        1.0,
-        1.1,
-        1.2
+      "col_steps": [
+        -0.01,
+        -0.005,
+        0.0,
+        0.005,
+        0.01
       ],
       "cells": [
         [
           {
-            "intrinsic_value": 500.787278566177,
-            "margin_of_safety": 12.519681964154426
+            "intrinsic_value": 471.24792889335976,
+            "margin_of_safety": 11.781198222333995
           },
           {
-            "intrinsic_value": 590.7165371888011,
-            "margin_of_safety": 14.767913429720029
-          },
-          {
-            "intrinsic_value": 680.645795811425,
-            "margin_of_safety": 17.016144895285628
-          },
-          {
-            "intrinsic_value": 770.5750544340489,
-            "margin_of_safety": 19.264376360851223
-          },
-          {
-            "intrinsic_value": 860.5043130566728,
-            "margin_of_safety": 21.51260782641682
-          }
-        ],
-        [
-          {
-            "intrinsic_value": 399.9040519326458,
-            "margin_of_safety": 9.997601298316145
-          },
-          {
-            "intrinsic_value": 472.9126656427001,
-            "margin_of_safety": 11.822816641067503
+            "intrinsic_value": 504.4968764997958,
+            "margin_of_safety": 12.612421912494895
           },
           {
             "intrinsic_value": 545.9212793527543,
             "margin_of_safety": 13.648031983818857
           },
           {
-            "intrinsic_value": 618.9298930628083,
-            "margin_of_safety": 15.473247326570208
+            "intrinsic_value": 598.959165860845,
+            "margin_of_safety": 14.973979146521126
           },
           {
-            "intrinsic_value": 691.9385067728625,
-            "margin_of_safety": 17.298462669321562
+            "intrinsic_value": 669.2905694144622,
+            "margin_of_safety": 16.732264235361555
           }
         ],
         [
           {
-            "intrinsic_value": 331.2611166452634,
-            "margin_of_safety": 8.281527916131585
+            "intrinsic_value": 435.3437178560371,
+            "margin_of_safety": 10.883592946400928
           },
           {
-            "intrinsic_value": 392.7286021405072,
-            "margin_of_safety": 9.818215053512679
+            "intrinsic_value": 462.6441143362155,
+            "margin_of_safety": 11.566102858405388
+          },
+          {
+            "intrinsic_value": 496.07731113162293,
+            "margin_of_safety": 12.401932778290574
+          },
+          {
+            "intrinsic_value": 537.9713130339081,
+            "margin_of_safety": 13.449282825847703
+          },
+          {
+            "intrinsic_value": 592.0030912840799,
+            "margin_of_safety": 14.800077282101999
+          }
+        ],
+        [
+          {
+            "intrinsic_value": 404.2093123032569,
+            "margin_of_safety": 10.105232807581423
+          },
+          {
+            "intrinsic_value": 426.8608083761553,
+            "margin_of_safety": 10.671520209403884
           },
           {
             "intrinsic_value": 454.19608763575087,
             "margin_of_safety": 11.354902190893771
           },
           {
-            "intrinsic_value": 515.6635731309943,
-            "margin_of_safety": 12.891589328274858
+            "intrinsic_value": 487.83540504284963,
+            "margin_of_safety": 12.195885126071241
           },
           {
-            "intrinsic_value": 577.1310586262382,
-            "margin_of_safety": 14.428276465655955
+            "intrinsic_value": 530.2437444329494,
+            "margin_of_safety": 13.256093610823735
           }
         ],
         [
           {
-            "intrinsic_value": 281.5807051154334,
-            "margin_of_safety": 7.039517627885834
+            "intrinsic_value": 376.95930451129766,
+            "margin_of_safety": 9.423982612782442
           },
           {
-            "intrinsic_value": 334.67199763616884,
-            "margin_of_safety": 8.36679994090422
+            "intrinsic_value": 395.9221395011388,
+            "margin_of_safety": 9.89805348752847
           },
           {
-            "intrinsic_value": 387.7632901569042,
+            "intrinsic_value": 418.51716625269967,
+            "margin_of_safety": 10.462929156317491
+          },
+          {
+            "intrinsic_value": 445.8984949069866,
+            "margin_of_safety": 11.147462372674665
+          },
+          {
+            "intrinsic_value": 479.76710755080705,
+            "margin_of_safety": 11.994177688770176
+          }
+        ],
+        [
+          {
+            "intrinsic_value": 352.91452271091356,
+            "margin_of_safety": 8.82286306777284
+          },
+          {
+            "intrinsic_value": 368.91193787904615,
+            "margin_of_safety": 9.222798446976153
+          },
+          {
+            "intrinsic_value": 387.76329015690425,
             "margin_of_safety": 9.694082253922605
           },
           {
-            "intrinsic_value": 440.8545826776394,
-            "margin_of_safety": 11.021364566940985
+            "intrinsic_value": 410.30708750952755,
+            "margin_of_safety": 10.257677187738189
           },
           {
-            "intrinsic_value": 493.9458751983748,
-            "margin_of_safety": 12.34864687995937
-          }
-        ],
-        [
-          {
-            "intrinsic_value": 243.9941957420051,
-            "margin_of_safety": 6.099854893550128
-          },
-          {
-            "intrinsic_value": 290.7285861688376,
-            "margin_of_safety": 7.268214654220939
-          },
-          {
-            "intrinsic_value": 337.46297659566994,
-            "margin_of_safety": 8.436574414891748
-          },
-          {
-            "intrinsic_value": 384.1973670225023,
-            "margin_of_safety": 9.604934175562558
-          },
-          {
-            "intrinsic_value": 430.93175744933467,
-            "margin_of_safety": 10.773293936233367
+            "intrinsic_value": 437.7459803287297,
+            "margin_of_safety": 10.943649508218241
           }
         ]
       ],

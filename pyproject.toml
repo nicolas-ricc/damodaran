@@ -58,6 +58,8 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "B", "UP", "RUF", "SIM", "TID"]
 ignore = ["E501"]
+# A multiplicative sensitivity step is labelled "×0.8" (#217): the glyph is deliberate.
+allowed-confusables = ["×"]
 
 [tool.mypy]
 strict = true

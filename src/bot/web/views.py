@@ -18,14 +18,15 @@ from bot.reporting.analysis_report import (
     fmt_axis_label,
     fmt_margin_path,
     fmt_money,
-    fmt_mult,
     fmt_num,
     fmt_pct,
     fmt_per_share,
     fmt_ratio,
+    fmt_shock,
+    fmt_step,
     margin_verdict,
 )
-from bot.valuator.sensitivity import SensitivityAxis
+from bot.valuator.sensitivity import SensitivityAxis, ShockKind
 from bot.web.index import AnalysisRef, CompanyEntry
 
 _DASH = "—"
@@ -180,11 +181,16 @@ class ScenarioGrid:
     total: int
 
 
+# Sidecars written before #217 carry no shock kind; every shock then was a factor.
+_PRE_217_KIND = ShockKind.MULTIPLICATIVE
+
+
 @dataclass(frozen=True)
 class TornadoBar:
     label: str
     low: float
     high: float
+    shock: str = ""
 
 
 @dataclass(frozen=True)
@@ -282,12 +288,18 @@ def scenario_grid(analysis: Mapping[str, Any]) -> ScenarioGrid | None:
     return ScenarioGrid(
         axis_a=fmt_axis_label(SensitivityAxis(grid["axis_a"])),
         axis_b=fmt_axis_label(SensitivityAxis(grid["axis_b"])),
-        row_labels=tuple(fmt_mult(m) for m in grid["row_multipliers"]),
-        col_labels=tuple(fmt_mult(m) for m in grid["col_multipliers"]),
+        row_labels=_step_labels(grid, "row"),
+        col_labels=_step_labels(grid, "col"),
         cells=cells,
         matching=sum(1 for c in flat if c == stored),
         total=len(flat),
     )
+
+
+def _step_labels(grid: Mapping[str, Any], side: str) -> tuple[str, ...]:
+    kind = grid.get(f"{side}_kind", _PRE_217_KIND)
+    steps = grid[f"{side}_steps"] if f"{side}_steps" in grid else grid[f"{side}_multipliers"]
+    return tuple(fmt_step(s, kind) for s in steps)
 
 
 def _flags(analysis: Mapping[str, Any]) -> tuple[FlagView, ...]:
@@ -386,6 +398,7 @@ def detail_view(entry: CompanyEntry, ref: AnalysisRef) -> DetailView:
             label=fmt_axis_label(SensitivityAxis(t["axis"])),
             low=float(t["intrinsic_low"]),
             high=float(t["intrinsic_high"]),
+            shock=fmt_shock(t.get("kind", _PRE_217_KIND)),
         )
         for t in analysis["tornado"]
         if t["intrinsic_low"] is not None and t["intrinsic_high"] is not None

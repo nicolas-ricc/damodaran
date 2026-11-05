@@ -27,7 +27,9 @@ from bot.valuator.sensitivity import (
     Grid2D,
     GridCell,
     SensitivityAxis,
+    ShockKind,
     TornadoEntry,
+    grid_steps,
 )
 
 # Fixture money and share counts are written in millions; the valuator refuses
@@ -293,6 +295,7 @@ def test_tornado_chart_tolerates_none_endpoints() -> None:
     entries = (
         TornadoEntry(
             axis=SensitivityAxis.REVENUE_GROWTH,
+            kind=ShockKind.ADDITIVE,
             low_value=0.08,
             high_value=0.12,
             intrinsic_low=10.0,
@@ -301,6 +304,7 @@ def test_tornado_chart_tolerates_none_endpoints() -> None:
         ),
         TornadoEntry(
             axis=SensitivityAxis.TERMINAL_GROWTH,
+            kind=ShockKind.ADDITIVE,
             low_value=0.036,
             high_value=0.054,
             intrinsic_low=9.0,
@@ -320,15 +324,17 @@ def test_heatmap_tolerates_none_cells() -> None:
             margin_of_safety=None if value is None else value / 10.0,
         )
 
-    mults = (0.8, 0.9, 1.0, 1.1, 1.2)
+    steps = grid_steps(ShockKind.ADDITIVE)
     cells = tuple(
         tuple(_cell(None if i >= 3 else 10.0 + i + j) for j in range(5)) for i in range(5)
     )
     grid = Grid2D(
         axis_a=SensitivityAxis.TERMINAL_GROWTH,
         axis_b=SensitivityAxis.OPERATING_MARGIN,
-        row_multipliers=mults,
-        col_multipliers=mults,
+        row_steps=steps,
+        col_steps=steps,
+        row_kind=ShockKind.ADDITIVE,
+        col_kind=ShockKind.ADDITIVE,
         cells=cells,
         reference_price=100.0,
     )

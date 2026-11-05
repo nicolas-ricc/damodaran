@@ -38,7 +38,7 @@ def _grid(axis_a: str = "cost_of_equity") -> ScenarioGrid:
         tuple(None if (r, c) == (0, 0) else (v.UNDERVALUED if c > 2 else v.FAIR) for c in range(5))
         for r in range(5)
     )
-    labels = ("-20%", "-10%", "+0%", "+10%", "+20%")
+    labels = ("-1.0pp", "-0.5pp", "+0.0pp", "+0.5pp", "+1.0pp")
     return ScenarioGrid(
         axis_a=axis_a,
         axis_b="operating_margin (yr 1)",

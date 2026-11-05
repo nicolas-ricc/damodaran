@@ -75,7 +75,7 @@ def test_marker_is_deleted_last(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 
 
 def test_charts_have_accessible_names() -> None:
-    labels = ("-20%", "-10%", "+0%", "+10%", "+20%")
+    labels = ("-1.0pp", "-0.5pp", "+0.0pp", "+0.5pp", "+1.0pp")
     grid = ScenarioGrid(
         axis_a="a",
         axis_b="b",

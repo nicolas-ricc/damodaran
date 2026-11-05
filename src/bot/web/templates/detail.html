@@ -35,7 +35,7 @@
 {% if detail.tornado %}
 <section class="drivers">
   <div class="head-row"><h2>Drivers</h2></div>
-  <p class="lede">Intrinsic value per share when each input alone moves 20% either way. The vertical line is today's price; a bar that crosses it means that input alone can flip the verdict.</p>
+  <p class="lede">Intrinsic value per share when each input alone moves: a rate by one percentage point either way, sales_to_capital by 20%. The vertical line is today's price; a bar that crosses it means that input alone can flip the verdict.</p>
   {{ tornado_table(detail.tornado, price=detail.price) }}
 </section>
 {% endif %}
@@ -44,7 +44,7 @@
   {% if detail.grid %}
   <section class="scenarios">
     <div class="head-row"><h2>Scenarios</h2><p class="count-line"><span class="num">{{ detail.grid.matching }}</span> of <span class="num">{{ detail.grid.total }}</span> agree</p></div>
-    <p class="lede">The verdict when {{ detail.grid.axis_a }} and {{ detail.grid.axis_b }} move together, each by up to 20%. The glyphs are the ones in the verdict filter.</p>
+    <p class="lede">The verdict when {{ detail.grid.axis_a }} and {{ detail.grid.axis_b }} move together: a rate by up to one percentage point, sales_to_capital by up to 20%. The glyphs are the ones in the verdict filter.</p>
     {{ scenario_grid_table(detail.grid) }}
   </section>
   {% endif %}

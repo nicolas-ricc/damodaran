@@ -2,8 +2,9 @@
 
 Two pure functions over the §7.2 DCF:
 
-* :func:`tornado` — moves each assumption ±20% and ranks the swing in the
-  per-share intrinsic value, descending by absolute impact.
+* :func:`tornado` — moves each assumption (±1pp on rate axes, ×0.8/×1.2 on
+  sales-to-capital) and ranks the swing in the per-share intrinsic value,
+  descending by absolute impact.
 * :func:`grid_2d` — a 5x5 grid over the two chosen assumptions with a
   margin-of-safety (vs the base case) per cell.
 
@@ -27,7 +28,7 @@ from bot.valuator.sensitivity import (
     TornadoEntry,
     active_axes,
     grid_2d,
-    scale_axis,
+    shift_axis,
     tornado,
 )
 from tests.unit.test_valuator_analysis import _seed
@@ -55,31 +56,31 @@ def _assumptions() -> Assumptions:
 
 
 # --------------------------------------------------------------------------- #
-# scale_axis — the building block both functions share                        #
+# shift_axis — the building block both functions share                        #
 # --------------------------------------------------------------------------- #
 
 
-def test_scale_axis_scales_scalar_assumption() -> None:
+def test_shift_axis_shifts_scalar_assumption() -> None:
     base = _assumptions()
-    scaled = scale_axis(base, SensitivityAxis.TERMINAL_GROWTH, 1.2)
-    assert scaled.terminal_growth == pytest.approx(0.02 * 1.2, abs=TOL)
+    scaled = shift_axis(base, SensitivityAxis.TERMINAL_GROWTH, 0.01)
+    assert scaled.terminal_growth == pytest.approx(0.03, abs=TOL)
     # Everything else is untouched.
     assert scaled.tax_rate == base.tax_rate
     assert scaled.revenue_growth == base.revenue_growth
 
 
-def test_scale_axis_scales_every_year_of_a_path() -> None:
+def test_shift_axis_shifts_every_year_of_a_path() -> None:
     base = _assumptions()
-    scaled = scale_axis(base, SensitivityAxis.REVENUE_GROWTH, 0.8)
+    scaled = shift_axis(base, SensitivityAxis.REVENUE_GROWTH, -0.01)
     assert scaled.revenue_growth == pytest.approx(
-        tuple(g * 0.8 for g in base.revenue_growth), abs=TOL
+        tuple(g - 0.01 for g in base.revenue_growth), abs=TOL
     )
     assert scaled.operating_margin == base.operating_margin
 
 
-def test_scale_axis_does_not_mutate_input() -> None:
+def test_shift_axis_does_not_mutate_input() -> None:
     base = _assumptions()
-    scale_axis(base, SensitivityAxis.OPERATING_MARGIN, 1.2)
+    shift_axis(base, SensitivityAxis.OPERATING_MARGIN, 0.01)
     assert base.operating_margin == (0.20, 0.20, 0.20, 0.20, 0.20)
 
 
@@ -99,12 +100,12 @@ def test_tornado_entry_records_both_swung_values_and_their_intrinsics() -> None:
     entries = {e.axis: e for e in tornado(fin, base)}
     entry = entries[SensitivityAxis.OPERATING_MARGIN]
 
-    # +20% / -20% margins, recomputed independently.
-    high = dcf(fin, scale_axis(base, SensitivityAxis.OPERATING_MARGIN, 1.2))
-    low = dcf(fin, scale_axis(base, SensitivityAxis.OPERATING_MARGIN, 0.8))
+    # +1pp / -1pp margins, recomputed independently.
+    high = dcf(fin, shift_axis(base, SensitivityAxis.OPERATING_MARGIN, 0.01))
+    low = dcf(fin, shift_axis(base, SensitivityAxis.OPERATING_MARGIN, -0.01))
 
-    assert entry.high_value == pytest.approx(0.20 * 1.2, abs=TOL)
-    assert entry.low_value == pytest.approx(0.20 * 0.8, abs=TOL)
+    assert entry.high_value == pytest.approx(0.21, abs=TOL)
+    assert entry.low_value == pytest.approx(0.19, abs=TOL)
     assert entry.intrinsic_high == pytest.approx(high.intrinsic_value, abs=TOL)
     assert entry.intrinsic_low == pytest.approx(low.intrinsic_value, abs=TOL)
     assert entry.impact == pytest.approx(abs(high.intrinsic_value - low.intrinsic_value), abs=TOL)
@@ -113,7 +114,7 @@ def test_tornado_entry_records_both_swung_values_and_their_intrinsics() -> None:
 def test_tornado_path_axis_endpoint_is_year_one_not_the_whole_path() -> None:
     # A non-uniform path (a high-growth fade/ramp, spec §7.1) is not flat across
     # years, so the reported low/high endpoint must be honestly year-1-only,
-    # matching base_path[0] * multiplier — not some other representative value
+    # matching base_path[0] -/+ 1pp — not some other representative value
     # (an average, the last year, ...) that would misstate what was perturbed.
     fin = _financials()
     base = dataclasses.replace(
@@ -124,12 +125,12 @@ def test_tornado_path_axis_endpoint_is_year_one_not_the_whole_path() -> None:
     entries = {e.axis: e for e in tornado(fin, base)}
 
     growth = entries[SensitivityAxis.REVENUE_GROWTH]
-    assert growth.low_value == pytest.approx(0.30 * 0.8, abs=TOL)
-    assert growth.high_value == pytest.approx(0.30 * 1.2, abs=TOL)
+    assert growth.low_value == pytest.approx(0.29, abs=TOL)
+    assert growth.high_value == pytest.approx(0.31, abs=TOL)
 
     margin = entries[SensitivityAxis.OPERATING_MARGIN]
-    assert margin.low_value == pytest.approx(0.08 * 0.8, abs=TOL)
-    assert margin.high_value == pytest.approx(0.08 * 1.2, abs=TOL)
+    assert margin.low_value == pytest.approx(0.07, abs=TOL)
+    assert margin.high_value == pytest.approx(0.09, abs=TOL)
 
 
 def test_tornado_is_ordered_descending_by_abs_impact() -> None:
@@ -140,20 +141,19 @@ def test_tornado_is_ordered_descending_by_abs_impact() -> None:
 
 
 def test_tornado_ordering_is_the_known_ranking_for_the_fixture() -> None:
-    # Computed once from the DCF over the fixture. The discount rate dominates
-    # (it scales the whole stream and the ~74% terminal-value share), then the
-    # operating margin, then the tax rate, with the near-flat reinvestment /
-    # debt-cost sensitivities last.
+    # Computed once from the DCF over the fixture. A ±1pp move hits the discount
+    # rate hardest (it sits in the whole stream and the terminal value), then
+    # terminal growth, margin and growth, with the tax rate last.
     entries = tornado(_financials(), _assumptions())
     ranking = [e.axis for e in entries]
     assert ranking == [
         SensitivityAxis.COST_OF_EQUITY,
-        SensitivityAxis.OPERATING_MARGIN,
-        SensitivityAxis.TAX_RATE,
-        SensitivityAxis.REVENUE_GROWTH,
         SensitivityAxis.TERMINAL_GROWTH,
+        SensitivityAxis.OPERATING_MARGIN,
+        SensitivityAxis.REVENUE_GROWTH,
         SensitivityAxis.SALES_TO_CAPITAL,
         SensitivityAxis.PRETAX_COST_OF_DEBT,
+        SensitivityAxis.TAX_RATE,
     ]
 
 
@@ -174,21 +174,21 @@ def test_grid_2d_is_five_by_five() -> None:
         SensitivityAxis.REVENUE_GROWTH,
         SensitivityAxis.OPERATING_MARGIN,
     )
-    assert len(grid.row_multipliers) == 5
-    assert len(grid.col_multipliers) == 5
+    assert len(grid.row_steps) == 5
+    assert len(grid.col_steps) == 5
     assert len(grid.cells) == 5
     assert all(len(row) == 5 for row in grid.cells)
 
 
-def test_grid_2d_multipliers_span_plus_minus_twenty_percent() -> None:
+def test_grid_2d_steps_span_plus_minus_one_pp() -> None:
     grid = grid_2d(
         _financials(),
         _assumptions(),
         SensitivityAxis.REVENUE_GROWTH,
         SensitivityAxis.OPERATING_MARGIN,
     )
-    assert grid.row_multipliers == pytest.approx((0.8, 0.9, 1.0, 1.1, 1.2), abs=TOL)
-    assert grid.col_multipliers == pytest.approx((0.8, 0.9, 1.0, 1.1, 1.2), abs=TOL)
+    assert grid.row_steps == pytest.approx((-0.01, -0.005, 0.0, 0.005, 0.01), abs=TOL)
+    assert grid.col_steps == pytest.approx((-0.01, -0.005, 0.0, 0.005, 0.01), abs=TOL)
 
 
 def test_grid_2d_records_the_axes() -> None:
@@ -213,9 +213,9 @@ def test_grid_2d_centre_cell_is_the_base_case() -> None:
 def test_grid_2d_cell_applies_both_axes() -> None:
     fin, base = _financials(), _assumptions()
     grid = grid_2d(fin, base, SensitivityAxis.REVENUE_GROWTH, SensitivityAxis.OPERATING_MARGIN)
-    # Top-left cell: row multiplier 0.8 on axis_a, col multiplier 0.8 on axis_b.
-    twisted = scale_axis(base, SensitivityAxis.REVENUE_GROWTH, 0.8)
-    twisted = scale_axis(twisted, SensitivityAxis.OPERATING_MARGIN, 0.8)
+    # Top-left cell: row step -1pp on axis_a, col step -1pp on axis_b.
+    twisted = shift_axis(base, SensitivityAxis.REVENUE_GROWTH, -0.01)
+    twisted = shift_axis(twisted, SensitivityAxis.OPERATING_MARGIN, -0.01)
     expected = dcf(fin, twisted).intrinsic_value
     assert grid.cells[0][0].intrinsic_value == pytest.approx(expected, abs=TOL)
 
@@ -306,7 +306,7 @@ def test_grid_2d_rejects_identical_axes() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Out-of-domain scenarios — a scaled axis can push terminal_growth >= WACC     #
+# Out-of-domain scenarios — a shifted axis can push terminal_growth >= WACC    #
 # (the DCF perpetuity diverges). Such scenarios are reported as a None         #
 # sentinel rather than crashing the whole analysis.                           #
 # --------------------------------------------------------------------------- #
@@ -315,8 +315,8 @@ def test_grid_2d_rejects_identical_axes() -> None:
 def _near_wacc_assumptions() -> Assumptions:
     """Base case whose terminal_growth (0.045) sits just below WACC (0.05).
 
-    Scaling terminal_growth up by the +20% tornado/grid leg (0.045 * 1.2 =
-    0.054) pushes it past WACC, so the DCF for that scenario is undefined.
+    Shifting terminal_growth up by the +1pp tornado leg (0.045 + 0.01 = 0.055)
+    pushes it past WACC, so the DCF for that scenario is undefined.
     """
     return Assumptions(
         revenue_growth=(0.10, 0.08, 0.06, 0.04, 0.02),
@@ -335,7 +335,7 @@ def test_tornado_marks_diverging_scenario_with_none_sentinel() -> None:
     entries = tornado(_financials(), _near_wacc_assumptions())
 
     tg = next(e for e in entries if e.axis is SensitivityAxis.TERMINAL_GROWTH)
-    # The +20% leg diverges -> its intrinsic value and the impact are None.
+    # The +1pp leg diverges -> its intrinsic value and the impact are None.
     assert tg.intrinsic_high is None
     assert tg.intrinsic_low is not None
     assert tg.impact is None
@@ -354,7 +354,7 @@ def test_grid_2d_marks_diverging_cells_with_none_sentinel() -> None:
         SensitivityAxis.OPERATING_MARGIN,
     )
 
-    # The +20% terminal_growth rows (multiplier 1.1 and 1.2) diverge -> None.
+    # The +0.5pp and +1pp terminal_growth rows (0.050, 0.055) reach WACC -> None.
     diverging = [cell for row in grid.cells for cell in row if cell.intrinsic_value is None]
     assert diverging, "expected at least one diverging cell"
     for cell in diverging:
@@ -387,9 +387,7 @@ def test_grid_centre_matches_the_headline_margin_of_safety(
     # The invariant the old code violated: one number, one meaning.
     analysis = _seeded_analysis(conn)
     assert analysis.margin_of_safety is not None
-    assert analysis.grid.cells[2][2].margin_of_safety == pytest.approx(
-        analysis.margin_of_safety
-    )
+    assert analysis.grid.cells[2][2].margin_of_safety == pytest.approx(analysis.margin_of_safety)
 
 
 # --------------------------------------------------------------------------- #
@@ -408,43 +406,45 @@ def test_active_axes_drops_cost_of_debt_with_wacc_path() -> None:
     assert len(axes) == 6
 
 
-def test_scale_cost_of_equity_scales_wacc_path() -> None:
+def test_shift_cost_of_equity_shifts_wacc_path() -> None:
     base = damodaran_assumptions()
-    scaled = scale_axis(base, SensitivityAxis.COST_OF_EQUITY, 1.2)
+    scaled = shift_axis(base, SensitivityAxis.COST_OF_EQUITY, 0.01)
 
     assert base.wacc_path is not None
-    assert scaled.wacc_path == pytest.approx(tuple(w * 1.2 for w in base.wacc_path))
-    assert scaled.cost_of_equity == pytest.approx(base.cost_of_equity * 1.2)
+    assert scaled.wacc_path == pytest.approx(tuple(w + 0.01 for w in base.wacc_path))
+    assert scaled.cost_of_equity == pytest.approx(base.cost_of_equity + 0.01)
 
 
-def test_scale_tax_rate_scales_tax_rate_path() -> None:
+def test_shift_tax_rate_shifts_tax_rate_path() -> None:
     base = damodaran_assumptions()
-    scaled = scale_axis(base, SensitivityAxis.TAX_RATE, 0.8)
+    scaled = shift_axis(base, SensitivityAxis.TAX_RATE, -0.01)
 
     assert base.tax_rate_path is not None
-    assert scaled.tax_rate_path == pytest.approx(tuple(t * 0.8 for t in base.tax_rate_path))
-    assert scaled.tax_rate == pytest.approx(base.tax_rate * 0.8)
+    assert scaled.tax_rate_path == pytest.approx(tuple(t - 0.01 for t in base.tax_rate_path))
+    assert scaled.tax_rate == pytest.approx(base.tax_rate - 0.01)
 
 
-def test_scale_without_paths_leaves_them_none() -> None:
+def test_shift_without_paths_leaves_them_none() -> None:
     for axis in (SensitivityAxis.COST_OF_EQUITY, SensitivityAxis.TAX_RATE):
-        scaled = scale_axis(_assumptions(), axis, 1.2)
+        scaled = shift_axis(_assumptions(), axis, 0.01)
         assert scaled.wacc_path is None
         assert scaled.tax_rate_path is None
 
 
-def test_tornado_over_damodaran_has_six_defined_entries() -> None:
+def test_tornado_over_damodaran_has_six_entries_tax_low_end_out_of_domain() -> None:
     entries = tornado(damodaran_financials(), damodaran_assumptions())
 
     assert len(entries) == 6
-    assert all(entry.impact is not None for entry in entries)
+    # The tax path starts at 0%, so -1pp leaves [0, 1): that entry has no impact.
+    assert [entry.axis for entry in entries if entry.impact is None] == [SensitivityAxis.TAX_RATE]
+    assert entries[-1].axis is SensitivityAxis.TAX_RATE
     assert SensitivityAxis.PRETAX_COST_OF_DEBT not in {entry.axis for entry in entries}
 
 
 def test_safe_intrinsic_none_when_growth_reaches_terminal_wacc_path() -> None:
-    # Terminal growth 0.049 * 1.2 = 0.0588 still below 0.0913, so push the path down:
-    # 0.0913 * 0.5 = 0.04565 sits below the unscaled growth of 0.049.
-    assumptions = scale_axis(damodaran_assumptions(), SensitivityAxis.COST_OF_EQUITY, 0.5)
+    # Terminal growth 0.049 + 1pp = 0.059 still below 0.0913, so push the path down:
+    # 0.0913 - 0.05 = 0.0413 sits below the unshifted growth of 0.049.
+    assumptions = shift_axis(damodaran_assumptions(), SensitivityAxis.COST_OF_EQUITY, -0.05)
     grid = grid_2d(
         damodaran_financials(),
         assumptions,
