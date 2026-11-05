@@ -250,3 +250,20 @@ def test_marks_pair_colour_with_a_title(reports: Path, tmp_path: Path) -> None:
     assert "<title>potentially undervalued</title>" in rows or "<title>undervalued</title>" in rows
     assert "<title>fail: " in rows
     assert "<title>red</title>" not in rows
+
+
+def test_dcf_lede_counts_the_sidecar_years(tmp_path: Path) -> None:
+    # The lede follows the sidecar's own projections: ten years now, five in an
+    # old sidecar written before #216.
+    root = tmp_path / "reports"
+    write_sidecar(root, "2026-10-01", make_sidecar("AAA"))
+    old = make_sidecar("BBB")
+    dcf = old["analysis"]["dcf_result"]
+    dcf["projections"] = dcf["projections"][:5]
+    write_sidecar(root, "2026-10-01", old)
+    out = tmp_path / "site"
+    build(root, out, "/")
+    new_page = (out / "c" / "AAA" / "2026-10-01.html").read_text()
+    old_page = (out / "c" / "BBB" / "2026-10-01.html").read_text()
+    assert "10 years of projected free cash flow" in new_page
+    assert "5 years of projected free cash flow" in old_page

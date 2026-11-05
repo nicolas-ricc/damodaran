@@ -88,7 +88,7 @@ def test_usd_company_terminal_growth_comes_from_the_currency_file(
     assert result.terminal_growth.source is AssumptionSource.RULE_BASED
 
 
-def test_usd_company_without_history_anchors_revenue_growth_on_usd_gdp(
+def test_usd_company_without_history_starts_revenue_growth_at_usd_gdp(
     conn: duckdb.DuckDBPyConnection,
 ) -> None:
     conn.execute(
@@ -100,7 +100,10 @@ def test_usd_company_without_history_anchors_revenue_growth_on_usd_gdp(
         "VALUES ('NEW', 2025, 'USD', 'test')"
     )
     result = resolve_assumptions("NEW", conn, currencies=TABLE)
-    assert result.revenue_growth.value == pytest.approx((0.04,) * 5)
+    path = result.revenue_growth.value
+    assert len(path) == 10
+    assert path[0] == pytest.approx(0.04)
+    assert path[-1] == pytest.approx(result.terminal_growth.value)
     assert result.revenue_growth.source is AssumptionSource.RULE_BASED
 
 
@@ -117,14 +120,16 @@ def test_jpy_company_uses_the_jpy_gdp_ceiling(conn: duckdb.DuckDBPyConnection) -
     assert result.terminal_growth.value == pytest.approx(0.0261)
 
 
-def test_high_growth_fade_targets_the_currency_gdp(conn: duckdb.DuckDBPyConnection) -> None:
+def test_high_growth_fade_targets_the_currency_terminal_growth(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
     _seed(conn, "TOYO", ("JPY",) * 4)
     result = resolve_assumptions(
         "TOYO", conn, currencies=TABLE, auto_story_type=StoryType.HIGH_GROWTH
     )
     path = result.revenue_growth.value
     assert path is not None
-    assert path[-1] == pytest.approx(0.0261)
+    assert path[-1] == pytest.approx(0.0147)
     assert result.revenue_growth.source is AssumptionSource.STORY_PATTERN
 
 
@@ -174,14 +179,15 @@ def test_no_history_revenue_growth_unresolved_when_currency_uncovered(
     assert result.revenue_growth.source is AssumptionSource.UNRESOLVED
 
 
-def test_high_growth_without_currency_falls_back_to_historical_average(
+def test_high_growth_without_currency_leaves_growth_unresolved(
     conn: duckdb.DuckDBPyConnection,
 ) -> None:
     _seed(conn, "XCO", ("XYZ",) * 4)
     result = resolve_assumptions(
         "XCO", conn, currencies=TABLE, auto_story_type=StoryType.HIGH_GROWTH
     )
-    assert result.revenue_growth.source is AssumptionSource.HISTORICAL_AVERAGE
+    # No terminal growth → no fade target, even with a history to start from.
+    assert result.revenue_growth.source is AssumptionSource.UNRESOLVED
 
 
 def test_manual_terminal_growth_wins_over_uncovered_currency(

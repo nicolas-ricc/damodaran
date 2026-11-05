@@ -13,6 +13,7 @@ from pathlib import Path
 import duckdb
 import pytest
 
+from bot.reporting import analysis_report
 from bot.reporting.analysis_report import render_analysis
 from bot.storage.db import apply_schema, connect
 from bot.valuator.analysis import Analysis, analyze
@@ -324,3 +325,29 @@ def test_missing_rate_line(analysis: Analysis) -> None:
     ) in md
     assert "Price conversion" not in md
     assert "**Margin of safety" not in md
+
+
+def test_growth_row_label_uses_the_path_length() -> None:
+    # An old sidecar carries a 5-year path: the label follows the path, not _HORIZON.
+    assert analysis_report.fmt_growth_label((0.1,) * 5) == "Revenue growth (yr 1 → yr 5)"
+    assert analysis_report.fmt_growth_label(tuple(float(i) for i in range(10))) == "Revenue growth (yr 1 → yr 10)"
+    assert analysis_report.fmt_growth_label(None) == "Revenue growth (yr 1)"
+
+
+def test_growth_path_shows_both_ends() -> None:
+    assert analysis_report.fmt_growth_path((0.18, 0.1, 0.0395)) == "18.0% → 4.0%"
+    assert analysis_report.fmt_growth_path((0.07,) * 10) == "7.0% → 7.0%"
+    assert analysis_report.fmt_growth_path(None) == "—"
+    assert analysis_report.fmt_growth_path(()) == "—"
+
+
+def test_report_shows_the_ten_year_growth_path_and_ten_dcf_rows(analysis: Analysis) -> None:
+    md = render_analysis(analysis)
+    growth = analysis.assumptions.revenue_growth.value
+    assert growth is not None and len(growth) == 10
+    assert f"| Revenue growth (yr 1 → yr 10) | {analysis_report.fmt_growth_path(growth)} |" in md
+    dcf_section = md.split("## 4. DCF detail", 1)[1].split("\n## ", 1)[0]
+    year_rows = [
+        line for line in dcf_section.splitlines() if line.startswith("| ") and line[2:3].isdigit()
+    ]
+    assert len(year_rows) == 10

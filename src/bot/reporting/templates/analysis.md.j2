@@ -41,7 +41,7 @@ _Generated {{ generated_at }} · currency {{ a.valuation_currency or "n/a" }} ·
 
 | Assumption | Value | Source |
 |---|---|---|
-| Revenue growth (yr 1) | {{ a.assumptions.revenue_growth.value[0] | pct }} | {{ a.assumptions.revenue_growth.source }} |
+| {{ a.assumptions.revenue_growth.value | growth_label }} | {{ a.assumptions.revenue_growth.value | growth_path }} | {{ a.assumptions.revenue_growth.source }} |
 | Operating margin | {{ a.assumptions.operating_margin.value | margin_path }} | {{ a.assumptions.operating_margin.source }} |
 | Sales-to-capital | {{ a.assumptions.sales_to_capital.value | num }} | {{ a.assumptions.sales_to_capital.source }} |
 | Cost of equity | {{ a.assumptions.cost_of_equity.value | pct }} | {{ a.assumptions.cost_of_equity.source }} |

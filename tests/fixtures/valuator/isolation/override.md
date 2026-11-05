@@ -24,7 +24,7 @@ _Generated 2026-01-01 · currency USD · country United States_
 
 | Assumption | Value | Source |
 |---|---|---|
-| Revenue growth (yr 1) | 8.0% | manual |
+| Revenue growth (yr 1 → yr 5) | 8.0% → 4.0% | manual |
 | Operating margin | 30.0% → 26.0% | manual |
 | Sales-to-capital | 2.50 | sector_default_damodaran |
 | Cost of equity | 9.0% | sector_default_damodaran |
