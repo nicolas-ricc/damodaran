@@ -9,6 +9,7 @@ fails loudly on out-of-range or inconsistent values.
 from __future__ import annotations
 
 import math
+import re
 from datetime import date
 from pathlib import Path
 
@@ -272,6 +273,51 @@ def test_repo_probabilities_match_table_5() -> None:
     table = load_default_spreads(REPO_FILE)
     for rating, expected in TABLE_5_TEN_YEAR.items():
         assert table.probability_for(rating) == pytest.approx(expected), rating
+
+
+RATINGS_URL = "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html"
+PAPER_URL = "https://pages.stern.nyu.edu/~adamodar/pdfiles/papers/NewDistress.pdf"
+
+RATINGS_BRACKETS = [
+    (None, 0.2, "D"),
+    (0.2, 0.65, "C"),
+    (0.65, 0.8, "CC"),
+    (0.8, 1.25, "CCC"),
+    (1.25, 1.5, "B-"),
+    (1.5, 1.75, "B"),
+    (1.75, 2.0, "B+"),
+    (2.0, 2.25, "BB"),
+    (2.25, 2.5, "BB+"),
+    (2.5, 3.0, "BBB"),
+    (3.0, 4.25, "A-"),
+    (4.25, 5.5, "A"),
+    (5.5, 6.5, "A+"),
+    (6.5, 8.5, "AA"),
+    (8.5, None, "AAA"),
+]
+
+
+def test_repo_brackets_match_ratings_page() -> None:
+    table = load_default_spreads(REPO_FILE)
+    assert [(b.lower, b.upper, b.rating) for b in table.brackets] == RATINGS_BRACKETS
+    for bracket in table.brackets:
+        assert (bracket.source, bracket.as_of) == (RATINGS_URL, date(2026, 1, 1)), bracket
+
+
+def test_repo_probabilities_cite_table_5() -> None:
+    table = load_default_spreads(REPO_FILE)
+    for rating, row in table.probabilities.items():
+        assert (row.source, row.as_of) == (PAPER_URL, date(2009, 6, 1)), rating
+
+
+def test_repo_header_carries_verified_line() -> None:
+    pattern = re.compile(
+        r"^# verified: (\d{4}-\d{2}-\d{2}), every row checked against its source on (\S.*) \(#213\)$"
+    )
+    lines = REPO_FILE.read_text(encoding="utf-8").splitlines()
+    matches = [m for m in map(pattern.match, lines) if m]
+    assert len(matches) == 1, f"expected one '# verified:' line, found {len(matches)}"
+    date.fromisoformat(matches[0].group(1))
 
 
 def test_settings_default_spreads_path_default_and_override(
