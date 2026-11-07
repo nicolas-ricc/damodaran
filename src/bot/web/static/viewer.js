@@ -34,6 +34,7 @@
       var link = row.querySelector("td.ticker a");
       var on = !!link && link.textContent.trim() === ticker;
       row.classList.toggle("selected", on);
+      row.classList.toggle("bg-base-300", on);
       if (link) {
         if (on) link.setAttribute("aria-current", "true");
         else link.removeAttribute("aria-current");

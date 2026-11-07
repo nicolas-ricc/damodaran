@@ -22,9 +22,9 @@
     </pattern>
   </defs>
 </svg>
-<header class="bar">
-  <a class="brand back" href="{{ base_url }}index.html" aria-label="Analyses, all companies">Analyses</a>
-  {% if total %}<p class="note"><span class="num">{{ total }}</span> {{ "company" if total == 1 else "companies" }}</p>{% endif %}
+<header class="navbar">
+  <div class="navbar-start"><a class="brand" href="{{ base_url }}index.html" aria-label="Analyses, all companies">Analyses</a></div>
+  <div class="navbar-end">{% if total %}<span class="badge badge-ghost"><span class="num">{{ total }}</span> {{ "company" if total == 1 else "companies" }}</span>{% endif %}</div>
 </header>
 <p id="announce" class="sr" aria-live="polite"></p>
 {% block content %}{% endblock %}

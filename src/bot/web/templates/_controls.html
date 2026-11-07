@@ -9,9 +9,9 @@
 
 {% macro filter_nav(oob) %}
 {% set f, s, d = active %}
-<nav id="filter" aria-label="Verdict"{% if oob %} hx-swap-oob="true"{% endif %}>
+<nav id="filter" class="join" aria-label="Verdict"{% if oob %} hx-swap-oob="true"{% endif %}>
   {% for v in filter_order %}
-  <a href="{{ list_href(v, s, d) }}" hx-get="{{ rows_href(v, s, d) }}" hx-target="#rows" hx-swap="outerHTML" hx-indicator="#rows"{% if v == f %} aria-current="page"{% endif %}>{% if v != "all" %}{{ verdict_mark(v, decorative=True) }} {% endif %}{{ filter_label[v] }} <span class="num">{{ counts[v] }}</span></a>
+  <a class="btn btn-sm join-item{% if v == f %} btn-active{% endif %}" href="{{ list_href(v, s, d) }}" hx-get="{{ rows_href(v, s, d) }}" hx-target="#rows" hx-swap="outerHTML" hx-indicator="#rows"{% if v == f %} aria-current="page"{% endif %}>{% if v != "all" %}{{ verdict_mark(v, decorative=True) }} {% endif %}{{ filter_label[v] }} <span class="badge badge-sm badge-ghost num">{{ counts[v] }}</span></a>
   {% endfor %}
 </nav>
 {% endmacro %}
@@ -39,7 +39,7 @@
 {% endmacro %}
 
 {% macro count(oob) %}
-<output id="count" aria-live="polite"{% if oob %} hx-swap-oob="true"{% endif %}>{{ rows|length }} of {{ total }}</output>
+<output id="count" class="badge badge-neutral num" aria-live="polite" data-total="{{ total }}"{% if oob %} hx-swap-oob="true"{% endif %}>{{ rows|length }} of {{ total }}</output>
 {% endmacro %}
 
 {% macro empty_detail(oob) %}
