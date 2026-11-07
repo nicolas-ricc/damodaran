@@ -259,3 +259,29 @@ def test_bad_ending_cash_raises() -> None:
     cash = '<CashReportCurrency accountId="U1" currency="USD" endingCash="x" levelOfDetail="Currency" />'
     with pytest.raises(FlexError, match="endingCash"):
         parse_statement(_doc(_stmt(cash=cash)), tz=NY)
+
+
+def test_rows_without_account_take_the_statement_account() -> None:
+    # A query may leave accountId out of a section (the issue's Cash Report list
+    # does): the row belongs to its enclosing statement, never to no account.
+    position = _pos("U1").replace('accountId="U1" ', "")
+    trade = _trade().replace('accountId="U1" ', "")
+    cash = '<CashReportCurrency currency="USD" endingCash="10" levelOfDetail="Currency" />'
+    result = parse_statement(_doc(_stmt("U1", positions=position, cash=cash, trades=trade)), tz=NY)
+    assert [p.account for p in result.positions] == ["U1"]
+    assert result.cash == [CashBalance("U1", "USD", 10.0)]
+    assert [t.account for t in result.trades] == ["U1"]
+
+
+def test_row_without_any_account_raises() -> None:
+    position = _pos("U1").replace('accountId="U1" ', "")
+    xml = _doc(_stmt("U1", positions=position).replace('accountId="U1" ', ""))
+    with pytest.raises(FlexError, match="accountId"):
+        parse_statement(xml, tz=NY)
+
+
+def test_accounts_include_row_accounts() -> None:
+    # A consolidated statement header may carry another id than its rows.
+    result = parse_statement(_doc(_stmt("F1", positions=_pos("U1"))), tz=NY)
+    assert result.accounts == ["F1", "U1"]
+    assert [p.account for p in result.positions] == ["U1"]

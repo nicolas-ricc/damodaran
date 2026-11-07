@@ -557,3 +557,31 @@ def test_redaction_fakes_unlisted_money_columns_and_keeps_identifiers() -> None:
     ):
         assert pos.get(key) == value
     assert trade.get("ibExecID") == "0000e0d5.66e6c1a1.01.01"
+
+
+def test_redaction_hides_which_instruments_are_held_or_traded(sample: str, redacted: str) -> None:
+    # The repo is public: positions and fills must not reveal the book (#256).
+    # Corporate-action rows keep their real identity, which #111 needs.
+    def rows(xml: str, section: str) -> list[ET.Element]:
+        return [el for s in ET.fromstring(xml).iter(section) for el in s.iter() if el is not s]
+
+    real = {"AAPL", "TSLA", "KO", "265598", "76792991", "8894"}
+    for section in ("OpenPositions", "Trades"):
+        for el in rows(redacted, section):
+            for key in ("symbol", "conid", "isin", "cusip", "figi", "securityID", "description"):
+                assert el.get(key, "") not in real or el.get(key, "") == "", (section, key, el.attrib)
+    positions = rows(redacted, "OpenPositions")
+    trades = [el for el in rows(redacted, "Trades") if el.tag == "Trade"]
+    # One pseudonym per instrument, shared across sections, so rows still line up.
+    assert positions[0].get("symbol") == positions[1].get("symbol") == trades[0].get("symbol")
+    assert positions[0].get("conid") == trades[0].get("conid")
+    assert positions[0].get("symbol") != positions[2].get("symbol")
+    assert {el.get("symbol") for el in ET.fromstring(redacted).iter("CorporateAction")} >= {"AAPL"}
+
+
+def test_redacted_statement_still_parses(redacted: str) -> None:
+    from bot.ingest.ibkr_flex import parse_statement
+
+    parsed = parse_statement(redacted, tz=NY)
+    assert len(parsed.positions) == 3 and len(parsed.trades) == 2
+    assert all(p.con_id > 0 for p in parsed.positions)

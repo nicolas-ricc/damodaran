@@ -213,8 +213,10 @@ warning. Snapshots stored before this change are keyed on the run day; there is 
      types, and what the parser parsed or skipped.
 
    The cassette and the redacted XML are safe to commit: the token is scrubbed and
-   account ids and amounts are redacted. They still show which symbols you held and
-   their corporate actions over the window. The JSON summary is also printed; paste it
+   account ids and every numeric column are redacted, and open positions and trades
+   carry pseudonyms (`SYM1`, conid `1`, ...) instead of their instruments. The repository
+   is public, and corporate-action and cash-transaction rows still show their real
+   symbols over the window: review the redacted XML before you commit it. The JSON summary is also printed; paste it
    into the #111 findings. The raw statement is never written. The command exits 2
    when `BOT_IBKR_FLEX_TOKEN` or `BOT_IBKR_FLEX_QUERY_ID` is missing, and 1 when the
    Flex service fails, the token would leak into the cassette, the query lacks Open

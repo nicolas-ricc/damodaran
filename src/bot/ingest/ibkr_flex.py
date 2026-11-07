@@ -260,13 +260,21 @@ def _trade_time(el: ET.Element, tz: ZoneInfo) -> datetime:
     return local.astimezone(UTC)
 
 
-def _position(el: ET.Element) -> PortfolioPosition:
+def _row_account(el: ET.Element, statement_account: str) -> str:
+    """The row's ``accountId``, else its enclosing statement's; never empty."""
+    account = _attr(el, "accountId") or statement_account
+    if not account:
+        raise FlexError(f"Flex {_describe(el)}: no accountId on the row or its FlexStatement")
+    return account
+
+
+def _position(el: ET.Element, account: str) -> PortfolioPosition:
     try:
         con_id = int(_attr(el, "conid"))
     except ValueError:
         raise FlexError(f"Flex {_describe(el)}: conid {_attr(el, 'conid')!r} is not an integer") from None
     return PortfolioPosition(
-        account=_attr(el, "accountId"),
+        account=account,
         con_id=con_id,
         symbol=_attr(el, "symbol"),
         sec_type=_attr(el, "assetCategory"),
@@ -277,9 +285,9 @@ def _position(el: ET.Element) -> PortfolioPosition:
     )
 
 
-def _trade(el: ET.Element, tz: ZoneInfo) -> TradeExecution:
+def _trade(el: ET.Element, account: str, tz: ZoneInfo) -> TradeExecution:
     return TradeExecution(
-        account=_attr(el, "accountId"),
+        account=account,
         exec_id=_attr(el, "ibExecID"),
         con_id=_int_or_zero(el, "conid"),
         symbol=_attr(el, "symbol"),
@@ -317,25 +325,30 @@ def parse_statement(xml: str, *, tz: ZoneInfo) -> FlexStatement:
     accounts: list[str] = []
     report_dates: list[date] = []
     to_dates: list[date] = []
-    for statement in root.iter("FlexStatement"):
-        account = _attr(statement, "accountId")
+
+    def add_account(account: str) -> str:
         if account and account not in accounts:
             accounts.append(account)
+        return account
+
+    for statement in root.iter("FlexStatement"):
+        statement_account = add_account(_attr(statement, "accountId"))
         if (to_date := _optional_date(statement, "toDate")) is not None:
             to_dates.append(to_date)
         for el in _section(statement, "OpenPositions").iter("OpenPosition"):
             if _attr(el, "levelOfDetail") not in ("", "SUMMARY"):
                 continue
-            positions.append(_position(el))
+            positions.append(_position(el, add_account(_row_account(el, statement_account))))
             if (report_date := _optional_date(el, "reportDate")) is not None:
                 report_dates.append(report_date)
         for el in _section(statement, "CashReport").iter("CashReportCurrency"):
             if _attr(el, "levelOfDetail") != "Currency" or _attr(el, "currency") == "BASE_SUMMARY":
                 continue
-            cash.append(CashBalance(_attr(el, "accountId"), _attr(el, "currency"), _number(el, "endingCash")))
+            account = add_account(_row_account(el, statement_account))
+            cash.append(CashBalance(account, _attr(el, "currency"), _number(el, "endingCash")))
         for el in _section(statement, "Trades").iter("Trade"):
             if _attr(el, "levelOfDetail") == "EXECUTION":
-                trades.append(_trade(el, tz))
+                trades.append(_trade(el, add_account(_row_account(el, statement_account)), tz))
     candidates = report_dates or to_dates
     if not candidates:
         raise FlexError("Flex statement has no OpenPosition reportDate or FlexStatement toDate to date it")

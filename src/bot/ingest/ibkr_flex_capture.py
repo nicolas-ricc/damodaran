@@ -44,8 +44,9 @@ REDACTED_ACCOUNT = "U0000000"
 _HEADER_COMMENT = (
     "Redacted real statement captured by bot flex-capture for #110. Account ids and "
     "every numeric column are fakes (a placeholder account id; numbers keep only "
-    "sign and shape). Symbols, conids, isins, ids, dates, types and "
-    "descriptions are real."
+    "sign and shape). Open positions and trades carry pseudonyms (SYM1, conid 1, ...) "
+    "instead of their instruments. Corporate-action and cash-transaction symbols, "
+    "conids, isins, ids, dates, types and descriptions are real."
 )
 # Allow-list redaction: every attribute holding a number is faked, except these
 # identifiers and dates (and names ending in Date or ID), which stay real.
@@ -113,9 +114,34 @@ def _fake_number(value: str) -> str:
     return f"{sign}0.1{'0' * (decimals - 1)}"
 
 
+# Sections whose rows would reveal the book: their instruments get pseudonyms.
+_PSEUDONYM_SECTIONS = ("OpenPositions", "Trades")
+_IDENTITY_ATTRS = ("isin", "cusip", "figi", "securityID", "description", "underlyingSymbol")
+
+
+def _pseudonymize(root: ET.Element) -> None:
+    """Replace held and traded instruments by ``SYM<n>`` / conid ``<n>``, one per instrument."""
+    numbers: dict[str, int] = {}
+    for name in _PSEUDONYM_SECTIONS:
+        for section in root.iter(name):
+            for el in section.iter():
+                if el is section or not ("symbol" in el.attrib or "conid" in el.attrib):
+                    continue
+                key = el.get("conid") or el.get("symbol") or ""
+                n = numbers.setdefault(key, len(numbers) + 1)
+                if "symbol" in el.attrib:
+                    el.set("symbol", f"SYM{n}")
+                if "conid" in el.attrib:
+                    el.set("conid", str(n))
+                for attr in _IDENTITY_ATTRS:
+                    if attr in el.attrib:
+                        el.set(attr, "")
+
+
 def redact_statement(xml: str) -> str:
-    """Return the statement with account ids and money columns faked."""
+    """Return the statement with account ids, money columns and held instruments faked."""
     root = _flex_root(xml)
+    _pseudonymize(root)
     for el in root.iter():
         if "accountId" in el.attrib:
             el.set("accountId", REDACTED_ACCOUNT)

@@ -216,6 +216,8 @@ CREATE TABLE IF NOT EXISTS cash_balances (
 -- Calendar Days): a gap between runs longer than that loses the fills in
 -- between unless the period is widened once; exec_id dedupe absorbs the
 -- overlap. Flex `dateTime` is in BOT_IBKR_FLEX_TZ and is converted to UTC.
+-- `qty` is Flex's signed `quantity` (a SELL is negative); rows stored before
+-- #256 by the TWS socket hold unsigned shares. `side` gives the direction for both.
 CREATE TABLE IF NOT EXISTS trades (
     exec_id         VARCHAR PRIMARY KEY,
     account         VARCHAR NOT NULL,
