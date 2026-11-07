@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="synthwave">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,6 +7,8 @@
 <title>{% block title %}{% endblock %}</title>
 <link rel="preload" href="{{ base_url }}static/fonts/switzer-400.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="{{ base_url }}static/fonts/geist-mono-400.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="{{ base_url }}static/daisyui.css">
+<link rel="stylesheet" href="{{ base_url }}static/theme.css">
 <link rel="stylesheet" href="{{ base_url }}static/app.css">
 <script src="{{ base_url }}static/htmx.min.js" defer></script>
 <script src="{{ base_url }}static/viewer.js" defer></script>
@@ -16,7 +18,7 @@
   <defs>
     {# the overvalued glyph is hatched as well as coloured, so it survives greyscale #}
     <pattern id="hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-      <line x1="0" y1="0" x2="0" y2="4" stroke="var(--color-over)" stroke-width="1.4"/>
+      <line x1="0" y1="0" x2="0" y2="4" stroke="var(--color-error)" stroke-width="1.4"/>
     </pattern>
   </defs>
 </svg>
