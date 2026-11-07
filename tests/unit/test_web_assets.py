@@ -103,3 +103,17 @@ def test_hand_drawn_controls_are_gone() -> None:
         ".list { display: table;",
     ):
         assert kept in css, kept
+
+
+def test_list_pane_rules_restore_what_daisyui_overrides() -> None:
+    # Each rule answers a DaisyUI default measured in the browser (issue #259 review).
+    css = (_STATIC / "app.css").read_text()
+    for rule in (
+        ".flags .badge .glyph { stroke: currentColor; }",
+        ".flags .badge .mark { width: 0.75rem; height: 0.75rem; }",
+        ".flags .badge + .badge { margin-left: 2px; }",
+        ".list tbody tr { font-size: inherit; }",
+        ".history { gap: var(--space-2xs) var(--space-sm); font-family: var(--font-mono); }",
+        "#filter .btn-active { color: var(--color-primary); border-bottom-color: var(--color-primary); }",
+    ):
+        assert rule in css, rule

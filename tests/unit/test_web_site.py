@@ -355,9 +355,6 @@ def test_flags_are_badges_by_tone(reports: Path, tmp_path: Path) -> None:
     assert '<span class="badge badge-xs badge-error" title="fail: ' in rows
     for path in _html_files(out):
         assert "badge-info" not in path.read_text(), path.name
-    css = (Path(__file__).resolve().parents[2] / "src/bot/web/static/app.css").read_text()
-    assert ".flags .badge .glyph { stroke: currentColor; }" in css
-    assert ".flags .badge .mark { width: 0.75rem; height: 0.75rem; }" in css
 
     # rows keep only red and yellow flags, so a yellow one stands in for a second tone
     yellow = tmp_path / "yellow"

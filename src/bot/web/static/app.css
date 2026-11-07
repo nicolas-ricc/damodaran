@@ -70,11 +70,13 @@ body.page-detail .list-pane { display: none; }
 .list-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-xs) var(--space-md); margin-bottom: var(--space-lg); }
 #filter, .history { display: flex; flex-wrap: wrap; max-width: 100%; font-size: var(--text-sm); }
 #filter .mark { width: 0.9rem; height: 0.9rem; }
+#filter .btn-active { color: var(--color-primary); border-bottom-color: var(--color-primary); }
 #rows { transition: opacity var(--dur-micro) var(--ease-out); }
 #rows.htmx-request { opacity: 0.6; }
 
 table { border-collapse: collapse; width: 100%; }
 .list { display: table; font-size: var(--text-sm); }
+.list tbody tr { font-size: inherit; }
 .list th, .list td { padding: var(--space-xs); text-align: left; vertical-align: middle; border-bottom: var(--rule-hair) solid var(--rule-faint); }
 .list th:first-child, .list td:first-child { padding-left: var(--space-md); }
 .list th:last-child, .list td:last-child { padding-right: 0; }
@@ -102,6 +104,7 @@ table { border-collapse: collapse; width: 100%; }
 .flags .badge { padding-inline: 1px; }
 .flags .badge .glyph { stroke: currentColor; }
 .flags .badge .mark { width: 0.75rem; height: 0.75rem; }
+.flags .badge + .badge { margin-left: 2px; }
 .mark { display: inline-block; width: 1rem; height: 1rem; vertical-align: -0.15em; }
 .value-line.mini { display: inline-block; width: 5.5rem; height: 1rem; vertical-align: middle; margin-left: var(--space-xs); overflow: visible; }
 .list td[data-label]::before { display: none; }
@@ -152,7 +155,7 @@ table { border-collapse: collapse; width: 100%; }
 .detail-head h1 { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2xs) var(--space-md); }
 .big-ticker { font-size: var(--text-3xl); }
 .co-name { font-size: var(--text-lg); font-weight: 400; letter-spacing: 0; color: var(--color-base-content); }
-.history { font-family: var(--font-mono); }
+.history { gap: var(--space-2xs) var(--space-sm); font-family: var(--font-mono); }
 .history a { font-weight: 400; color: var(--ink-soft); }
 
 .instrument { position: relative; background: var(--color-base-200); padding: var(--space-lg); }
