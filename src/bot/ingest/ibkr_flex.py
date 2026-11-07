@@ -18,6 +18,7 @@ Follows the ingest convention: download (:class:`FlexClient`) -> parse
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 import xml.etree.ElementTree as ET
@@ -212,15 +213,30 @@ _TRADE_TIME_FORMAT = "%Y%m%d;%H%M%S"
 
 
 def _describe(el: ET.Element) -> str:
-    return f"<{el.tag} {_attr(el, 'accountId')} {_attr(el, 'symbol') or _attr(el, 'currency')}>".replace("  ", " ")
+    parts = (el.tag, _attr(el, "accountId"), _attr(el, "symbol") or _attr(el, "currency"))
+    return "<" + " ".join(filter(None, parts)) + ">"
 
 
 def _number(el: ET.Element, name: str) -> float:
     raw = _attr(el, name)
     try:
-        return float(raw)
+        value = float(raw)
     except ValueError:
-        raise FlexError(f"Flex {_describe(el)}: {name} {raw!r} is not a number") from None
+        value = math.nan
+    if not math.isfinite(value):
+        raise FlexError(f"Flex {_describe(el)}: {name} {raw!r} is not a number")
+    return value
+
+
+def _optional_date(el: ET.Element, name: str) -> date | None:
+    """Date of *name*; ``None`` when absent or empty, :class:`FlexError` when unparseable."""
+    raw = _attr(el, name)
+    if not raw:
+        return None
+    parsed = _flex_date(raw)
+    if parsed is None:
+        raise FlexError(f"Flex {_describe(el)}: {name} {raw!r} is not yyyyMMdd")
+    return parsed
 
 
 def _int_or_zero(el: ET.Element, name: str) -> int:
@@ -303,13 +319,13 @@ def parse_statement(xml: str, *, tz: ZoneInfo) -> FlexStatement:
         account = _attr(statement, "accountId")
         if account and account not in accounts:
             accounts.append(account)
-        if (to_date := _flex_date(_attr(statement, "toDate"))) is not None:
+        if (to_date := _optional_date(statement, "toDate")) is not None:
             to_dates.append(to_date)
         for el in _section(statement, "OpenPositions").iter("OpenPosition"):
             if _attr(el, "levelOfDetail") not in ("", "SUMMARY"):
                 continue
             positions.append(_position(el))
-            if (report_date := _flex_date(_attr(el, "reportDate"))) is not None:
+            if (report_date := _optional_date(el, "reportDate")) is not None:
                 report_dates.append(report_date)
         for el in _section(statement, "CashReport").iter("CashReportCurrency"):
             if _attr(el, "levelOfDetail") != "Currency" or _attr(el, "currency") == "BASE_SUMMARY":

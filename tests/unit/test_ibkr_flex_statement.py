@@ -159,8 +159,8 @@ def test_empty_open_positions_is_flat_book() -> None:
 
 def test_as_of_is_max_report_date() -> None:
     xml = _doc(
-        _stmt("U1", positions=_pos("U1", report="20261105")),
-        _stmt("U2", positions=_pos("U2", "KO", report="20261106")),
+        _stmt("U1", positions=_pos("U1", report="20261105"), to_date="20261110"),
+        _stmt("U2", positions=_pos("U2", "KO", report="20261106"), to_date="20261110"),
         _stmt("U3", to_date="20261101"),
     )
     assert parse_statement(xml, tz=NY).as_of == date(2026, 11, 6)
@@ -224,3 +224,38 @@ def test_fixture_parses() -> None:
         ("AAPL", "BUY", 100.0, 150.25, datetime(2026, 9, 15, 13, 35, tzinfo=UTC), 1234567890),
         ("TSLA", "SELL", -20.0, 240.0, datetime(2026, 9, 29, 19, 30, tzinfo=UTC), 1234567891),
     ]
+
+
+@pytest.mark.parametrize("field", ["reportDate", "toDate"])
+def test_unparseable_date_raises(field: str) -> None:
+    if field == "reportDate":
+        xml = _doc(_stmt(positions=_pos(report="2026-11-06")))
+    else:
+        xml = _doc(_stmt(positions=_pos(), to_date="soon"))
+    with pytest.raises(FlexError, match=field):
+        parse_statement(xml, tz=NY)
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-inf"])
+def test_non_finite_number_raises(value: str) -> None:
+    with pytest.raises(FlexError, match="position"):
+        parse_statement(_doc(_stmt(positions=_pos(position=value))), tz=NY)
+
+
+def test_empty_trade_conid_is_zero() -> None:
+    trade = _trade().replace('conid="265598"', 'conid=""')
+    assert parse_statement(_doc(_stmt(trades=trade)), tz=NY).trades[0].con_id == 0
+
+
+@pytest.mark.parametrize("field", ["quantity", "tradePrice"])
+def test_bad_trade_number_raises(field: str) -> None:
+    trade = _trade()
+    trade = trade.replace(f'{field}="10"', f'{field}=""').replace(f'{field}="171.5"', f'{field}=""')
+    with pytest.raises(FlexError, match=field):
+        parse_statement(_doc(_stmt(trades=trade)), tz=NY)
+
+
+def test_bad_ending_cash_raises() -> None:
+    cash = '<CashReportCurrency accountId="U1" currency="USD" endingCash="x" levelOfDetail="Currency" />'
+    with pytest.raises(FlexError, match="endingCash"):
+        parse_statement(_doc(_stmt(cash=cash)), tz=NY)
