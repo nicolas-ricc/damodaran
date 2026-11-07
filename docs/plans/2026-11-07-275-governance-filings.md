@@ -27,17 +27,31 @@
 
 - Missing or short parallel arrays: `form`, `filingDate`, `accessionNumber`, `items` are walked by index over `form`; a missing index in any other array reads as `None` (so a payload without `items`, or with a shorter one, means "no items"). Rejected: `zip(strict=False)` over all four, which would silently drop every entry when `items` is absent.
 - A JSON `null` in `items` is the same as `""`.
+- Grouping (reconciles decision 2 with the acceptance criterion "two 8-K entries on the same date with items `"4.01"` and `"9.01"` yield one row with items `"4.01,9.01"`"): entries are grouped by `(form, filingDate)`; a group is stored only when at least one of its entries is an auditor change or a late filing; its items are the union over every entry of the group (the row stands for all filings of that form on that day, as the primary key does); its accession number is that of the first governance entry in payload order. Rejected: merging only governance entries, which yields `"4.01"` and fails the criterion; storing the first entry's accession even when it is not a governance filing.
+- Duplicate accession numbers in `filings.recent` get no special handling: they fall into the same `(form, filingDate)` group. An `8-K` and an `8-K/A` on one day are two rows (different `filing_type`, different primary key).
+- A `form` array longer than `filingDate` gives entries without a date, which `coerce_date` drops; a missing `accessionNumber` is stored as `NULL` (the column is nullable).
 - Merged item tokens: stripped, empties dropped, sorted by plain string order (`"4.01" < "9.01"`), comma-joined with no spaces; when the merged set is empty the row's `items` is `None`. A single kept entry is normalised the same way (so `" 4.01 , 9.01"` is stored as `"4.01,9.01"`).
 - The row keeps the date string as given in the payload (the issue says "ISO string as given"); `coerce_date` is only the drop filter.
 - `fundamentals` calls `self._submissions(sym)` once (it is cached, and `lookup_company` reads the same cache), so no extra HTTP request.
 
 ## Review Focus
 
-1. Payload with `items` shorter than `form` (EDGAR has historically trimmed arrays): the trailing entries count as "no items" rather than raising or being skipped. Pinned in Task 1 (`test_governance_filings_tolerates_short_items_array`).
+1. Payload with `items` shorter than `form` (a defensive read; no source says EDGAR does this): the trailing entries count as "no items" rather than raising or being skipped. Pinned in Task 1 (`test_governance_filings_tolerates_short_items_array`).
 2. `items` holding JSON `null` for an NT entry: the NT row is kept with `items is None`. Pinned in Task 1 (`test_governance_filings_null_items_is_no_items`).
-3. A facts-derived `8-K` row and a submissions `8-K` row with the same key in one bundle: after `import_company`, the stored row carries the items. Pinned in Task 3 by the import test (the facts fixture has no 8-K, so the order is pinned by Task 2's two-order upsert test).
+3. A facts-derived `8-K` row and a submissions `8-K` row with the same key in one bundle: after `import_company`, the stored row carries the items. Pinned by Task 2's two-order upsert test (no fixture holds both; the provider fixture's facts carry only a 10-K) and by Task 3's assertion that facts rows come first in `bundle.filings`.
 4. A ticker that already has the governance rows stored: re-importing keeps `fetched_at`, so no spurious `new_filing` event. Pinned in Task 2 (`fetched_at` asserted in both orders).
 5. An unparseable `filingDate` on an otherwise matching NT entry: dropped, and it does not move the watermark. Pinned in Task 1 (`test_governance_filings_drops_unparseable_dates`).
+
+## Acceptance criteria and decisions → tasks
+
+| Issue item | Task |
+|---|---|
+| AC 1 (fixture rows), AC 2 (no `items`, token matching, merge), AC 3 (watermark); decisions 1, 2, 5, 6 | Task 1 |
+| AC 4 (schema fresh + legacy + idempotent), AC 5 (upsert merge, `fetched_at`); decision 3 | Task 2 |
+| AC 6 (providers + `import_company`), AC 7 (untouched suites pass); decision 4 | Task 3 |
+| AC 8 (boards, `check.py`, render, board tests); decision 7 | Task 4 |
+| AC 9 (lint + full suite) | Final |
+| Decision 8 (no change to `bot.portfolio.events`) | Global Constraints; nothing to build |
 
 ---
 
@@ -60,6 +74,7 @@
   - `test_governance_filings_without_items_array_keeps_only_nt_rows`.
   - `test_governance_filings_merges_items_of_same_form_and_date`: two `8-K` on `2026-05-20` with `"4.01"` (accn A) and `"9.01"` (accn B) → one row, items `"4.01,9.01"`, accession A. Also `"9.01"` first and `"4.01"` second → one row (the second is kept because it is an auditor change), items `"4.01,9.01"`, accession of the first *kept* entry.
   - `test_governance_filings_drops_unparseable_dates`, `test_governance_filings_tolerates_short_items_array`, `test_governance_filings_null_items_is_no_items` (Review Focus 1, 2, 5).
+  - `test_every_governance_date_of_the_watermark_is_stored`: on the fixture plus `NT 10-K` `2026-09-15`, `("NT 10-K", "2026-09-15")` is among the governance rows, so the date the watermark reports is the date a stored row carries.
   - `test_latest_filing_date_counts_auditor_changes_and_late_filings`: fixture → `date(2026, 8, 1)`; plus `8-K` `2026-09-01` items `"4.01"` → `date(2026, 9, 1)`; with items `"2.02"` → `date(2026, 8, 1)`; plus `NT 10-K` `2026-09-15` → `date(2026, 9, 15)`.
 
 - [ ] **Step 3: Run** `uv run pytest tests/unit/test_sec_edgar_submissions.py -q` — expected FAIL (ImportError on the new names).
@@ -101,6 +116,7 @@
 - [ ] **Step 1: Write the failing tests**, in each provider module:
   - `test_fundamentals_includes_the_governance_filings`: `{(r["filing_type"], r["filing_date"], r.get("items")) for r in bundle.filings}` ⊇ `{("8-K", "2026-05-20", "4.01,9.01"), ("NT 10-Q", "2026-04-30", None)}`; those rows' `source` is the provider name; the facts row `("10-K", "2025-11-01")` is still first.
   - `test_import_company_stores_the_governance_filings`: `apply_schema` on `:memory:`, `import_company(conn, ticker="AAPL", provider=_provider())`, then the issue's query returns `{("8-K", date(2026, 5, 20), "4.01,9.01"), ("NT 10-Q", date(2026, 4, 30), None)}`.
+  - In `test_edgar_stooq_provider.py` only, `test_refresh_skips_a_ticker_whose_newest_filing_is_a_stored_nt_notice`: a handler wrapping `_edgar_handler` that serves a submissions payload whose only entries are `10-K` `2025-11-01` (matching the facts row) and `NT 10-K` `2026-09-15`; after `import_company`, `latest_local_filing_date(conn, "AAPL", "edgar_stooq") == date(2026, 9, 15)` and `bot.ingest.universe._should_skip("AAPL", date(2026, 9, 15), provider)` is `True`.
 - [ ] **Step 2: Run** both modules — FAIL.
 - [ ] **Step 3: Implement** decision 4: `filings = parsed.filings + governance_filings_from_submissions(sym, submissions)` when `submissions = self._submissions(sym)` is not `None`, built into the `ParsedCompanyData` before `_restamp` (so restamping stays in one place).
 - [ ] **Step 4: Run** both modules plus `tests/unit/test_fmp*.py tests/e2e tests/integration/test_sec_edgar_import.py` — PASS without edits to those.
@@ -120,3 +136,12 @@
 ### Final
 
 - [ ] `uv run ruff check . && uv run mypy src && uv run pytest -q` — green.
+
+## Grilling
+
+- Rounds: 1 (the revision added one test and wording; no task added or removed, no seam changed).
+- Questions: 18. Sources: ISSUE 7, CODE 14, DOC 1 (several answers cite more than one); NO SOURCE 4, all technical assumptions.
+- Assumptions added: the `(form, filingDate)` grouping with items unioned over the group and the first governance accession (reconciles decision 2 with AC 2); duplicate accessions and `8-K`/`8-K/A` handling; missing dates and accessions in short arrays; the "trimmed arrays" claim withdrawn (defensive read only).
+- Plan changes: the AC → task table; the watermark/storage consistency test (Task 1) and the skip-after-import test (Task 3); Review Focus 3 reworded.
+- Spec ambiguities: none. Follow-up issues opened: none.
+- Status: ok.
