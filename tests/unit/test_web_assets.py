@@ -195,3 +195,10 @@ def test_detail_rules_fit_the_instrument() -> None:
         ".assumptions-table { font-size: var(--text-md); }",
     ):
         assert rule in css, rule
+
+
+def test_detail_restores_what_the_stat_and_btn_defaults_override() -> None:
+    # Dates stay mono (docs/DESIGN.md); Geist Mono ships 400 only, so .btn's 600 would be synthesised.
+    css = (_STATIC / "app.css").read_text()
+    assert ".facts time { font-family: var(--font-mono); }" in css
+    assert ".history .btn { font-weight: 400; }" in css

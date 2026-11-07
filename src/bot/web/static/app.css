@@ -160,6 +160,7 @@ table { border-collapse: collapse; width: 100%; }
 .big-ticker { font-size: var(--text-3xl); }
 .co-name { font-size: var(--text-lg); font-weight: 400; letter-spacing: 0; color: var(--color-base-content); }
 .history { font-family: var(--font-mono); }
+.history .btn { font-weight: 400; }
 
 .instrument { position: relative; background: var(--color-base-200); padding: var(--space-lg); }
 #detail .instrument { margin-top: var(--space-xl); }
@@ -175,6 +176,7 @@ table { border-collapse: collapse; width: 100%; }
 .facts .stat-value.num { font-size: var(--text-xl); }
 .facts .stat-value.word { font-size: var(--text-lg); }
 .facts .lead-figure .stat-value { font-size: var(--text-3xl); }
+.facts time { font-family: var(--font-mono); }
 @container (max-width: 44rem) {
   .facts.stats { grid-auto-flow: row; }
   .facts.stats .stat:not(:last-child) { border-inline-end: none; border-block-end: var(--border) dashed var(--rule-faint); }
