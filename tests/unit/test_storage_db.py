@@ -1,6 +1,5 @@
 import re
 from importlib import resources
-from typing import Any
 
 import duckdb
 import pytest
@@ -12,6 +11,7 @@ from bot.ingest.sec_edgar import (
     upsert_financials_quarterly,
 )
 from bot.storage.db import _count_create_tables, apply_schema, connect, schema_table_count
+from tests.unit.test_sec_edgar_parser import _fact, _facts
 
 # ``financials_annual`` as schema.sql created it before #278 (no ``acquisitions``).
 _LEGACY_FINANCIALS_ANNUAL_DDL = """
@@ -217,38 +217,16 @@ def test_apply_schema_adds_acquisitions_to_a_legacy_financials_annual() -> None:
     ).fetchall() == [("AAPL", 2024, 1.0, None)]
 
 
-def _edgar_fact(end: str, start: str, val: float, form: str = "10-K") -> dict[str, Any]:
-    fp = "FY" if form == "10-K" else "Q1"
-    return {
-        "start": start,
-        "end": end,
-        "val": val,
-        "accn": "0000063908-26-000010",
-        "fy": int(end[:4]),
-        "fp": fp,
-        "form": form,
-        "filed": f"{int(end[:4]) + 1}-02-20" if form == "10-K" else end[:4] + "-05-01",
-    }
-
-
-def _edgar_facts(concepts: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
-    return {
-        "cik": 63908,
-        "entityName": "McDonald's Corp",
-        "facts": {"us-gaap": {k: {"units": {"USD": v}} for k, v in concepts.items()}},
-    }
-
-
 @pytest.mark.parametrize("kind", ["fresh", "migrated"])
 def test_edgar_acquisitions_round_trip(kind: str) -> None:
-    facts = _edgar_facts(
+    facts = _facts(
         {
             "Revenues": [
-                _edgar_fact("2024-12-31", "2024-01-01", 25_920_000_000),
-                _edgar_fact("2025-12-31", "2025-01-01", 26_885_000_000),
+                _fact("2024-12-31", 25_920_000_000, start="2024-01-01"),
+                _fact("2025-12-31", 26_885_000_000, start="2025-01-01"),
             ],
             "PaymentsToAcquireBusinessesNetOfCashAcquired": [
-                _edgar_fact("2025-12-31", "2025-01-01", 1_500_000_000)
+                _fact("2025-12-31", 1_500_000_000, start="2025-01-01")
             ],
         }
     )
@@ -260,11 +238,27 @@ def test_edgar_acquisitions_round_trip(kind: str) -> None:
 
 
 def test_a_10q_acquisitions_fact_never_reaches_financials_quarterly() -> None:
-    facts = _edgar_facts(
+    facts = _facts(
         {
-            "Revenues": [_edgar_fact("2025-03-31", "2025-01-01", 6_000_000_000, form="10-Q")],
+            "Revenues": [
+                _fact(
+                    "2025-03-31",
+                    6_000_000_000,
+                    start="2025-01-01",
+                    form="10-Q",
+                    fp="Q1",
+                    filed="2025-05-01",
+                )
+            ],
             "PaymentsToAcquireBusinessesNetOfCashAcquired": [
-                _edgar_fact("2025-03-31", "2025-01-01", 400_000_000, form="10-Q")
+                _fact(
+                    "2025-03-31",
+                    400_000_000,
+                    start="2025-01-01",
+                    form="10-Q",
+                    fp="Q1",
+                    filed="2025-05-01",
+                )
             ],
         }
     )

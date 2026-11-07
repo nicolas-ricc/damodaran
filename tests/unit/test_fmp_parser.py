@@ -11,6 +11,7 @@ and SYNTHETIC. No live calls; values are fabricated, not real filings.
 
 from __future__ import annotations
 
+import math
 from datetime import date
 from typing import Any
 
@@ -731,3 +732,10 @@ def test_parse_without_acquisitions_net_yields_no_acquisitions(fields: dict[str,
     )
     by_year = {r["fiscal_year"]: r for r in result.annual}
     assert by_year[2023].get("acquisitions") is None
+
+
+def test_parse_stores_zero_acquisitions_net_as_positive_zero() -> None:
+    result = parse_fmp_fundamentals("AAPL", [], [], _fy2023_cashflow(acquisitionsNet=0))
+    value = {r["fiscal_year"]: r for r in result.annual}[2023]["acquisitions"]
+    assert value == 0.0
+    assert math.copysign(1.0, value) == 1.0

@@ -538,9 +538,10 @@ def parse_fmp_fundamentals(
             row["capex"] = abs(capex_signed)
 
         # acquisitions: FMP reports acquisitionsNet as a negative outflow. Store it
-        # positive like capex, so a net divestiture comes out negative.
+        # positive like capex, so a net divestiture comes out negative (0.0 - x keeps
+        # a zero from becoming -0.0).
         if row.get("acquisitions") is not None:
-            row["acquisitions"] = -float(row["acquisitions"])
+            row["acquisitions"] = 0.0 - float(row["acquisitions"])
 
         # working_capital = total current assets - total current liabilities.
         wc = _working_capital(raw)
