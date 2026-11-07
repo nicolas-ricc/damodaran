@@ -46,10 +46,9 @@
 
 - [ ] **Step 1: Write the failing tests** in `tests/unit/test_web_theme.py`:
   - `test_vendored_daisyui_matches_the_script_pin`: `hashlib.sha256(daisyui.css bytes).hexdigest() == _pins()["SHA256"]`; the first line of the file contains `f"daisyUI {_pins()['VERSION']}"`; `VERSIONS` text contains `f"daisyui {_pins()['VERSION']} (MIT License) https://daisyui.com"`.
-  - `test_script_pins_are_the_issue_values`: `_pins() == {"VERSION": "5.7.50", "SHA256": "6a2cf91a0e9a7da09cf8109c45c3fae171e8967122576043f2b94da47fdf6b64"}`.
   - `test_daisyui_css_fetches_nothing_remote`: the text contains no `@import`, and `re.search(r"url\(\s*['\"]?https?:", css)` is `None`.
   - In `tests/integration/test_scripts.py`, add `"vendor_daisyui.sh"` to `SCRIPTS`. That gives the existing executable + shellcheck test.
-  - In `tests/integration/test_vendor_daisyui.py`, `test_mismatched_download_writes_nothing(tmp_path)`. Put a fake `curl` on `PATH` that writes `b"not daisyui"` to the path after its `-o` argument. Set `DAISYUI_OUT=tmp_path/"daisyui.css"`, pre-filled with `b"old"`. Run the script and assert: `returncode == 1`; stdout+stderr contains both `6a2cf9…` (the expected hash) and `sha256(b"not daisyui")`; the out file still reads `b"old"`.
+  - In `tests/integration/test_vendor_daisyui.py`, `test_mismatched_download_writes_nothing(tmp_path)`. Put a fake `curl` in a tmp `bin/` **prepended** to the inherited `PATH` (the script still needs the real `sha256sum`, `mktemp`, `cp`, `readlink`); it scans its argv for `-o` writes `b"not daisyui"` to the path after its `-o` argument. Set `DAISYUI_OUT=tmp_path/"daisyui.css"`, pre-filled with `b"old"`. Run the script and assert: `returncode == 1`; stdout+stderr contains both `6a2cf9…` (the expected hash) and `sha256(b"not daisyui")`; the out file still reads `b"old"`.
   - Also `test_matching_download_writes_the_file(tmp_path)`. The fake `curl` copies the committed `daisyui.css` to its `-o` target. Assert exit 0, the out file is byte-identical to the committed file, and stdout contains the out path.
 - [ ] **Step 2: Run them to verify they fail.** Run `uv run pytest tests/unit/test_web_theme.py tests/integration/test_vendor_daisyui.py tests/integration/test_scripts.py -q -k "daisyui or vendor"`. Expected: FAIL (script and file missing).
 - [ ] **Step 3: Write `scripts/vendor_daisyui.sh`.** It uses `set -euo pipefail`. The header comment says that upgrading means editing `DAISYUI_VERSION` and `DAISYUI_SHA256`, running the script, and editing the `VERSIONS` line. It holds the two pins on their own lines, and `VERSION="${1:-$DAISYUI_VERSION}"`. It downloads with `curl -fsSL "https://cdn.jsdelivr.net/npm/daisyui@${VERSION}/daisyui.css" -o "$tmp"`, where `$tmp` comes from `mktemp` with an `EXIT` trap to remove it. It computes `sha256sum "$tmp" | cut -d' ' -f1`. On a mismatch it prints `expected <pin>` and `actual <hash>` to stderr and exits 1. Otherwise it `cp`s the temp file to the output path and prints the path. Run `chmod +x`.
@@ -107,8 +106,8 @@
   --noise: 1
   ```
 - [ ] **Step 2: Run them to verify they fail.** Run `uv run pytest tests/unit/test_web_theme.py tests/unit/test_web_assets.py -q`. Expected: the theme tests FAIL (no `theme.css`, no `data-theme`).
-- [ ] **Step 3: Write `theme.css`.** A two-line comment (the viewer's single theme, from the DaisyUI generator, see `docs/DESIGN.md`), then one block: `[data-theme="synthwave"] {`, `color-scheme: dark;`, the 28 lines as `  --name: value;`, `}`.
-- [ ] **Step 4: Edit `base.html`.** Make `<html lang="en" data-theme="synthwave">`. After the two font preloads, add three `<link rel="stylesheet">` tags for `{{ base_url }}static/daisyui.css`, then `theme.css`, then `app.css`. Set the `#hatch` `<line>` `stroke="var(--color-error)"`.
+- [ ] **Step 3: Write `theme.css`.** A two-line comment containing no URL, since the no-CDN test scans it for `https?://` (the viewer's single theme, from the DaisyUI generator, see `docs/DESIGN.md`), then one block: `[data-theme="synthwave"] {`, `color-scheme: dark;`, the 28 lines as `  --name: value;`, `}`.
+- [ ] **Step 4: Edit `base.html`.** Change `<html lang="en">` (line 2) to `<html lang="en" data-theme="synthwave">`. The existing `app.css` link (line 10) is replaced, not duplicated. After the two font preloads, add three `<link rel="stylesheet">` tags for `{{ base_url }}static/daisyui.css`, then `theme.css`, then `app.css`. Set the `#hatch` `<line>` `stroke="var(--color-error)"`.
 - [ ] **Step 5: Run the Step 2 command.** Expected: PASS.
 - [ ] **Step 6: Commit.** `git commit -m "feat(#258): synthwave theme and DaisyUI stylesheet order"`.
 
@@ -138,4 +137,32 @@
 - [ ] **Step 4: Edit `svg.py`.** Set `_INK = "var(--color-base-content)"`, `_SOFT = "var(--ink-soft)"` and `_INTRINSIC = "var(--color-secondary)"`. Set `_VERDICT_COLOR` to `var(--color-success)`, `var(--color-warning)` and `var(--color-error)`; NA stays `_SOFT`.
 - [ ] **Step 5: Run the Step 2 command, then the full gate.** Run `uv run pytest tests/unit/test_web_assets.py tests/unit/test_web_theme.py tests/unit/test_web_svg.py -q`, then `uv run ruff check . && uv run mypy src && uv run pytest -q`. Expected: all green.
 - [ ] **Step 6: Build and look.** Run `uv run bot site --out /tmp/site --reports-dir reports --base-url /`. Check that `head -15 /tmp/site/index.html` shows the `data-theme` attribute and the three links in order, and that `/tmp/site/static/` lists `daisyui.css` and `theme.css`.
-- [ ] **Step 7: Commit.** `git commit -m "feat(#258): viewer palette reads DaisyUI variables"`.
+- [ ] **Step 7: Render check.** Serve `/tmp/site` with `python3 -m http.server -d /tmp/site 8000` and run the stage-3 browser script `.scratch/evals-258.md`. Expected: the computed `background-color` of `body` is synthwave base-100; the hatch and the verdict glyphs are coloured; the layout matches the pre-change build, with no shape regression from DaisyUI's base reset (see Assumptions). Fix a visible regression with an unlayered rule in `app.css`.
+- [ ] **Step 8: Commit.** `git commit -m "feat(#258): viewer palette reads DaisyUI variables"`.
+
+## Assumptions
+
+These technical decisions were taken during plan review. The issue gives no source for them, and any of the options satisfies it.
+
+1. **`DAISYUI_OUT` env override in the script.** It is a test seam, so the fake-`curl` tests never touch the committed file. Rejected: running the script against the real path inside a temporary copy of the repo, which is heavier for the same coverage.
+2. **No separate test pins the literal issue values.** The issue's criterion is that the file, `VERSIONS` and the script agree with the script's own pins. A second test that hard-codes `5.7.50` would mean an upgrade edits four places instead of three. Rejected: `test_script_pins_are_the_issue_values`.
+3. **DaisyUI's `@layer base` reset is accepted.** The issue says the file has "no preflight", but its `@layer base` carries a minimal reset alongside the themes:
+   - `*{margin:0;padding:0;border:0 solid}`
+   - `h1..h6{font-size:inherit;font-weight:inherit}`
+   - `menu,ol,ul{list-style:none}`
+   - `svg{display:block;vertical-align:middle}`
+   - `:root{background-color:var(--root-bg)}` and a scrollbar colour
+
+   Every viewer element whose shape depends on these (`h1`, `h2`, `.facts dd`, `.flag-list ul`, `.value-axis`, `.totals`, `.mark`, `.dcf summary`) already has an explicit unlayered rule in `app.css`, and that rule wins. The render check (Task 3 Step 7) catches anything missed; a regression is fixed in `app.css`, not by dropping the reset. Rejected: stripping the reset from the vendored file, which would break the byte-for-byte reproduction criterion.
+4. **Precedence is verified in a browser, not only by proxy.** The unit tests check that the block is unlayered and that `data-theme` is present. The stage-3 `agent-browser` script reads the computed `background-color` of `body`, which proves the synthwave values win at render time.
+
+## Grilling
+
+- Rounds: 1. The revisions were local edits, not a new seam, so there was no second round.
+- Questions: 16.
+- Answers by source:
+  - ISSUE: Q1, Q8, Q9, Q10 (the decision text, part of the answer), Q16 (the VERSIONS line, part of the answer).
+  - CODE: Q2 (`site.py:76-78`, `test_web_site.py:49-50`), Q4 (`base.html:10`), Q5, Q6, Q7, Q12, Q14, Q16 (`test_web_assets.py:39`).
+  - DOC: Q15 (AGENTS.md skills list).
+  - NO SOURCE: Q3, Q10 (in part), Q11, Q13. They became technical assumptions 1–4.
+- Spec ambiguities: none. Out of scope: none, so no follow-up issue was opened.
