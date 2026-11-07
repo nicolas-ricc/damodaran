@@ -32,12 +32,20 @@ CREATE TABLE IF NOT EXISTS damodaran_country (
     tax_rate        DOUBLE,
     rating          VARCHAR,
     region          VARCHAR,
+    prs_score       DOUBLE,
+    erp_basis       VARCHAR,
     PRIMARY KEY (country, year)
 );
 
 -- Drops the pre-#109 column from existing DBs (risk-free now comes per currency
 -- from config/currencies.yaml). Idempotent. Rollback: ADD COLUMN risk_free_rate DOUBLE.
 ALTER TABLE damodaran_country DROP COLUMN IF EXISTS risk_free_rate;
+
+-- Adds the #59 ERP provenance columns to existing DBs: prs_score is the PRS
+-- country score, erp_basis says how the row's erp was derived. Idempotent.
+-- Rollback: DROP COLUMN prs_score, DROP COLUMN erp_basis.
+ALTER TABLE damodaran_country ADD COLUMN IF NOT EXISTS prs_score DOUBLE;
+ALTER TABLE damodaran_country ADD COLUMN IF NOT EXISTS erp_basis VARCHAR;
 
 -- Daily FX rates against USD (M2.5). One row per (currency, date).
 -- `rate_to_usd` is the multiplier that converts 1 unit of `currency` into USD:

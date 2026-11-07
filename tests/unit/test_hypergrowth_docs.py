@@ -200,6 +200,15 @@ def test_estado_rows_carry_hypergrowth_evidence() -> None:
     assert "valuator/hypergrowth.py:" in rows["story-uso"][3]
 
 
+def test_estado_da_parse_reads_both_country_tables() -> None:
+    estado = _load("estado")
+    rows = {row[0]: row for _, _, items in estado.INVENTARIO.values() for row in items}
+    note = rows["da-parse"][4]
+    assert "Corta la segunda tabla" not in note
+    assert "las dos tablas" in note
+    assert "erp_basis" in note
+
+
 def test_estado_still_79_rows() -> None:
     estado = _load("estado")
     assert sum(len(items) for _, _, items in estado.INVENTARIO.values()) == 79

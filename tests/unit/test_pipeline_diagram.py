@@ -743,6 +743,7 @@ _ACRONYMS: dict[str, str] = {
     "NOPAT": "net operating profit after tax",
     "FCFF": "free cash flow to the firm",
     "ERP": "equity risk premium",
+    "PRS": "Political Risk Services",
     "GDP": "gross domestic product",
     "P/E": "price to earnings",
     "P/BV": "price to book value",
@@ -1124,6 +1125,12 @@ _REFRESH_TEXT: dict[str, list[str]] = {
     "region": ["US", "exit code 2"],
     "damodaran.files_ok": ["wacc.xls", "ctryprem.xls", "partial", "error"],
     "damodaran.merge": ["outer join", "earlier file wins"],
+    "damodaran.country": [
+        "two tables: the Moody's-rated countries, then the unrated countries scored by PRS",
+        "each read with its own columns; erp_basis says which",
+        "rating, region, PRS score, ERP basis",
+    ],
+    "damodaran.download": ["country risk premium, PRS (Political Risk Services) score, ERP basis"],
     "damodaran.derive": [
         "D/E = w ÷ (1 - w)",
         "w = D/(D+E)",

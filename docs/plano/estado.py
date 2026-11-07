@@ -36,11 +36,11 @@ BLOQUES = {
 # (id, nombre, estado, evidencia, nota)
 INVENTARIO = {
 "capa-a": ("Capa A · datos", "de dónde salen los hechos", [
- ("da-parse", "Parseo de Damodaran", "hecho", "ingest/damodaran.py:528,559",
-  "Industria, país y columnas derivadas. Corta la segunda tabla del archivo de país, que traía 21 ERP incorrectos."),
- ("da-download", "Descarga de datasets", "a-medias", "ingest/damodaran.py:587",
+ ("da-parse", "Parseo de Damodaran", "hecho", "ingest/damodaran.py:543,574",
+  "Industria, país y columnas derivadas. Lee las dos tablas del archivo de país, cada una con sus propias columnas: los países con calificación de Moody's y los no calificados con puntaje PRS; erp_basis registra de cuál viene cada fila."),
+ ("da-download", "Descarga de datasets", "a-medias", "ingest/damodaran.py:672",
   "Es la única puerta de entrada de todos los benchmarks del bot, y está parcheada en los cinco tests que la tocan. Nunca se ejerció contra la red real."),
- ("da-regiones", "Las ocho regiones", "falta", "ingest/damodaran.py:62-65",
+ ("da-regiones", "Las ocho regiones", "falta", "ingest/damodaran.py:76-79",
   "Sin cambios: las URLs siguen fijas y apuntan a Estados Unidos, y --region sigue siendo una etiqueta y no un selector de archivo. Ya no es una limitación oculta: refresh --damodaran ahora rechaza --region != US con exit 2 (cli.py), así que el gap queda declarado en vez de producir filas europeas con datos de EE.UU. Bajo el alcance US-only actual es irrelevante; vuelve a importar si M2 global reabre."),
  ("da-riskfree", "Risk-free por moneda", "hecho", "reference/currencies.py; valuator/assumptions.py:350-355",
   "El importador ya no lee el escalar del encabezado de wacc.xls ni escribe risk_free_rate en damodaran_country (la columna se elimina, con un ALTER para bases existentes). La tasa libre de riesgo y el PBI nominal salen por moneda de config/currencies.yaml, una tabla curada a mano a partir de la tabla de enero de Damodaran y del WEO del FMI (no se importa), cargada por load_currency_table. El valuador la busca por la moneda de la última fila anual no reexpresada (#109)."),

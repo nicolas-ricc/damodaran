@@ -145,16 +145,45 @@ def test_import_fills_country_tax_rates_and_no_risk_free_column() -> None:
     assert _country_value(conn, "tax_rate", "Australia") == pytest.approx(0.30)
     assert _country_value(conn, "tax_rate", "Bahamas") == pytest.approx(0.0)
 
-    counts = conn.execute("SELECT COUNT(*), COUNT(tax_rate) FROM damodaran_country").fetchone()
+    counts = conn.execute(
+        "SELECT COUNT(*), COUNT(tax_rate) FROM damodaran_country "
+        "WHERE erp_basis = 'moodys_rating'"
+    ).fetchone()
     assert counts is not None
     total, with_tax = counts
-    # Aggregate rows such as "Frontier Markets (no sovereign ratings)" have no rate.
+    # The tax sheet covers the rated countries; of the PRS-scored ones only
+    # Russia is on it (test_import_stores_the_prs_scored_countries).
     assert with_tax / total >= 0.95
     out_of_range = conn.execute(
         "SELECT country, tax_rate FROM damodaran_country "
         "WHERE tax_rate IS NOT NULL AND (tax_rate < 0 OR tax_rate > 1)"
     ).fetchall()
     assert out_of_range == []
+    conn.close()
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(not _FIXTURES_PRESENT, reason="Damodaran fixtures absent")
+def test_import_stores_the_prs_scored_countries() -> None:
+    conn = _imported_conn()
+
+    count = conn.execute("SELECT COUNT(*) FROM damodaran_country").fetchone()
+    assert count == (178,)
+    algeria = conn.execute(
+        "SELECT erp, erp_basis, prs_score, tax_rate FROM damodaran_country "
+        "WHERE country = 'Algeria'"
+    ).fetchone()
+    assert algeria is not None
+    erp, erp_basis, prs_score, tax_rate = algeria
+    assert erp == pytest.approx(0.10057659756375703)
+    assert erp_basis == "prs_score"
+    assert prs_score == 67.0
+    assert tax_rate is None
+    assert _country_value(conn, "tax_rate", "Russia") == pytest.approx(0.2)
+    status = conn.execute(
+        "SELECT status FROM refresh_log WHERE source = 'damodaran'"
+    ).fetchall()
+    assert status == [("success",)]
     conn.close()
 
 

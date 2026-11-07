@@ -22,7 +22,7 @@ industry_read: "the industry files are read\neach sheet is picked by keywords; c
 # @symbol bot.ingest.damodaran.merge_industry_datasets
 merged: "one row per industry\nouter join on industry name; the earlier file wins, a later file fills only empty columns\nrows without an industry name are dropped" {class: step}
 # @symbol bot.ingest.damodaran.parse_country_xls
-country_read: "the country rows are read\nsheet picked by keyword: ERPs by country" {class: step}
+country_read: "the country rows are read\nsheet 'ERPs by country', two tables: the Moody's-rated countries, then the unrated countries scored by PRS (Political Risk Services), each read with its own columns; erp_basis says which" {class: step}
 # @symbol bot.ingest.damodaran.derive_industry_columns @symbol bot.ingest.damodaran.parse_country_tax_rates
 derived: "the derived columns are filled in\ndebt to equity (D/E): D/E = w ÷ (1 − w), with w = D/(D+E); empty unless 0 ≤ w < 1\nbeta_unlevered = beta_levered ÷ (1 + (1 − tax) × D/E), tax = the industry's tax rate; a missing tax counts as 0; empty when D/E is empty\ncountry tax rate: sheet 'Country Tax Rates', rows outside [0, 1] are skipped" {class: decision}
 # @symbol bot.ingest.damodaran.upsert_industry_rows @symbol bot.ingest.damodaran.upsert_country_rows
