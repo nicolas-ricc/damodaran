@@ -240,8 +240,6 @@ table { border-collapse: collapse; width: 100%; }
 
 .flag-list ul { list-style: none; margin: 0; padding: 0; }
 .flag-list li { padding: var(--space-xs) 0; border-bottom: var(--rule-hair) solid var(--rule-faint); }
-.flag-list .severity { font-weight: 500; color: var(--color-base-content); }
-.flag-list .flag-not-evaluated .severity { color: var(--ink-soft); }
 .flag-list .id { color: var(--color-base-content); }
 .flag-list .reason { display: block; max-width: 60ch; margin-left: var(--space-lg); color: var(--ink-soft); text-wrap: pretty; }
 

@@ -57,7 +57,7 @@
     <p class="lede">Checks on the story behind the numbers. A failed check does not change the verdict; it tells you how much to trust it.</p>
     <ul>
     {% for f in detail.flags %}
-      <li class="flag flag-{{ f.severity | replace(" ", "-") }}">{{ flag_mark(f.color) }} <span class="severity">{{ f.severity }}</span> <span class="id">{{ f.label }}</span> <span class="reason">{{ f.detail }}</span></li>
+      <li class="flag flag-{{ f.severity | replace(" ", "-") }}"><span class="badge badge-sm badge-{{ f.tone }}">{{ f.severity }}</span> <span class="id">{{ f.label }}</span> <span class="reason">{{ f.detail }}</span></li>
     {% endfor %}
     </ul>
   </section>
