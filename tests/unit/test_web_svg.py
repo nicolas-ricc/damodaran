@@ -177,6 +177,16 @@ def test_no_hardcoded_colours() -> None:
         assert "rgb(" not in svg
 
 
+def test_svg_reads_daisyui_roles() -> None:
+    assert "var(--color-success)" in str(verdict_mark(Verdict.UNDERVALUED))
+    assert "var(--color-warning)" in str(verdict_mark(Verdict.FAIR))
+    assert "var(--color-error)" in str(verdict_mark(Verdict.OVERVALUED))
+    assert "var(--ink-soft)" in str(verdict_mark(Verdict.NA))
+    axis = str(value_line_svg(_vl(), mini=False))
+    assert "var(--color-secondary)" in axis
+    assert "var(--color-base-content)" in axis
+
+
 def test_scenario_grid_is_a_table_with_headers_and_a_verdict_per_cell() -> None:
     html = str(scenario_grid_table(_grid()))
     assert 'aria-label="Scenarios 10/24"' in html

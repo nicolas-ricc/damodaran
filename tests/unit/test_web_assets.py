@@ -47,26 +47,25 @@ def test_templates_exist(template: str) -> None:
 
 
 def test_nothing_is_loaded_from_a_cdn() -> None:
-    css = (_STATIC / "app.css").read_text()
-    assert "@import" not in css
-    for path in [_STATIC / "app.css", *(_WEB / "templates").glob("*.html")]:
+    sheets = [_STATIC / "app.css", _STATIC / "theme.css"]
+    for sheet in sheets:
+        assert "@import" not in sheet.read_text(), sheet
+    for path in [*sheets, *(_WEB / "templates").glob("*.html")]:
         assert not re.search(r"https?://", path.read_text()), path
 
 
-def test_css_uses_the_design_tokens() -> None:
+def test_css_reads_daisyui_variables_only() -> None:
     css = (_STATIC / "app.css").read_text()
-    for token in (
-        "--color-paper",
-        "--color-ink",
-        "--color-muted",
-        "--color-accent",
-        "--color-accent-2",
-        "--color-under",
-        "--color-fair",
-        "--color-over",
-    ):
-        assert f"{token}:" in css
+    for literal in ("oklch(", "rgb(", "hsl("):
+        assert literal not in css, literal
+    assert not re.search(r"#[0-9a-fA-F]{3,8}\b", css)
+    assert (
+        "--ink-soft: color-mix(in oklab, var(--color-base-content) 80%, var(--color-base-100));"
+        in css
+    )
+    assert "--rule-faint: color-mix(in oklab, var(--color-base-content) 12%, transparent);" in css
     assert "Hallmark" not in css
     assert "prefers-reduced-motion" in css
     assert "tabular-nums" in css
     assert "@font-face" in css
+    assert "[hidden]" in css
