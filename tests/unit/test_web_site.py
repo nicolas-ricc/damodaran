@@ -157,7 +157,7 @@ def test_ids_are_unique_per_page(reports: Path, tmp_path: Path, page: str) -> No
     out = tmp_path / "site"
     build(reports, out, "/")
     html = (out / page).read_text()
-    for element_id in ("rows", "filter", "list-head", "count", "detail"):
+    for element_id in ("rows", "filter", "search", "list-head", "count", "detail"):
         assert html.count(f'id="{element_id}"') == 1, element_id
 
 
@@ -388,3 +388,43 @@ def test_empty_states_are_heroes(reports: Path, tmp_path: Path) -> None:
     missing = (out / "404.html").read_text()
     assert '<main class="hero empty">' in missing
     assert '<a class="btn btn-primary" href="/index.html">Show all companies</a>' in missing
+
+
+def test_search_box_sits_between_filter_and_count(reports: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    build(reports, out, "/")
+    index = (out / "index.html").read_text()
+    assert '<label class="input input-sm" id="search" hidden>' in index
+    assert "Search by ticker or name" in index
+    assert '<input type="search"' in index
+    assert 'aria-controls="rows"' in index
+    assert index.count('id="search"') == 1
+    assert index.index('id="filter"') < index.index('id="search"') < index.index('id="count"')
+
+
+def test_search_box_is_never_in_a_fragment(reports: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    build(reports, out, "/")
+    fragments = sorted((out / "rows").glob("*.html"))
+    assert len(fragments) == 30
+    for path in fragments:
+        assert 'id="search"' not in path.read_text(), path.name
+    empty = tmp_path / "empty-site"
+    build(tmp_path / "missing", empty, "/")
+    assert 'id="search"' not in (empty / "index.html").read_text()
+
+
+def test_list_works_without_javascript(reports: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    build(reports, out, "/")
+    index = (out / "index.html").read_text()
+    head = re.search(r'<thead id="list-head".*?</thead>', index, re.S)
+    assert head is not None
+    links = _filter_links(index) + re.findall(r"<a [^>]*>", head.group(0))
+    assert len(links) == 8
+    for link in links:
+        assert 'href="' in link
+        assert 'hx-get="' in link
+    assert index.count('<td class="ticker">') == 3
+    assert index.count('<td class="name">') == 3
+    assert '<td colspan="9" class="none">' in (out / "rows" / "fair-mos-desc.html").read_text()

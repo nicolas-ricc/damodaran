@@ -3,9 +3,14 @@
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
+import pytest
+
 _WEB = Path(__file__).resolve().parents[2] / "src" / "bot" / "web"
+_SCRIPT = _WEB / "static" / "viewer.js"
 
 
 def test_viewer_script_is_local_and_loaded() -> None:
@@ -44,3 +49,59 @@ def test_empty_detail_replacement_keeps_the_hero() -> None:
         '<div class="hero-content"><div><p>Pick a company from the list to read its analysis.</p></div></div>'
         in script
     )
+
+
+def test_search_wiring_in_the_script() -> None:
+    script = _SCRIPT.read_text()
+    for needle in (
+        'removeAttribute("hidden")',
+        'addEventListener("input"',
+        '"Escape"',
+        "preventDefault()",
+        "search-empty",
+        "No company matches",
+        "Clear search",
+        "dataset.total",
+        "td.ticker",
+        "td.name",
+        "toLowerCase()",
+        "trim()",
+    ):
+        assert needle in script, needle
+
+
+def test_after_settle_reapplies_the_search() -> None:
+    script = _SCRIPT.read_text()
+    settle = script.index('"htmx:afterSettle"')
+    branch = script[script.index('id === "rows"', settle) : script.index('id === "detail"', settle)]
+    assert "applySearch();" in branch
+    assert "restoreFocus();" in branch
+    assert branch.index("applySearch();") < branch.index("restoreFocus();")
+
+
+def test_no_match_row_writes_the_query_as_text() -> None:
+    script = _SCRIPT.read_text()
+    assert (
+        '<td colspan="9" class="none">No company matches "<span></span>". '
+        '<button type="button" class="btn btn-link btn-xs">Clear search</button></td>'
+    ) in script
+    assert ".textContent = " in script
+    assert not re.search(r"innerHTML\s*=[^;]*\+", script)
+
+
+def test_mark_selected_skips_hidden_rows() -> None:
+    assert "if (row.hidden) return;" in _SCRIPT.read_text()
+
+
+def test_search_stores_nothing() -> None:
+    script = _SCRIPT.read_text()
+    for needle in ("localStorage", "sessionStorage", "pushState", "replaceState", "location."):
+        assert needle not in script, needle
+
+
+def test_viewer_script_parses() -> None:
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("node is not installed")
+    result = subprocess.run([node, "--check", str(_SCRIPT)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr

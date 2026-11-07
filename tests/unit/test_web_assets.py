@@ -117,3 +117,9 @@ def test_list_pane_rules_restore_what_daisyui_overrides() -> None:
         "#filter .btn-active { color: var(--color-primary); border-bottom-color: var(--color-primary); }",
     ):
         assert rule in css, rule
+
+
+def test_search_box_width_rule() -> None:
+    css = (_STATIC / "app.css").read_text()
+    assert "#search { width: 14rem; max-width: 100%; }" in css
+    assert "[hidden] { display: none !important; }" in css
