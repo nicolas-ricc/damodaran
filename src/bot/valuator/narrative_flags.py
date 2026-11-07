@@ -184,8 +184,8 @@ def story_margin_flag(
             name=name,
             color=FlagColor.UNKNOWN,
             reason=(
-                "not evaluated: the company's realised operating margin or the "
-                "sector median is unavailable"
+                "not evaluated: the company's latest operating margin or the "
+                "sector's median margin is missing."
             ),
         )
     if company > sector:
@@ -193,16 +193,18 @@ def story_margin_flag(
             name=name,
             color=FlagColor.YELLOW,
             reason=(
-                f"high-growth story but operating margin {company:.1%} already "
-                f"exceeds sector {sector:.1%} — little room to improve"
+                f"A high-growth story, but the operating margin of {company:.1%} "
+                f"already exceeds the sector's {sector:.1%}: little room left for "
+                "the margin to improve."
             ),
         )
     return NarrativeFlag(
         name=name,
         color=FlagColor.GREEN,
         reason=(
-            f"operating margin {company:.1%} at/below sector {sector:.1%}, "
-            "consistent with a high-growth story"
+            f"A high-growth story with an operating margin of {company:.1%}, at "
+            f"or below the sector's {sector:.1%}: there is room for the margin "
+            "to improve."
         ),
     )
 
@@ -241,8 +243,9 @@ def growth_reinvestment_flag(
             name=name,
             color=FlagColor.RED,
             reason=(
-                "projected reinvestment exceeds NOPAT in at least one year — "
-                "growth is not funded by earnings (negative FCFF)"
+                "In at least one year growth needs more reinvestment than "
+                "after-tax operating profit (NOPAT) provides, so free cash flow "
+                "to the firm (FCFF) turns negative."
             ),
         )
     if worst_rate > _STRETCHED_REINVESTMENT_RATE:
@@ -250,14 +253,18 @@ def growth_reinvestment_flag(
             name=name,
             color=FlagColor.YELLOW,
             reason=(
-                f"reinvestment consumes {worst_rate:.0%} of NOPAT in year "
-                f"{worst_year} — growth is funded but only just"
+                f"In year {worst_year} reinvestment takes {worst_rate:.0%} of "
+                "after-tax operating profit (NOPAT): growth is funded, but only "
+                "just."
             ),
         )
     return NarrativeFlag(
         name=name,
         color=FlagColor.GREEN,
-        reason="projected reinvestment is comfortably funded by NOPAT every year",
+        reason=(
+            "Every year the reinvestment growth needs fits within after-tax "
+            "operating profit (NOPAT)."
+        ),
     )
 
 
@@ -287,8 +294,8 @@ def beta_business_risk_flag(
             name=name,
             color=FlagColor.UNKNOWN,
             reason=(
-                "not evaluated: sector beta, operating leverage or company "
-                "leverage unavailable"
+                "not evaluated: the sector beta, the operating leverage or the "
+                "company's debt share is missing."
             ),
         )
     if (
@@ -300,18 +307,20 @@ def beta_business_risk_flag(
             name=name,
             color=FlagColor.YELLOW,
             reason=(
-                f"defensive sector beta {beta:.2f} but operating leverage "
-                f"{operating_leverage:.2f} and financial leverage "
-                f"{financial_leverage:.0%} are both high — beta understates risk"
+                f"The sector beta of {beta:.2f} is below {_DEFENSIVE_BETA:g}, "
+                "which looks defensive, but operating leverage of "
+                f"{operating_leverage:.2f} is above {_HIGH_OPERATING_LEVERAGE:g} "
+                f"and debt at {financial_leverage:.0%} of capital is above "
+                f"{_HIGH_FINANCIAL_LEVERAGE:.0%}: the beta understates the risk."
             ),
         )
     return NarrativeFlag(
         name=name,
         color=FlagColor.GREEN,
         reason=(
-            f"sector beta {beta:.2f} is consistent with operating leverage "
-            f"{operating_leverage:.2f} and financial leverage "
-            f"{financial_leverage:.0%}"
+            f"The sector beta of {beta:.2f} fits operating leverage of "
+            f"{operating_leverage:.2f} and debt at {financial_leverage:.0%} of "
+            "capital."
         ),
     )
 
@@ -335,16 +344,17 @@ def terminal_value_share_flag(
             name=name,
             color=FlagColor.YELLOW,
             reason=(
-                f"terminal value is {share:.0%} of enterprise value "
-                f"(> {_TERMINAL_VALUE_SHARE_CEILING:.0%}) — valuation is fragile"
+                f"{share:.0%} of enterprise value comes from the terminal value, "
+                f"above the {_TERMINAL_VALUE_SHARE_CEILING:.0%} ceiling: the "
+                "valuation rests almost entirely on the perpetuity."
             ),
         )
     return NarrativeFlag(
         name=name,
         color=FlagColor.GREEN,
         reason=(
-            f"terminal value is {share:.0%} of enterprise value "
-            f"(<= {_TERMINAL_VALUE_SHARE_CEILING:.0%})"
+            f"{share:.0%} of enterprise value comes from the terminal value, "
+            f"within the {_TERMINAL_VALUE_SHARE_CEILING:.0%} ceiling."
         ),
     )
 
@@ -371,27 +381,34 @@ def country_exposure_flag(
             name=name,
             color=FlagColor.UNKNOWN,
             reason=(
-                "not evaluated: needs revenue by geography and a revenue-weighted "
-                "ERP; no ingest path supplies either"
+                "not evaluated: it needs revenue by geography and a "
+                "revenue-weighted equity risk premium (ERP), and no data source "
+                "supplies either."
             ),
         )
     gap = erp_weighted - erp_listing
+    gap_bps = round(gap * 10000)
+    threshold_bps = round(_ERP_GAP_THRESHOLD * 10000)
     if foreign > _FOREIGN_REVENUE_MAJORITY and gap > _ERP_GAP_THRESHOLD:
         return NarrativeFlag(
             name=name,
             color=FlagColor.RED,
             reason=(
-                f"{foreign:.0%} of revenue is foreign and weighted ERP "
-                f"{erp_weighted:.1%} exceeds listing ERP {erp_listing:.1%} by "
-                f"{gap * 10000:.0f} bps (> 300) — country risk under-priced"
+                f"{foreign:.0%} of revenue is earned abroad and the "
+                f"revenue-weighted equity risk premium (ERP) of {erp_weighted:.1%} "
+                f"is {gap_bps} basis points above the listing country's "
+                f"{erp_listing:.1%}, more than {threshold_bps}: the discount rate "
+                "under-prices country risk."
             ),
         )
     return NarrativeFlag(
         name=name,
         color=FlagColor.GREEN,
         reason=(
-            f"{foreign:.0%} foreign revenue with weighted ERP {erp_weighted:.1%} "
-            f"vs listing ERP {erp_listing:.1%} ({gap * 10000:.0f} bps gap)"
+            f"{foreign:.0%} of revenue is earned abroad and the "
+            f"revenue-weighted equity risk premium (ERP) is {erp_weighted:.1%} "
+            f"against {erp_listing:.1%} for the listing country, a gap of "
+            f"{gap_bps} basis points."
         ),
     )
 
@@ -415,24 +432,30 @@ def hypergrowth_story_flag(
         return NarrativeFlag(
             name=name,
             color=FlagColor.RED,
-            reason="hypergrowth signals but no story file: default valuation is not reliable",
+            reason=(
+                "The classifier sees hypergrowth signals but there is no story "
+                "file, so the default valuation is not reliable."
+            ),
         )
     if story and not signals:
         return NarrativeFlag(
             name=name,
             color=FlagColor.YELLOW,
-            reason="story file present but the classifier signals are absent",
+            reason=(
+                "A story file is present but the classifier sees no hypergrowth "
+                "signals: the two disagree."
+            ),
         )
     if signals and story:
         return NarrativeFlag(
             name=name,
             color=FlagColor.GREEN,
-            reason="hypergrowth signals and story file are both present",
+            reason="The classifier's hypergrowth signals and the story file agree.",
         )
     return NarrativeFlag(
         name=name,
         color=FlagColor.GREEN,
-        reason="no hypergrowth signals and no story file: nothing to reconcile",
+        reason="No hypergrowth signals and no story file: there is nothing to reconcile.",
     )
 
 
@@ -451,16 +474,18 @@ def hypergrowth_revenue_scale_flag(
             name=name,
             color=FlagColor.YELLOW,
             reason=(
-                f"year-10 revenue {revenue / 1e9:,.0f}B exceeds the largest "
-                f"company revenue today (~{largest_b:,.0f}B)"
+                f"Year-10 revenue of {revenue / 1e9:,.0f} billion is larger than "
+                "the revenue of the largest company today, about "
+                f"{largest_b:,.0f} billion."
             ),
         )
     return NarrativeFlag(
         name=name,
         color=FlagColor.GREEN,
         reason=(
-            f"year-10 revenue {revenue / 1e9:,.0f}B is within the largest "
-            f"company revenue today (~{largest_b:,.0f}B)"
+            f"Year-10 revenue of {revenue / 1e9:,.0f} billion is within the "
+            "revenue of the largest company today, about "
+            f"{largest_b:,.0f} billion."
         ),
     )
 
@@ -482,14 +507,20 @@ def hypergrowth_terminal_roic_flag(
         return NarrativeFlag(
             name=name,
             color=FlagColor.UNKNOWN,
-            reason="not evaluated: the terminal ROIC or the sector ROIC is unavailable",
+            reason=(
+                "not evaluated: the terminal return on invested capital (ROIC) "
+                "or the sector's ROIC is missing."
+            ),
         )
     if sector <= 0.0:
         # A loss-making sector has no multiple to compare against.
         return NarrativeFlag(
             name=name,
             color=FlagColor.UNKNOWN,
-            reason=f"not evaluated: sector ROIC {sector:.1%} is not a usable benchmark",
+            reason=(
+                "not evaluated: a sector return on invested capital (ROIC) of "
+                f"{sector:.1%} is not a usable benchmark."
+            ),
         )
     limit = _ROIC_SECTOR_MULTIPLE * sector
     if terminal > limit:
@@ -497,16 +528,19 @@ def hypergrowth_terminal_roic_flag(
             name=name,
             color=FlagColor.YELLOW,
             reason=(
-                f"terminal ROIC {terminal:.1%} exceeds {_ROIC_SECTOR_MULTIPLE:.0f}x "
-                f"the sector ROIC {sector:.1%} ({limit:.1%})"
+                "The terminal return on invested capital (ROIC) of "
+                f"{terminal:.1%} is above {limit:.1%}, {_ROIC_SECTOR_MULTIPLE:g} "
+                f"times the sector's {sector:.1%}: the story claims an advantage "
+                "far beyond the sector's."
             ),
         )
     return NarrativeFlag(
         name=name,
         color=FlagColor.GREEN,
         reason=(
-            f"terminal ROIC {terminal:.1%} is within {_ROIC_SECTOR_MULTIPLE:.0f}x "
-            f"the sector ROIC {sector:.1%} ({limit:.1%})"
+            "The terminal return on invested capital (ROIC) of "
+            f"{terminal:.1%} is within {limit:.1%}, {_ROIC_SECTOR_MULTIPLE:g} "
+            f"times the sector's {sector:.1%}."
         ),
     )
 
