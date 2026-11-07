@@ -60,6 +60,9 @@ class CompanyData:
     last (spec §6.4)."""
     share_count_history: tuple[float, ...] = field(default_factory=tuple)
     """Diluted share count per fiscal year, most recent last (spec §6.4)."""
+    acquisitions_history: tuple[float, ...] = field(default_factory=tuple)
+    """Cash paid for acquisitions per fiscal year, most recent last, outflow positive;
+    years without the datum are omitted (spec §6.4)."""
     net_income: float | None = None
     """Most recent fiscal-year net income (spec §6.4, Sloan accruals numerator)."""
     operating_cashflow: float | None = None
