@@ -166,34 +166,13 @@ table { border-collapse: collapse; width: 100%; }
 .verdict-note, .story-note { max-width: 60ch; margin-top: var(--space-xs); font-size: var(--text-sm); color: var(--ink-soft); }
 .story-note { margin-top: var(--space-md); }
 
-/* the facts strip reflows on the pane's own width: two across, then three, then five */
-.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin: var(--space-lg) 0 0; padding-top: var(--space-md); border-top: var(--rule-hair) solid var(--color-base-300); }
-.facts > div { min-width: 0; padding: var(--space-xs) 0; border-bottom: var(--rule-hair) solid var(--rule-faint); }
-.facts .lead-figure { grid-column: 1 / -1; }
-.facts > div:nth-child(odd):not(:first-child) { padding-left: var(--space-md); border-left: var(--rule-hair) solid var(--rule-faint); }
-.facts > div:nth-last-child(-n + 2) { border-bottom: 0; }
-.facts dt { font-weight: 500; font-size: var(--text-sm); color: var(--ink-soft); }
-.facts dd { margin: var(--space-2xs) 0 0; font-size: var(--text-lg); line-height: 1.1; color: var(--color-base-content); overflow-wrap: anywhere; }
-.facts dd.num { letter-spacing: -0.03em; }
-.facts .lead-figure dd { font-size: var(--text-2xl); }
-.facts .story { font-weight: 500; }
-.facts time { font-family: var(--font-mono); }
-@container (min-width: 28rem) {
-  .facts { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .facts .lead-figure { grid-column: auto; }
-  .facts > div, .facts > div:nth-child(odd):not(:first-child) { padding: var(--space-2xs) var(--space-md); border-bottom: 0; border-left: var(--rule-hair) solid var(--color-base-300); }
-  .facts > div:nth-child(3n + 1) { padding-left: 0; border-left: 0; }
-  .facts > div:nth-child(n + 4) { margin-top: var(--space-md); }
-  .facts dd { font-size: var(--text-xl); }
-  .facts .lead-figure dd { font-size: var(--text-3xl); }
-  .facts .story, .facts time { font-size: var(--text-lg); }
-}
-@container (min-width: 44rem) {
-  .facts { grid-template-columns: minmax(0, 1.3fr) repeat(2, minmax(0, 1fr)) auto auto; }
-  .facts > div, .facts > div:nth-child(3n + 1) { padding: var(--space-2xs) var(--space-md); border-left: var(--rule-hair) solid var(--color-base-300); }
-  .facts > div:first-child { padding-left: 0; border-left: 0; }
-  .facts > div:nth-child(n + 4) { margin-top: 0; }
-  .facts .story, .facts time { white-space: nowrap; }
+/* the facts strip is DaisyUI stats; it stacks on the pane's own width */
+.facts { margin-top: var(--space-lg); }
+.facts .stat-value { font-weight: 500; letter-spacing: -0.03em; }
+.facts .stat-value.word { font-size: var(--text-lg); }
+@container (max-width: 44rem) {
+  .facts.stats { grid-auto-flow: row; }
+  .facts.stats .stat:not(:last-child) { border-inline-end: none; border-block-end: var(--border) dashed var(--rule-faint); }
 }
 
 /* the value axis: the SVG scales to the pane, its labels stay HTML at a fixed size */

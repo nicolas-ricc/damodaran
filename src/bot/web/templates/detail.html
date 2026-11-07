@@ -16,13 +16,13 @@
 <p class="verdict">{{ verdict_mark(detail.verdict) }} <span class="verdict-text">{{ detail.verdict_text }}</span></p>
 <p class="verdict-note">{{ detail.mos_note }}</p>
 
-<dl class="facts">
-  <div class="lead-figure"><dt><abbr title="Margin of safety: intrinsic value divided by price">MoS</abbr></dt><dd class="num">{{ detail.mos }}</dd></div>
-  <div><dt>Price</dt><dd class="num">{{ "%.2f" | format(detail.price) if detail.price is not none else "n/a" }}</dd></div>
-  <div><dt>Intrinsic</dt><dd class="num">{{ "%.2f" | format(detail.intrinsic) }}</dd></div>
-  <div><dt>Story</dt><dd class="story">{{ detail.story }}</dd></div>
-  <div><dt>Date</dt><dd><time datetime="{{ detail.date }}">{{ detail.date }}</time></dd></div>
-</dl>
+<div class="stats stats-vertical lg:stats-horizontal facts">
+  <div class="stat lead-figure"><div class="stat-title"><abbr title="Margin of safety: intrinsic value divided by price">MoS</abbr></div><div class="stat-value text-secondary num">{{ detail.mos }}</div></div>
+  <div class="stat"><div class="stat-title">Price</div><div class="stat-value num">{{ "%.2f" | format(detail.price) if detail.price is not none else "n/a" }}</div></div>
+  <div class="stat"><div class="stat-title">Intrinsic</div><div class="stat-value num">{{ "%.2f" | format(detail.intrinsic) }}</div></div>
+  <div class="stat"><div class="stat-title">Story</div><div class="stat-value word story">{{ detail.story }}</div></div>
+  <div class="stat"><div class="stat-title">Date</div><div class="stat-value word"><time datetime="{{ detail.date }}">{{ detail.date }}</time></div></div>
+</div>
 {% if detail.story_reasons %}
 <p class="story-note">Story type sets the shape of the projection. {{ detail.story }}: {{ detail.story_reasons | join("; ") }}.</p>
 {% endif %}

@@ -87,7 +87,7 @@
   function announceDetail() {
     var heading = document.querySelector("#detail h1");
     var verdict = document.querySelector("#detail .verdict-text");
-    var mos = document.querySelector("#detail .facts .lead-figure dd");
+    var mos = document.querySelector("#detail .facts .lead-figure .stat-value");
     var out = document.getElementById("announce");
     if (out && heading) {
       out.textContent = heading.textContent.trim() + ". " +
