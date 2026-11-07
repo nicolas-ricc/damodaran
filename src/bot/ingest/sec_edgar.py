@@ -36,6 +36,12 @@ _SHARE_SCALE_TOLERANCE = 2.0
 
 _FINANCIAL_FORMS = {"10-K", "10-K/A", "10-Q", "10-Q/A", "20-F", "20-F/A"}
 
+# Governance filings kept in filings_log: an 8-K whose items include 4.01 (change of
+# auditor) and the NT 10-K / NT 10-Q notices of a late periodic report.
+AUDITOR_CHANGE_FORMS: frozenset[str] = frozenset({"8-K", "8-K/A"})
+AUDITOR_CHANGE_ITEM = "4.01"
+LATE_FILING_FORMS: frozenset[str] = frozenset({"NT 10-K", "NT 10-K/A", "NT 10-Q", "NT 10-Q/A"})
+
 
 class EdgarRateLimitError(ProviderRateLimitError):
     """EDGAR throttled us (429, or the 403 it serves for abusive traffic)."""
@@ -162,21 +168,96 @@ def parse_submissions_info(ticker: str, submissions: dict[str, Any]) -> CompanyI
     )
 
 
-def latest_filing_date_from_submissions(submissions: dict[str, Any]) -> date | None:
-    """Newest 10-K/10-Q filing date in ``filings.recent`` (parallel arrays)."""
+def is_auditor_change(form: str | None, items: str | None) -> bool:
+    """True for an 8-K (or 8-K/A) whose comma-separated ``items`` include 4.01."""
+    if form not in AUDITOR_CHANGE_FORMS:
+        return False
+    return AUDITOR_CHANGE_ITEM in _item_tokens(items)
+
+
+def is_late_filing(form: str | None) -> bool:
+    """True for an NT 10-K / NT 10-Q notice (or its amendment)."""
+    return form in LATE_FILING_FORMS
+
+
+def _item_tokens(items: str | None) -> list[str]:
+    return [t for t in (part.strip() for part in (items or "").split(",")) if t]
+
+
+def _recent_entries(
+    submissions: dict[str, Any],
+) -> list[tuple[str | None, str, date, str | None, str | None]]:
+    """``filings.recent`` as ``(form, filingDate, parsed date, accession, items)``.
+
+    The arrays are parallel and walked by index over ``form``; a missing array or
+    index reads as ``None``. Entries whose ``filingDate`` does not parse are dropped.
+    """
     recent = submissions.get("filings", {}).get("recent", {})
     forms = recent.get("form") or []
     dates = recent.get("filingDate") or []
-    latest: date | None = None
-    for form, filed_raw in zip(forms, dates, strict=False):
-        if form not in _FINANCIAL_FORMS:
-            continue
+    accessions = recent.get("accessionNumber") or []
+    items = recent.get("items") or []
+    entries: list[tuple[str | None, str, date, str | None, str | None]] = []
+    for i, form in enumerate(forms):
+        filed_raw = dates[i] if i < len(dates) else None
         filed = coerce_date(filed_raw)
         if filed is None:
+            continue
+        accession = accessions[i] if i < len(accessions) else None
+        entries.append(
+            (form, str(filed_raw), filed, accession, items[i] if i < len(items) else None)
+        )
+    return entries
+
+
+def latest_filing_date_from_submissions(submissions: dict[str, Any]) -> date | None:
+    """Newest 10-K/10-Q or governance filing date in ``filings.recent``.
+
+    Governance filings (auditor-change 8-Ks, NT notices) count so that a new one
+    moves the incremental-skip watermark; ``governance_filings_from_submissions``
+    stores a row for every date this reports.
+    """
+    latest: date | None = None
+    for form, _raw, filed, _accession, items in _recent_entries(submissions):
+        if not (form in _FINANCIAL_FORMS or is_auditor_change(form, items) or is_late_filing(form)):
             continue
         if latest is None or filed > latest:
             latest = filed
     return latest
+
+
+def governance_filings_from_submissions(
+    ticker: str, submissions: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """``filings_log`` rows for auditor-change 8-Ks and NT notices in ``filings.recent``.
+
+    Entries are grouped by ``(form, filingDate)``, the filings_log primary key. A
+    group is stored when any of its entries is a governance filing; its ``items`` is
+    the sorted union of the item tokens of every entry (``None`` when empty) and its
+    accession number is that of the first governance entry. ``filings.recent`` holds
+    at least one year or the newest 1,000 filings; ``filings.files`` is not fetched.
+    """
+    groups: dict[tuple[str | None, str], dict[str, Any]] = {}
+    for form, filed_raw, _filed, accession, items in _recent_entries(submissions):
+        group = groups.setdefault(
+            (form, filed_raw), {"accession": None, "governance": False, "tokens": set()}
+        )
+        group["tokens"].update(_item_tokens(items))
+        if not group["governance"] and (is_auditor_change(form, items) or is_late_filing(form)):
+            group["governance"] = True
+            group["accession"] = accession
+    return [
+        {
+            "ticker": ticker.upper(),
+            "filing_type": form,
+            "filing_date": filed_raw,
+            "accession_number": group["accession"],
+            "source": "sec_edgar",
+            "items": ",".join(sorted(group["tokens"])) or None,
+        }
+        for (form, filed_raw), group in groups.items()
+        if group["governance"]
+    ]
 
 
 # ---------- Parser ----------
