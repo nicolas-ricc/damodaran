@@ -204,7 +204,7 @@ CREATE TABLE IF NOT EXISTS cash_balances (
     PRIMARY KEY (snapshot_date, account, currency)
 );
 
--- Trade executions (fills) sourced from the IBKR TWS socket (M5, #27).
+-- Trade executions (fills) from the IBKR Flex Web Service (M5, #27; ADR 0010, #256).
 -- Append-only: one row per broker execution. `sync_trades` is incremental —
 -- it derives a watermark from max(executed_at) already stored and only fetches
 -- fills newer than that, de-duping on the broker `exec_id` so an overlapping
@@ -212,10 +212,10 @@ CREATE TABLE IF NOT EXISTS cash_balances (
 -- execution id and is the primary key. `executed_at` is the fill timestamp
 -- normalised to naive UTC (the source may be timezone-aware; the sync layer
 -- converts to UTC and drops the tzinfo so DuckDB needs no pytz at read time).
--- NOTE: the live TWS socket only
--- returns the current session's fills (today + a short look-back), so this
--- table accumulates history across daily runs; a one-shot historical backfill
--- needs IBKR Flex (out of scope, see #27 addendum).
+-- The Flex query (src/bot/ingest/ibkr_flex.py) covers its period (Last 7
+-- Calendar Days): a gap between runs longer than that loses the fills in
+-- between unless the period is widened once; exec_id dedupe absorbs the
+-- overlap. Flex `dateTime` is in BOT_IBKR_FLEX_TZ and is converted to UTC.
 CREATE TABLE IF NOT EXISTS trades (
     exec_id         VARCHAR PRIMARY KEY,
     account         VARCHAR NOT NULL,
@@ -233,10 +233,9 @@ CREATE TABLE IF NOT EXISTS trades (
 );
 
 -- Corporate actions — dividends received, splits, mergers (M5, #27).
--- The live TWS socket does NOT expose corporate actions in any reliable form
--- (see #27 addendum). They come from IBKR's Flex Web Service, imported by
--- src/bot/ingest/ibkr_flex.py (#56) during `bot portfolio` when a Flex token and
--- query id are configured. `action_id` is 'ca:<actionID>' or 'ct:<transactionID>'. `details`
+-- They come from IBKR's Flex Web Service: the CorporateActions and
+-- CashTransactions sections of the same statement `bot portfolio` downloads
+-- (src/bot/ingest/ibkr_flex.py, #56; ADR 0010). `action_id` is 'ca:<actionID>' or 'ct:<transactionID>'. `details`
 -- is a JSON blob holding the fields that vary by action type (split ratio,
 -- IBKR's raw type, amounts, etc.).
 CREATE TABLE IF NOT EXISTS corporate_actions (

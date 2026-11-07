@@ -2,6 +2,8 @@
 
 ## Status
 
+Superseded by ADR 0010 (`0010-flex-web-service-as-the-only-ibkr-source.md`, 2026-11-07, #256).
+The socket client and `ib_async` were removed; the text below is history. It was
 Accepted (2026-08-09). Supersedes [ADR 0003](0003-client-portal-api-over-tws.md).
 Implemented (2026-09-30, #25: read-only client in `src/bot/ingest/ibkr.py`,
 configured by `BOT_IBKR_HOST`/`BOT_IBKR_PORT`/`BOT_IBKR_CLIENT_ID`;

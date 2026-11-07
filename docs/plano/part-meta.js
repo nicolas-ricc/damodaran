@@ -4,7 +4,7 @@ const META = {
   damodaran:{sym:"src/bot/ingest/damodaran.py:import_damodaran", pat:["p-adapter","p-tx"]},
   sec:{sym:"src/bot/ingest/sec_edgar.py:SecEdgarClient", pat:["p-adapter"]},
   fmp:{sym:"src/bot/ingest/fmp.py:FmpClient", pat:["p-adapter"]},
-  ibkr:{sym:"src/bot/ingest/ibkr.py:IbkrClient", pat:["p-adapter","p-value"]},
+  ibkr:{sym:"src/bot/ingest/ibkr_flex.py:FlexPortfolioClient", pat:["p-adapter","p-value"]},
   adapters:{sym:"src/bot/ingest/base.py:refresh_run", pat:["p-adapter","p-tx","p-seam"]},
   "a-download":{sym:"src/bot/ingest/base.py:IngestResult", pat:["p-value"]},
   "a-parse":{sym:"src/bot/ingest/sec_edgar.py:parse_company_facts", pat:["p-value"]},
