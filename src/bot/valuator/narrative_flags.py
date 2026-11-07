@@ -171,10 +171,10 @@ def story_margin_flag(
 
     A ``high-growth`` story usually projects margins *improving toward* the
     sector; starting *above* it leaves little room for the story to play out, so
-    the flag turns yellow; a margin at/below sector is green. The flag has no
-    branch for other story types: :func:`narrative_flags` only calls it for a
-    ``high-growth`` story. Without both margins the check cannot run and returns ``unknown`` — an
-    un-run check must never read as a pass (spec §7.5).
+    the flag turns yellow; a margin at/below sector is green.
+    :func:`narrative_flags` only calls it for a ``high-growth`` story. Without
+    both margins the check cannot run and returns ``unknown`` — an un-run check
+    must never read as a pass (spec §7.5).
     """
     name = "story_margin"
     company = context.company_operating_margin

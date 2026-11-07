@@ -117,9 +117,9 @@ class Analysis:
         tornado: Per-axis impacts (±1pp on rate axes, ×0.8/×1.2 on
             sales-to-capital), descending by impact (spec §7.4).
         grid: 5x5 margin-of-safety grid over the two widest tornado axes.
-        narrative_flags: The §7.5 consistency flags (four, plus ``story_margin`` for a
-            high-growth story), plus the
-            ``hypergrowth_story`` flag when it applies.
+        narrative_flags: The §7.5 consistency flags (four, plus ``story_margin``
+            for a high-growth story), plus the ``hypergrowth_story`` flag when
+            it applies.
         sanity_check: Implied vs sector multiples (spec §7.7).
         current_price: Latest close (on or before ``price_as_of`` when set) converted into
             the valuation currency (``None`` if absent or no exchange rate).
