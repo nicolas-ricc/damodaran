@@ -276,6 +276,7 @@ class _AnnualRow:
     operating_cashflow: float | None
     free_cashflow: float | None
     shares_diluted: float | None
+    acquisitions: float | None
 
 
 def _load_companies(conn: duckdb.DuckDBPyConnection) -> list[_CompanyRow]:
@@ -315,7 +316,7 @@ def _load_all_annual(
     rows = conn.execute(
         "SELECT ticker, revenue, ebit, ebitda, interest_expense, net_income, total_assets, "
         "total_debt, cash, total_equity, goodwill, operating_cashflow, free_cashflow, "
-        "shares_diluted FROM financials_annual "
+        "shares_diluted, acquisitions FROM financials_annual "
         "WHERE is_restated = FALSE ORDER BY ticker, fiscal_year"
     ).fetchall()
     out: dict[str, list[_AnnualRow]] = defaultdict(list)
@@ -497,6 +498,7 @@ def build_company_data(
     revenue_history = _tuple([r.revenue for r in annual])
     ocf_history = _tuple([r.operating_cashflow for r in annual])
     share_history = _tuple([r.shares_diluted for r in annual])
+    acquisitions_history = _tuple([r.acquisitions for r in annual])
     op_margin_history: tuple[float, ...] = tuple(
         r.ebit / r.revenue
         for r in annual
@@ -582,6 +584,7 @@ def build_company_data(
         revenue_history=revenue_history,
         operating_margin_history=op_margin_history,
         share_count_history=share_history,
+        acquisitions_history=acquisitions_history,
         net_income=net_income,
         operating_cashflow=operating_cashflow,
     )
