@@ -145,7 +145,7 @@ def test_build_company_data_derives_ratios(conn: duckdb.DuckDBPyConnection) -> N
     annual = conn.execute(
         "SELECT revenue, ebit, ebitda, interest_expense, net_income, total_assets, "
         "total_debt, cash, total_equity, goodwill, operating_cashflow, free_cashflow, "
-        "shares_diluted FROM financials_annual WHERE ticker = ? ORDER BY fiscal_year",
+        "shares_diluted, acquisitions FROM financials_annual WHERE ticker = ? ORDER BY fiscal_year",
         ["TST"],
     ).fetchall()
     from bot.screener.engine import _AnnualRow
@@ -210,7 +210,7 @@ def test_build_company_data_roic_uses_country_tax_rate(
     annual = conn.execute(
         "SELECT revenue, ebit, ebitda, interest_expense, net_income, total_assets, "
         "total_debt, cash, total_equity, goodwill, operating_cashflow, free_cashflow, "
-        "shares_diluted FROM financials_annual WHERE ticker = ? ORDER BY fiscal_year",
+        "shares_diluted, acquisitions FROM financials_annual WHERE ticker = ? ORDER BY fiscal_year",
         ["DEU"],
     ).fetchall()
     cd = build_company_data(
@@ -226,7 +226,7 @@ def _load_tst_annual(conn: duckdb.DuckDBPyConnection) -> list:  # type: ignore[t
     rows = conn.execute(
         "SELECT revenue, ebit, ebitda, interest_expense, net_income, total_assets, "
         "total_debt, cash, total_equity, goodwill, operating_cashflow, free_cashflow, "
-        "shares_diluted FROM financials_annual WHERE ticker = ? ORDER BY fiscal_year",
+        "shares_diluted, acquisitions FROM financials_annual WHERE ticker = ? ORDER BY fiscal_year",
         ["TST"],
     ).fetchall()
     return [_AnnualRow(*r) for r in rows]
@@ -318,6 +318,57 @@ def test_load_all_annual_groups_oldest_first_per_ticker(
     # Oldest-first: revenue grows 1.1**offset, so ascending.
     revs = [r.revenue for r in by_ticker["AAA"]]
     assert revs == sorted(revs)
+
+
+def _annual_row_with_acquisitions(acquisitions: float | None):  # type: ignore[no-untyped-def]
+    from bot.screener.engine import _AnnualRow
+
+    return _AnnualRow(
+        1000.0, 200.0, 300.0, 10.0, 150.0, 2000.0, 0.0, 100.0, 1000.0, 100.0,
+        250.0, 200.0, 100.0, acquisitions,
+    )
+
+
+def test_build_company_data_acquisitions_history_drops_missing_years(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_one(conn)
+    row = _load_companies(conn)[0]
+    annual = [_annual_row_with_acquisitions(v) for v in (100.0, None, 300.0)]
+    cd = build_company_data(conn, row, annual, market_cap=1000.0, close=10.0)
+    assert cd.acquisitions_history == (100.0, 300.0)
+
+
+def test_build_company_data_without_rows_has_empty_acquisitions_history(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_one(conn)
+    row = _load_companies(conn)[0]
+    cd = build_company_data(conn, row, [], market_cap=1000.0, close=10.0)
+    assert cd.acquisitions_history == ()
+
+
+def test_load_all_annual_carries_acquisitions(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    from bot.screener.engine import _load_all_annual
+
+    _seed_sector(conn)
+    _seed_company(conn, "AAA")
+    conn.execute(
+        "UPDATE financials_annual SET acquisitions = 250.0 "
+        "WHERE ticker = 'AAA' AND fiscal_year = 2025"
+    )
+    # A restated row's acquisitions must not reach the history.
+    conn.execute(
+        "INSERT INTO financials_annual "
+        "(ticker, fiscal_year, acquisitions, is_restated, source, currency) "
+        "VALUES (?, ?, ?, ?, ?, 'USD')",
+        ["AAA", 2030, 9999.0, True, "fmp"],
+    )
+
+    rows = _load_all_annual(conn)["AAA"]
+    assert [r.acquisitions for r in rows] == [None, None, None, None, None, 250.0]
 
 
 def test_load_latest_prices_picks_latest_non_null_per_ticker(
