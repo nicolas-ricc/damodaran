@@ -13,6 +13,6 @@
   </tr>
 {% else %}
   {% set f, s, d = active %}
-  <tr><td colspan="9" class="none">No company is {{ {"na": "without a verdict"}.get(f, f) }} yet. <a href="{{ list_href("all", s, d) }}" hx-get="{{ rows_href("all", s, d) }}" hx-target="#rows" hx-swap="outerHTML" hx-indicator="#rows">Show all</a></td></tr>
+  <tr><td colspan="9" class="none">No company is {{ {"na": "without a verdict"}.get(f, f) }} yet. <a class="btn btn-link btn-xs" href="{{ list_href("all", s, d) }}" hx-get="{{ rows_href("all", s, d) }}" hx-target="#rows" hx-swap="outerHTML" hx-indicator="#rows">Show all</a></td></tr>
 {% endfor %}
 </tbody>

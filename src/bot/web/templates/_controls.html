@@ -45,9 +45,9 @@
 {% macro empty_detail(oob) %}
 {% set f, s, d = active %}
 <section id="detail"{% if oob %} hx-swap-oob="true"{% endif %}>
-  <div class="empty-detail">
+  <div class="hero empty-detail"><div class="hero-content"><div>
     <p>No company is {{ filter_label[f] }} yet.</p>
-    <p><a href="{{ list_href("all", s, d) }}" hx-get="{{ rows_href("all", s, d) }}" hx-target="#rows" hx-swap="outerHTML" hx-indicator="#rows">Show all companies</a></p>
-  </div>
+    <a class="btn btn-link" href="{{ list_href("all", s, d) }}" hx-get="{{ rows_href("all", s, d) }}" hx-target="#rows" hx-swap="outerHTML" hx-indicator="#rows">Show all companies</a>
+  </div></div></div>
 </section>
 {% endmacro %}

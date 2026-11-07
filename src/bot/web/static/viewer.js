@@ -67,7 +67,7 @@
       // a filter that has rows again leaves the "no company is ..." pane behind: ask for a pick instead
       var empty = document.querySelector("#detail .empty-detail");
       if (empty && document.querySelector("#rows td.ticker")) {
-        empty.innerHTML = "<p>Pick a company from the list to read its analysis.</p>";
+        empty.innerHTML = '<div class="hero-content"><p>Pick a company from the list to read its analysis.</p></div>';
       }
     } else if (id === "detail") {
       markSelected();
