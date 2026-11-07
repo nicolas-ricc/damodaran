@@ -41,13 +41,13 @@ Placeholders are the existing local variables; formats as shown.
 | growth_reinvestment | yellow | `In year {worst_year} reinvestment takes {worst_rate:.0%} of after-tax operating profit (NOPAT): growth is funded, but only just.` |
 | growth_reinvestment | green | `Every year the reinvestment growth needs fits within after-tax operating profit (NOPAT).` |
 | beta_business_risk | unknown | `not evaluated: the sector beta, the operating leverage or the company's debt share is missing.` |
-| beta_business_risk | yellow | `The sector beta of {beta:.2f} is below {_DEFENSIVE_BETA:.0f}, which looks defensive, but operating leverage of {operating_leverage:.2f} is above {_HIGH_OPERATING_LEVERAGE:.1f} and debt at {financial_leverage:.0%} of capital is above {_HIGH_FINANCIAL_LEVERAGE:.0%}: the beta understates the risk.` |
+| beta_business_risk | yellow | `The sector beta of {beta:.2f} is below {_DEFENSIVE_BETA:g}, which looks defensive, but operating leverage of {operating_leverage:.2f} is above {_HIGH_OPERATING_LEVERAGE:g} and debt at {financial_leverage:.0%} of capital is above {_HIGH_FINANCIAL_LEVERAGE:.0%}: the beta understates the risk.` |
 | beta_business_risk | green | `The sector beta of {beta:.2f} fits operating leverage of {operating_leverage:.2f} and debt at {financial_leverage:.0%} of capital.` |
 | terminal_value_share | yellow | `{share:.0%} of enterprise value comes from the terminal value, above the {_TERMINAL_VALUE_SHARE_CEILING:.0%} ceiling: the valuation rests almost entirely on the perpetuity.` |
 | terminal_value_share | green | `{share:.0%} of enterprise value comes from the terminal value, within the {_TERMINAL_VALUE_SHARE_CEILING:.0%} ceiling.` |
 | country_exposure | unknown | `not evaluated: it needs revenue by geography and a revenue-weighted equity risk premium (ERP), and no data source supplies either.` |
-| country_exposure | red | `{foreign:.0%} of revenue is earned abroad and the revenue-weighted equity risk premium (ERP) of {erp_weighted:.1%} is {gap_bps:.0f} basis points above the listing country's {erp_listing:.1%}, more than {threshold_bps:.0f}: the discount rate under-prices country risk.` |
-| country_exposure | green | `{foreign:.0%} of revenue is earned abroad and the revenue-weighted equity risk premium (ERP) is {erp_weighted:.1%} against {erp_listing:.1%} for the listing country, a gap of {gap_bps:.0f} basis points.` |
+| country_exposure | red | `{foreign:.0%} of revenue is earned abroad and the revenue-weighted equity risk premium (ERP) of {erp_weighted:.1%} is {gap_bps} basis points above the listing country's {erp_listing:.1%}, more than {threshold_bps}: the discount rate under-prices country risk.` |
+| country_exposure | green | `{foreign:.0%} of revenue is earned abroad and the revenue-weighted equity risk premium (ERP) is {erp_weighted:.1%} against {erp_listing:.1%} for the listing country, a gap of {gap_bps} basis points.` |
 | hypergrowth_story | red | `The classifier sees hypergrowth signals but there is no story file, so the default valuation is not reliable.` |
 | hypergrowth_story | yellow | `A story file is present but the classifier sees no hypergrowth signals: the two disagree.` |
 | hypergrowth_story | green (both) | `The classifier's hypergrowth signals and the story file agree.` |
@@ -59,7 +59,9 @@ Placeholders are the existing local variables; formats as shown.
 | hypergrowth_terminal_roic | yellow | `The terminal return on invested capital (ROIC) of {terminal:.1%} is above {limit:.1%}, {_ROIC_SECTOR_MULTIPLE:g} times the sector's {sector:.1%}: the story claims an advantage far beyond the sector's.` |
 | hypergrowth_terminal_roic | green | `The terminal return on invested capital (ROIC) of {terminal:.1%} is within {limit:.1%}, {_ROIC_SECTOR_MULTIPLE:g} times the sector's {sector:.1%}.` |
 
-`gap_bps = gap * 10000`, `threshold_bps = _ERP_GAP_THRESHOLD * 10000`.
+`gap_bps = round(gap * 10000)` and `threshold_bps = round(_ERP_GAP_THRESHOLD * 10000)`, both `int`, so a gap of -0.3 basis points prints `0`, never `-0`.
+
+The table has 24 rows, one per `return NarrativeFlag` that remains in `narrative_flags.py` after Task 1 deletes the not-high-growth branch (25 returns today). `growth_reinvestment`, `terminal_value_share` and `hypergrowth_revenue_scale` have no `unknown` branch in the code.
 
 ---
 
@@ -89,7 +91,7 @@ Placeholders are the existing local variables; formats as shown.
 - Consumes: Task 1's `narrative_flags`.
 - Produces: the reason copy in the table above, nothing else changes (names, colours, thresholds).
 
-- [ ] **Step 1: The failing tests are in (stage 3).** One whole-sentence test per branch in the table (e.g. `test_growth_reinvestment_green_reason`, `test_country_exposure_green_reason_with_a_negative_gap` asserting `"a gap of -50 basis points."`), the fragment asserts (`"30.0%" in`, `"at/below sector" not in`, `"bps" in`, `"12.0%" in`) replaced by whole sentences, and `test_every_reason_reads_for_a_person`: over a branch-covering set of inputs it collects every reason of the eight checks, asserts it saw every `(name, colour)` pair of the table, and asserts for each reason: no `—`, no `<=`, no `>`, no `bps`, and for each of `NOPAT`, `FCFF`, `ERP`, `ROIC` present, its expansion appears in the same string before it.
+- [ ] **Step 1: The failing tests are in (stage 3).** One whole-sentence test per branch in the table (e.g. `test_growth_reinvestment_green_reason`, `test_country_exposure_green_reason_with_a_negative_gap` asserting `"a gap of -50 basis points."`), the fragment asserts (`"30.0%" in`, `"at/below sector" not in`, `"bps" in`, `"12.0%" in`) replaced by whole sentences, and `test_every_reason_reads_for_a_person`: over a branch-covering set of inputs (the existing `_sweep_results()` × `_sweep_contexts()`, which already reach beta yellow with beta 0.5 / leverage 3.0 / debt 0.9 and terminal ROIC with sector ROIC 0.0; plus country contexts `(None, None, None)`, `(0.70, 0.09, 0.05)`, `(0.70, 0.046, 0.045)`; plus `hypergrowth_story_flag` over the four `(signals, story_file_present)` combinations) it collects every reason of the eight checks, asserts it saw every `(name, colour)` pair of the table, and asserts for each reason: no `—`, no `<=`, no `>`, no `bps`, and for each of `NOPAT`, `FCFF`, `ERP`, `ROIC` present, its expansion appears in the same string before it.
 - [ ] **Step 2: Run** `uv run pytest tests/unit/test_valuator_narrative_flags.py tests/unit/test_valuator_analysis.py -q` — Expected: wording tests FAIL.
 - [ ] **Step 3: Implement** the table copy in each flag function, formatting thresholds from the module constants.
 - [ ] **Step 4: Run** the same command — Expected: PASS. Then `uv run pytest -q` — Expected: only the isolation golden tests fail (Task 3).
@@ -131,3 +133,23 @@ All six fixtures carry the narrative-flag rows, so all six move, not only `distr
 - [ ] **Step 3: Run TLC** if Java is obtainable: `TLA2TOOLS=… STATECHART=… docs/pipeline/models/check.sh /tmp/models-265` — Expected: `0 errors`. Otherwise CI runs it (job `models`).
 - [ ] **Step 4: Run** `uv run pytest -q` — Expected: PASS.
 - [ ] **Step 5: Commit** `docs(#265): story margin runs only for high-growth`.
+
+## Assumptions
+
+Decided during plan review (stage 2); listed again in the PR.
+
+- **Wording outside the issue's six reference sentences is authored by the plan** under the issue's rule (B.6 "Rewrite the reason strings of all eight checks under one rule"). Rejected: leaving the other eighteen strings untouched (the issue names all eight checks).
+- **"Thresholds in words" means a phrase around the number, not spelled-out digits**: the issue's own example is "above the 80% ceiling". Rejected: "eighty percent".
+- **Threshold values are formatted from the constants with `:g` / `:.0%`** (`_DEFENSIVE_BETA = 1.0` → `1`, `_HIGH_OPERATING_LEVERAGE = 1.5` → `1.5`, `_HIGH_FINANCIAL_LEVERAGE = 0.40` → `40%`, `_TERMINAL_VALUE_SHARE_CEILING = 0.80` → `80%`, `_ROIC_SECTOR_MULTIPLE = 2.0` → `2`). Rejected: `.0f` / `.1f`, which would misrender a constant later set to 0.8 or 1.25.
+- **Basis points are rounded to an `int`**: a gap of 300.4 still prints "300 … more than 300". Accepted: the colour carries the strict comparison; rejected: one decimal on basis points, which reads as false precision.
+- **`story_type=None` and `"hypergrowth"` both drop `story_margin`**: the issue says "For any other story type the flag is absent". In the pipeline `story_type` is never `None` (`analysis.py:944`, `assumptions.story_type or auto_story.value`); `None` only arises for direct callers using the dataclass default.
+- **`story_margin_flag` keeps no story-type guard of its own**: its only caller is `narrative_flags()` (grep: `src/` has no other caller; tests and docs cite the symbol only). Rejected: keeping a guard that returns something for a check that "is not emitted".
+- **Intermediate commits may leave the suite red** (stage-3 failing tests, Task 1 before Task 2, Task 2 before Task 3); the branch is green before push. The pipeline mandates committing failing evals; no repo rule forbids it (CONTEXT.md "Conventions").
+- **All six golden fixtures regenerate**, not only `distressed`: every fixture's section 6 lists the flags (`tests/fixtures/valuator/isolation/*.md`, line ~84).
+- **TLA+ `storyType` gains `"high-growth"`** as described in Task 4; no invariant reads `storyType` except `HypergrowthOnlyWithAStoryFile` (`storyType = "hypergrowth" => …`), and every guard compares with `"hypergrowth"`, so `"high-growth"` behaves as `"other"` did everywhere except the new story-margin guards.
+
+## Grilling
+
+- Rounds: 1 (griller model: fable). Revisions were refinements (format specs, bps rounding, the sweep inputs, this section), not new steps or seams, so no second round.
+- Questions: 16. Sources: ISSUE 7, CODE 13, DOC 2 (several questions cite more than one); NO SOURCE 5, all technical assumptions (above). Spec ambiguities: 0. Out of scope: 0.
+- Issues opened: none.
