@@ -78,6 +78,7 @@ body.page-detail .list-pane { display: none; }
 table { border-collapse: collapse; width: 100%; }
 .list { display: table; font-size: var(--text-sm); }
 .list tbody tr { font-size: inherit; }
+.table-xs tr { font-size: inherit; }
 .list th, .list td { padding: var(--space-xs); text-align: left; vertical-align: middle; border-bottom: var(--rule-hair) solid var(--rule-faint); }
 .list th:first-child, .list td:first-child { padding-left: var(--space-md); }
 .list th:last-child, .list td:last-child { padding-right: 0; }
@@ -217,7 +218,7 @@ table { border-collapse: collapse; width: 100%; }
 
 /* the scenario grid: a table of verdict glyphs on tinted cells */
 .scenario-grid { width: auto; max-width: 100%; font-size: var(--text-sm); border-collapse: separate; border-spacing: 2px; }
-.scenario-grid th, .scenario-grid td { padding: 0; text-align: center; font-weight: 400; }
+.scenario-grid th, .scenario-grid td { padding: 0; border: 0; text-align: center; font-weight: 400; }
 .scenario-grid th { color: var(--ink-soft); font-family: var(--font-mono); }
 .scenario-grid thead .axis { font-family: var(--font-body); font-weight: 500; color: var(--color-base-content); text-align: left; padding: 0 0 var(--space-2xs); }
 .scenario-grid thead tr:last-child th { padding-bottom: var(--space-2xs); }

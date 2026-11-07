@@ -69,7 +69,7 @@
     <div class="divider" aria-hidden="true"></div>
     <div class="head-row"><h2>Assumptions</h2>{% if detail.defaulted %}<p class="count-line"><span class="num">{{ detail.defaulted }}</span> of <span class="num">{{ detail.assumptions | length }}</span> are sector defaults</p>{% endif %}</div>
     <p class="lede">The inputs of the DCF and where each came from. A sector default is Damodaran's industry average, not a fact about this company.</p>
-    <table>
+    <table class="table table-xs assumptions-table">
       <tbody>
       {% for a in detail.assumptions %}
         <tr><th scope="row">{{ a.label }}</th><td class="num">{{ a.value }}</td><td class="src">{{ a.source }}</td></tr>
@@ -92,7 +92,7 @@
   <summary><abbr title="Discounted cash flow">DCF</abbr></summary>
   <p class="lede">{{ detail.dcf_rows | length }} years of projected free cash flow to the firm, discounted, plus a terminal value for everything after. Money in the company's reporting currency.</p>
   <div class="scroll">
-  <table>
+  <table class="table table-xs">
     <thead><tr><th scope="col">Year</th><th scope="col">Revenue</th><th scope="col"><abbr title="Earnings before interest and taxes">EBIT</abbr></th><th scope="col"><abbr title="Free cash flow to the firm">FCFF</abbr></th><th scope="col"><abbr title="Present value of that year's FCFF">PV</abbr></th></tr></thead>
     <tbody>
     {% for row in detail.dcf_rows %}
