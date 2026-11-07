@@ -214,8 +214,8 @@ def test_scenario_grid_labels_follow_kind() -> None:
 def test_tornado_bar_carries_shock() -> None:
     ref = _ref(make_sidecar("AAA"))
     bars = {b.label: b for b in detail_view(_entry(ref), ref).tornado}
-    assert bars["revenue_growth (yr 1)"].shock == "-1.0pp / +1.0pp"
-    assert bars["sales_to_capital"].shock == "×0.8 / ×1.2"
+    assert bars["Revenue growth (yr 1)"].shock == "-1.0pp / +1.0pp"
+    assert bars["Sales-to-capital"].shock == "×0.8 / ×1.2"
 
 
 def test_pre_217_sidecar_reads_as_multiplicative() -> None:

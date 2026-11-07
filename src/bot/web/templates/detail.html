@@ -35,7 +35,7 @@
 {% if detail.tornado %}
 <section class="drivers">
   <div class="head-row"><h2>Drivers</h2></div>
-  <p class="lede">Intrinsic value per share when each input alone moves: a rate by one percentage point either way, sales_to_capital by 20%. The vertical line is today's price; a bar that crosses it means that input alone can flip the verdict.</p>
+  <p class="lede">Intrinsic value per share when each input alone moves: a rate by one percentage point either way, sales-to-capital by 20%. The vertical line is today's price; a bar that crosses it means that input alone can flip the verdict.</p>
   {{ tornado_table(detail.tornado, price=detail.price) }}
 </section>
 {% endif %}
@@ -44,7 +44,7 @@
   {% if detail.grid %}
   <section class="scenarios">
     <div class="head-row"><h2>Scenarios</h2><p class="count-line"><span class="num">{{ detail.grid.matching }}</span> of <span class="num">{{ detail.grid.total }}</span> agree</p></div>
-    <p class="lede">The verdict when {{ detail.grid.axis_a }} and {{ detail.grid.axis_b }} move together: a rate by up to one percentage point, sales_to_capital by up to 20%. The glyphs are the ones in the verdict filter.</p>
+    <p class="lede">The verdict when {{ term(detail.grid.axis_a.label, detail.grid.axis_a.description) }} and {{ term(detail.grid.axis_b.label, detail.grid.axis_b.description) }} move together: a rate by up to one percentage point, sales-to-capital by up to 20%. The glyphs are the ones in the verdict filter.</p>
     {{ scenario_grid_table(detail.grid) }}
   </section>
   {% endif %}
@@ -54,7 +54,7 @@
     <p class="lede">Checks on the story behind the numbers. A failed check does not change the verdict; it tells you how much to trust it.</p>
     <ul>
     {% for f in detail.flags %}
-      <li class="flag flag-{{ f.severity | replace(" ", "-") }}">{{ flag_mark(f.color) }} <span class="severity">{{ f.severity }}</span> <span class="id">{{ f.label }}</span> <span class="reason">{{ f.detail }}</span></li>
+      <li class="flag flag-{{ f.severity | replace(" ", "-") }}">{{ flag_mark(f.color) }} <span class="severity">{{ f.severity }}</span> <span class="id">{{ term(f.label, f.description) }}</span> <span class="reason">{{ f.detail }}</span></li>
     {% endfor %}
     </ul>
   </section>
@@ -68,7 +68,7 @@
     <table>
       <tbody>
       {% for a in detail.assumptions %}
-        <tr><th scope="row">{{ a.label }}</th><td class="num">{{ a.value }}</td><td class="src">{{ a.source }}</td></tr>
+        <tr><th scope="row">{{ term(a.label, a.description) }}</th><td class="num">{{ a.value }}</td><td class="src">{{ term(a.source, a.source_description) }}</td></tr>
       {% endfor %}
       </tbody>
     </table>

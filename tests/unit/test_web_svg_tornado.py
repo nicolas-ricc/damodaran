@@ -51,3 +51,15 @@ def test_low_and_high_are_real_text_cells() -> None:
     assert '<td class="num low">1,234.56</td>' in html
     assert '<td class="num high">1,500.00</td>' in html
     assert '<th scope="row">tax_rate</th>' in html
+
+
+def test_row_label_carries_its_description_as_a_tooltip() -> None:
+    bar = TornadoBar("Sales-to-capital", 100.0, 120.0, description="Revenue per unit reinvested.")
+    html = str(tornado_table([bar], price=None))
+    assert '<abbr title="Revenue per unit reinvested.">Sales-to-capital</abbr>' in html
+
+
+def test_row_label_without_description_is_plain() -> None:
+    html = str(tornado_table([TornadoBar("Tax rate", 100.0, 120.0)], price=None))
+    assert "<abbr" not in html
+    assert '<th scope="row">Tax rate</th>' in html
