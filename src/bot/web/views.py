@@ -15,7 +15,6 @@ from typing import Any
 from bot.reporting.analysis_report import (
     MOS_FAIR,
     MOS_UNDERVALUED,
-    fmt_axis_label,
     fmt_growth_label,
     fmt_growth_path,
     fmt_margin_path,
@@ -29,6 +28,7 @@ from bot.reporting.analysis_report import (
     margin_verdict,
 )
 from bot.valuator.sensitivity import SensitivityAxis, ShockKind
+from bot.web.glossary import Term, axis_term, flag_term, input_term, source_term
 from bot.web.index import AnalysisRef, CompanyEntry
 
 _DASH = "—"
@@ -70,12 +70,6 @@ FLAG_SEVERITY: dict[str, str] = {
 _NOT_EVALUATED = "not evaluated"
 
 #: Assumption sources as the valuator writes them, read as words.
-_SOURCE_LABEL: dict[str, str] = {
-    "sector_default_damodaran": "sector default (Damodaran)",
-    "historical_average": "historical average",
-    "rule_based": "rule",
-    "override": "manual override",
-}
 _SECTOR_DEFAULT = "sector_default_damodaran"
 
 #: Corporate suffixes that stay upper-case when a name is re-cased.
@@ -99,7 +93,7 @@ def flag_severity(color: str) -> str:
 
 def source_label(source: str) -> str:
     """An assumption source identifier as words."""
-    return _SOURCE_LABEL.get(source, source.replace("_", " "))
+    return source_term(source).label
 
 
 def display_name(name: str) -> str:
@@ -146,7 +140,11 @@ class FlagView:
 
     @property
     def label(self) -> str:
-        return self.name.replace("_", " ")
+        return flag_term(self.name).label
+
+    @property
+    def description(self) -> str:
+        return flag_term(self.name).description
 
     @property
     def detail(self) -> str:
@@ -174,8 +172,8 @@ class RowView:
 
 @dataclass(frozen=True)
 class ScenarioGrid:
-    axis_a: str
-    axis_b: str
+    axis_a: Term
+    axis_b: Term
     row_labels: tuple[str, ...]
     col_labels: tuple[str, ...]
     cells: tuple[tuple[Verdict | None, ...], ...]
@@ -193,6 +191,7 @@ class TornadoBar:
     low: float
     high: float
     shock: str = ""
+    description: str = ""
 
 
 @dataclass(frozen=True)
@@ -200,6 +199,8 @@ class LabelledValue:
     label: str
     value: str
     source: str
+    description: str = ""
+    source_description: str = ""
 
 
 @dataclass(frozen=True)
@@ -288,8 +289,8 @@ def scenario_grid(analysis: Mapping[str, Any]) -> ScenarioGrid | None:
     )
     flat = [c for row in cells for c in row if c is not None]
     return ScenarioGrid(
-        axis_a=fmt_axis_label(SensitivityAxis(grid["axis_a"])),
-        axis_b=fmt_axis_label(SensitivityAxis(grid["axis_b"])),
+        axis_a=axis_term(SensitivityAxis(grid["axis_a"])),
+        axis_b=axis_term(SensitivityAxis(grid["axis_b"])),
         row_labels=_step_labels(grid, "row"),
         col_labels=_step_labels(grid, "col"),
         cells=cells,
@@ -324,34 +325,47 @@ def row_view(ref: AnalysisRef) -> RowView:
     )
 
 
-#: Label, assumption key and formatter, in the order of the Markdown report (analysis.md.j2).
-_ASSUMPTION_ROWS: tuple[tuple[str | Callable[[Any], str], str, Callable[[Any], str]], ...] = (
-    (fmt_growth_label, "revenue_growth", fmt_growth_path),
-    ("Operating margin", "operating_margin", fmt_margin_path),
-    ("Sales-to-capital", "sales_to_capital", fmt_num),
-    ("Cost of equity", "cost_of_equity", fmt_pct),
-    ("Pre-tax cost of debt", "pretax_cost_of_debt", fmt_pct),
-    ("Equity weight", "equity_weight", fmt_pct),
-    ("Debt weight", "debt_weight", fmt_pct),
-    ("Terminal growth", "terminal_growth", fmt_pct),
-    ("Tax rate", "tax_rate", fmt_pct),
-    ("Probability of bankruptcy", "probability_of_bankruptcy", fmt_pct),
+#: Assumption key and formatter, in the order of the Markdown report (analysis.md.j2).
+#: Labels and descriptions come from :mod:`bot.web.glossary`; the revenue-growth
+#: label alone depends on the value (the length of its path).
+_ASSUMPTION_ROWS: tuple[tuple[str, Callable[[Any], str]], ...] = (
+    ("revenue_growth", fmt_growth_path),
+    ("operating_margin", fmt_margin_path),
+    ("sales_to_capital", fmt_num),
+    ("cost_of_equity", fmt_pct),
+    ("pretax_cost_of_debt", fmt_pct),
+    ("equity_weight", fmt_pct),
+    ("debt_weight", fmt_pct),
+    ("terminal_growth", fmt_pct),
+    ("tax_rate", fmt_pct),
+    ("probability_of_bankruptcy", fmt_pct),
 )
+
+#: The assumption keys the detail page shows, in display order.
+ASSUMPTION_KEYS: tuple[str, ...] = tuple(key for key, _ in _ASSUMPTION_ROWS)
+
+
+def _assumption_label(key: str, value: Any) -> str:
+    if key == "revenue_growth":
+        return fmt_growth_label(value)
+    return input_term(key).label
 
 
 def _assumptions(assumptions: Mapping[str, Any]) -> tuple[LabelledValue, ...]:
     return tuple(
         LabelledValue(
-            label(assumptions[key]["value"]) if callable(label) else label,
+            _assumption_label(key, assumptions[key]["value"]),
             fmt(assumptions[key]["value"]),
-            source_label(str(assumptions[key]["source"])),
+            source_term(str(assumptions[key]["source"])).label,
+            description=input_term(key).description,
+            source_description=source_term(str(assumptions[key]["source"])).description,
         )
-        for label, key, fmt in _ASSUMPTION_ROWS
+        for key, fmt in _ASSUMPTION_ROWS
     )
 
 
 def _defaulted(assumptions: Mapping[str, Any]) -> int:
-    return sum(1 for _, key, _ in _ASSUMPTION_ROWS if assumptions[key]["source"] == _SECTOR_DEFAULT)
+    return sum(1 for key, _ in _ASSUMPTION_ROWS if assumptions[key]["source"] == _SECTOR_DEFAULT)
 
 
 def _sanity(check: Mapping[str, Any] | None) -> tuple[LabelledValue, ...]:
@@ -397,10 +411,11 @@ def detail_view(entry: CompanyEntry, ref: AnalysisRef) -> DetailView:
     mos = analysis.get("margin_of_safety")
     tornado = tuple(
         TornadoBar(
-            label=fmt_axis_label(SensitivityAxis(t["axis"])),
+            label=axis_term(SensitivityAxis(t["axis"])).label,
             low=float(t["intrinsic_low"]),
             high=float(t["intrinsic_high"]),
             shock=fmt_shock(t.get("kind", _PRE_217_KIND)),
+            description=axis_term(SensitivityAxis(t["axis"])).description,
         )
         for t in analysis["tornado"]
         if t["intrinsic_low"] is not None and t["intrinsic_high"] is not None

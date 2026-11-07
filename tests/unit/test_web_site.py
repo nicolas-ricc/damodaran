@@ -267,3 +267,15 @@ def test_dcf_lede_counts_the_sidecar_years(tmp_path: Path) -> None:
     old_page = (out / "c" / "BBB" / "2026-10-01.html").read_text()
     assert "10 years of projected free cash flow" in new_page
     assert "5 years of projected free cash flow" in old_page
+
+
+def test_detail_speaks_in_words_with_tooltips(reports: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    build(reports, out, "/")
+    detail = (out / "f" / "AAA.html").read_text()
+    assert "sales_to_capital" not in detail
+    assert "cost_of_equity" not in detail
+    assert "terminal_value_share" not in detail
+    assert "Sales-to-capital</abbr>" in detail
+    assert "Terminal value share</abbr>" in detail
+    assert "sector default (Damodaran)</abbr>" in detail

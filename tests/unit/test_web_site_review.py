@@ -12,6 +12,7 @@ from structlog.testing import capture_logs
 from bot.reporting.analysis_json import render_analysis_json
 from bot.storage.db import apply_schema, connect
 from bot.valuator.analysis import analyze
+from bot.web.glossary import Term
 from bot.web.site import MARKER, build
 from bot.web.svg import scenario_grid_table, tornado_table
 from bot.web.views import ScenarioGrid, TornadoBar, Verdict
@@ -77,8 +78,8 @@ def test_marker_is_deleted_last(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 def test_charts_have_accessible_names() -> None:
     labels = ("-1.0pp", "-0.5pp", "+0.0pp", "+0.5pp", "+1.0pp")
     grid = ScenarioGrid(
-        axis_a="a",
-        axis_b="b",
+        axis_a=Term("a", ""),
+        axis_b=Term("b", ""),
         row_labels=labels,
         col_labels=labels,
         cells=tuple(tuple(Verdict.FAIR for _ in range(5)) for _ in range(5)),

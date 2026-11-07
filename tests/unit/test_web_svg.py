@@ -6,6 +6,7 @@ import re
 
 import pytest
 
+from bot.web.glossary import Term
 from bot.web.svg import (
     flag_mark,
     scenario_grid_table,
@@ -32,7 +33,7 @@ def _vl(price: float = 100.0, intrinsic: float = 150.0) -> ValueLine:
     )
 
 
-def _grid(axis_a: str = "cost_of_equity") -> ScenarioGrid:
+def _grid(axis_a: str = "Cost of equity") -> ScenarioGrid:
     v = Verdict
     cells = tuple(
         tuple(None if (r, c) == (0, 0) else (v.UNDERVALUED if c > 2 else v.FAIR) for c in range(5))
@@ -40,8 +41,8 @@ def _grid(axis_a: str = "cost_of_equity") -> ScenarioGrid:
     )
     labels = ("-1.0pp", "-0.5pp", "+0.0pp", "+0.5pp", "+1.0pp")
     return ScenarioGrid(
-        axis_a=axis_a,
-        axis_b="operating_margin (yr 1)",
+        axis_a=Term(axis_a, "Equity leg."),
+        axis_b=Term("Operating margin (yr 1)", "Year one."),
         row_labels=labels,
         col_labels=labels,
         cells=cells,
@@ -182,11 +183,14 @@ def test_scenario_grid_is_a_table_with_headers_and_a_verdict_per_cell() -> None:
     assert 'aria-label="Scenarios 10/24"' in html
     assert html.count('<th scope="row">') == 5
     assert html.count('<th scope="col">') == 5
-    assert '<th scope="col" class="axis">cost_of_equity ↓</th>' in html
+    assert (
+        '<th scope="col" class="axis"><abbr title="Equity leg.">Cost of equity</abbr> ↓</th>'
+        in html
+    )
     assert html.count('class="cell cell-undervalued"') == 10
     assert html.count('class="cell cell-fair"') == 14
     assert html.count("cell-none") == 1
-    assert "operating_margin (yr 1)" in html and "cost_of_equity" in html
+    assert "Operating margin (yr 1)" in html and "Cost of equity" in html
 
 
 def test_tornado_keeps_input_order_and_sorts_each_bar() -> None:
@@ -196,3 +200,9 @@ def test_tornado_keeps_input_order_and_sorts_each_bar() -> None:
     assert html.index("narrow") < html.index("wide")
     row = html[html.index("narrow") : html.index("wide")]
     assert row.index("1.00") < row.index("2.00")
+
+
+def test_scenario_axes_carry_their_descriptions_as_tooltips() -> None:
+    html = str(scenario_grid_table(_grid()))
+    assert '<abbr title="Equity leg.">Cost of equity</abbr> ↓' in html
+    assert '<abbr title="Year one.">Operating margin (yr 1)</abbr> →' in html

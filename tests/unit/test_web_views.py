@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Any
 
@@ -244,3 +245,19 @@ def test_unknown_filter_or_sort_raises() -> None:
         filter_sort(_rows(), "all", "price", "desc")
     with pytest.raises(ValueError):
         filter_sort(_rows(), "all", "mos", "up")
+
+
+def test_detail_labels_carry_descriptions_and_no_identifiers() -> None:
+    payload = real_sidecar()
+    detail = detail_view(_entry(_ref(payload)), _ref(payload))
+    snake = re.compile(r"[a-z]+_[a-z_]+")
+    for a in detail.assumptions:
+        assert a.description and not snake.search(a.label), a
+    for bar in detail.tornado:
+        assert bar.description and not snake.search(bar.label), bar
+    for f in detail.flags:
+        assert f.description and not snake.search(f.label), f
+    assert detail.grid is not None
+    assert detail.grid.axis_a.description and not snake.search(detail.grid.axis_a.label)
+    assert detail.grid.axis_b.description and not snake.search(detail.grid.axis_b.label)
+    assert detail.grid.axis_a.label == "Cost of equity"
