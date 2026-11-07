@@ -53,9 +53,7 @@ def test_import_company_returns_result_even_when_log_insert_fails() -> None:
     ):
         result = import_company(conn, ticker="AAPL", provider=provider)
 
-    assert isinstance(result, IngestResult), (
-        "import_company must return an IngestResult even when _log_refresh raises"
-    )
+    assert isinstance(result, IngestResult)
     assert result.source == "fake"
     assert result.status == "success"
 
