@@ -720,6 +720,7 @@ _REQUIRED: dict[str, dict[str, set[str]]] = {
 # its line with, the expansion. Any all-caps token not listed here or in
 # _ACRONYMS_EXEMPT fails the suite, so a new acronym cannot slip in unexplained.
 _ACRONYMS: dict[str, str] = {
+    "NT": "notification of late filing",
     "SEC": "Securities and Exchange Commission",
     "EDGAR": "Electronic Data Gathering, Analysis, and Retrieval",
     "EOD": "end of day",
@@ -2631,6 +2632,11 @@ def _cited_values(board: str) -> dict[int, list[float]]:
     def flat(v: Any) -> list[float]:
         if isinstance(v, (list, tuple)):
             return [x for y in v for x in flat(y)]
+        if isinstance(v, str):  # a numeric string constant, e.g. an 8-K item number
+            try:
+                return [float(v)]
+            except ValueError:
+                return []
         ok = isinstance(v, (int, float)) and not isinstance(v, bool)
         return [float(v)] if ok else []
 
