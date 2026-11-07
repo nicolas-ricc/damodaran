@@ -30,3 +30,17 @@ def test_focus_is_restored_after_a_filter_swap() -> None:
     assert "htmx:afterSettle" in script
     assert "focus(" in script
     assert "announce" in script
+
+
+def test_mark_selected_toggles_the_highlight() -> None:
+    script = (_WEB / "static" / "viewer.js").read_text()
+    assert 'row.classList.toggle("selected", on);' in script
+    assert 'row.classList.toggle("bg-base-300", on);' in script
+
+
+def test_empty_detail_replacement_keeps_the_hero() -> None:
+    script = (_WEB / "static" / "viewer.js").read_text()
+    assert (
+        '<div class="hero-content"><p>Pick a company from the list to read its analysis.</p></div>'
+        in script
+    )

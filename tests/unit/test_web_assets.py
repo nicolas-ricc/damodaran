@@ -69,3 +69,33 @@ def test_css_reads_daisyui_variables_only() -> None:
     assert "tabular-nums" in css
     assert "@font-face" in css
     assert "[hidden]" in css
+
+
+def test_hand_drawn_controls_are_gone() -> None:
+    # DaisyUI draws the list pane's controls now (issue #259); the layout rules stay.
+    css = (_STATIC / "app.css").read_text()
+    for gone in (
+        ".bar {",
+        ".bar .note",
+        ".brand {",
+        "#filter a",
+        "#count {",
+        "box-shadow: inset",
+        ".list tr.selected td",
+        ".empty a",
+        ".empty-detail a",
+        ".list .none a",
+    ):
+        assert gone not in css, gone
+    for kept in (
+        "[hidden] { display: none !important; }",
+        ".sr {",
+        ".split {",
+        "body.page-list .detail-pane { display: none; }",
+        "@media (max-width: 699px)",
+        "@media (min-width: 1100px) and (max-width: 1599px)",
+        ".list tr.selected .ticker::before",
+        ".list thead th[aria-sort] a { border-bottom-color: var(--color-primary); }",
+        ".list { display: table;",
+    ):
+        assert kept in css, kept

@@ -267,3 +267,127 @@ def test_dcf_lede_counts_the_sidecar_years(tmp_path: Path) -> None:
     old_page = (out / "c" / "BBB" / "2026-10-01.html").read_text()
     assert "10 years of projected free cash flow" in new_page
     assert "5 years of projected free cash flow" in old_page
+
+
+_FILTER_NAV = re.compile(r"<nav id=\"filter\"[^>]*>.*?</nav>", re.S)
+
+
+def _filter_nav(html: str) -> str:
+    match = _FILTER_NAV.search(html)
+    assert match is not None
+    return match.group(0)
+
+
+def _filter_links(html: str) -> list[str]:
+    return re.findall(r"<a [^>]*>", _filter_nav(html))
+
+
+def test_controls_are_daisyui_components(reports: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    build(reports, out, "/")
+    index = (out / "index.html").read_text()
+    assert '<header class="navbar">' in index
+    assert 'class="navbar-start"' in index
+    assert 'class="navbar-end"' in index
+    assert '<span class="badge badge-ghost"><span class="num">3</span> companies</span>' in index
+    assert (
+        '<output id="count" class="badge badge-neutral num" aria-live="polite" data-total="3"'
+        in index
+    )
+    assert '<table class="table table-sm table-pin-rows list">' in index
+    for path in _html_files(out):
+        assert "table-zebra" not in path.read_text(), path.name
+
+    one = tmp_path / "one"
+    write_sidecar(one, "2026-10-01", make_sidecar("AAA"))
+    build(one, tmp_path / "site-one", "/")
+    single = (tmp_path / "site-one" / "index.html").read_text()
+    assert '<span class="num">1</span> company</span>' in single
+
+
+def test_filter_is_a_join_with_one_active_link(reports: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    build(reports, out, "/")
+    for page, current in (
+        ("index.html", "all"),
+        ("rows/undervalued-mos-desc.html", "undervalued"),
+    ):
+        html = (out / page).read_text()
+        assert _filter_nav(html).startswith('<nav id="filter" class="join"'), page
+        links = _filter_links(html)
+        assert len(links) == 5, page
+        for link in links:
+            assert 'href="' in link
+            assert 'hx-get="' in link
+            assert 'hx-target="#rows"' in link
+            assert "join-item" in link
+        active = [link for link in links if 'aria-current="page"' in link]
+        assert len(active) == 1, page
+        assert "btn-active" in active[0]
+        assert f"/{current}-mos-desc.html" in active[0]
+        assert sum("btn-active" in link for link in links) == 1, page
+    fragments = sorted((out / "rows").glob("*.html"))
+    assert len(fragments) == 30
+    for path in fragments:
+        html = path.read_text()
+        links = _filter_links(html)
+        active = [link for link in links if "btn-active" in link]
+        assert len(active) == 1, path.name
+        assert 'aria-current="page"' in active[0], path.name
+        assert re.search(r'<output id="count"[^>]*hx-swap-oob="true"', html), path.name
+
+
+def test_selected_row_is_highlighted(reports: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    build(reports, out, "/")
+    page = (out / "c" / "AAA.html").read_text()
+    assert page.count('<tr class="selected bg-base-300">') == 1
+    assert re.search(
+        r'<tr class="selected bg-base-300">\s*<td class="ticker"><a href="/c/AAA.html"', page
+    )
+    assert "selected" not in (out / "rows" / "all-mos-desc.html").read_text()
+
+
+def test_flags_are_badges_by_tone(reports: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    build(reports, out, "/")
+    rows = (out / "rows" / "all-mos-desc.html").read_text()
+    assert '<span class="badge badge-xs badge-error" title="fail: ' in rows
+    for path in _html_files(out):
+        assert "badge-info" not in path.read_text(), path.name
+    css = (Path(__file__).resolve().parents[2] / "src/bot/web/static/app.css").read_text()
+    assert ".flags .badge .glyph { stroke: currentColor; }" in css
+    assert ".flags .badge .mark { width: 0.75rem; height: 0.75rem; }" in css
+
+    # rows keep only red and yellow flags, so a yellow one stands in for a second tone
+    yellow = tmp_path / "yellow"
+    payload = make_sidecar("DDD")
+    payload["analysis"]["narrative_flags"][3]["color"] = "yellow"
+    write_sidecar(yellow, "2026-10-01", payload)
+    build(yellow, tmp_path / "site-yellow", "/")
+    rows = (tmp_path / "site-yellow" / "rows" / "all-mos-desc.html").read_text()
+    assert '<span class="badge badge-xs badge-warning" title="warning: ' in rows
+
+
+def test_empty_states_are_heroes(reports: Path, tmp_path: Path) -> None:
+    empty = tmp_path / "empty-site"
+    build(tmp_path / "missing", empty, "/")
+    index = (empty / "index.html").read_text()
+    assert '<main class="hero empty">' in index
+    assert '<div class="hero-content">' in index
+    assert "No analyses yet" in index
+    assert "badge badge-ghost" not in index
+
+    out = tmp_path / "site"
+    build(reports, out, "/")
+    page = (out / "l" / "fair-mos-desc.html").read_text()
+    assert '<div class="hero empty-detail">' in page
+    assert "No company is fair yet" in page
+    assert '<a class="btn btn-link" href="/l/all-mos-desc.html"' in page
+    fragment = (out / "rows" / "fair-mos-desc.html").read_text()
+    assert '<td colspan="9" class="none">' in fragment
+    assert '<a class="btn btn-link btn-xs" href="/l/all-mos-desc.html"' in fragment
+    assert 'id="detail" hx-swap-oob="true"' in fragment
+    missing = (out / "404.html").read_text()
+    assert '<main class="hero empty">' in missing
+    assert '<a class="btn btn-primary" href="/index.html">Show all companies</a>' in missing

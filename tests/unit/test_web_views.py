@@ -11,6 +11,7 @@ from bot.web.index import AnalysisRef, CompanyEntry
 from bot.web.views import (
     FILTERS,
     VERDICT_TEXT,
+    FlagView,
     Verdict,
     detail_view,
     filter_sort,
@@ -244,3 +245,17 @@ def test_unknown_filter_or_sort_raises() -> None:
         filter_sort(_rows(), "all", "price", "desc")
     with pytest.raises(ValueError):
         filter_sort(_rows(), "all", "mos", "up")
+
+
+@pytest.mark.parametrize(
+    ("color", "tone"),
+    [
+        ("green", "success"),
+        ("yellow", "warning"),
+        ("red", "error"),
+        ("unknown", "ghost"),
+        ("purple", "ghost"),
+    ],
+)
+def test_flag_tone_follows_severity(color: str, tone: str) -> None:
+    assert FlagView("x", color, "").tone == tone
