@@ -50,31 +50,19 @@ class Settings(BaseSettings):
             "of Stooq's HTTP endpoint, which is behind an anti-bot wall (ADR 0007)."
         ),
     )
-    ibkr_host: str = Field(
-        default="127.0.0.1",
-        description="Host of the running TWS / IB Gateway socket (M5).",
-    )
-    ibkr_port: int = Field(
-        default=7496,
-        description=(
-            "TWS API socket port. 7496 = live TWS (default), 7497 = paper TWS, "
-            "4001/4002 = IB Gateway live/paper."
-        ),
-    )
-    ibkr_client_id: int = Field(
-        default=1,
-        description="Client id for the TWS API connection. Each concurrent client needs a distinct id.",
-    )
     ibkr_flex_token: str = Field(
         default="",
         description=(
-            "IBKR Flex Web Service token. With BOT_IBKR_FLEX_QUERY_ID set, `bot portfolio` "
-            "imports dividends and splits from the Flex Query before computing events."
+            "IBKR Flex Web Service token. Required by `bot portfolio`, which reads positions, "
+            "cash, trades and corporate actions from one Activity Flex Query."
         ),
     )
     ibkr_flex_query_id: str = Field(
         default="",
-        description="Id of the Activity Flex Query holding Corporate Actions and Cash Transactions.",
+        description=(
+            "Id of the Activity Flex Query. Required by `bot portfolio`; sections: Open Positions, "
+            "Cash Report, Trades, Corporate Actions, Cash Transactions."
+        ),
     )
     ibkr_flex_tz: str = Field(
         default="America/New_York",

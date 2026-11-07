@@ -1,6 +1,6 @@
 """CLI test for ``bot portfolio`` (M5, #29).
 
-Monkeypatches the IBKR client with an in-memory fake so the command runs the
+Monkeypatches the Flex portfolio client with an in-memory fake so the command runs the
 full sync -> diff -> report cycle without a live Flex download, then asserts both
 report artefacts are written under the dated directory.
 """

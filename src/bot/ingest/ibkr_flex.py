@@ -1,8 +1,8 @@
-"""IBKR Flex Web Service importer for corporate actions (M5, #56).
+"""IBKR Flex Web Service: portfolio, trades and corporate actions (M5, #56, #256).
 
-The TWS socket cannot supply dividends or splits (ADR 0004); IBKR's Flex Web
-Service can. A user-defined Activity Flex Query with the *Corporate Actions*
-and *Cash Transactions* sections is fetched over two GETs (protocol v3), parsed
+IBKR's Flex Web Service is the only IBKR source (ADR 0010, #256). A
+user-defined Activity Flex Query (Open Positions, Cash Report, Trades,
+Corporate Actions, Cash Transactions) is fetched over two GETs (protocol v3), parsed
 into :class:`CorporateActionRecord` rows and upserted into
 ``corporate_actions``, where :func:`bot.portfolio.events.compute_events` reads
 them.
@@ -531,26 +531,3 @@ def fetch_flex_statement(
     with FlexClient(token, query_id, transport=transport) as client:
         return client.fetch_statement()
 
-
-def import_corporate_actions(
-    conn: duckdb.DuckDBPyConnection,
-    settings: Settings,
-    *,
-    transport: httpx.BaseTransport | None = None,
-) -> int | None:
-    """Fetch the latest Flex statement and upsert its corporate actions.
-
-    Returns ``None`` (after one INFO line) when the token or query id is not
-    configured, otherwise the number of new rows. Failures propagate; the
-    caller decides that they are not fatal.
-    """
-    token = settings.ibkr_flex_token.strip()
-    query_id = settings.ibkr_flex_query_id.strip()
-    if not token or not query_id:
-        log.info("ibkr_flex_not_configured")
-        return None
-    statement = fetch_flex_statement(token, query_id, transport=transport)
-    records = parse_flex_statement(statement)
-    inserted = upsert_corporate_actions(conn, records)
-    log.info("ibkr_flex_imported", records=len(records), inserted=inserted)
-    return inserted

@@ -1,7 +1,7 @@
-"""Daily, idempotent portfolio snapshot from the read-only IBKR client (M5, #26).
+"""Daily, idempotent portfolio snapshot from a read-only IBKR source (M5, #26).
 
-``sync_portfolio`` orchestrates fetch -> write: it asks an :class:`IbkrClient`
-for the managed accounts, their open positions and per-currency cash, then
+``sync_portfolio`` orchestrates fetch -> write: it asks a
+:class:`PortfolioSource` (the Flex statement client) for the managed accounts, their open positions and per-currency cash, then
 persists an append-only daily snapshot into ``portfolio_snapshots`` and
 ``cash_balances``.
 
@@ -35,7 +35,7 @@ log = get_logger(__name__)
 
 
 class PortfolioSource(Protocol):
-    """The read-only slice of :class:`~bot.ingest.ibkr.IbkrClient` we depend on.
+    """The read-only slice of :class:`~bot.ingest.ibkr_flex.FlexPortfolioClient` we depend on.
 
     Declared as a Protocol so tests can inject a lightweight fake while ``mypy``
     still checks the call sites.

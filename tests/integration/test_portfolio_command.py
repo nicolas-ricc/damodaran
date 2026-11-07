@@ -29,8 +29,8 @@ from bot.valuator.narrative_flags import NarrativeFlag
 TODAY = date(2026, 6, 1)
 
 
-class _FakeIbkrClient:
-    """A lightweight in-memory stand-in for :class:`IbkrClient`."""
+class _FakeFlexClient:
+    """A lightweight in-memory stand-in for :class:`FlexPortfolioClient`."""
 
     def __init__(
         self,
@@ -111,22 +111,25 @@ def _fill(exec_id: str, symbol: str, when: datetime) -> TradeExecution:
     )
 
 
-def _client(as_of: date = TODAY) -> _FakeIbkrClient:
+def _client(
+    as_of: date = TODAY, actions: list[CorporateActionRecord] | None = None
+) -> _FakeFlexClient:
     """A concentrated two-position book (AAPL ~83% -> concentration event)."""
-    return _FakeIbkrClient(
+    return _FakeFlexClient(
         positions=[
             _position("AAPL", 1, 100.0, 120.0),
             _position("MSFT", 2, 10.0, 300.0),
         ],
         cash=[CashBalance(account="DU1", currency="USD", amount=5000.0)],
         as_of=as_of,
+        actions=actions,
     )
 
 
-def _diversified_client(as_of: date = TODAY) -> _FakeIbkrClient:
+def _diversified_client(as_of: date = TODAY) -> _FakeFlexClient:
     """Eight ~12.5% holdings (below the 15% concentration threshold)."""
     symbols = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG", "HHH"]
-    return _FakeIbkrClient(
+    return _FakeFlexClient(
         positions=[_position(s, i, 10.0, 100.0) for i, s in enumerate(symbols, 1)],
         cash=[CashBalance(account="DU1", currency="USD", amount=5000.0)],
         as_of=as_of,
@@ -260,7 +263,7 @@ def test_run_portfolio_appends_new_trades(conn: duckdb.DuckDBPyConnection, tmp_p
         # Bought and sold the same day: no position, still a trade.
         _fill("E2", "TSLA", datetime(2026, 6, 1, 15, 0, tzinfo=UTC)),
     ]
-    client = _FakeIbkrClient([_position("AAPL", 1, 10.0, 100.0)], [], fills)
+    client = _FakeFlexClient([_position("AAPL", 1, 10.0, 100.0)], [], fills)
 
     result = run_portfolio(conn, client, reports_dir=tmp_path, today=TODAY, analyze_fn=_no_analyze)
 
@@ -277,12 +280,12 @@ def test_run_portfolio_same_day_rerun_does_not_duplicate_trades(
     fills = [_fill("E1", "AAPL", datetime(2026, 6, 1, 14, 0, tzinfo=UTC))]
     run_portfolio(
         conn,
-        _FakeIbkrClient([], [], fills),
+        _FakeFlexClient([], [], fills),
         reports_dir=tmp_path,
         today=TODAY,
         analyze_fn=_no_analyze,
     )
-    again = _FakeIbkrClient([], [], fills)
+    again = _FakeFlexClient([], [], fills)
 
     result = run_portfolio(conn, again, reports_dir=tmp_path, today=TODAY, analyze_fn=_no_analyze)
 
@@ -296,7 +299,7 @@ def test_run_portfolio_without_fills_records_no_trades(
 ) -> None:
     result = run_portfolio(
         conn,
-        _FakeIbkrClient([], []),
+        _FakeFlexClient([], []),
         reports_dir=tmp_path,
         today=TODAY,
         analyze_fn=_no_analyze,
@@ -387,17 +390,18 @@ def test_run_portfolio_emits_valuation_events_across_two_runs(
 def test_corporate_actions_from_client_feed_events(
     conn: duckdb.DuckDBPyConnection, tmp_path: Path
 ) -> None:
-    client = _client()
-    client._actions = [
-        CorporateActionRecord(
-            action_id="ct:1",
-            account="DU1",
-            action_type="dividend",
-            ticker="MSFT",
-            effective_date=TODAY,
-            details={},
-        )
-    ]
+    client = _client(
+        actions=[
+            CorporateActionRecord(
+                action_id="ct:1",
+                account="DU1",
+                action_type="dividend",
+                ticker="MSFT",
+                effective_date=TODAY,
+                details={},
+            )
+        ]
+    )
 
     run_portfolio(conn, client, reports_dir=tmp_path, today=TODAY, analyze_fn=_no_analyze)
 

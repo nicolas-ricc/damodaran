@@ -590,8 +590,8 @@ def portfolio(
 
     Downloads the IBKR Flex statement (``BOT_IBKR_FLEX_TOKEN`` and
     ``BOT_IBKR_FLEX_QUERY_ID``, no TWS), writes the snapshot keyed on the
-    statement date, upserts its corporate actions, appends the executions newer than the last stored one to ``trades``, computes the §8.3
-    event stream versus the previous snapshot (persisting it to ``events_log``),
+    statement date, upserts its corporate actions, appends the executions newer
+    than the last stored one to ``trades``, computes the §8.3 event stream versus the previous snapshot (persisting it to ``events_log``),
     then writes two artefacts under
     ``<reports_dir>/YYYY-MM-DD/``: ``portfolio.md`` (full state — positions, P&L,
     concentration, suggested reviews; plus a P&L time series with ``--history``

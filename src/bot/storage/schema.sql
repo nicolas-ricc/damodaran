@@ -210,7 +210,7 @@ CREATE TABLE IF NOT EXISTS cash_balances (
 -- fills newer than that, de-duping on the broker `exec_id` so an overlapping
 -- look-back window cannot double-insert. `exec_id` is IBKR's globally-unique
 -- execution id and is the primary key. `executed_at` is the fill timestamp
--- normalised to naive UTC (ib_async returns it timezone-aware; the sync layer
+-- normalised to naive UTC (the source may be timezone-aware; the sync layer
 -- converts to UTC and drops the tzinfo so DuckDB needs no pytz at read time).
 -- NOTE: the live TWS socket only
 -- returns the current session's fills (today + a short look-back), so this

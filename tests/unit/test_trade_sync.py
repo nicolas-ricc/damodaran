@@ -1,7 +1,6 @@
 """Unit tests for the incremental, de-duped trade-execution sync (M5, #27).
 
-These drive ``sync_trades`` against a *mocked* ``IbkrClient`` — no live TWS
-gateway or socket is opened, so they are safe for CI. The mock records the
+These drive ``sync_trades`` against a *mocked* client — no Flex download is made, so they are safe for CI. The mock records the
 ``since`` watermark it was called with so we can assert the incremental
 behaviour, and returns canned fills.
 """
@@ -20,7 +19,7 @@ from bot.storage.db import apply_schema
 
 
 class FakeTradeClient:
-    """Stand-in for ``IbkrClient`` returning canned executions per account.
+    """Stand-in for the Flex client returning canned executions per account.
 
     ``_per_account`` maps an account id to its fills. ``trades`` records the
     ``since`` watermark it was passed for each account so tests can assert the
