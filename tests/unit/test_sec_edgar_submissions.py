@@ -261,3 +261,15 @@ def test_every_governance_date_of_the_watermark_is_stored() -> None:
     data = _with_entry("NT 10-K", "2026-09-15", "")
     rows = governance_filings_from_submissions("AAPL", data)
     assert ("NT 10-K", "2026-09-15") in {(r["filing_type"], r["filing_date"]) for r in rows}
+
+
+def test_governance_filings_groups_two_spellings_of_one_day() -> None:
+    data = _recent(
+        form=["8-K", "8-K"],
+        filingDate=["2026-05-20", "2026-05-20T00:00:00"],
+        accessionNumber=["A", "B"],
+        items=["4.01", "9.01"],
+    )
+    assert _keys(governance_filings_from_submissions("AAPL", data)) == [
+        ("8-K", "2026-05-20", "A", "4.01,9.01")
+    ]

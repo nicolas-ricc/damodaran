@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Collection
+from dataclasses import dataclass, field
 from datetime import date
 from statistics import median
-from typing import Any
+from typing import Any, NamedTuple
 
 import duckdb
 import httpx
@@ -184,10 +185,16 @@ def _item_tokens(items: str | None) -> list[str]:
     return [t for t in (part.strip() for part in (items or "").split(",")) if t]
 
 
-def _recent_entries(
-    submissions: dict[str, Any],
-) -> list[tuple[str | None, str, date, str | None, str | None]]:
-    """``filings.recent`` as ``(form, filingDate, parsed date, accession, items)``.
+class _RecentEntry(NamedTuple):
+    form: str | None
+    filed_raw: str
+    filed: date
+    accession: str | None
+    items: str | None
+
+
+def _recent_entries(submissions: dict[str, Any]) -> list[_RecentEntry]:
+    """``filings.recent`` as one entry per filing.
 
     The arrays are parallel and walked by index over ``form``; a missing array or
     index reads as ``None``. Entries whose ``filingDate`` does not parse are dropped.
@@ -197,7 +204,7 @@ def _recent_entries(
     dates = recent.get("filingDate") or []
     accessions = recent.get("accessionNumber") or []
     items = recent.get("items") or []
-    entries: list[tuple[str | None, str, date, str | None, str | None]] = []
+    entries: list[_RecentEntry] = []
     for i, form in enumerate(forms):
         filed_raw = dates[i] if i < len(dates) else None
         filed = coerce_date(filed_raw)
@@ -205,25 +212,36 @@ def _recent_entries(
             continue
         accession = accessions[i] if i < len(accessions) else None
         entries.append(
-            (form, str(filed_raw), filed, accession, items[i] if i < len(items) else None)
+            _RecentEntry(form, str(filed_raw), filed, accession, items[i] if i < len(items) else None)
         )
     return entries
 
 
+def _is_governance(entry: _RecentEntry) -> bool:
+    return is_auditor_change(entry.form, entry.items) or is_late_filing(entry.form)
+
+
 def latest_filing_date_from_submissions(submissions: dict[str, Any]) -> date | None:
-    """Newest 10-K/10-Q or governance filing date in ``filings.recent``.
+    """Newest 10-K, 10-Q or 20-F (amendments too) or governance filing date in ``filings.recent``.
 
     Governance filings (auditor-change 8-Ks, NT notices) count so that a new one
     moves the incremental-skip watermark; ``governance_filings_from_submissions``
-    stores a row for every date this reports.
+    stores a row for every governance date this reports.
     """
-    latest: date | None = None
-    for form, _raw, filed, _accession, items in _recent_entries(submissions):
-        if not (form in _FINANCIAL_FORMS or is_auditor_change(form, items) or is_late_filing(form)):
-            continue
-        if latest is None or filed > latest:
-            latest = filed
-    return latest
+    dates = [
+        e.filed
+        for e in _recent_entries(submissions)
+        if e.form in _FINANCIAL_FORMS or _is_governance(e)
+    ]
+    return max(dates, default=None)
+
+
+@dataclass
+class _FilingGroup:
+    filed_raw: str
+    accession: str | None = None
+    governance: bool = False
+    tokens: set[str] = field(default_factory=set)
 
 
 def governance_filings_from_submissions(
@@ -231,32 +249,30 @@ def governance_filings_from_submissions(
 ) -> list[dict[str, Any]]:
     """``filings_log`` rows for auditor-change 8-Ks and NT notices in ``filings.recent``.
 
-    Entries are grouped by ``(form, filingDate)``, the filings_log primary key. A
+    Entries are grouped by form and filing date, the filings_log primary key. A
     group is stored when any of its entries is a governance filing; its ``items`` is
     the sorted union of the item tokens of every entry (``None`` when empty) and its
     accession number is that of the first governance entry. ``filings.recent`` holds
     at least one year or the newest 1,000 filings; ``filings.files`` is not fetched.
     """
-    groups: dict[tuple[str | None, str], dict[str, Any]] = {}
-    for form, filed_raw, _filed, accession, items in _recent_entries(submissions):
-        group = groups.setdefault(
-            (form, filed_raw), {"accession": None, "governance": False, "tokens": set()}
-        )
-        group["tokens"].update(_item_tokens(items))
-        if not group["governance"] and (is_auditor_change(form, items) or is_late_filing(form)):
-            group["governance"] = True
-            group["accession"] = accession
+    groups: dict[tuple[str | None, date], _FilingGroup] = {}
+    for entry in _recent_entries(submissions):
+        group = groups.setdefault((entry.form, entry.filed), _FilingGroup(entry.filed_raw))
+        group.tokens.update(_item_tokens(entry.items))
+        if not group.governance and _is_governance(entry):
+            group.governance = True
+            group.accession = entry.accession
     return [
         {
             "ticker": ticker.upper(),
             "filing_type": form,
-            "filing_date": filed_raw,
-            "accession_number": group["accession"],
+            "filing_date": group.filed_raw,
+            "accession_number": group.accession,
             "source": "sec_edgar",
-            "items": ",".join(sorted(group["tokens"])) or None,
+            "items": ",".join(sorted(group.tokens)) or None,
         }
-        for (form, filed_raw), group in groups.items()
-        if group["governance"]
+        for (form, _filed), group in groups.items()
+        if group.governance
     ]
 
 
