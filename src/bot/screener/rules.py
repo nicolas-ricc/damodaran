@@ -755,7 +755,6 @@ class ShareCountNotDiluting(Rule):
             passed=False,
             reason=(
                 f"{prefix}, not justified: acquisitions of {ratio:.3f}x total "
-                f"assets over {span} "
-                f"< {self.ma_materiality:.3f}"
+                f"assets over {span} < {self.ma_materiality:.3f}"
             ),
         )
