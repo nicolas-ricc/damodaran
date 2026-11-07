@@ -96,3 +96,25 @@ def test_adr_0008_notes_the_supersession() -> None:
 - [ ] **Step 4: Prepend the supersession sentence** to the ADR 0008 "Visual system" bullet; keep the rest as history.
 - [ ] **Step 5: Run** the tests and the full suite + lint — PASS.
 - [ ] **Step 6: Commit** `docs(#261): ADR 0010 for precompiled DaisyUI, ADR 0008 notes the supersession`.
+
+## Grilling
+
+Round 1 of 2 ran: griller `fable`, 15 questions. Status: **blocked** on Q1 (spec ambiguity).
+
+Sources: 9 CODE/DOC, 3 ISSUE, 3 NO SOURCE (2 technical assumptions, 1 spec ambiguity).
+
+1. **Spec ambiguity (blocks).** CODE: `origin/master:tests/unit/test_flex_docs.py:92-93` has `(path,) = (ROOT / "docs/adr").glob("0010-*.md")`. DOC: `origin/master:docs/adr/0004-tws-api-via-ib-async.md:5` says "Superseded by ADR 0010", and `CONTEXT.md:74` and `README.md:156` also cite ADR 0010 for Flex. ISSUE #261 decisions 2, 3 and 5 require a new `0010-*.md`, the sentence "Superseded by ADR 0010", and a test that asserts exactly one `0010-*.md`. Either choice changes the shipped docs and tests, so it is not decided here and is asked on the issue.
+2. Follows from Q1. Once the number is unique, the glob has one match.
+3. **Technical assumption.** The docs avoid the words "November", "December", "member" and "remember", because `ember` is a plain substring check (ISSUE decision 5 words it that way). Task 1 Step 4 also greps for `paper-well` and `kraft` (ISSUE decision 1).
+4. CODE: `src/bot/web/static/theme.css:4-23` holds the values; the plan list was diffed against it. **Technical assumption:** the test reads the expected values from `theme.css` instead of a literal list, so a theme change makes the docs test fail. (Rejected alternative: a hard-coded list.)
+5. CODE: `views.py:148-150` (tone values) and `templates/_rows.html` + `detail.html` (`badge-{{ f.tone }}`). §5 writes `badge-{tone}` and names the four tones. The grep looks for the template literal.
+6. CODE: `docs/DESIGN.md:1` is `---`. ISSUE decision 1: "`rounded: none: \"0\"`", which is the nested mapping already in the file.
+7. DOC: `docs/adr/0009-*.md` Status "Implemented (2026-11-02, issue #192)". ISSUE decision 2 fixes the Status line verbatim. `test_adr_0008_is_implemented` asserts that `Implemented` appears in the file.
+8. ISSUE decision 2 requires "Alternatives considered and rejected, one paragraph each". It goes in as an `##` section between Decision and Consequences.
+9. ISSUE decision 3: the sentence goes first in the bullet. The `## Status` line of ADR 0008 is unchanged.
+10. ISSUE decision 1 lists "(filter, count, search, table row, flags, empty state, facts, history)".
+11. ISSUE decision 1: "`typography:` unchanged from today", "`spacing:` unchanged".
+12. CODE: `src/bot/web/static/VERSIONS`. The size was measured with `wc -c` on 876ef89. ISSUE decision 2 says "about 1.1 MB", so the ADR says "about 1.1 MB" and leaves the exact byte count out.
+13. ISSUE decisions 2 and 4.
+14. CODE: `pyproject.toml:18` lists `pyyaml` under the runtime `dependencies`. The test module adds `import yaml`.
+15. Both tasks ship in one PR into `feature/257-viewer-daisyui-search`. The intermediate state never reaches master.
