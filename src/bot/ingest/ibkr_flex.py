@@ -22,16 +22,18 @@ import re
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING
 from urllib.parse import quote, quote_plus
 
 import httpx
 
+from bot.ingest.ibkr import CashBalance, PortfolioPosition, TradeExecution
 from bot.utils.logging import get_logger
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
+    from zoneinfo import ZoneInfo
 
     import duckdb
 
@@ -190,6 +192,145 @@ def parse_flex_statement(xml: str) -> list[CorporateActionRecord]:
     return [record for el in rows if (record := parse_flex_row(el)) is not None]
 
 
+class FlexError(RuntimeError):
+    """The Flex Web Service refused, failed or never produced the statement."""
+
+
+@dataclass(frozen=True)
+class FlexStatement:
+    """Portfolio data and corporate actions parsed from one Flex response."""
+
+    positions: list[PortfolioPosition]
+    cash: list[CashBalance]
+    trades: list[TradeExecution]
+    corporate_actions: list[CorporateActionRecord]
+    accounts: list[str]
+    as_of: date
+
+
+_TRADE_TIME_FORMAT = "%Y%m%d;%H%M%S"
+
+
+def _describe(el: ET.Element) -> str:
+    return f"<{el.tag} {_attr(el, 'accountId')} {_attr(el, 'symbol') or _attr(el, 'currency')}>".replace("  ", " ")
+
+
+def _number(el: ET.Element, name: str) -> float:
+    raw = _attr(el, name)
+    try:
+        return float(raw)
+    except ValueError:
+        raise FlexError(f"Flex {_describe(el)}: {name} {raw!r} is not a number") from None
+
+
+def _int_or_zero(el: ET.Element, name: str) -> int:
+    try:
+        return int(_attr(el, name))
+    except ValueError:
+        return 0
+
+
+def _trade_time(el: ET.Element, tz: ZoneInfo) -> datetime:
+    raw = _attr(el, "dateTime")
+    try:
+        local = datetime.strptime(raw, _TRADE_TIME_FORMAT).replace(tzinfo=tz)
+    except ValueError:
+        raise FlexError(
+            f"Flex {_describe(el)}: dateTime {raw!r} is not yyyyMMdd;HHmmss "
+            "(keep IBKR's default date/time format in the Flex Query)"
+        ) from None
+    return local.astimezone(UTC)
+
+
+def _position(el: ET.Element) -> PortfolioPosition:
+    try:
+        con_id = int(_attr(el, "conid"))
+    except ValueError:
+        raise FlexError(f"Flex {_describe(el)}: conid {_attr(el, 'conid')!r} is not an integer") from None
+    return PortfolioPosition(
+        account=_attr(el, "accountId"),
+        con_id=con_id,
+        symbol=_attr(el, "symbol"),
+        sec_type=_attr(el, "assetCategory"),
+        currency=_attr(el, "currency"),
+        exchange=_attr(el, "listingExchange"),
+        quantity=_number(el, "position"),
+        avg_cost=_number(el, "costBasisPrice"),
+    )
+
+
+def _trade(el: ET.Element, tz: ZoneInfo) -> TradeExecution:
+    return TradeExecution(
+        account=_attr(el, "accountId"),
+        exec_id=_attr(el, "ibExecID"),
+        con_id=_int_or_zero(el, "conid"),
+        symbol=_attr(el, "symbol"),
+        sec_type=_attr(el, "assetCategory"),
+        currency=_attr(el, "currency"),
+        side=_attr(el, "buySell"),
+        quantity=_number(el, "quantity"),
+        price=_number(el, "tradePrice"),
+        executed_at=_trade_time(el, tz),
+        perm_id=_int_or_zero(el, "ibOrderID"),
+    )
+
+
+def _section(statement: ET.Element, name: str) -> ET.Element:
+    section = statement.find(name)
+    if section is None:
+        raise FlexError(
+            f"Flex statement for {_attr(statement, 'accountId')} has no {name} section: "
+            "add it to the Flex Query (README)"
+        )
+    return section
+
+
+def parse_statement(xml: str, *, tz: ZoneInfo) -> FlexStatement:
+    """Map a ``FlexQueryResponse`` to positions, cash, trades and actions (pure).
+
+    *tz* is the Flex reporting time zone of trade ``dateTime`` values. Raises
+    :class:`FlexError` for a missing section, an unparseable number or trade
+    time, a position without a ``conid``, or when no ``as_of`` date is found.
+    """
+    root = _flex_root(xml)
+    positions: list[PortfolioPosition] = []
+    cash: list[CashBalance] = []
+    trades: list[TradeExecution] = []
+    accounts: list[str] = []
+    report_dates: list[date] = []
+    to_dates: list[date] = []
+    for statement in root.iter("FlexStatement"):
+        account = _attr(statement, "accountId")
+        if account and account not in accounts:
+            accounts.append(account)
+        if (to_date := _flex_date(_attr(statement, "toDate"))) is not None:
+            to_dates.append(to_date)
+        for el in _section(statement, "OpenPositions").iter("OpenPosition"):
+            if _attr(el, "levelOfDetail") not in ("", "SUMMARY"):
+                continue
+            positions.append(_position(el))
+            if (report_date := _flex_date(_attr(el, "reportDate"))) is not None:
+                report_dates.append(report_date)
+        for el in _section(statement, "CashReport").iter("CashReportCurrency"):
+            if _attr(el, "levelOfDetail") != "Currency" or _attr(el, "currency") == "BASE_SUMMARY":
+                continue
+            cash.append(CashBalance(_attr(el, "accountId"), _attr(el, "currency"), _number(el, "endingCash")))
+        for el in _section(statement, "Trades").iter("Trade"):
+            if _attr(el, "levelOfDetail") == "EXECUTION":
+                trades.append(_trade(el, tz))
+    candidates = report_dates or to_dates
+    if not candidates:
+        raise FlexError("Flex statement has no OpenPosition reportDate or FlexStatement toDate to date it")
+    return FlexStatement(
+        positions=positions,
+        cash=cash,
+        trades=trades,
+        corporate_actions=parse_flex_statement(xml),
+        accounts=accounts,
+        as_of=max(candidates),
+    )
+
+
 def upsert_corporate_actions(
     conn: duckdb.DuckDBPyConnection, records: Iterable[CorporateActionRecord]
 ) -> int:
@@ -214,10 +355,6 @@ def upsert_corporate_actions(
         row = result.fetchone()
         inserted += int(row[0]) if row is not None and isinstance(row[0], int) else 0
     return inserted
-
-
-class FlexError(RuntimeError):
-    """The Flex Web Service refused, failed or never produced the statement."""
 
 
 class FlexClient:
