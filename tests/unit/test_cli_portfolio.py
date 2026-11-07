@@ -1,13 +1,13 @@
 """CLI test for ``bot portfolio`` (M5, #29).
 
 Monkeypatches the IBKR client with an in-memory fake so the command runs the
-full sync -> diff -> report cycle without a live TWS socket, then asserts both
+full sync -> diff -> report cycle without a live Flex download, then asserts both
 report artefacts are written under the dated directory.
 """
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,11 +17,12 @@ from typer.testing import CliRunner
 import bot.cli
 from bot.cli import app
 from bot.ingest.ibkr import CashBalance, PortfolioPosition, TradeExecution
+from bot.ingest.ibkr_flex import CorporateActionRecord
 from bot.notifier import NotificationError
 from bot.storage.db import apply_schema, connect
 
 
-class _FakeIbkrClient:
+class _FakeFlexClient:
     def __init__(self, *args: object, **kwargs: object) -> None:
         self._positions = [
             PortfolioPosition(
@@ -47,7 +48,7 @@ class _FakeIbkrClient:
         ]
 
     @classmethod
-    def from_settings(cls, settings: object, **kwargs: object) -> _FakeIbkrClient:
+    def from_settings(cls, settings: object, **kwargs: object) -> _FakeFlexClient:
         return cls()
 
     def connect(self) -> None: ...
@@ -56,6 +57,12 @@ class _FakeIbkrClient:
 
     def accounts(self) -> list[str]:
         return ["DU1"]
+
+    def as_of(self) -> date:
+        return date.today()
+
+    def corporate_actions(self) -> list[CorporateActionRecord]:
+        return []
 
     def positions(self, account_id: str) -> list[PortfolioPosition]:
         return list(self._positions)
@@ -93,7 +100,9 @@ def _env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv(
         "BOT_PRESETS_DIR", str(Path(__file__).resolve().parents[2] / "config" / "presets")
     )
-    monkeypatch.setattr(bot.cli, "IbkrClient", _FakeIbkrClient)
+    monkeypatch.setenv("BOT_IBKR_FLEX_TOKEN", "tok")
+    monkeypatch.setenv("BOT_IBKR_FLEX_QUERY_ID", "123")
+    monkeypatch.setattr(bot.cli, "FlexPortfolioClient", _FakeFlexClient)
     conn = connect(db_path)
     apply_schema(conn)
     conn.close()
@@ -188,40 +197,6 @@ def test_portfolio_fails_when_preset_missing(
     assert "Screener config not found" in result.output
 
 
-def test_portfolio_reports_unreachable_tws(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    reports_dir = _env(tmp_path, monkeypatch)
-
-    def _refuse(self: _FakeIbkrClient) -> None:
-        raise ConnectionRefusedError(111, "Connect call failed")
-
-    monkeypatch.setattr(_FakeIbkrClient, "connect", _refuse)
-    monkeypatch.setenv("BOT_IBKR_PORT", "4002")
-
-    result = CliRunner().invoke(app, ["portfolio"])
-
-    assert result.exit_code == 1
-    assert "Cannot reach TWS / IB Gateway at 127.0.0.1:4002" in result.output
-    assert not list(reports_dir.glob("*/*.md"))
-
-
-def test_portfolio_names_timeout_when_tws_does_not_answer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _env(tmp_path, monkeypatch)
-
-    def _hang(self: _FakeIbkrClient) -> None:
-        raise TimeoutError()
-
-    monkeypatch.setattr(_FakeIbkrClient, "connect", _hang)
-
-    result = CliRunner().invoke(app, ["portfolio"])
-
-    assert result.exit_code == 1
-    assert "127.0.0.1:7496: TimeoutError." in result.output
-
-
 class _RecordingNotifier:
     def __init__(self) -> None:
         self.sent: list[str] = []
@@ -301,27 +276,3 @@ def test_portfolio_send_failure_exits_1_and_keeps_reports(tmp_path, monkeypatch)
     assert result.exit_code == 1
     assert "Alerts not sent: Telegram sendMessage HTTP 400: chat not found" in result.output
     assert len(list(reports_dir.glob("*/alerts.md"))) == 1
-
-
-def test_portfolio_wires_the_flex_importer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _env(tmp_path, monkeypatch)
-    captured: dict[str, Any] = {}
-    real_run_portfolio = bot.cli.run_portfolio
-
-    def _spy(*args: Any, **kwargs: Any) -> Any:
-        captured.update(kwargs)
-        return real_run_portfolio(*args, **kwargs)
-
-    monkeypatch.setattr(bot.cli, "run_portfolio", _spy)
-
-    result = CliRunner().invoke(app, ["portfolio"])
-
-    assert result.exit_code == 0, result.stdout
-    hook = captured["corporate_actions_fn"]
-    assert hook is not None
-    # tests/conftest.py blanks the Flex settings: the hook takes the no-op path.
-    conn = connect(tmp_path / "bot.duckdb")
-    assert hook(conn) is None
-    conn.close()

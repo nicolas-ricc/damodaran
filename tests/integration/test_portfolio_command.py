@@ -1,7 +1,7 @@
 """Integration test for the ``bot portfolio`` command (M5, #29).
 
 Drives the full cycle (sync -> diff -> report) against a **mocked**
-:class:`~bot.ingest.ibkr.IbkrClient` and asserts that both ``portfolio.md`` and
+Flex portfolio client and asserts that both ``portfolio.md`` and
 ``alerts.md`` are produced under the dated report directory with the expected
 sections.
 """
@@ -9,16 +9,17 @@ sections.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 import duckdb
 import pytest
 from structlog.testing import capture_logs
 
 from bot.ingest.ibkr import CashBalance, PortfolioPosition, TradeExecution
-from bot.portfolio.command import PortfolioRunResult, run_portfolio
+from bot.ingest.ibkr_flex import CorporateActionRecord
+from bot.portfolio.command import run_portfolio
 from bot.portfolio.marks import AnalyzeFn
 from bot.screener.rules import Rule, RuleResult
 from bot.screener.types import CompanyData, IndustryBenchmarks
@@ -36,7 +37,11 @@ class _FakeIbkrClient:
         positions: list[PortfolioPosition],
         cash: list[CashBalance],
         fills: list[TradeExecution] | None = None,
+        as_of: date = TODAY,
+        actions: list[CorporateActionRecord] | None = None,
     ) -> None:
+        self._as_of = as_of
+        self._actions = actions or []
         self._positions = positions
         self._cash = cash
         self._fills = fills or []
@@ -52,15 +57,19 @@ class _FakeIbkrClient:
     def accounts(self) -> list[str]:
         return ["DU1"]
 
+    def as_of(self) -> date:
+        return self._as_of
+
+    def corporate_actions(self) -> list[CorporateActionRecord]:
+        return list(self._actions)
+
     def positions(self, account_id: str) -> list[PortfolioPosition]:
         return list(self._positions)
 
     def cash_balances(self, account_id: str) -> list[CashBalance]:
         return list(self._cash)
 
-    def trades(
-        self, account_id: str, since: datetime | None = None
-    ) -> list[TradeExecution]:
+    def trades(self, account_id: str, since: datetime | None = None) -> list[TradeExecution]:
         # Unfiltered on purpose: the sync layer de-dupes on exec_id.
         self.since_calls.append(since)
         return list(self._fills)
@@ -102,7 +111,7 @@ def _fill(exec_id: str, symbol: str, when: datetime) -> TradeExecution:
     )
 
 
-def _client() -> _FakeIbkrClient:
+def _client(as_of: date = TODAY) -> _FakeIbkrClient:
     """A concentrated two-position book (AAPL ~83% -> concentration event)."""
     return _FakeIbkrClient(
         positions=[
@@ -110,15 +119,17 @@ def _client() -> _FakeIbkrClient:
             _position("MSFT", 2, 10.0, 300.0),
         ],
         cash=[CashBalance(account="DU1", currency="USD", amount=5000.0)],
+        as_of=as_of,
     )
 
 
-def _diversified_client() -> _FakeIbkrClient:
+def _diversified_client(as_of: date = TODAY) -> _FakeIbkrClient:
     """Eight ~12.5% holdings (below the 15% concentration threshold)."""
     symbols = ["AAA", "BBB", "CCC", "DDD", "EEE", "FFF", "GGG", "HHH"]
     return _FakeIbkrClient(
         positions=[_position(s, i, 10.0, 100.0) for i, s in enumerate(symbols, 1)],
         cash=[CashBalance(account="DU1", currency="USD", amount=5000.0)],
+        as_of=as_of,
     )
 
 
@@ -128,9 +139,7 @@ def _no_analyze(
     raise LookupError("no data for ticker in test")
 
 
-def test_portfolio_writes_both_reports(
-    conn: duckdb.DuckDBPyConnection, tmp_path: Path
-) -> None:
+def test_portfolio_writes_both_reports(conn: duckdb.DuckDBPyConnection, tmp_path: Path) -> None:
     # Priced book so P&L and concentration are real: AAPL 15,000 vs MSFT 3,000.
     conn.executemany(
         "INSERT INTO prices_daily (ticker, date, close, currency) VALUES (?, ?, ?, 'USD')",
@@ -180,7 +189,7 @@ def test_alerts_present_but_empty_when_no_events(
     # First run on an earlier day opens everything.
     run_portfolio(
         conn,
-        _diversified_client(),
+        _diversified_client(date(2026, 5, 31)),
         reports_dir=tmp_path,
         today=date(2026, 5, 31),
         analyze_fn=_no_analyze,
@@ -206,7 +215,7 @@ def test_quiet_day_writes_empty_alerts_after_busy_day(
 ) -> None:
     busy, quiet = date(2026, 5, 31), TODAY
     run_portfolio(
-        conn, _diversified_client(), reports_dir=tmp_path, today=busy, analyze_fn=_no_analyze
+        conn, _diversified_client(busy), reports_dir=tmp_path, today=busy, analyze_fn=_no_analyze
     )
     assert (tmp_path / busy.isoformat() / "alerts.md").read_text() != ""
     alerts_md = tmp_path / quiet.isoformat() / "alerts.md"
@@ -220,12 +229,10 @@ def test_quiet_day_writes_empty_alerts_after_busy_day(
     assert alerts_md.read_text() == ""
 
 
-def test_history_and_concentration_flags(
-    conn: duckdb.DuckDBPyConnection, tmp_path: Path
-) -> None:
+def test_history_and_concentration_flags(conn: duckdb.DuckDBPyConnection, tmp_path: Path) -> None:
     run_portfolio(
         conn,
-        _client(),
+        _client(date(2026, 5, 31)),
         reports_dir=tmp_path,
         today=date(2026, 5, 31),
         analyze_fn=_no_analyze,
@@ -247,9 +254,7 @@ def test_history_and_concentration_flags(
     assert "| 2026-06-01 |" in body
 
 
-def test_run_portfolio_appends_new_trades(
-    conn: duckdb.DuckDBPyConnection, tmp_path: Path
-) -> None:
+def test_run_portfolio_appends_new_trades(conn: duckdb.DuckDBPyConnection, tmp_path: Path) -> None:
     fills = [
         _fill("E1", "AAPL", datetime(2026, 6, 1, 14, 0, tzinfo=UTC)),
         # Bought and sold the same day: no position, still a trade.
@@ -257,9 +262,7 @@ def test_run_portfolio_appends_new_trades(
     ]
     client = _FakeIbkrClient([_position("AAPL", 1, 10.0, 100.0)], [], fills)
 
-    result = run_portfolio(
-        conn, client, reports_dir=tmp_path, today=TODAY, analyze_fn=_no_analyze
-    )
+    result = run_portfolio(conn, client, reports_dir=tmp_path, today=TODAY, analyze_fn=_no_analyze)
 
     assert result.trades_inserted == 2
     rows = conn.execute("SELECT exec_id FROM trades ORDER BY exec_id").fetchall()
@@ -281,9 +284,7 @@ def test_run_portfolio_same_day_rerun_does_not_duplicate_trades(
     )
     again = _FakeIbkrClient([], [], fills)
 
-    result = run_portfolio(
-        conn, again, reports_dir=tmp_path, today=TODAY, analyze_fn=_no_analyze
-    )
+    result = run_portfolio(conn, again, reports_dir=tmp_path, today=TODAY, analyze_fn=_no_analyze)
 
     assert result.trades_inserted == 0
     assert conn.execute("SELECT count(*) FROM trades").fetchone() == (1,)
@@ -355,7 +356,7 @@ def test_run_portfolio_emits_valuation_events_across_two_runs(
 
     run_portfolio(
         conn,
-        _client(),
+        _client(day1),
         reports_dir=tmp_path,
         today=day1,
         analyze_fn=_valued_at(90.0),  # IV below the 100 price
@@ -364,7 +365,7 @@ def test_run_portfolio_emits_valuation_events_across_two_runs(
     gate.fail = True
     run_portfolio(
         conn,
-        _client(),
+        _client(day2),
         reports_dir=tmp_path,
         today=day2,
         analyze_fn=_valued_at(120.0),  # IV now above price
@@ -383,76 +384,64 @@ def test_run_portfolio_emits_valuation_events_across_two_runs(
     assert marked == [(day1, 2), (day2, 2)]
 
 
-def _state(conn: duckdb.DuckDBPyConnection, result: PortfolioRunResult) -> tuple[object, ...]:
-    return (
-        conn.execute(
-            "SELECT * EXCLUDE (fetched_at) FROM portfolio_snapshots ORDER BY ALL"
-        ).fetchall(),
-        conn.execute("SELECT event_type, ticker FROM events_log ORDER BY ALL").fetchall(),
-        result.portfolio_path.read_text(),
-        result.alerts_path.read_text(),
-    )
-
-
-def test_failing_corporate_actions_hook_changes_nothing(tmp_path: Path) -> None:
-    def boom(_conn: duckdb.DuckDBPyConnection) -> int | None:
-        raise RuntimeError("flex down")
-
-    runs = []
-    for name, hook in (("plain", None), ("hooked", boom)):
-        c = duckdb.connect(str(tmp_path / f"{name}.duckdb"))
-        apply_schema(c)
-        with capture_logs() as logs:
-            result = run_portfolio(
-                c,
-                _client(),
-                reports_dir=tmp_path / name,
-                today=TODAY,
-                analyze_fn=_no_analyze,
-                corporate_actions_fn=hook,
-            )
-        runs.append((_state(c, result), logs))
-
-    (plain, plain_logs), (hooked, hooked_logs) = runs
-    assert hooked == plain
-
-    def _warnings(logs: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return [e for e in logs if e["log_level"] == "warning"]
-
-    # The run emits its own warnings (unpriced positions); the hook adds exactly one.
-    extra = [w for w in _warnings(hooked_logs) if w not in _warnings(plain_logs)]
-    assert [w["event"] for w in extra] == ["corporate_actions_import_failed"]
-    assert extra[0]["error"] == "flex down"
-    assert len(_warnings(hooked_logs)) == len(_warnings(plain_logs)) + 1
-
-
-def test_corporate_actions_hook_runs_after_sync_and_feeds_events(
+def test_corporate_actions_from_client_feed_events(
     conn: duckdb.DuckDBPyConnection, tmp_path: Path
 ) -> None:
-    seen_snapshot: list[int] = []
-
-    def hook(c: duckdb.DuckDBPyConnection) -> int | None:
-        row = c.execute(
-            "SELECT COUNT(*) FROM portfolio_snapshots WHERE snapshot_date = ?", [TODAY]
-        ).fetchone()
-        seen_snapshot.append(row[0] if row else 0)
-        c.execute(
-            "INSERT INTO corporate_actions (action_id, action_type, ticker, effective_date) "
-            "VALUES ('ct:1', 'dividend', 'MSFT', ?)",
-            [TODAY],
+    client = _client()
+    client._actions = [
+        CorporateActionRecord(
+            action_id="ct:1",
+            account="DU1",
+            action_type="dividend",
+            ticker="MSFT",
+            effective_date=TODAY,
+            details={},
         )
-        return 1
+    ]
 
-    run_portfolio(
-        conn,
-        _client(),
-        reports_dir=tmp_path,
-        today=TODAY,
-        analyze_fn=_no_analyze,
-        corporate_actions_fn=hook,
-    )
-    assert seen_snapshot and seen_snapshot[0] > 0
+    run_portfolio(conn, client, reports_dir=tmp_path, today=TODAY, analyze_fn=_no_analyze)
+
+    assert conn.execute("SELECT action_id FROM corporate_actions").fetchall() == [("ct:1",)]
     logged = conn.execute(
         "SELECT event_type, ticker FROM events_log WHERE curr_snapshot_date = ?", [TODAY]
     ).fetchall()
     assert ("dividend", "MSFT") in logged
+
+
+def test_snapshot_keyed_on_as_of(conn: duckdb.DuckDBPyConnection, tmp_path: Path) -> None:
+    as_of = date(2026, 6, 1)
+    result = run_portfolio(
+        conn,
+        _client(as_of),
+        reports_dir=tmp_path,
+        today=date(2026, 6, 3),
+        analyze_fn=_no_analyze,
+    )
+
+    assert result.snapshot_date == as_of
+    assert result.portfolio_path == tmp_path / "2026-06-01" / "portfolio.md"
+    assert not (tmp_path / "2026-06-03").exists()
+    dates = conn.execute("SELECT DISTINCT snapshot_date FROM portfolio_snapshots").fetchall()
+    assert dates == [(as_of,)]
+
+
+@pytest.mark.parametrize(("age_days", "stale"), [(6, True), (5, False)])
+def test_stale_statement_warns(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path, age_days: int, stale: bool
+) -> None:
+    today = date(2026, 6, 10)
+    as_of = today - timedelta(days=age_days)
+
+    with capture_logs() as logs:
+        run_portfolio(
+            conn, _client(as_of), reports_dir=tmp_path, today=today, analyze_fn=_no_analyze
+        )
+
+    stale_logs = [e for e in logs if e["event"] == "portfolio_statement_stale"]
+    if stale:
+        assert len(stale_logs) == 1
+        assert stale_logs[0]["log_level"] == "warning"
+        assert stale_logs[0]["days"] == age_days
+    else:
+        assert stale_logs == []
+    assert (tmp_path / as_of.isoformat() / "portfolio.md").exists()
