@@ -10,6 +10,8 @@ an explicit hand-computed expected-value test.
 
 from __future__ import annotations
 
+import pytest
+
 from bot.screener.rules import (
     OperatingMarginNotContracting,
     RevenueNotDeclining,
@@ -383,6 +385,12 @@ def test_share_count_dilution_acquisitions_outside_window_ignored() -> None:
     assert "0.000x" in result.reason
 
 
+def test_share_count_dilution_rejects_empty_window() -> None:
+    # history[-0:] would be the whole history, not an empty window.
+    with pytest.raises(ValueError, match="ma_window"):
+        ShareCountNotDiluting(ma_window=0)
+
+
 def test_share_count_dilution_materiality_is_inclusive() -> None:
     result = _dilution((0.0, 0.0, 50.0), 1000.0, ShareCountNotDiluting(ma_materiality=0.05))
     assert result.passed is True
@@ -391,7 +399,7 @@ def test_share_count_dilution_materiality_is_inclusive() -> None:
 def test_share_count_dilution_short_history_summed_as_reported() -> None:
     result = _dilution((300.0,), 1000.0)
     assert result.passed is True
-    assert "last 1 fiscal years" in result.reason
+    assert result.reason.endswith("over the last 1 fiscal year")
 
 
 def test_share_count_dilution_net_divestiture_lowers_ratio() -> None:

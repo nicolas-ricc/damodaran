@@ -695,6 +695,8 @@ class ShareCountNotDiluting(Rule):
         ma_window: int = 3,
         ma_materiality: float = 0.10,
     ) -> None:
+        if ma_window < 1:
+            raise ValueError(f"ma_window must be >= 1, got {ma_window}")
         self.max_annual_growth = max_annual_growth
         self.ma_window = ma_window
         self.ma_materiality = ma_materiality
@@ -740,19 +742,20 @@ class ShareCountNotDiluting(Rule):
                 reason=f"{prefix}, not justified: total assets unavailable",
             )
         ratio = sum(recent) / total_assets
+        span = f"the last {len(recent)} fiscal year{'s' if len(recent) > 1 else ''}"
         if ratio >= self.ma_materiality:
             return RuleResult(
                 passed=True,
                 reason=(
                     f"{prefix}, justified by acquisitions of {ratio:.3f}x total "
-                    f"assets over the last {len(recent)} fiscal years"
+                    f"assets over {span}"
                 ),
             )
         return RuleResult(
             passed=False,
             reason=(
                 f"{prefix}, not justified: acquisitions of {ratio:.3f}x total "
-                f"assets over the last {len(recent)} fiscal years "
+                f"assets over {span} "
                 f"< {self.ma_materiality:.3f}"
             ),
         )
