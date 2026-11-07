@@ -326,7 +326,7 @@ _SCREEN_TEXT: dict[str, list[str]] = {
         "8%",
         "value metric = highest score among passing indicators",
     ],
-    "screen-traps": ["\u22125%", "\u2212200 basis points", "< 0.1", "\u2264 5%"],
+    "screen-traps": ["\u22125%", "\u2212200 basis points", "< 0.1", "\u2264 5%", "2 years"],
     "screen-ranking": [
         "0.40 \u00d7 value",
         "0.30 \u00d7 quality",

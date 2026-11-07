@@ -389,6 +389,7 @@ _REQUIRED_TABLES: dict[str, set[str]] = {
         "damodaran_industry",
         "damodaran_country",
         "screener_candidates",
+        "filings_log",
     },
     "analyze": {
         "screener_candidates",
@@ -1294,7 +1295,7 @@ _SCREEN_NODES: list[tuple[str, str]] = (
         ("trap_detection.growth_rate", "step"),
         ("trap_detection.share_count_not_diluting.mergers", "gap"),
         ("trap_detection.all_pass", "decision"),
-        ("trap_detection.auditor", "gap"),
+        ("trap_detection.auditor_changes_and_late_filings", "decision"),
         ("ranking.metrics", "step"),
         ("ranking.metrics.spec_scores", "gap"),
         ("ranking.percentiles", "step"),
@@ -1500,7 +1501,6 @@ def test_screen_rule_directions_match_code(
 
 def test_screen_gap_notes() -> None:
     assert "21%" in _screen_block("snapshot.tax.fallback")
-    assert "auditor" in _screen_block("trap_detection.auditor")
     assert "mergers and acquisitions" in _screen_block(
         "trap_detection.share_count_not_diluting.mergers"
     )

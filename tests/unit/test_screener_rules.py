@@ -129,10 +129,9 @@ def test_registered_rules_returns_a_copy() -> None:
     assert get_rule("min_market_cap") is MinMarketCap
 
 
-def test_auditor_rule_is_gone_and_fails_loudly() -> None:
-    # Deleted in Fase 2: the flags it read had no production data source, so it
-    # always passed. A stale preset referencing it must fail at load, not silently
-    # skip a governance filter it never applied.
-    assert "auditor_changes_and_late_filings" not in registered_rules()
-    with pytest.raises(KeyError, match="unknown rule"):
-        get_rule("auditor_changes_and_late_filings")
+def test_auditor_rule_is_registered() -> None:
+    # Re-added for #276 with its data source (filings_log governance rows, #275).
+    from bot.screener.rules import AuditorChangesAndLateFilings
+
+    assert "auditor_changes_and_late_filings" in registered_rules()
+    assert get_rule("auditor_changes_and_late_filings") is AuditorChangesAndLateFilings
