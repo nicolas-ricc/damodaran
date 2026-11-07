@@ -43,7 +43,7 @@ ALTER TABLE damodaran_country DROP COLUMN IF EXISTS risk_free_rate;
 
 -- Adds the #59 ERP provenance columns to existing DBs: prs_score is the PRS
 -- country score, erp_basis says how the row's erp was derived. Idempotent.
--- Rollback: ALTER TABLE damodaran_country DROP COLUMN prs_score; and DROP COLUMN erp_basis.
+-- Rollback: DROP COLUMN prs_score, DROP COLUMN erp_basis.
 ALTER TABLE damodaran_country ADD COLUMN IF NOT EXISTS prs_score DOUBLE;
 ALTER TABLE damodaran_country ADD COLUMN IF NOT EXISTS erp_basis VARCHAR;
 

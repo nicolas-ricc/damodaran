@@ -1,7 +1,10 @@
+import logging
+from collections.abc import Iterator
 from pathlib import Path
 
 import openpyxl
 import pytest
+import structlog
 from structlog.testing import capture_logs
 
 from bot.ingest.damodaran import (
@@ -132,6 +135,16 @@ _RATED_HEADER = [
 _PRS_HEADER = ["Country", "PRS Composite Risk Score", "ERP", "CRP", "Default Spread"]
 
 
+@pytest.fixture
+def debug_logs() -> Iterator[None]:
+    """Let debug events through even after a test configured logging at INFO."""
+    saved = structlog.get_config()
+    structlog.configure(wrapper_class=structlog.make_filtering_bound_logger(logging.DEBUG))
+    yield
+    structlog.configure(**saved)
+
+
+@pytest.mark.usefixtures("debug_logs")
 def test_country_parse_two_tables_drops_title_row_and_prs_duplicate(tmp_path: Path) -> None:
     path = tmp_path / "ctryprem.xlsx"
     _write_country_sheet(
@@ -167,6 +180,10 @@ def test_country_parse_two_tables_drops_title_row_and_prs_duplicate(tmp_path: Pa
     duplicates = [e for e in logs if e["event"] == "damodaran.country.prs_duplicate"]
     assert [e["country"] for e in duplicates] == ["Brazil"]
     assert duplicates[0]["log_level"] == "warning"
+    titles = [e for e in logs if e["event"] == "damodaran.country.title_row_dropped"]
+    assert [(e["country"], e["log_level"]) for e in titles] == [
+        ("Frontier Markets (no sovereign ratings)", "debug")
+    ]
     tables = [e for e in logs if e["event"] == "damodaran.country.tables_read"]
     assert [(e["rated"], e["prs"]) for e in tables] == [(2, 1)]
 

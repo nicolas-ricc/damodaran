@@ -580,6 +580,14 @@ def parse_country_xls(
 ) -> list[dict[str, Any]]:
     """Parse a Damodaran country-level xls into normalized rows.
 
+    The ``ERPs by country`` sheet holds two tables, each read with its own header
+    and column map: the Moody's-rated countries (*column_map*), then, below a
+    second header row, the unrated countries scored by PRS
+    (:data:`PRS_COUNTRY_COLUMN_MAP`), up to the first blank country cell. Every row
+    carries ``erp_basis``; PRS rows also carry ``prs_score`` and a ``None`` region
+    and rating. A title row (every mapped value blank) is dropped, and so is a PRS
+    row for a country the first table already has.
+
     Args:
         path: Path to the ``.xls`` / ``.xlsx`` file.
         year: Data year injected into every row.
@@ -603,14 +611,18 @@ def parse_country_xls(
 
     second_idx: int | None = None
     if pk_col is not None:
-        for i in range(header_idx + 1, len(rows)):
-            cell = _pk_cell(rows[i], pk_col)
-            if cell and cell == pk_header:
-                second_idx = i
-                break
+        second_idx = next(
+            (
+                i
+                for i in range(header_idx + 1, len(rows))
+                if _pk_cell(rows[i], pk_col) == pk_header
+            ),
+            None,
+        )
 
     first_body = rows[header_idx + 1 : second_idx]
-    if not any(_pk_cell(r, pk_col or 0) for r in first_body):
+    # No country column, or no country under it: nothing to read.
+    if pk_col is None or not any(_pk_cell(r, pk_col) for r in first_body):
         log.warning("damodaran.country.empty_file", path=str(path))
         return []
 
@@ -620,7 +632,7 @@ def parse_country_xls(
         column_map,
         {"year": year, "erp_basis": ERP_BASIS_MOODYS},
     ):
-        if all(v is None for k, v in row.items() if k not in (pk_field, "year", "erp_basis")):
+        if all(row.get(k) is None for k in column_map if k != pk_field):
             log.debug("damodaran.country.title_row_dropped", country=row[pk_field])
             continue
         rated.append(row)
@@ -629,7 +641,7 @@ def parse_country_xls(
     if second_idx is not None:
         body: list[list[Any]] = []
         for r in rows[second_idx + 1 :]:
-            if not _pk_cell(r, pk_col or 0):
+            if not _pk_cell(r, pk_col):
                 break
             body.append(r)
         rated_names = {r[pk_field] for r in rated}
