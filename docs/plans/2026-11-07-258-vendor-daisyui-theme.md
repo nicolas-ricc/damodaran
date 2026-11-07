@@ -150,7 +150,7 @@ These technical decisions were taken during plan review. The issue gives no sour
    - `*{margin:0;padding:0;border:0 solid}`
    - `h1..h6{font-size:inherit;font-weight:inherit}`
    - `menu,ol,ul{list-style:none}`
-   - `svg{display:block;vertical-align:middle}`
+   - `audio,canvas,embed,iframe,img,object,svg,video{vertical-align:middle;display:block}`
    - `:root{background-color:var(--root-bg)}` and a scrollbar colour
 
    Every viewer element whose shape depends on these (`h1`, `h2`, `.facts dd`, `.flag-list ul`, `.value-axis`, `.totals`, `.mark`, `.dcf summary`) already has an explicit unlayered rule in `app.css`, and that rule wins. The render check (Task 3 Step 7) catches anything missed; a regression is fixed in `app.css`, not by dropping the reset. Rejected: stripping the reset from the vendored file, which would break the byte-for-byte reproduction criterion.

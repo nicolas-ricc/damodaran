@@ -113,6 +113,7 @@ def test_no_rim_token_survives() -> None:
 
 
 def test_list_table_overrides_daisyui_list_component() -> None:
+    # DaisyUI ships a `.list` component (display: flex) that would split the table.
     css = (_STATIC / "app.css").read_text()
     rule = re.search(r"^\.list \{[^}]*\}", css, re.M)
     assert rule is not None

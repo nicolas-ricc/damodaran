@@ -25,5 +25,5 @@ if [ "$actual" != "$DAISYUI_SHA256" ]; then
   echo "actual   $actual" >&2
   exit 1
 fi
-cp "$tmp" "$OUT"
+install -m 644 "$tmp" "$OUT"
 echo "$OUT"

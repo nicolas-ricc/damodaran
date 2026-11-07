@@ -57,4 +57,5 @@ def test_matching_download_writes_the_file(tmp_path: Path) -> None:
     result = _run(tmp_path, VENDORED, out)
     assert result.returncode == 0, result.stderr
     assert out.read_bytes() == VENDORED.read_bytes()
+    assert out.stat().st_mode & 0o777 == 0o644
     assert str(out) in result.stdout
