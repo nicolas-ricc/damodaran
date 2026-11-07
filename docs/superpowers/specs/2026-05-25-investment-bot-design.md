@@ -291,15 +291,15 @@ Cada reporte de análisis incluye:
 
 ### 7.5 Narrative flags cuantitativos
 
-Proxies de "story↔numbers consistency" (verde/amarillo/rojo):
+Proxies de "story↔numbers consistency" (verde/amarillo/rojo). Cuatro controles corren siempre; el quinto, story-margin, corre solo cuando el story type es `high-growth`:
 
-- **Story-margin consistency**: si `high-growth` pero margins > sector, flag amarillo.
+- **Story-margin consistency**: corre solo para `high-growth`; otros story types no llevan esta flag. Si el margen de la empresa supera al del sector, flag amarillo; verde si no; desconocido si falta un margen.
 - **Growth-reinvestment consistency**: si growth implícito no se soporta con reinvestment proyectado, flag rojo.
 - **Beta vs business risk**: si beta sectorial < 1 pero leverage operativo+financiero altos, flag amarillo.
 - **Terminal value share > 80%**: flag amarillo (valuación frágil, depende casi todo de perpetuidad).
 - **Country exposure vs ERP listado**: si revenue mayoritariamente fuera del país de listado y ERP weighted > listado + 300bps, flag rojo.
 
-Se suman hasta tres flags más: `hypergrowth_story` aparece cuando disparan las señales del clasificador o cuando el story type es `hypergrowth`; los otros dos, solo cuando el story type es `hypergrowth`:
+Se suman hasta tres flags más, el segundo de dos grupos condicionales (el primero es story-margin, solo para `high-growth`): `hypergrowth_story` aparece cuando disparan las señales del clasificador o cuando el story type es `hypergrowth`; los otros dos, solo cuando el story type es `hypergrowth`:
 
 - **`hypergrowth_story`**: reconcilia las señales del clasificador con el archivo de story. Rojo si hay señales y no hay archivo (la valuación default no es confiable); amarillo si hay archivo y no hay señales; verde si están las dos.
 - **`hypergrowth_revenue_scale`**: si los ingresos del año 10 superan a los de la empresa más grande hoy (~750B), flag amarillo.

@@ -32,7 +32,8 @@ tornado_done -> grid_done: "a five by five grid crosses the two widest axes\nste
 grid_done -> scenarios_done: "the scenario range is valued, base first [scenarios in the story file]\nbase first, then each scenario in file order, one plain discounted cash flow (DCF) each"  # @symbol bot.valuator.sensitivity.scenario_range @symbol bot.valuator.hypergrowth.scenario_cases
 grid_done -> scenarios_done: "no scenario range [no scenarios in the story file]"
 grid_done -> cannot_value: "the ticker cannot be valued, exit code 1 [a scenario cannot be built, or its terminal growth reaches its weighted average cost of capital (WACC)]"  # @symbol bot.valuator.hypergrowth.scenario_cases
-scenarios_done -> story_margin_checked: "story margin is green [not high-growth, or company margin at most the sector's]"
+scenarios_done -> story_margin_checked: "story margin is green [company margin at most the sector's]"
 scenarios_done -> story_margin_checked: "story margin is yellow [high-growth and company margin above the sector's]"
 scenarios_done -> story_margin_checked: "story margin is unknown [a margin missing]"
+scenarios_done -> story_margin_checked: "story margin is skipped [not high-growth]"
 scenarios_done -> out: "the bars, the grid and the scenario range go on to the narrative flags [always]"
