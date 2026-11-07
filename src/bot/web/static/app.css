@@ -100,6 +100,9 @@ table { border-collapse: collapse; width: 100%; }
 .list thead tr { background: var(--color-base-200); }
 .list tr.selected .ticker::before { content: ""; position: absolute; left: var(--space-2xs); top: 50%; width: 6px; height: 6px; transform: translateY(-50%); background: var(--color-primary); }
 .flags { white-space: nowrap; }
+.flags .badge { padding-inline: 1px; }
+.flags .badge .glyph { stroke: currentColor; }
+.flags .badge .mark { width: 0.75rem; height: 0.75rem; }
 .mark { display: inline-block; width: 1rem; height: 1rem; vertical-align: -0.15em; }
 .value-line.mini { display: inline-block; width: 5.5rem; height: 1rem; vertical-align: middle; margin-left: var(--space-xs); overflow: visible; }
 .list td[data-label]::before { display: none; }
