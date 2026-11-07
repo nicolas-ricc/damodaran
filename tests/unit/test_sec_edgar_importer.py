@@ -5,7 +5,7 @@ Covers:
   the IngestResult instead of propagating the exception.
 - Task 3: upsert_company merges instead of wiping unrelated columns.
 - #28: upsert_filings keeps the first ingestion time.
-- #58: import_company_from_sec is gone; bot show --fetch goes through the provider port.
+- #58: the docstrings stop describing bot show --fetch as a sec_edgar-stamped path.
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ from unittest.mock import patch
 
 import duckdb
 
-from bot.ingest import sec_edgar
 from bot.ingest.base import IngestResult
 from bot.ingest.edgar_base import EdgarPricedProvider
 from bot.ingest.provider import CompanyInfo
@@ -116,12 +115,8 @@ def test_upsert_filings_preserves_fetched_at() -> None:
 
 
 # ---------------------------------------------------------------------------
-# #58 — the SEC-only importer is retired
+# #58 — show --fetch goes through the provider port
 # ---------------------------------------------------------------------------
-
-
-def test_import_company_from_sec_no_longer_exists() -> None:
-    assert not hasattr(sec_edgar, "import_company_from_sec")
 
 
 def test_docstrings_no_longer_describe_show_fetch_as_sec_stamped() -> None:
