@@ -93,7 +93,17 @@ def test_search_matches_each_cell_separately() -> None:
     script = _SCRIPT.read_text()
     body = script[script.index("function applySearch") : script.index("function announceDetail")]
     assert '+ " " +' not in body
-    assert body.count("indexOf(q)") == 2
+    assert "ticker.textContent.toLowerCase().indexOf(q)" in body
+    assert "name.textContent.toLowerCase().indexOf(q)" in body
+
+
+def test_search_box_is_found_again_after_history_restore() -> None:
+    # htmx's Back restores the page by replacing the body, so no node may be kept from load.
+    script = _SCRIPT.read_text()
+    assert 'document.querySelector("#search input")' in script
+    assert 'search.querySelector("input")' not in script
+    restore = script[script.index('"htmx:historyRestore"') :]
+    assert "initSearch" in restore[: restore.index(")")]
 
 
 def test_mark_selected_skips_hidden_rows() -> None:

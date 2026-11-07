@@ -2,8 +2,6 @@
   "use strict";
   var wide = window.matchMedia("(min-width: 1100px)");
   var lastHref = null;
-  var search = document.getElementById("search");
-  var input = search && search.querySelector("input");
 
   // Under 1100px the index shows the ledger alone, so a ticker opens its own page.
   document.addEventListener("click", function (e) {
@@ -45,8 +43,9 @@
     });
   }
 
-  // Hide the rows the box does not match; swaps replace #rows and #count, so look them up every time.
+  // Hide the rows the box does not match; swaps and Back replace these nodes, so look them up every time.
   function applySearch() {
+    var input = document.querySelector("#search input");
     if (!input) return;
     var rows = document.getElementById("rows");
     var count = document.getElementById("count");
@@ -101,16 +100,26 @@
   markSelected();
   wide.addEventListener("change", markSelected);
 
-  if (input) {
+  // Show the box only where the script runs; Back restores a snapshot whose rows may still be hidden.
+  function initSearch() {
+    var search = document.getElementById("search");
+    if (!search) return;
     search.removeAttribute("hidden");
-    input.addEventListener("input", applySearch);
-    input.addEventListener("keydown", function (e) {
-      if (e.key !== "Escape") return;
-      e.preventDefault();
-      input.value = "";
-      applySearch();
-    });
+    applySearch();
   }
+
+  initSearch();
+  document.addEventListener("htmx:historyRestore", initSearch);
+
+  document.addEventListener("input", function (e) {
+    if (e.target instanceof Element && e.target.matches("#search input")) applySearch();
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape" || !(e.target instanceof Element) || !e.target.matches("#search input")) return;
+    e.preventDefault();
+    e.target.value = "";
+    applySearch();
+  });
 
   document.addEventListener("htmx:afterSettle", function (e) {
     var id = e.target && e.target.id;
