@@ -169,9 +169,12 @@ table { border-collapse: collapse; width: 100%; }
 .story-note { margin-top: var(--space-md); }
 
 /* the facts strip is DaisyUI stats; it stacks on the pane's own width */
-.facts { margin-top: var(--space-lg); }
+.facts { max-width: 100%; margin-top: var(--space-lg); }
+.facts .stat { padding-inline: var(--space-md); }
 .facts .stat-value { font-weight: 500; letter-spacing: -0.03em; }
+.facts .stat-value.num { font-size: var(--text-xl); }
 .facts .stat-value.word { font-size: var(--text-lg); }
+.facts .lead-figure .stat-value { font-size: var(--text-3xl); }
 @container (max-width: 44rem) {
   .facts.stats { grid-auto-flow: row; }
   .facts.stats .stat:not(:last-child) { border-inline-end: none; border-block-end: var(--border) dashed var(--rule-faint); }
@@ -220,6 +223,7 @@ table { border-collapse: collapse; width: 100%; }
 .scenario-grid { width: auto; max-width: 100%; font-size: var(--text-sm); border-collapse: separate; border-spacing: 2px; }
 .scenario-grid th, .scenario-grid td { padding: 0; border: 0; text-align: center; font-weight: 400; }
 .scenario-grid th { color: var(--ink-soft); font-family: var(--font-mono); }
+.scenario-grid thead { white-space: normal; }
 .scenario-grid thead .axis { font-family: var(--font-body); font-weight: 500; color: var(--color-base-content); text-align: left; padding: 0 0 var(--space-2xs); }
 .scenario-grid thead tr:last-child th { padding-bottom: var(--space-2xs); }
 .scenario-grid tbody th { text-align: right; padding-right: var(--space-xs); }
@@ -231,6 +235,7 @@ table { border-collapse: collapse; width: 100%; }
 .scenario-grid .cell-none { outline: 1px dashed var(--ink-soft); outline-offset: -2px; }
 
 /* each assumption is one ruled row: the label with its source beneath, the value on the right */
+.assumptions-table { font-size: var(--text-md); }
 .assumptions tbody { display: block; }
 .assumptions tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: var(--space-md); padding: var(--space-xs) 0; border-bottom: var(--rule-hair) solid var(--rule-faint); }
 .assumptions th, .assumptions td { padding: 0; border: 0; text-align: left; font-weight: 400; vertical-align: top; }

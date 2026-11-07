@@ -179,3 +179,19 @@ def test_flag_severity_colours_are_gone() -> None:
     css = (_STATIC / "app.css").read_text()
     assert ".flag-list .severity" not in css
     assert ".flag-not-evaluated .severity" not in css
+
+
+def test_detail_rules_fit_the_instrument() -> None:
+    # Measured in the browser over the 80 published companies at 1440px (issue #260):
+    # DaisyUI's 2rem values and 1.5rem stat padding overflow the instrument, its thead
+    # nowrap widens the scenario grid, and .table drops the assumptions to .875rem.
+    css = (_STATIC / "app.css").read_text()
+    for rule in (
+        ".facts { max-width: 100%; margin-top: var(--space-lg); }",
+        ".facts .stat { padding-inline: var(--space-md); }",
+        ".facts .stat-value.num { font-size: var(--text-xl); }",
+        ".facts .lead-figure .stat-value { font-size: var(--text-3xl); }",
+        ".scenario-grid thead { white-space: normal; }",
+        ".assumptions-table { font-size: var(--text-md); }",
+    ):
+        assert rule in css, rule
