@@ -10,7 +10,7 @@ from typing import Any
 import duckdb
 import httpx
 
-from bot.ingest.base import IngestResult, coerce_date, refresh_run, transaction
+from bot.ingest.base import coerce_date
 from bot.ingest.provider import CompanyInfo, ParsedCompanyData, ProviderRateLimitError
 from bot.utils.logging import get_logger
 
@@ -606,8 +606,8 @@ def upsert_company(conn: duckdb.DuckDBPyConnection, company: dict[str, Any]) -> 
 
     A raw DELETE + INSERT with only the provider's columns would wipe out
     what that provider doesn't carry: the SEC row doesn't load industry, so
-    a ``bot show --fetch`` would drop a ticker mapped by FMP out of the
-    screener's universe. Columns the new row doesn't carry (or carries as
+    re-importing a ticker mapped by FMP would drop it out of the screener's
+    universe. A provider that does not carry a column must not wipe it. Columns the new row doesn't carry (or carries as
     ``None``) keep the value already stored.
     """
     existing_row = conn.execute(
@@ -727,52 +727,3 @@ def count_null_revenue(rows: list[dict[str, Any]]) -> int:
     """Number of annual rows whose ``revenue`` is missing (NULL after resolution)."""
     return sum(1 for r in rows if r.get("revenue") is None)
 
-
-def import_company_from_sec(
-    conn: duckdb.DuckDBPyConnection,
-    *,
-    ticker: str,
-    user_agent: str,
-) -> IngestResult:
-    """Fetch + parse + upsert one US ticker from SEC EDGAR. Atomic on the DB side."""
-    with refresh_run(
-        conn,
-        source="sec_edgar",
-        log=log,
-        error_event="sec_edgar.import.failed",
-        log_fail_event="sec_edgar.refresh_log_insert_failed",
-    ) as run:
-        run.details = {"ticker": ticker}
-
-        with SecEdgarClient(user_agent=user_agent) as client:
-            cik = client.lookup_cik(ticker)
-            if cik is None:
-                raise ValueError(f"Ticker {ticker} not found in SEC EDGAR ticker table")
-            facts = client.fetch_company_facts(cik)
-        parsed = parse_company_facts(ticker, facts)
-
-        with transaction(conn):
-            upsert_company(conn, parsed.company)
-            annual = upsert_financials_annual(conn, parsed.annual)
-            quarterly = upsert_financials_quarterly(conn, parsed.quarterly)
-            filings = upsert_filings(conn, parsed.filings)
-
-        run.rows_affected = 1 + annual + quarterly + filings
-        null_revenue = count_null_revenue(parsed.annual)
-        log.info(
-            "ingest.annual_revenue_null",
-            ticker=ticker,
-            source="sec_edgar",
-            annual_revenue_null=null_revenue,
-            annual=annual,
-        )
-        run.details = {
-            "ticker": ticker,
-            "annual": annual,
-            "quarterly": quarterly,
-            "shares_rescaled": parsed.shares_rescaled,
-            "filings": filings,
-            "annual_revenue_null": null_revenue,
-        }
-    assert run.result is not None  # refresh_run always sets it on exit
-    return run.result

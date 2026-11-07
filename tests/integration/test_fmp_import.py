@@ -1,6 +1,6 @@
 """Integration tests for the high-level FMP fundamentals importer (M2.3).
 
-``import_company`` (through :class:`FmpProvider`) mirrors ``import_company_from_sec``:
+``import_company`` (through :class:`FmpProvider`) honours the provider-port contract:
 it fetches the profile + income / balance / cash-flow statements (annual and
 quarterly), parses them with the pure M2.2 parser, and upserts a single ticker
 atomically.
