@@ -24,10 +24,10 @@ from bot.ingest.ibkr_flex_capture import (
     capture,
 )
 from bot.ingest.provider import MarketDataProvider
-from bot.ingest.sec_edgar import import_company_from_sec
 from bot.ingest.universe import (
     UniverseRefreshResult,
     default_universe_path,
+    import_company,
     load_universe,
     refresh_fx,
     refresh_prices,
@@ -326,7 +326,7 @@ def show(
     fetch_if_missing: bool = typer.Option(
         True,
         "--fetch/--no-fetch",
-        help="If the ticker isn't in the DB, fetch it from SEC EDGAR first.",
+        help="If the ticker isn't in the DB, fetch it from the configured data provider first.",
     ),
 ) -> None:
     """Show a company's basic info and last 5 years of financials."""
@@ -345,10 +345,16 @@ def show(
 
     if row is None:
         if not fetch_if_missing:
-            typer.echo(f"{ticker} not in DB (use --fetch to import from SEC).", err=True)
+            typer.echo(f"{ticker} not in DB (use --fetch to import from the configured data provider).", err=True)
             raise typer.Exit(code=2)
-        typer.echo(f"{ticker} not in DB — fetching from SEC EDGAR...")
-        result = import_company_from_sec(conn, ticker=ticker, user_agent=settings.sec_user_agent)
+        typer.echo(f"{ticker} not in DB — fetching from the configured data provider...")
+        with closing(_make_provider(settings)) as provider:
+            result = import_company(
+                conn,
+                ticker=ticker,
+                provider=provider,
+                mapping_path=settings.industry_mapping_path,
+            )
         if not result.is_success():
             typer.echo(f"Failed to import {ticker}: {result.error_message}", err=True)
             raise typer.Exit(code=1)
