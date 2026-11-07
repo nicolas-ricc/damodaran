@@ -34,7 +34,7 @@ const states = {
   tornado_done: "the one-at-a-time sensitivity is done",
   grid_done: "the two-way grid is done",
   scenarios_done: "the scenario range is settled",
-  story_margin_checked: "the story margin flag is set",
+  story_margin_checked: "the story margin check is done",
   reinvestment_checked: "the reinvestment flag is set",
   beta_checked: "the beta flag is set",
   tv_share_checked: "the terminal value share flag is set",

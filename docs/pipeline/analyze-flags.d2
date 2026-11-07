@@ -10,7 +10,7 @@ back: |md back to the analyze board | {
 
 # States
 # @symbol bot.valuator.narrative_flags.story_margin_flag @enum bot.valuator.narrative_flags.FlagColor
-story_margin_checked: "the story margin flag is set" {class: decision}
+story_margin_checked: "the story margin check is done" {class: decision}
 # @symbol bot.valuator.narrative_flags.growth_reinvestment_flag
 reinvestment_checked: "the reinvestment flag is set" {class: decision}
 # @symbol bot.valuator.narrative_flags.beta_business_risk_flag
@@ -28,7 +28,7 @@ hypergrowth_checked: "the hypergrowth flags are settled" {class: step}
 
 always_unknown: |md Gap: analyze never supplies the foreign revenue share or the two equity risk premiums, so country exposure is always unknown. | {class: gap}
 
-only_red: |md Only growth_reinvestment can be red among the first five checks: three stop at yellow and country exposure is always unknown. Among the hypergrowth flags, only hypergrowth_story can be red (signals without a story file). | {class: note}
+only_red: |md Only growth_reinvestment can be red among the five spec checks: three stop at yellow and country exposure is always unknown. Among the hypergrowth flags, only hypergrowth_story can be red (signals without a story file). | {class: note}
 
 execution_order: |md Execution order, not dependency: the margin of safety and the verdict read the value after the governance discount and the latest close; the sanity check reads the latest close, net income, diluted shares and revenue, the discounted cash flow's intrinsic value per share and enterprise value, and the sector multiples. The flags change none of them, and the sanity check does not read the verdict. | {class: note}
 
