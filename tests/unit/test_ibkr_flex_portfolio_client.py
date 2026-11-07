@@ -114,3 +114,20 @@ def test_network_error_is_flex_error() -> None:
     client = FlexPortfolioClient("tok", "42", tz=NY, transport=httpx.MockTransport(handler))
     with pytest.raises(FlexError):
         client.as_of()
+
+
+def test_from_settings_strips_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    from bot.config import Settings
+
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Test test@example.com")
+    settings = Settings(_env_file=None, ibkr_flex_token=" tok ", ibkr_flex_query_id=" 42 ")  # type: ignore[call-arg]
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, text=SUCCESS if request.url.path.endswith("/SendRequest") else FIXTURE.read_text())
+
+    client = FlexPortfolioClient.from_settings(settings, transport=httpx.MockTransport(handler))
+    client.as_of()
+    assert seen[0].url.params["q"] == "42"
+    assert seen[0].url.params["t"] == "tok"

@@ -144,7 +144,7 @@ class Settings(BaseSettings):
         """Reject a time zone name the tz database does not know."""
         try:
             ZoneInfo(value)
-        except (ZoneInfoNotFoundError, ValueError):
+        except (ZoneInfoNotFoundError, ValueError, OSError):
             raise ValueError(f"unknown time zone {value!r} (use an IANA name such as America/New_York)") from None
         return value
 

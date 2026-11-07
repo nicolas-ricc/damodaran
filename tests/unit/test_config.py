@@ -107,3 +107,9 @@ def test_unknown_flex_tz_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BOT_SEC_USER_AGENT", "Test test@example.com")
     with pytest.raises(ValidationError):
         Settings(_env_file=None, ibkr_flex_tz="Mars/Base")  # type: ignore[call-arg]
+
+
+def test_flex_tz_directory_name_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Test test@example.com")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, ibkr_flex_tz="America")  # type: ignore[call-arg]
