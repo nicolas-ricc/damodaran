@@ -2,10 +2,12 @@
 
 IBKR's Flex Web Service is the only IBKR source (ADR 0010, #256). A
 user-defined Activity Flex Query (Open Positions, Cash Report, Trades,
-Corporate Actions, Cash Transactions) is fetched over two GETs (protocol v3), parsed
-into :class:`CorporateActionRecord` rows and upserted into
+Corporate Actions, Cash Transactions) is fetched over two GETs (protocol v3),
+parsed into :class:`CorporateActionRecord` rows and upserted into
 ``corporate_actions``, where :func:`bot.portfolio.events.compute_events` reads
-them.
+them. :func:`parse_statement` turns the same XML into a :class:`FlexStatement`
+(positions, cash, trades), which :class:`FlexPortfolioClient` serves as the
+portfolio source for ``bot portfolio``.
 
 The parser is validated against the redacted real statement captured by
 ``bot flex-capture`` (:mod:`bot.ingest.ibkr_flex_capture`); parser corrections

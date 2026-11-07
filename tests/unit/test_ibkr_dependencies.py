@@ -33,6 +33,9 @@ def test_ib_async_not_mentioned_in_src() -> None:
     mentions = [
         path.relative_to(ROOT).as_posix()
         for path in (ROOT / "src").rglob("*")
-        if path.is_file() and "ib_async" in path.read_text(encoding="utf-8", errors="ignore")
+        if path.is_file()
+        and "__pycache__" not in path.parts
+        and path.suffix != ".pyc"
+        and "ib_async" in path.read_text(encoding="utf-8", errors="ignore")
     ]
     assert mentions == []

@@ -1,8 +1,8 @@
 """Unit tests for the incremental, de-duped trade-execution sync (M5, #27).
 
-These drive ``sync_trades`` against a *mocked* client — no Flex download is made, so they are safe for CI. The mock records the
-``since`` watermark it was called with so we can assert the incremental
-behaviour, and returns canned fills.
+These drive ``sync_trades`` against a *mocked* client — no Flex download is made,
+so they are safe for CI. The mock records the ``since`` watermark it was called
+with so we can assert the incremental behaviour, and returns canned fills.
 """
 
 from __future__ import annotations

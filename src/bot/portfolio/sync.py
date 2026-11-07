@@ -1,9 +1,9 @@
 """Daily, idempotent portfolio snapshot from a read-only IBKR source (M5, #26).
 
 ``sync_portfolio`` orchestrates fetch -> write: it asks a
-:class:`PortfolioSource` (the Flex statement client) for the managed accounts, their open positions and per-currency cash, then
-persists an append-only daily snapshot into ``portfolio_snapshots`` and
-``cash_balances``.
+:class:`PortfolioSource` (the Flex statement client) for the managed accounts,
+their open positions and per-currency cash, then persists an append-only daily
+snapshot into ``portfolio_snapshots`` and ``cash_balances``.
 
 Idempotency is keyed on ``(snapshot_date, account)``: a re-run on the same
 calendar day deletes that day's rows for each account it just fetched and
