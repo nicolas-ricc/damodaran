@@ -27,7 +27,9 @@
 4. **The DCF divider sits on its summary.** The divider before `<details class="dcf">` is a direct child of `#detail`, so `#detail > * + * { margin-top: var(--space-2xl); }` would put 64px between the rule and the summary. `#detail > .divider + .dcf { margin-top: 0; }` keeps the pair together, so the divider takes the section gap, as the in-section dividers do. The issue's "`.divider { margin: 0 0 var(--space-xs); }` is the only override" is read as "the only override of the divider component". This rule overrides the pane's spacing, not the divider. [Rejected: putting the divider inside `<details>`. The issue says "before `<details class="dcf">`".]
 5. **The facts strip keeps its distance from the verdict note.** The old `.facts { margin: var(--space-lg) 0 0; padding-top; border-top }` loses its border and padding, and `margin-top: var(--space-lg)` stays as `.facts { margin-top: var(--space-lg); }`. No other spacing on `.stat` changes; any further tuning belongs to the #262 critique.
 6. **"`fail` follows `badge badge-sm badge-error`" means the badge's own text.** The test reads `<span class="badge badge-sm badge-error">fail</span>` inside `section.flag-list`.
-7. **The stage-3 evals come first.** They are written before any implementation, in a separate `test(#260): evals` commit. Each task's Step 1 checks that its tests exist and fail; if any are absent, the implementer writes them as listed.
+7. **Tasks run strictly in order, 1 → 5.** All five edit `detail.html` and `app.css`, and Task 2's `.facts` assertion reads the rule Task 1 leaves. A task whose commit is reverted reverts every later task too. The red intermediate commits stay local: the branch is pushed only after the full suite is green, and CI (`.github/workflows/site.yml:23`) runs `pytest` only on what is pushed.
+8. **Table heads stay `nowrap`.** DaisyUI's `.table :where(thead,tfoot)` sets `white-space: nowrap; font-size: .875rem; font-weight: 600` and a 60% colour. Every `<th>` in the tornado and DCF heads sets its own weight and colour (`.tornado thead th`, `.dcf th`), as do the scenario-grid `th` (`.scenario-grid th`, `thead .axis`). `.875rem` is `--text-sm`. Only `nowrap` reaches them. The heads are short labels, and the scenario axis label wrapping at 390px is left to the #262 critique. [Rejected: a `white-space: normal` override nobody has measured a need for.]
+9. **The stage-3 evals come first.** They are written before any implementation, in a separate `test(#260): evals` commit. Each task's Step 1 checks that its tests exist and fail; if any are absent, the implementer writes them as listed.
 
 ## Review Focus
 
@@ -68,7 +70,7 @@
 
 - [ ] **Step 1: Failing tests:**
   - `test_web_site.py::test_detail_sections_are_divided`: `f/AAA.html` has `count('<div class="divider" aria-hidden="true"></div>') >= 5`. In `f/AAA.html` every `<div class="head-row">` is directly preceded (after stripping whitespace) by that divider, and so is `<details class="dcf">`. `f/CCC.html` has fewer dividers than `f/AAA.html`.
-  - `test_web_assets.py::test_detail_rules_have_no_top_borders`: for each selector `.head-row`, `.facts` and `.dcf summary`, the rule body found by `re.search(r"(?m)^" + re.escape(sel) + r" \{([^}]*)\}", css)` has no `border-top`. `.divider { margin: 0 0 var(--space-xs); }` and `#detail > .divider + .dcf { margin-top: 0; }` are present.
+  - `test_web_assets.py::test_detail_rules_have_no_top_borders`: for each selector `.head-row`, `.facts` and `.dcf summary`, the rule body found by `re.search(r"(?m)^" + re.escape(sel) + r" \{([^}]*)\}", css)` is not `None` (all three are written `<selector> {` at column 0 today, `app.css`) and has no `border-top`. `.divider { margin: 0 0 var(--space-xs); }` and `#detail > .divider + .dcf { margin-top: 0; }` are present.
 - [ ] **Step 2: Run** `uv run pytest tests/unit/test_web_site.py tests/unit/test_web_assets.py -q`. Expected: the two tests FAIL.
 - [ ] **Step 3: Implement.** Put `<div class="divider" aria-hidden="true"></div>` immediately before each `<div class="head-row">` (Drivers, Scenarios, Flags, Assumptions, Sanity) and before `<details class="dcf">`. In `app.css`, drop `border-top` from `.head-row` and `.dcf summary`, keeping their other declarations. Add the two rules from Step 1.
 - [ ] **Step 4: Run** the same command. Expected: PASS.
@@ -129,3 +131,19 @@
 
 - [ ] `uv run ruff check . && uv run mypy src && uv run pytest -q` green.
 - [ ] Build the real site with `uv run bot site --out /tmp/site --reports-dir reports --base-url /`, then read one `f/<TICKER>.html` and one `c/<TICKER>.html`. The new markup is there, no `<dl class="facts">` remains, and there are no unclassed `<table>`s in the detail.
+
+## Grilling
+
+- Rounds: 1 (the answers added declarations and test details but left the steps and seams unchanged, so no second round).
+- Questions: 18. Answers by source: CODE 14, ISSUE 2, NO SOURCE 2 (both technical assumptions, now numbered 7 and 8 above).
+- Answers that corrected the plan: Q10 (ordering, assumption 7), Q7 (table heads, assumption 8), Q12 (the regex must match, Task 2 Step 1), Q9 (red commits stay local, assumption 7).
+- Answers that confirmed the plan:
+  - `lg:stats-horizontal` exists in the vendored file.
+  - `daisyui.css` is fully layered (`@layer base`, `daisyui.*`, `utilities`) and loaded before `theme.css` and `app.css` (`base.html:10-12`).
+  - The list table is `table table-sm` (`list.html:20`), so `.table-xs tr` never reaches it.
+  - The `pair-grid` container query is `@container (min-width: 46rem)` (`app.css:236`). The 28rem and 44rem `min-width` blocks hold only `.facts` rules (`app.css:181-197`).
+  - The DaisyUI row border is on cells, `:is(td,th)`.
+  - `detail.date` and the history entries are both `dt.date` (`views.py:214, 231`).
+  - `mos` is `"n/a"` without a value (`views.py:421`), so the announcer is unchanged.
+  - `badge-ghost` is vendored, and `tone` is pinned by `tests/unit/test_web_views.py::test_flag_tone_follows_severity`.
+- Spec ambiguities: none. Follow-up issues opened: none.
