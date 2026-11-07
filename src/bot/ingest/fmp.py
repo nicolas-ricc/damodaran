@@ -466,6 +466,7 @@ _CASHFLOW_FIELD_MAP: dict[str, str] = {
     "freeCashFlow": "free_cashflow",
     "dividendsPaid": "dividends_paid",
     "netDividendsPaid": "dividends_paid",
+    "acquisitionsNet": "acquisitions",
 }
 
 
@@ -535,6 +536,11 @@ def parse_fmp_fundamentals(
         # expressed as a positive number).
         if capex_signed is not None:
             row["capex"] = abs(capex_signed)
+
+        # acquisitions: FMP reports acquisitionsNet as a negative outflow. Store it
+        # positive like capex, so a net divestiture comes out negative.
+        if row.get("acquisitions") is not None:
+            row["acquisitions"] = -float(row["acquisitions"])
 
         # working_capital = total current assets - total current liabilities.
         wc = _working_capital(raw)
