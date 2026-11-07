@@ -59,6 +59,20 @@ DEFAULT_COUNTRY_COLUMN_MAP: dict[str, str] = {
     "country_risk_premium": "Country Risk Premium",
 }
 
+#: Value of ``damodaran_country.erp_basis``: how a country's ERP was derived.
+ERP_BASIS_MOODYS = "moodys_rating"
+ERP_BASIS_PRS = "prs_score"
+
+# The second table of the sheet (unrated "Frontier Markets") has its own header
+# row: column B is the PRS (Political Risk Services) score where the first
+# table has the region. "Default Spread" is not stored.
+PRS_COUNTRY_COLUMN_MAP: dict[str, str] = {
+    "country": "Country",
+    "prs_score": "PRS Composite Risk Score",
+    "erp": "ERP",
+    "country_risk_premium": "CRP",
+}
+
 _DATASET_BASE = "https://pages.stern.nyu.edu/~adamodar/pc/datasets/"
 
 INDUSTRY_WACC_URL = _DATASET_BASE + "wacc.xls"
@@ -319,8 +333,11 @@ def _load_to_records(
         return []
 
     header_idx = _find_header_row(rows)
-    header_raw = rows[header_idx]
+    return _records_from_rows(rows[header_idx], rows[header_idx + 1 :])
 
+
+def _records_from_rows(header_raw: list[Any], body: list[list[Any]]) -> list[dict[str, Any]]:
+    """Key each *body* row by the sanitized, de-duplicated *header_raw* names."""
     # Deduplicate and sanitize column names.
     seen: dict[str, int] = {}
     header: list[str] = []
@@ -334,7 +351,7 @@ def _load_to_records(
         header.append(name)
 
     records: list[dict[str, Any]] = []
-    for r in rows[header_idx + 1 :]:
+    for r in body:
         records.append({h: (r[i] if i < len(r) else None) for i, h in enumerate(header)})
     return records
 
@@ -405,14 +422,12 @@ def _to_normalized_rows(
     are dropped.
 
     A row whose PK cell repeats the PK column's header string marks the start of a
-    **different table** on the same sheet, not a cosmetic sub-header. Damodaran's
-    ``ERPs by country`` sheet is the case that matters: below the Moody's-rated
-    table it publishes a second table of unrated countries scored by PRS, whose
-    columns do not line up (its column B is a risk score where the first table has
-    the region, and its ERP sits where the first table has the default spread).
-    Continuing past that boundary stored a wrong equity risk premium for 21
-    countries. So parsing stops there, and how many rows were discarded is logged
-    rather than passed over in silence.
+    **different table** on the same sheet, not a cosmetic sub-header, so industry
+    parsing stops there, and how many rows were discarded is logged rather than
+    passed over in silence. Damodaran's ``ERPs by country`` sheet is the case that
+    matters: below the Moody's-rated table it publishes a second table whose
+    columns do not line up with the first. ``parse_country_xls`` reads that table
+    itself, with its own header and column map, and never reaches this truncation.
     """
     pk_field = next(iter(column_map))
     pk_xls_col = column_map[pk_field]  # e.g. "Country" or "Industry Name"
@@ -574,11 +589,69 @@ def parse_country_xls(
     Returns:
         List of dicts ready for DB upsert.
     """
-    records = _load_to_records(path, sheet_name)
-    if not records:
+    rows, picked = _load_rows(path, sheet_name)
+    log.debug("damodaran.sheet_picked", path=str(path), sheet=picked)
+    if not rows:
         log.warning("damodaran.country.empty_file", path=str(path))
         return []
-    return _to_normalized_rows(records, column_map, {"year": year})
+
+    header_idx = _find_header_row(rows)
+    header_raw = rows[header_idx]
+    pk_field = next(iter(column_map))
+    pk_header = column_map[pk_field]
+    pk_col = next((i for i, h in enumerate(header_raw) if str(h).strip() == pk_header), None)
+
+    second_idx: int | None = None
+    if pk_col is not None:
+        for i in range(header_idx + 1, len(rows)):
+            cell = _pk_cell(rows[i], pk_col)
+            if cell and cell == pk_header:
+                second_idx = i
+                break
+
+    first_body = rows[header_idx + 1 : second_idx]
+    if not any(_pk_cell(r, pk_col or 0) for r in first_body):
+        log.warning("damodaran.country.empty_file", path=str(path))
+        return []
+
+    rated: list[dict[str, Any]] = []
+    for row in _to_normalized_rows(
+        _records_from_rows(header_raw, first_body),
+        column_map,
+        {"year": year, "erp_basis": ERP_BASIS_MOODYS},
+    ):
+        if all(v is None for k, v in row.items() if k not in (pk_field, "year", "erp_basis")):
+            log.debug("damodaran.country.title_row_dropped", country=row[pk_field])
+            continue
+        rated.append(row)
+
+    prs: list[dict[str, Any]] = []
+    if second_idx is not None:
+        body: list[list[Any]] = []
+        for r in rows[second_idx + 1 :]:
+            if not _pk_cell(r, pk_col or 0):
+                break
+            body.append(r)
+        rated_names = {r[pk_field] for r in rated}
+        for row in _to_normalized_rows(
+            _records_from_rows(rows[second_idx], body),
+            PRS_COUNTRY_COLUMN_MAP,
+            {"year": year, "erp_basis": ERP_BASIS_PRS, "region": None, "rating": None},
+        ):
+            if row[pk_field] in rated_names:
+                log.warning("damodaran.country.prs_duplicate", country=row[pk_field])
+                continue
+            prs.append(row)
+
+    log.info("damodaran.country.tables_read", rated=len(rated), prs=len(prs))
+    return rated + prs
+
+
+def _pk_cell(row: list[Any], pk_col: int) -> str:
+    """Return the stripped text of *row*'s PK cell; ``""`` when blank or absent."""
+    if pk_col >= len(row) or row[pk_col] is None:
+        return ""
+    return str(row[pk_col]).strip()
 
 
 # ---------- Downloader ----------
