@@ -203,7 +203,7 @@ def test_growth_reinvestment_yellow_when_reinvestment_stretches_nopat() -> None:
     flag = growth_reinvestment_flag(fin, asm, result, _ctx())
     assert flag.color is FlagColor.YELLOW
     assert flag.reason == (
-        "In year 3 reinvestment takes 95% of after-tax operating profit (NOPAT): "
+        "In year 1 reinvestment takes 95% of after-tax operating profit (NOPAT): "
         "growth is funded, but only just."
     )
 
@@ -952,10 +952,23 @@ def _every_reason() -> list[NarrativeFlag]:
             NarrativeContext(hypergrowth_signals=signals, story_file_present=story)
             for signals, story in itertools.product((False, True), (False, True))
         ),
+        NarrativeContext(terminal_roic=0.15, sector_roic=0.1),
+    ]
+    stretched = (
+        _financials(),
+        _assumptions(
+            revenue_growth=(0.077,) * 5,
+            operating_margin=(0.10,) * 5,
+            sales_to_capital=1.0,
+        ),
+    )
+    results = [
+        *_sweep_results(),
+        (stretched[0], stretched[1], _result(*stretched)),
     ]
     return [
         flag(fin, asm, result, ctx)
-        for fin, asm, result in _sweep_results()
+        for fin, asm, result in results
         for ctx in contexts
         for flag in _ALL_FLAGS
     ]
