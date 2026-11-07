@@ -250,7 +250,7 @@ def scenario_grid_table(grid: ScenarioGrid) -> Markup:
                 )
         body.append(f'<tr><th scope="row">{escape(label)}</th>{"".join(cells)}</tr>')
     return Markup(
-        f'<table class="scenario-grid" aria-label="Scenarios {grid.matching}/{grid.total}">'
+        f'<table class="table table-xs scenario-grid" aria-label="Scenarios {grid.matching}/{grid.total}">'
         f"<thead>{''.join(head)}</thead><tbody>{''.join(body)}</tbody></table>"
     )
 
@@ -288,7 +288,7 @@ def tornado_table(bars: Sequence[TornadoBar], *, price: float | None) -> Markup:
         )
     price_head = f"price {_num(price)}" if price is not None else "range"
     return Markup(
-        '<table class="tornado" aria-label="Drivers"><thead><tr>'
+        '<table class="table table-xs tornado" aria-label="Drivers"><thead><tr>'
         '<th scope="col">Input</th><th scope="col" class="num">Low</th>'
         f'<th scope="col" class="track-head">{escape(price_head)}</th>'
         '<th scope="col" class="num">High</th></tr></thead>'
