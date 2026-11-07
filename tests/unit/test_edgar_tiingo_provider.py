@@ -82,3 +82,33 @@ def test_daily_prices_without_key_fails_with_a_clear_message() -> None:
     )
     with _pytest.raises(RuntimeError, match="BOT_TIINGO_API_KEY"):
         provider.daily_prices("AAPL", since=None)
+
+
+# ---------------------------------------------------------------------------
+# #275 — the governance filings of the submissions index
+# ---------------------------------------------------------------------------
+
+
+def test_fundamentals_includes_the_governance_filings() -> None:
+    bundle = _provider().fundamentals("AAPL")
+    keys = {(r["filing_type"], r["filing_date"], r.get("items")) for r in bundle.filings}
+    assert keys >= {("8-K", "2026-05-20", "4.01,9.01"), ("NT 10-Q", "2026-04-30", None)}
+    governance = [r for r in bundle.filings if r["filing_type"] in {"8-K", "NT 10-Q"}]
+    assert {r["source"] for r in governance} == {"edgar_tiingo"}
+
+
+def test_import_company_stores_the_governance_filings() -> None:
+    from bot.ingest.universe import import_company
+    from bot.storage.db import apply_schema, connect
+
+    conn = connect(":memory:")
+    apply_schema(conn)
+    import_company(conn, ticker="AAPL", provider=_provider())
+    rows = conn.execute(
+        "SELECT filing_type, filing_date, items FROM filings_log "
+        "WHERE ticker = 'AAPL' AND (filing_type LIKE 'NT %' OR items IS NOT NULL)"
+    ).fetchall()
+    assert set(rows) == {
+        ("8-K", date(2026, 5, 20), "4.01,9.01"),
+        ("NT 10-Q", date(2026, 4, 30), None),
+    }
