@@ -130,8 +130,9 @@ uv run bot show AAPL             # show a US company's fundamentals (M1)
   which fast-forwards the checkout to `origin/master` (`git pull --ff-only`). It skips a checkout
   on another branch, and a failed pull is logged and the run goes ahead on the code it has.
 - **Daily** (weekdays 09:00): `bot refresh --prices --fx && bot portfolio`. Fundamentals are
-  quarterly and are not refreshed daily. `bot portfolio` fails (exit 1) when the Flex service does, and exits 2 while the Flex
-  token or query id is unset; that is logged, not a bug.
+  quarterly and are not refreshed daily. `bot portfolio` fails (exit 1) when the Flex
+  service does, and exits 2 while the Flex token or query id is unset; that is logged,
+  not a bug.
 - **Weekly** (Saturday 10:00): `bot refresh --all && bot screen --preset damodaran_value &&
   bot analyze --from-screen && scripts/publish_site.sh`. The last step commits only the
   `reports/*/analysis/*.json` sidecars and pushes them to `master`, which redeploys the
@@ -170,9 +171,9 @@ warning. Snapshots stored before this change are keyed on the run day; there is 
    with five sections:
    - **Open Positions** (level Summary): accountId, conid, symbol, assetCategory,
      currency, listingExchange, position, costBasisPrice, markPrice, reportDate.
-   - **Cash Report**: currency, endingCash, levelOfDetail.
-   - **Trades** (level Executions): accountId, conid, symbol, buySell, quantity,
-     tradePrice, dateTime, ibExecID, ibOrderID, levelOfDetail.
+   - **Cash Report**: accountId, currency, endingCash, levelOfDetail.
+   - **Trades** (level Executions): accountId, conid, symbol, assetCategory,
+     currency, buySell, quantity, tradePrice, dateTime, ibExecID, ibOrderID, levelOfDetail.
    - **Corporate Actions**: accountId, currency, assetCategory, symbol, description,
      conid, isin, reportDate, dateTime, actionID, type, quantity, amount, proceeds,
      value, code.

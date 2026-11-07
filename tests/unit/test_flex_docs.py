@@ -93,3 +93,29 @@ def test_adr_0010_is_implemented() -> None:
     (path,) = (ROOT / "docs/adr").glob("0010-*.md")
     text = path.read_text(encoding="utf-8")
     assert "Implemented" in text.split("## Status", 1)[1].split("##", 1)[0]
+
+
+@pytest.mark.parametrize(
+    ("section", "attrs"),
+    [
+        (
+            "Open Positions",
+            ["accountId", "conid", "symbol", "assetCategory", "currency", "listingExchange",
+             "position", "costBasisPrice", "reportDate", "levelOfDetail"],
+        ),
+        ("Cash Report", ["accountId", "currency", "endingCash", "levelOfDetail"]),
+        (
+            "Trades",
+            ["accountId", "conid", "symbol", "assetCategory", "currency", "buySell", "quantity",
+             "tradePrice", "dateTime", "ibExecID", "ibOrderID", "levelOfDetail"],
+        ),
+    ],
+)
+def test_readme_lists_every_attribute_the_parser_reads(section: str, attrs: list[str]) -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    start = readme.index(f"- **{section}**")
+    bullet = " ".join(readme[start : readme.index("\n   - **", start + 1)].split())
+    for attr in attrs:
+        if attr == "levelOfDetail" and section == "Open Positions":
+            continue  # chosen through the "level Summary" option, absent counts as summary
+        assert attr in bullet, (section, attr)

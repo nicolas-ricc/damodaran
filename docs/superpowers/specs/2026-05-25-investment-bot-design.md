@@ -360,7 +360,7 @@ Reglas de validación, todas con `ValueError` solo para ese ticker (el batch sig
 
 **API elegida**: IBKR Flex Web Service, única fuente de IBKR (ADR 0010; reemplaza a las ADR 0003 y 0004). Ni Client Portal ni TWS.
 
-- Una sola Activity Flex Query en XML, período «Last 7 Calendar Days», con cinco secciones: Open Positions, Cash Report, Trades, Corporate Actions y Cash Transactions
+- Una sola Activity Flex Query en XML, período «Last 7 Calendar Days», con cinco secciones: Open Positions (accountId, conid, symbol, assetCategory, currency, listingExchange, position, costBasisPrice, markPrice, reportDate), Cash Report (accountId, currency, endingCash, levelOfDetail), Trades a nivel Executions (accountId, conid, symbol, assetCategory, currency, buySell, quantity, tradePrice, dateTime, ibExecID, ibOrderID, levelOfDetail), Corporate Actions y Cash Transactions
 - Auth con un token del Flex Web Service (vence como máximo al año), sin sesión de escritorio ni gateway: `bot portfolio` corre sin supervisión desde cron
 - `BOT_IBKR_FLEX_TOKEN` y `BOT_IBKR_FLEX_QUERY_ID` en `.env`; `BOT_IBKR_FLEX_TZ` (por defecto America/New_York) es la zona horaria de los `dateTime` de los trades
 - Trade-off: el statement es de fin de día, así que el snapshot lleva la fecha del statement (el día hábil anterior), no la de la corrida. Un hueco entre corridas mayor que el período de la query pierde fills salvo que se amplíe el período una vez.

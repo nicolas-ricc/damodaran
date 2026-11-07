@@ -67,7 +67,7 @@ INVENTARIO = {
  ("storage", "Conexión y esquema", "a-medias", "storage/db.py:24",
   "Sin versionado ni migraciones. Agregar una columna a una base existente es una operación nula que revienta después, en ejecución."),
  ("tablas", "Las quince tablas", "a-medias", "storage/schema.sql",
-  "Las quince se escriben; corporate_actions solo cuando hay token y query id de Flex (#56). Tres columnas quedan siempre nulas: reinvestment_rate, payout_ratio e isin."),
+  "Las quince se escriben; corporate_actions sale de la sección CorporateActions del statement de Flex (#56), que bot portfolio exige siempre (token y query id). Tres columnas quedan siempre nulas: reinvestment_rate, payout_ratio e isin."),
 ]),
 
 "capa-b": ("Capa B · screener", "dieciséis reglas, cero subjetividad", [
@@ -178,8 +178,8 @@ INVENTARIO = {
  ("m3", "M3 · screener", "hecho", "screener/", "La compuerta de cobertura (ADR 0006) ya está implementada, con tres razones con nombre."),
  ("m4", "M4 · valuador", "hecho", "valuator/", "El story type hypergrowth ya proyecta todo desde el archivo de story (crecimiento, margen, WACC, impuestos, reinversión terminal y fracaso); en el resto de los arquetipos el crecimiento hace el mismo fade al crecimiento terminal (solo cambia la etiqueta de origen) y solo el margen ramifica, y le sigue faltando sales-to-capital y valuación condicional a supervivencia. El crecimiento terminal ya sale de la moneda de valuación (min entre risk-free y PBI de esa moneda)."),
  ("m5", "M5 · IBKR", "a-medias", "portfolio/", "Las operaciones ya se sincronizan en cada bot portfolio (#27); las corporate actions llegan por el Flex Web Service (#56), sin validar aún contra datos reales (#110)."),
- ("adr-ok", "ADR 0001, 0002 y 0004", "hecho", "docs/adr/",
-  "DuckDB, SEC antes que FMP, y TWS solo lectura: las tres implementadas. La 0003 fue revertida limpiamente por la 0004, y la 0010 reemplazó a la 0004 (Flex como única fuente de IBKR)."),
+ ("adr-ok", "ADR 0001, 0002 y 0010", "hecho", "docs/adr/",
+  "DuckDB, SEC antes que FMP, y Flex como única fuente de IBKR (0010): las tres implementadas. La 0004 (TWS solo lectura) quedó reemplazada por la 0010, que a su vez había reemplazado a la 0003 (Client Portal)."),
  ("adr-0005", "ADR 0005 · moneda de valuación", "a-medias", "docs/adr/0005",
   "Solo el §4 está implementado (#109): el broadcast del risk-free se eliminó y la valuación usa la tasa y el PBI de la moneda de valuación, de config/currencies.yaml. Los §1–§3 siguen sin código: la columna companies.currency sigue siendo ambigua, no hay columnas separadas de moneda de cotización y de reporte, y el precio no se convierte a la moneda de valuación. Bajo el alcance US-only actual (cotización = reporte = USD) esas consecuencias no se manifiestan, pero vuelven a ser bloqueantes en cuanto M2 global reabra. La propia ADR lo dice así en su Status."),
  ("adr-0006", "ADR 0006 · empresas no medibles", "hecho", "screener/engine.py:815-830; reporting/screen_report.py:123; screener/persist.py",
