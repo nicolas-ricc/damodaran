@@ -206,3 +206,12 @@ def test_tornado_keeps_input_order_and_sorts_each_bar() -> None:
     assert html.index("narrow") < html.index("wide")
     row = html[html.index("narrow") : html.index("wide")]
     assert row.index("1.00") < row.index("2.00")
+
+
+def test_tables_are_daisyui_tables() -> None:
+    assert str(tornado_table(_bars(), price=100.0)).startswith(
+        '<table class="table table-xs tornado" aria-label="Drivers">'
+    )
+    assert str(scenario_grid_table(_grid())).startswith(
+        '<table class="table table-xs scenario-grid" aria-label="Scenarios 10/24">'
+    )

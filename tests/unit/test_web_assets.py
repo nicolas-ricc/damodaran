@@ -113,7 +113,7 @@ def test_list_pane_rules_restore_what_daisyui_overrides() -> None:
         ".flags .badge .mark { width: 0.75rem; height: 0.75rem; }",
         ".flags .badge + .badge { margin-left: 2px; }",
         ".list tbody tr { font-size: inherit; }",
-        ".history { gap: var(--space-2xs) var(--space-sm); font-family: var(--font-mono); }",
+        ".history { font-family: var(--font-mono); }",
         "#filter .btn-active { color: var(--color-primary); border-bottom-color: var(--color-primary); }",
     ):
         assert rule in css, rule
@@ -123,3 +123,59 @@ def test_search_box_width_rule() -> None:
     css = (_STATIC / "app.css").read_text()
     assert "#search { width: 14rem; max-width: 100%; }" in css
     assert "[hidden] { display: none !important; }" in css
+
+
+def test_detail_facts_rules() -> None:
+    css = (_STATIC / "app.css").read_text()
+    for rule in (
+        ".facts .stat-value { font-weight: 500; letter-spacing: -0.03em; }",
+        ".facts .stat-value.word { font-size: var(--text-lg); }",
+    ):
+        assert rule in css, rule
+    narrow = css[css.index("@container (max-width: 44rem) {") :]
+    narrow = narrow[: narrow.index("\n}")]
+    assert ".facts.stats { grid-auto-flow: row; }" in narrow
+    assert (
+        ".facts.stats .stat:not(:last-child) { border-inline-end: none; "
+        "border-block-end: var(--border) dashed var(--rule-faint); }"
+    ) in narrow
+    for gone in (
+        ".facts dd",
+        ".facts dt",
+        ".facts > div",
+        "@container (min-width: 28rem)",
+        "@container (min-width: 44rem)",
+    ):
+        assert gone not in css, gone
+
+
+def test_detail_rules_have_no_top_borders() -> None:
+    css = (_STATIC / "app.css").read_text()
+    for sel in (".head-row", ".facts", ".dcf summary"):
+        rule = re.search(r"(?m)^" + re.escape(sel) + r" \{([^}]*)\}", css)
+        assert rule is not None, sel
+        assert "border-top" not in rule.group(1), sel
+    assert ".divider { margin: 0 0 var(--space-xs); }" in css
+    assert "#detail > .divider + .dcf { margin-top: 0; }" in css
+
+
+def test_history_link_rules_are_gone() -> None:
+    assert ".history a" not in (_STATIC / "app.css").read_text()
+
+
+def test_detail_table_rules_restore_what_daisyui_overrides() -> None:
+    css = (_STATIC / "app.css").read_text()
+    assert ".table-xs tr { font-size: inherit; }" in css
+    grid = re.search(r"(?m)^\.scenario-grid \{([^}]*)\}", css)
+    assert grid is not None
+    assert "width: auto;" in grid.group(1)
+    assert "border-spacing: 2px;" in grid.group(1)
+    assert ".scenario-grid th, .scenario-grid td { padding: 0; border: 0;" in css
+    assert ".tornado td.track { width: 100%;" in css
+    assert ".assumptions tr { display: grid;" in css
+
+
+def test_flag_severity_colours_are_gone() -> None:
+    css = (_STATIC / "app.css").read_text()
+    assert ".flag-list .severity" not in css
+    assert ".flag-not-evaluated .severity" not in css

@@ -122,3 +122,9 @@ def test_viewer_script_parses() -> None:
         pytest.skip("node is not installed")
     result = subprocess.run([node, "--check", str(_SCRIPT)], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+def test_announce_reads_the_stat_value() -> None:
+    script = _SCRIPT.read_text()
+    assert '"#detail .facts .lead-figure .stat-value"' in script
+    assert ".lead-figure dd" not in script

@@ -124,8 +124,8 @@ def test_charts_are_tables_with_html_labels(reports: Path, tmp_path: Path) -> No
     build(reports, out, "/")
     detail = (out / "f" / "AAA.html").read_text()
     assert "filter=" not in detail
-    assert '<table class="tornado"' in detail
-    assert '<table class="scenario-grid"' in detail
+    assert '<table class="table table-xs tornado" aria-label="Drivers">' in detail
+    assert '<table class="table table-xs scenario-grid" aria-label="Scenarios ' in detail
     assert 'class="axis-label price' in detail
 
 
@@ -428,3 +428,100 @@ def test_list_works_without_javascript(reports: Path, tmp_path: Path) -> None:
     assert index.count('<td class="ticker">') == 3
     assert index.count('<td class="name">') == 3
     assert '<td colspan="9" class="none">' in (out / "rows" / "fair-mos-desc.html").read_text()
+
+
+_DIVIDER = '<div class="divider" aria-hidden="true"></div>'
+
+
+def test_detail_facts_are_stats(reports: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    build(reports, out, "/")
+    for page in ("f/AAA.html", "c/AAA.html"):
+        html = (out / page).read_text()
+        assert 'class="stats stats-vertical lg:stats-horizontal facts"' in html, page
+        assert html.count('class="stat ') + html.count('class="stat"') == 5, page
+        assert html.count('class="stat lead-figure"') == 1, page
+        assert '<div class="stat-value text-secondary num">' in html, page
+        assert html.count('class="stat-value word') == 2, page
+        assert '<div class="stat-value word story">' in html, page
+        assert re.search(r'<div class="stat-value word"><time datetime="2026-10-01">', html), page
+    for path in _html_files(out):
+        assert '<dl class="facts">' not in path.read_text(), path.name
+
+
+def test_detail_sections_are_divided(reports: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    build(reports, out, "/")
+    aaa = (out / "f" / "AAA.html").read_text()
+    assert aaa.count(_DIVIDER) >= 5
+    flat = re.sub(r">\s+<", "><", aaa)
+    assert flat.count('<div class="head-row">') == flat.count(_DIVIDER + '<div class="head-row">')
+    assert _DIVIDER + '<details class="dcf">' in flat
+    ccc = (out / "f" / "CCC.html").read_text()
+    assert ccc.count(_DIVIDER) < aaa.count(_DIVIDER)
+
+
+def _history_links(html: str) -> list[str]:
+    nav = html[html.index('<nav class="history join"') :]
+    nav = nav[: nav.index("</nav>")]
+    return re.findall(r"<a [^>]*>[^<]*</a>", nav)
+
+
+def test_detail_history_is_a_join(reports: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    build(reports, out, "/")
+    for page, current in (
+        ("f/AAA.html", "2026-10-01"),
+        ("c/AAA.html", "2026-10-01"),
+        ("f/AAA/2026-09-01.html", "2026-09-01"),
+    ):
+        html = (out / page).read_text()
+        assert '<nav class="history join" aria-label="Analysis date">' in html, page
+        links = _history_links(html)
+        assert len(links) == 2, page
+        assert all('class="btn btn-xs join-item' in a for a in links), page
+        active = [a for a in links if "btn-active" in a]
+        assert len(active) == 1, page
+        assert 'aria-current="page"' in active[0] and f">{current}</a>" in active[0], page
+        assert sum('aria-current="page"' in a for a in links) == 1, page
+        for a in links:
+            for attr in (
+                'href="/c/AAA',
+                'hx-get="/f/AAA',
+                'hx-target="#detail"',
+                'hx-swap="innerHTML settle:220ms"',
+                'hx-push-url="/c/AAA',
+                'hx-indicator="#detail"',
+            ):
+                assert attr in a, (page, attr)
+    assert 'class="history' not in (out / "f" / "BBB.html").read_text()
+
+
+def test_detail_tables_are_daisyui_tables(reports: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    build(reports, out, "/")
+    for page in ("f/AAA.html", "c/AAA.html"):
+        html = (out / page).read_text()
+        assert '<table class="table table-xs assumptions-table">' in html, page
+        assert '<table class="table table-xs">' in html, page
+        detail = html[html.index('<header class="detail-head">') :]
+        assert "<table>" not in detail, page
+
+
+def test_detail_flags_are_badges(reports: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    build(reports, out, "/")
+    html = (out / "f" / "BBB.html").read_text()
+    section = html[html.index('<section class="flag-list">') :]
+    section = section[: section.index("</section>")]
+    assert '<span class="badge badge-sm badge-error">fail</span>' in section
+    assert 'class="mark"' not in section
+    assert 'class="severity"' not in section
+    items = re.findall(r'<li class="flag flag-[^"]*">(.*?)</li>', section, re.S)
+    assert items
+    for item in items:
+        assert re.match(
+            r'<span class="badge badge-sm badge-(success|warning|error|ghost)">[^<]+</span> '
+            r'<span class="id">[^<]*</span> <span class="reason">',
+            item,
+        ), item
