@@ -822,9 +822,7 @@ def test_bby_shaped_series_has_revenue_every_year_from_2009() -> None:
     annual = _annual(_facts({"Revenues": revenues, "SalesRevenueNet": sales}))
     expected = [y for y in range(2009, 2026) if y != 2013]  # 2013: 335-day transition
     assert sorted(annual) == expected
-    assert all(
-        r["revenue"] is not None and r["revenue"] >= 1_000_000_000 for r in annual.values()
-    )
+    assert all(r["revenue"] is not None and r["revenue"] >= 1_000_000_000 for r in annual.values())
 
 
 # --- #124: filer scale errors on diluted shares ------------------------------------
@@ -832,9 +830,7 @@ def test_bby_shaped_series_has_revenue_every_year_from_2009() -> None:
 
 def _shares_facts(values: dict[int, float | None]) -> dict[str, object]:
     """One 10-K Revenues row per year, plus diluted shares where ``values`` has one."""
-    revenues = [
-        _fact(f"{year}-12-31", 25_000_000_000, start=f"{year}-01-01") for year in values
-    ]
+    revenues = [_fact(f"{year}-12-31", 25_000_000_000, start=f"{year}-01-01") for year in values]
     shares = [
         _fact(f"{year}-12-31", val, start=f"{year}-01-01")
         for year, val in values.items()
@@ -846,9 +842,7 @@ def _shares_facts(values: dict[int, float | None]) -> dict[str, object]:
         "facts": {
             "us-gaap": {
                 "Revenues": {"units": {"USD": revenues}},
-                "WeightedAverageNumberOfDilutedSharesOutstanding": {
-                    "units": {"shares": shares}
-                },
+                "WeightedAverageNumberOfDilutedSharesOutstanding": {"units": {"shares": shares}},
             }
         },
     }
@@ -856,7 +850,9 @@ def _shares_facts(values: dict[int, float | None]) -> dict[str, object]:
 
 def _shares_by_year(values: dict[int, float | None]) -> tuple[dict[int, object], int]:
     parsed = parse_company_facts("MCD", _shares_facts(values))
-    return {r["fiscal_year"]: r.get("shares_diluted") for r in parsed.annual}, parsed.shares_rescaled
+    return {
+        r["fiscal_year"]: r.get("shares_diluted") for r in parsed.annual
+    }, parsed.shares_rescaled
 
 
 def test_shares_scaled_in_millions_are_rescaled() -> None:
@@ -1082,3 +1078,66 @@ def test_total_debt_combined_total_concept_wins_over_tranches() -> None:
         }
     )
     assert _annual(facts)[2025]["total_debt"] == 5_000_000_000
+
+
+# --- acquisitions (#278) ---------------------------------------------------
+
+_NET = "PaymentsToAcquireBusinessesNetOfCashAcquired"
+_GROSS = "PaymentsToAcquireBusinessesGross"
+_AFFILIATES = "PaymentsToAcquireBusinessesAndInterestInAffiliates"
+
+
+def test_acquisitions_from_net_of_cash_acquired() -> None:
+    facts = _facts(
+        {
+            "Revenues": [_fact("2025-12-31", 26_885_000_000, start="2025-01-01")],
+            _NET: [_fact("2025-12-31", 1_500_000_000, start="2025-01-01")],
+        }
+    )
+    assert _annual(facts)[2025]["acquisitions"] == 1_500_000_000
+
+
+def test_acquisitions_gross_fills_a_period_net_does_not_cover() -> None:
+    facts = _facts(
+        {
+            _NET: [_fact("2025-12-31", 1_500_000_000, start="2025-01-01")],
+            _GROSS: [
+                _fact("2024-12-31", 900_000_000, start="2024-01-01"),
+                _fact("2025-12-31", 1_600_000_000, start="2025-01-01"),
+            ],
+        }
+    )
+    annual = _annual(facts)
+    assert annual[2025]["acquisitions"] == 1_500_000_000
+    assert annual[2024]["acquisitions"] == 900_000_000
+
+
+def test_acquisitions_from_interest_in_affiliates_as_last_resort() -> None:
+    facts = _facts({_AFFILIATES: [_fact("2025-12-31", 250_000_000, start="2025-01-01")]})
+    assert _annual(facts)[2025]["acquisitions"] == 250_000_000
+
+
+def test_no_acquisitions_concept_yields_no_value() -> None:
+    facts = _facts({"Revenues": [_fact("2025-12-31", 26_885_000_000, start="2025-01-01")]})
+    assert _annual(facts)[2025].get("acquisitions") is None
+
+
+def test_quarterly_rows_do_not_carry_acquisitions_from_10k_facts() -> None:
+    facts = _facts(
+        {
+            "Revenues": [
+                _fact(
+                    "2025-03-31",
+                    6_000_000_000,
+                    start="2025-01-01",
+                    form="10-Q",
+                    fp="Q1",
+                    filed="2025-05-01",
+                )
+            ],
+            _NET: [_fact("2025-12-31", 1_500_000_000, start="2025-01-01")],
+        }
+    )
+    quarterly = _quarterly(facts)
+    assert quarterly
+    assert all("acquisitions" not in row for row in quarterly.values())

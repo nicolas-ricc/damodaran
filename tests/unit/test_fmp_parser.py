@@ -200,18 +200,14 @@ CASHFLOW_QUARTERLY: list[dict[str, Any]] = [
 
 
 def test_parse_returns_company_with_currency_from_source() -> None:
-    result = parse_fmp_fundamentals(
-        "nesn.sw", INCOME_ANNUAL, BALANCE_ANNUAL, CASHFLOW_ANNUAL
-    )
+    result = parse_fmp_fundamentals("nesn.sw", INCOME_ANNUAL, BALANCE_ANNUAL, CASHFLOW_ANNUAL)
     assert result.company["ticker"] == "NESN.SW"
     assert result.company["currency"] == "CHF"
     assert result.company["source"] == "fmp"
 
 
 def test_parse_joins_statements_per_fiscal_year() -> None:
-    result = parse_fmp_fundamentals(
-        "NESN.SW", INCOME_ANNUAL, BALANCE_ANNUAL, CASHFLOW_ANNUAL
-    )
+    result = parse_fmp_fundamentals("NESN.SW", INCOME_ANNUAL, BALANCE_ANNUAL, CASHFLOW_ANNUAL)
     by_year = {r["fiscal_year"]: r for r in result.annual}
     assert set(by_year) == {2022, 2023}
 
@@ -245,26 +241,20 @@ def test_parse_joins_statements_per_fiscal_year() -> None:
 
 
 def test_parse_uses_ebitda_from_source_when_present() -> None:
-    result = parse_fmp_fundamentals(
-        "NESN.SW", INCOME_ANNUAL, BALANCE_ANNUAL, CASHFLOW_ANNUAL
-    )
+    result = parse_fmp_fundamentals("NESN.SW", INCOME_ANNUAL, BALANCE_ANNUAL, CASHFLOW_ANNUAL)
     by_year = {r["fiscal_year"]: r for r in result.annual}
     assert by_year[2023]["ebitda"] == 18000000000
 
 
 def test_parse_derives_ebitda_when_missing() -> None:
-    result = parse_fmp_fundamentals(
-        "NESN.SW", INCOME_ANNUAL, BALANCE_ANNUAL, CASHFLOW_ANNUAL
-    )
+    result = parse_fmp_fundamentals("NESN.SW", INCOME_ANNUAL, BALANCE_ANNUAL, CASHFLOW_ANNUAL)
     by_year = {r["fiscal_year"]: r for r in result.annual}
     # 2022 omits ebitda -> EBIT (14.4bn) + D&A (2.9bn) = 17.3bn
     assert by_year[2022]["ebitda"] == 14400000000 + 2900000000
 
 
 def test_parse_derives_free_cashflow_when_missing() -> None:
-    result = parse_fmp_fundamentals(
-        "NESN.SW", INCOME_ANNUAL, BALANCE_ANNUAL, CASHFLOW_ANNUAL
-    )
+    result = parse_fmp_fundamentals("NESN.SW", INCOME_ANNUAL, BALANCE_ANNUAL, CASHFLOW_ANNUAL)
     by_year = {r["fiscal_year"]: r for r in result.annual}
     # 2023 provides freeCashFlow directly
     assert by_year[2023]["free_cashflow"] == 12000000000
@@ -273,9 +263,7 @@ def test_parse_derives_free_cashflow_when_missing() -> None:
 
 
 def test_parse_computes_capex_and_working_capital() -> None:
-    result = parse_fmp_fundamentals(
-        "NESN.SW", INCOME_ANNUAL, BALANCE_ANNUAL, CASHFLOW_ANNUAL
-    )
+    result = parse_fmp_fundamentals("NESN.SW", INCOME_ANNUAL, BALANCE_ANNUAL, CASHFLOW_ANNUAL)
     by_year = {r["fiscal_year"]: r for r in result.annual}
     # capex stored as positive magnitude (FMP reports it negative)
     assert by_year[2023]["capex"] == 4000000000
@@ -348,9 +336,7 @@ def test_parse_handles_empty_inputs() -> None:
 
 def test_parse_output_upserts_into_db() -> None:
     """Output shape must be directly consumable by the existing upserts."""
-    annual = parse_fmp_fundamentals(
-        "NESN.SW", INCOME_ANNUAL, BALANCE_ANNUAL, CASHFLOW_ANNUAL
-    )
+    annual = parse_fmp_fundamentals("NESN.SW", INCOME_ANNUAL, BALANCE_ANNUAL, CASHFLOW_ANNUAL)
     quarterly = parse_fmp_fundamentals(
         "NESN.SW", INCOME_QUARTERLY, BALANCE_QUARTERLY, CASHFLOW_QUARTERLY
     )
@@ -552,7 +538,9 @@ def test_company_row_does_not_warn_when_the_industry_maps() -> None:
     from bot.ingest.industry_mapping import IndustryMapping, normalize_industry_label
 
     mapping = IndustryMapping(
-        _entries={("fmp", normalize_industry_label("Blockchain Widgets")): "Software (Entertainment)"}
+        _entries={
+            ("fmp", normalize_industry_label("Blockchain Widgets")): "Software (Entertainment)"
+        }
     )
     assert _unmapped_events("Blockchain Widgets", mapping) == []
 
@@ -706,3 +694,28 @@ def test_parse_still_maps_legacy_v3_dividends_paid() -> None:
     result = parse_fmp_fundamentals("AAPL", [], [], cashflow)
     by_year = {r["fiscal_year"]: r for r in result.annual}
     assert by_year[2023]["dividends_paid"] == -4321
+
+
+def _fy2023_cashflow(**fields: object) -> list[dict[str, Any]]:
+    return [{"date": "2023-12-31", "calendarYear": "2023", "period": "FY", **fields}]
+
+
+def test_parse_stores_acquisitions_net_as_a_positive_outflow() -> None:
+    result = parse_fmp_fundamentals("AAPL", [], [], _fy2023_cashflow(acquisitionsNet=-500))
+    by_year = {r["fiscal_year"]: r for r in result.annual}
+    assert by_year[2023]["acquisitions"] == 500
+
+
+def test_parse_stores_a_net_divestiture_as_negative_acquisitions() -> None:
+    result = parse_fmp_fundamentals("AAPL", [], [], _fy2023_cashflow(acquisitionsNet=200))
+    by_year = {r["fiscal_year"]: r for r in result.annual}
+    assert by_year[2023]["acquisitions"] == -200
+
+
+@pytest.mark.parametrize("fields", [{}, {"acquisitionsNet": None}])
+def test_parse_without_acquisitions_net_yields_no_acquisitions(fields: dict[str, object]) -> None:
+    result = parse_fmp_fundamentals(
+        "AAPL", [], [], _fy2023_cashflow(operatingCashFlow=1000, **fields)
+    )
+    by_year = {r["fiscal_year"]: r for r in result.annual}
+    assert by_year[2023].get("acquisitions") is None
