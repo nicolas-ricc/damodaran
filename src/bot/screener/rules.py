@@ -681,15 +681,23 @@ class ShareCountNotDiluting(Rule):
     (default ``0.05`` = 5% per year, on average) it is a trap signal. Fewer than
     two points, or a non-positive base, fails the gate.
 
-    The cap is unconditional. Spec §6.4 qualifies it with "sin M&A justificado",
-    but no data source distinguishes stock-funded M&A from ordinary issuance, so
-    the qualification is not implemented rather than faked.
+    Spec §6.4's "sin M&A justificado" qualification is implemented through cash
+    paid for acquisitions over the last ``ma_window`` reported fiscal years,
+    relative to the latest total assets: a ratio at or above ``ma_materiality``
+    (inclusive floor, default ``0.10``) lifts the cap.
     """
 
     name = "share_count_not_diluting"
 
-    def __init__(self, max_annual_growth: float = 0.05) -> None:
+    def __init__(
+        self,
+        max_annual_growth: float = 0.05,
+        ma_window: int = 3,
+        ma_materiality: float = 0.10,
+    ) -> None:
         self.max_annual_growth = max_annual_growth
+        self.ma_window = ma_window
+        self.ma_materiality = ma_materiality
 
     def evaluate(
         self, company: CompanyData, benchmarks: IndustryBenchmarks
@@ -716,10 +724,35 @@ class ShareCountNotDiluting(Rule):
                     f"<= maximum {self.max_annual_growth:.3f}"
                 ),
             )
+        prefix = (
+            f"avg share-count growth {avg_growth:.3f} > maximum "
+            f"{self.max_annual_growth:.3f}"
+        )
+        recent = company.acquisitions_history[-self.ma_window :]
+        if not recent:
+            return RuleResult(
+                passed=False, reason=f"{prefix}, not justified: no acquisitions reported"
+            )
+        total_assets = company.total_assets
+        if total_assets is None or not total_assets > 0:
+            return RuleResult(
+                passed=False,
+                reason=f"{prefix}, not justified: total assets unavailable",
+            )
+        ratio = sum(recent) / total_assets
+        if ratio >= self.ma_materiality:
+            return RuleResult(
+                passed=True,
+                reason=(
+                    f"{prefix}, justified by acquisitions of {ratio:.3f}x total "
+                    f"assets over the last {len(recent)} fiscal years"
+                ),
+            )
         return RuleResult(
             passed=False,
             reason=(
-                f"avg share-count growth {avg_growth:.3f} > maximum "
-                f"{self.max_annual_growth:.3f}"
+                f"{prefix}, not justified: acquisitions of {ratio:.3f}x total "
+                f"assets over the last {len(recent)} fiscal years "
+                f"< {self.ma_materiality:.3f}"
             ),
         )
