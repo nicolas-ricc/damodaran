@@ -4,14 +4,13 @@ from typer.testing import CliRunner
 
 from bot.cli import app
 from bot.ingest.provider import CompanyInfo
+from bot.storage.db import apply_schema, connect
 from tests.fake_provider import FakeProvider
 
 
 def test_show_existing_ticker(tmp_path, monkeypatch):
     monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "x.duckdb"))
     monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
-
-    from bot.storage.db import apply_schema, connect
 
     conn = connect(tmp_path / "x.duckdb")
     apply_schema(conn)
@@ -66,8 +65,6 @@ def test_show_missing_ticker_triggers_sec_import(tmp_path, monkeypatch):
     assert "NEW Inc" in result.stdout
     assert provider.closed
 
-    from bot.storage.db import connect
-
     conn = connect(tmp_path / "x.duckdb")
     row = conn.execute(
         "SELECT industry, industry_damodaran, source FROM companies WHERE ticker = 'NEW'"
@@ -85,7 +82,7 @@ def test_show_missing_ticker_reports_provider_failure(tmp_path, monkeypatch):
         result = CliRunner().invoke(app, ["show", "NEW"])
 
     assert result.exit_code == 1
-    assert "Failed to import NEW" in result.output
+    assert "Failed to import NEW: Ticker NEW not found" in result.output
     assert provider.closed
 
 

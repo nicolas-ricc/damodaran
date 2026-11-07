@@ -598,17 +598,17 @@ def _collect_filings(ticker: str, us_gaap: dict[str, Any]) -> list[dict[str, Any
     return out
 
 
-# ---------- Importer + Upserts ----------
+# ---------- Upserts ----------
 
 
 def upsert_company(conn: duckdb.DuckDBPyConnection, company: dict[str, Any]) -> None:
     """Merge-replace the company row by ticker. Assumes called within a transaction.
 
     A raw DELETE + INSERT with only the provider's columns would wipe out
-    what that provider doesn't carry: the SEC row doesn't load industry, so
-    re-importing a ticker mapped by FMP would drop it out of the screener's
-    universe. A provider that does not carry a column must not wipe it. Columns the new row doesn't carry (or carries as
-    ``None``) keep the value already stored.
+    what that provider doesn't carry: a bare ``parse_company_facts`` row has
+    no industry, so re-importing a ticker another provider had mapped would
+    drop it out of the screener's universe. Columns the new row doesn't carry
+    (or carries as ``None``) keep the value already stored.
     """
     existing_row = conn.execute(
         "SELECT * FROM companies WHERE ticker = ?", [company["ticker"]]
@@ -726,4 +726,3 @@ def upsert_filings(conn: duckdb.DuckDBPyConnection, filings: list[dict[str, Any]
 def count_null_revenue(rows: list[dict[str, Any]]) -> int:
     """Number of annual rows whose ``revenue`` is missing (NULL after resolution)."""
     return sum(1 for r in rows if r.get("revenue") is None)
-

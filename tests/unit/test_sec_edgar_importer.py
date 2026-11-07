@@ -5,7 +5,6 @@ Covers:
   the IngestResult instead of propagating the exception.
 - Task 3: upsert_company merges instead of wiping unrelated columns.
 - #28: upsert_filings keeps the first ingestion time.
-- #58: the docstrings stop describing bot show --fetch as a sec_edgar-stamped path.
 """
 
 from __future__ import annotations
@@ -15,7 +14,6 @@ from unittest.mock import patch
 import duckdb
 
 from bot.ingest.base import IngestResult
-from bot.ingest.edgar_base import EdgarPricedProvider
 from bot.ingest.provider import CompanyInfo
 from bot.ingest.sec_edgar import upsert_company
 from bot.ingest.universe import import_company
@@ -112,13 +110,3 @@ def test_upsert_filings_preserves_fetched_at() -> None:
 
     rows = conn.execute("SELECT accession_number, fetched_at FROM filings_log").fetchall()
     assert rows == [("0002", first_seen)]
-
-
-# ---------------------------------------------------------------------------
-# #58 — show --fetch goes through the provider port
-# ---------------------------------------------------------------------------
-
-
-def test_docstrings_no_longer_describe_show_fetch_as_sec_stamped() -> None:
-    for doc in (upsert_company.__doc__, EdgarPricedProvider._restamp.__doc__):
-        assert "show --fetch" not in " ".join((doc or "").split())

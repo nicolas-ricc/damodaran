@@ -345,7 +345,10 @@ def show(
 
     if row is None:
         if not fetch_if_missing:
-            typer.echo(f"{ticker} not in DB (use --fetch to import from the configured data provider).", err=True)
+            typer.echo(
+                f"{ticker} not in DB (use --fetch to import from the configured data provider).",
+                err=True,
+            )
             raise typer.Exit(code=2)
         typer.echo(f"{ticker} not in DB — fetching from the configured data provider...")
         with closing(_make_provider(settings)) as provider:
