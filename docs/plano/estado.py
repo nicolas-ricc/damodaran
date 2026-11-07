@@ -36,8 +36,8 @@ BLOQUES = {
 # (id, nombre, estado, evidencia, nota)
 INVENTARIO = {
 "capa-a": ("Capa A · datos", "de dónde salen los hechos", [
- ("da-parse", "Parseo de Damodaran", "hecho", "ingest/damodaran.py:528,559",
-  "Industria, país y columnas derivadas. Corta la segunda tabla del archivo de país, que traía 21 ERP incorrectos."),
+ ("da-parse", "Parseo de Damodaran", "hecho", "ingest/damodaran.py:543,574",
+  "Industria, país y columnas derivadas. Lee las dos tablas del archivo de país, cada una con sus propias columnas: los países con calificación de Moody's y los no calificados con puntaje PRS; erp_basis registra de cuál viene cada fila."),
  ("da-download", "Descarga de datasets", "a-medias", "ingest/damodaran.py:587",
   "Es la única puerta de entrada de todos los benchmarks del bot, y está parcheada en los cinco tests que la tocan. Nunca se ejerció contra la red real."),
  ("da-regiones", "Las ocho regiones", "falta", "ingest/damodaran.py:62-65",
