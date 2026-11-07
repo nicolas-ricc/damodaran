@@ -41,6 +41,6 @@ def test_mark_selected_toggles_the_highlight() -> None:
 def test_empty_detail_replacement_keeps_the_hero() -> None:
     script = (_WEB / "static" / "viewer.js").read_text()
     assert (
-        '<div class="hero-content"><p>Pick a company from the list to read its analysis.</p></div>'
+        '<div class="hero-content"><div><p>Pick a company from the list to read its analysis.</p></div></div>'
         in script
     )

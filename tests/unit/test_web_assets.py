@@ -88,6 +88,7 @@ def test_hand_drawn_controls_are_gone() -> None:
     ):
         assert gone not in css, gone
     for kept in (
+        ".empty .hero-content > div, .empty-detail .hero-content > div { display: grid; gap: var(--space-sm); }",
         "[hidden] { display: none !important; }",
         ".sr {",
         ".split {",

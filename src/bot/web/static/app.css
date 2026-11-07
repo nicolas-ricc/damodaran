@@ -51,6 +51,7 @@ button, input, select, textarea { font: inherit; }
 .empty { display: grid; gap: var(--space-sm); max-width: 40rem; padding: var(--space-2xl) var(--space-lg); color: var(--color-base-content); }
 .empty h1 { font-size: var(--text-xl); }
 .empty p { max-width: 60ch; }
+.empty .hero-content > div, .empty-detail .hero-content > div { display: grid; gap: var(--space-sm); }
 .split { display: grid; grid-template-columns: minmax(0, 1fr); min-height: calc(100dvh - var(--bar-height)); }
 .list-pane { background: var(--color-base-200); padding: var(--space-lg) var(--space-md); }
 .detail-pane { padding: var(--space-lg) var(--space-md) var(--space-3xl); }
