@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING
 from urllib.parse import quote, quote_plus
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -34,7 +35,6 @@ from bot.utils.logging import get_logger
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
-    from zoneinfo import ZoneInfo
 
     import duckdb
 
@@ -447,6 +447,78 @@ class FlexClient:
         for form in (self._token, quote(self._token, safe=""), quote_plus(self._token, safe="")):
             text = text.replace(form, "***")
         return text
+
+
+class FlexPortfolioClient:
+    """Portfolio and trade source backed by one Flex statement (#256).
+
+    Nothing is requested until the first read; the statement is then downloaded
+    once and every accessor serves from it. ``connect``/``disconnect`` are no-ops
+    that keep the :class:`~bot.portfolio.sync.PortfolioSource` shape.
+    """
+
+    def __init__(
+        self,
+        token: str,
+        query_id: str,
+        *,
+        tz: ZoneInfo,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        self._token = token
+        self._query_id = query_id
+        self._tz = tz
+        self._transport = transport
+        self._statement: FlexStatement | None = None
+
+    @classmethod
+    def from_settings(
+        cls, settings: Settings, *, transport: httpx.BaseTransport | None = None
+    ) -> FlexPortfolioClient:
+        return cls(
+            settings.ibkr_flex_token.strip(),
+            settings.ibkr_flex_query_id.strip(),
+            tz=ZoneInfo(settings.ibkr_flex_tz),
+            transport=transport,
+        )
+
+    def connect(self) -> None:
+        """No-op: the statement is fetched lazily."""
+
+    def disconnect(self) -> None:
+        """No-op: the HTTP client is closed right after the download."""
+
+    def _load(self) -> FlexStatement:
+        if self._statement is None:
+            with FlexClient(self._token, self._query_id, transport=self._transport) as client:
+                xml = client.fetch_statement()
+            self._statement = parse_statement(xml, tz=self._tz)
+        return self._statement
+
+    def accounts(self) -> list[str]:
+        return list(self._load().accounts)
+
+    def positions(self, account_id: str) -> list[PortfolioPosition]:
+        return [p for p in self._load().positions if p.account == account_id]
+
+    def cash_balances(self, account_id: str) -> list[CashBalance]:
+        return [c for c in self._load().cash if c.account == account_id]
+
+    def trades(self, account_id: str, since: datetime | None = None) -> list[TradeExecution]:
+        """Fills of *account_id* executed at or after *since* (timezone-aware)."""
+        if since is not None and since.tzinfo is None:
+            raise ValueError("since must be timezone-aware")
+        return [
+            t
+            for t in self._load().trades
+            if t.account == account_id and (since is None or t.executed_at >= since)
+        ]
+
+    def as_of(self) -> date:
+        return self._load().as_of
+
+    def corporate_actions(self) -> list[CorporateActionRecord]:
+        return list(self._load().corporate_actions)
 
 
 def fetch_flex_statement(

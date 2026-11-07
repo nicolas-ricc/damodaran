@@ -95,3 +95,15 @@ def test_flex_settings_read_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_env_example_documents_flex_settings() -> None:
     text = (Path(__file__).resolve().parents[2] / ".env.example").read_text()
     assert "BOT_IBKR_FLEX_TOKEN" in text and "BOT_IBKR_FLEX_QUERY_ID" in text
+
+
+def test_flex_tz_defaults_to_new_york(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Test test@example.com")
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.ibkr_flex_tz == "America/New_York"
+
+
+def test_unknown_flex_tz_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Test test@example.com")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, ibkr_flex_tz="Mars/Base")  # type: ignore[call-arg]

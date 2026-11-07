@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -75,6 +76,13 @@ class Settings(BaseSettings):
         default="",
         description="Id of the Activity Flex Query holding Corporate Actions and Cash Transactions.",
     )
+    ibkr_flex_tz: str = Field(
+        default="America/New_York",
+        description=(
+            "IANA time zone of the Flex Query's trade dateTime values (the account's "
+            "reporting time zone in Account Management)."
+        ),
+    )
     reports_dir: Path = Field(default=Path("./reports"))
     presets_dir: Path = Field(
         default=Path("./config/presets"),
@@ -129,6 +137,16 @@ class Settings(BaseSettings):
         default="", description="Telegram chat id to message. Required only when BOT_NOTIFIER=telegram."
     )
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")
+
+    @field_validator("ibkr_flex_tz")
+    @classmethod
+    def _known_flex_tz(cls, value: str) -> str:
+        """Reject a time zone name the tz database does not know."""
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError):
+            raise ValueError(f"unknown time zone {value!r} (use an IANA name such as America/New_York)") from None
+        return value
 
     @field_validator("notifier", mode="before")
     @classmethod
