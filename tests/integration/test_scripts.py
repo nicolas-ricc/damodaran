@@ -714,19 +714,16 @@ def test_bootstrap_stops_when_damodaran_fails(repo: Path, recorder_bin: Path, ca
     assert _calls(calls) == ["run bot refresh --damodaran"]
 
 
-def test_bootstrap_prints_the_tws_checklist_and_next_steps(repo: Path, recorder_bin: Path) -> None:
+def test_bootstrap_prints_the_flex_checklist_and_next_steps(repo: Path, recorder_bin: Path) -> None:
     _filled_env(repo)
 
     out = _run(_bootstrap(repo), "--skip-damodaran", env=_env(recorder_bin)).stdout
 
     for needle in (
-        "Enable ActiveX and Socket Clients",
-        "127.0.0.1",
-        "Read-Only API",
-        "BOT_IBKR_HOST=127.0.0.1",
-        "BOT_IBKR_PORT=7496",
-        "BOT_IBKR_CLIENT_ID=1",
-        "IbkrClient.from_settings(load_settings()).accounts()",
+        "Flex Web Service",
+        "BOT_IBKR_FLEX_TOKEN",
+        "BOT_IBKR_FLEX_QUERY_ID",
+        "bot flex-capture",
         "bot portfolio",
         "uv run bot refresh --fundamentals",
         "uv run bot refresh --prices --only-missing",

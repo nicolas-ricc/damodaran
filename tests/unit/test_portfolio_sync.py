@@ -1,7 +1,7 @@
 """Unit tests for the daily, idempotent portfolio snapshot (M5, #26).
 
-These drive ``sync_portfolio`` against a *mocked* ``IbkrClient`` — no live TWS
-gateway or socket is opened, so they are safe for CI.
+These drive ``sync_portfolio`` against a *mocked* client — no Flex download is made,
+so they are safe for CI.
 """
 
 from __future__ import annotations
@@ -25,8 +25,8 @@ from bot.storage.db import apply_schema
 from bot.utils.fx import upsert_fx_rates
 
 
-class FakeIbkrClient:
-    """Stand-in for ``IbkrClient`` returning canned accounts / positions / cash."""
+class FakePortfolioClient:
+    """Stand-in for the Flex client returning canned accounts / positions / cash."""
 
     def __init__(
         self,
@@ -97,8 +97,8 @@ def conn() -> duckdb.DuckDBPyConnection:
     return c
 
 
-def _client(account: str = "DU111") -> FakeIbkrClient:
-    return FakeIbkrClient(
+def _client(account: str = "DU111") -> FakePortfolioClient:
+    return FakePortfolioClient(
         accounts=[account],
         positions={
             account: [
@@ -167,7 +167,7 @@ def test_same_day_rerun_replaces_rows(conn: duckdb.DuckDBPyConnection) -> None:
 
     # Second run same day with fewer positions: must replace, not append.
     account = "DU111"
-    smaller = FakeIbkrClient(
+    smaller = FakePortfolioClient(
         accounts=[account],
         positions={account: [_position(account, "AAPL", 20.0, 160.0)]},
         cash={account: [CashBalance(account=account, currency="EUR", amount=99.0)]},
@@ -203,7 +203,7 @@ def test_different_day_appends(conn: duckdb.DuckDBPyConnection) -> None:
 
 def test_rerun_only_replaces_synced_account(conn: duckdb.DuckDBPyConnection) -> None:
     day = date(2026, 6, 1)
-    two = FakeIbkrClient(
+    two = FakePortfolioClient(
         accounts=["A1", "A2"],
         positions={
             "A1": [_position("A1", "AAPL", 1.0, 10.0)],
@@ -213,7 +213,7 @@ def test_rerun_only_replaces_synced_account(conn: duckdb.DuckDBPyConnection) -> 
     )
     sync_portfolio(conn, two, snapshot_date=day)
 
-    only_a1 = FakeIbkrClient(
+    only_a1 = FakePortfolioClient(
         accounts=["A1"],
         positions={"A1": [_position("A1", "AAPL", 9.0, 10.0)]},
         cash={},
@@ -262,7 +262,7 @@ def _one(conn: duckdb.DuckDBPyConnection, sql: str, params: list[Any]) -> Any:
 def test_market_value_uses_latest_price(conn: duckdb.DuckDBPyConnection) -> None:
     day = date(2026, 6, 1)
     _seed_price(conn, "AAPL", 180.0, on=day)
-    client = FakeIbkrClient(
+    client = FakePortfolioClient(
         accounts=["DU1"],
         positions={"DU1": [_position("DU1", "AAPL", 10.0, 150.0)]},
         cash={},
@@ -284,7 +284,7 @@ def test_unpriced_ticker_stored_null_and_counted(
     conn: duckdb.DuckDBPyConnection,
 ) -> None:
     day = date(2026, 6, 1)
-    client = FakeIbkrClient(
+    client = FakePortfolioClient(
         accounts=["DU1"],
         positions={"DU1": [_position("DU1", "AAPL", 10.0, 150.0)]},
         cash={},
@@ -305,7 +305,7 @@ def test_multi_currency_same_currency_uses_close_directly(
 ) -> None:
     day = date(2026, 6, 1)
     _seed_price(conn, "SAP", 200.0, on=day, currency="EUR")
-    client = FakeIbkrClient(
+    client = FakePortfolioClient(
         accounts=["DU1"],
         positions={"DU1": [_position("DU1", "SAP", 4.0, 180.0, currency="EUR")]},
         cash={},
@@ -325,7 +325,7 @@ def test_multi_currency_normalization(conn: duckdb.DuckDBPyConnection) -> None:
     upsert_fx_rates(
         conn, currency="EUR", rates=[FxRate(date=day, rate_to_usd=1.10)], source="fmp"
     )
-    client = FakeIbkrClient(
+    client = FakePortfolioClient(
         accounts=["DU1"],
         positions={"DU1": [_position("DU1", "ACME", 2.0, 90.0, currency="EUR")]},
         cash={},
@@ -343,7 +343,7 @@ def test_unpriced_when_fx_missing(conn: duckdb.DuckDBPyConnection) -> None:
     day = date(2026, 6, 1)
     _seed_price(conn, "VOD", 100.0, on=day, currency="USD")  # price USD
     # Position in GBP, but no GBP FX rate seeded -> cannot normalize.
-    client = FakeIbkrClient(
+    client = FakePortfolioClient(
         accounts=["DU1"],
         positions={"DU1": [_position("DU1", "VOD", 5.0, 90.0, currency="GBP")]},
         cash={},
@@ -364,7 +364,7 @@ def test_latest_price_respects_snapshot_date(
     d2 = date(2026, 6, 2)
     _seed_price(conn, "AAPL", 100.0, on=d1)
     _seed_price(conn, "AAPL", 120.0, on=d2)  # future relative to the d1 sync
-    client = FakeIbkrClient(
+    client = FakePortfolioClient(
         accounts=["DU1"],
         positions={"DU1": [_position("DU1", "AAPL", 10.0, 150.0)]},
         cash={},
@@ -385,7 +385,7 @@ def test_nonpositive_close_treated_as_unpriced(
 ) -> None:
     day = date(2026, 6, 1)
     _seed_price(conn, "AAPL", 0.0, on=day)
-    client = FakeIbkrClient(
+    client = FakePortfolioClient(
         accounts=["DU1"],
         positions={"DU1": [_position("DU1", "AAPL", 10.0, 150.0)]},
         cash={},
@@ -404,7 +404,7 @@ def test_short_position_negative_market_value(
 ) -> None:
     day = date(2026, 6, 1)
     _seed_price(conn, "AAPL", 180.0, on=day)
-    client = FakeIbkrClient(
+    client = FakePortfolioClient(
         accounts=["DU1"],
         positions={"DU1": [_position("DU1", "AAPL", -10.0, 150.0)]},
         cash={},
@@ -463,7 +463,7 @@ def test_prices_loaded_once_regardless_of_position_count(
         return real(*args, **kwargs)
 
     monkeypatch.setattr(sync_mod, "_load_latest_prices", spy)
-    client = FakeIbkrClient(
+    client = FakePortfolioClient(
         accounts=["DU1"],
         positions={
             "DU1": [

@@ -20,11 +20,19 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo
 
 import httpx
 import yaml
 
-from bot.ingest.ibkr_flex import _attr, _flex_date, _flex_root, fetch_flex_statement, parse_flex_row
+from bot.ingest.ibkr_flex import (
+    _attr,
+    _flex_date,
+    _flex_root,
+    fetch_flex_statement,
+    parse_flex_row,
+    parse_statement,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -35,11 +43,43 @@ REDACTED_ACCOUNT = "U0000000"
 
 _HEADER_COMMENT = (
     "Redacted real statement captured by bot flex-capture for #110. Account ids and "
-    "money and quantity columns are fakes (a placeholder account id; amounts keep "
-    "only sign and shape). Symbols, conids, isins, ids, dates, types and "
-    "descriptions are real."
+    "every numeric column are fakes (a placeholder account id; numbers keep only "
+    "sign and shape). Open positions and trades carry pseudonyms (SYM1, conid 1, ...) "
+    "instead of their instruments. Corporate-action and cash-transaction symbols, "
+    "conids, isins, ids, dates, types and descriptions are real."
 )
-_NUMERIC_ATTRS = ("amount", "proceeds", "value", "quantity")
+# Allow-list redaction: every attribute holding a number is faked, except these
+# identifiers and dates (and names ending in Date or ID), which stay real.
+_KEEP_ATTRS = frozenset(
+    {
+        "conid",
+        "underlyingConid",
+        "ibOrderID",
+        "ibExecID",
+        "orderID",
+        "execID",
+        "tradeID",
+        "transactionID",
+        "actionID",
+        "isin",
+        "cusip",
+        "figi",
+        "securityID",
+        "reportDate",
+        "dateTime",
+        "settleDate",
+        "tradeDate",
+        "fromDate",
+        "toDate",
+        "whenGenerated",
+        "count",
+    }
+)
+
+
+def _is_kept(name: str) -> bool:
+    return name in _KEEP_ATTRS or name.endswith(("Date", "ID"))
+
 
 CASSETTE_PATH = Path("tests/fixtures/cassettes/ibkr_flex/statement_real.yaml")
 REDACTED_XML_PATH = Path("tests/fixtures/ibkr_flex/statement_real_redacted.xml")
@@ -74,17 +114,42 @@ def _fake_number(value: str) -> str:
     return f"{sign}0.1{'0' * (decimals - 1)}"
 
 
+# Sections whose rows would reveal the book: their instruments get pseudonyms.
+_PSEUDONYM_SECTIONS = ("OpenPositions", "Trades")
+_IDENTITY_ATTRS = ("isin", "cusip", "figi", "securityID", "description", "underlyingSymbol")
+
+
+def _pseudonymize(root: ET.Element) -> None:
+    """Replace held and traded instruments by ``SYM<n>`` / conid ``<n>``, one per instrument."""
+    numbers: dict[str, int] = {}
+    for name in _PSEUDONYM_SECTIONS:
+        for section in root.iter(name):
+            for el in section.iter():
+                if el is section or not ("symbol" in el.attrib or "conid" in el.attrib):
+                    continue
+                key = el.get("conid") or el.get("symbol") or ""
+                n = numbers.setdefault(key, len(numbers) + 1)
+                if "symbol" in el.attrib:
+                    el.set("symbol", f"SYM{n}")
+                if "conid" in el.attrib:
+                    el.set("conid", str(n))
+                for attr in _IDENTITY_ATTRS:
+                    if attr in el.attrib:
+                        el.set(attr, "")
+
+
 def redact_statement(xml: str) -> str:
-    """Return the statement with account ids and money columns faked."""
+    """Return the statement with account ids, money columns and held instruments faked."""
     root = _flex_root(xml)
+    _pseudonymize(root)
     for el in root.iter():
         if "accountId" in el.attrib:
             el.set("accountId", REDACTED_ACCOUNT)
         if "acctAlias" in el.attrib:
             el.set("acctAlias", "")
-        for key in _NUMERIC_ATTRS:
-            if key in el.attrib:
-                el.set(key, _fake_number(el.attrib[key]))
+        for key, value in list(el.attrib.items()):
+            if key not in {"accountId", "acctAlias"} and not _is_kept(key):
+                el.set(key, _fake_number(value))
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         f"<!-- {_HEADER_COMMENT} -->\n"
@@ -100,6 +165,9 @@ class FlexSummary:
     from_date: str | None
     to_date: str | None
     rows: int
+    positions: int
+    cash_rows: int
+    trades: int
     corporate_action_types: dict[str, int]
     cash_transaction_types: dict[str, int]
     parsed: int
@@ -114,8 +182,14 @@ def _sorted(counter: Counter[str]) -> dict[str, int]:
     return dict(sorted(counter.items()))
 
 
-def summarize_statement(xml: str) -> FlexSummary:
-    """Count statements, row types and parser outcomes of a ``FlexQueryResponse``."""
+def summarize_statement(xml: str, *, tz: ZoneInfo) -> FlexSummary:
+    """Count statements, row types and parser outcomes of a ``FlexQueryResponse``.
+
+    The statement is also run through :func:`parse_statement` (which raises
+    :class:`FlexError` on an unusable query); the position, cash and trade counts
+    are what it returned.
+    """
+    parsed_statement = parse_statement(xml, tz=tz)
     root = _flex_root(xml)
     statements = list(root.iter("FlexStatement"))
     from_dates = [d for s in statements if (d := _flex_date(_attr(s, "fromDate"))) is not None]
@@ -135,6 +209,9 @@ def summarize_statement(xml: str) -> FlexSummary:
         from_date=min(from_dates).isoformat() if from_dates else None,
         to_date=max(to_dates).isoformat() if to_dates else None,
         rows=len(corporate_actions) + len(cash_transactions),
+        positions=len(parsed_statement.positions),
+        cash_rows=len(parsed_statement.cash),
+        trades=len(parsed_statement.trades),
         corporate_action_types=_sorted(Counter(el.get("type", "") for el in corporate_actions)),
         cash_transaction_types=_sorted(Counter(el.get("type", "") for el in cash_transactions)),
         parsed=sum(parsed_by_type.values()),
@@ -267,8 +344,8 @@ def capture(
         )
     recorder = RecordingTransport(transport or httpx.HTTPTransport())
     statement = fetch_flex_statement(token, query_id, transport=recorder)
+    summary = summarize_statement(statement, tz=ZoneInfo(settings.ibkr_flex_tz))
     redacted = redact_statement(statement)
-    summary = summarize_statement(statement)
     cassette = render_cassette(recorder.interactions, token=token)
     for path, text in (
         (CASSETTE_PATH, cassette),

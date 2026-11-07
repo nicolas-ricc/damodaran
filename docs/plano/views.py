@@ -322,7 +322,7 @@ SOURCES = [
      ["financials_annual", "filings_log"], "datos"),
     ("fmp", "FMP", "plan Ultimate", "~USD 70/mes", "precios, a diario",
      ["companies", "prices_daily"], "datos"),
-    ("ibkr", "IBKR", "TWS local + Flex", "incluido", "snapshot, a diario",
+    ("ibkr", "IBKR", "Flex Web Service", "incluido", "snapshot, a diario",
      ["portfolio_snapshots", "trades", "corporate_actions"], "vigila"),
 ]
 

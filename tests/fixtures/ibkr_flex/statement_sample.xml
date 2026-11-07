@@ -13,11 +13,58 @@
     ct:2001 dividend MSFT U1234567 2026-09-12
     ct:2003 dividend KO   U7654321 2026-09-18 (no settleDate: dateTime)
   Skipped: ct 2002 (Withholding Tax), ct 2004 (no symbol, WARNING).
+
+  Expected portfolio (issue #256; as_of 2026-09-30, the max OpenPosition reportDate):
+    positions  U1234567 AAPL 100 @ 150.25, TSLA -20 @ 240 (short); U7654321 KO 50 @ 60
+               (the AAPL LOT row is skipped)
+    cash       U1234567 USD 12345.67, EUR 500; U7654321 USD 1000 (BASE_SUMMARY and the
+               Summary-level row are skipped)
+    trades     U1234567 AAPL BUY 100 @ 150.25 at 2026-09-15 13:35 UTC (09:35 New York),
+               TSLA SELL -20 @ 240 at 2026-09-29 19:30 UTC (15:30 New York)
+               (the ORDER-level row and the Order element are skipped)
 -->
 <FlexQueryResponse queryName="bot-corporate-actions" type="AF">
   <FlexStatements count="2">
     <FlexStatement accountId="U1234567" fromDate="20260901" toDate="20260930"
                    period="Last30CalendarDays" whenGenerated="20261001;083000">
+      <OpenPositions>
+        <OpenPosition accountId="U1234567" conid="265598" symbol="AAPL" assetCategory="STK"
+            currency="USD" listingExchange="NASDAQ" position="100" costBasisPrice="150.25"
+            markPrice="171.10" reportDate="20260930" levelOfDetail="SUMMARY" />
+        <OpenPosition accountId="U1234567" conid="265598" symbol="AAPL" assetCategory="STK"
+            currency="USD" listingExchange="NASDAQ" position="100" costBasisPrice="150.25"
+            markPrice="171.10" reportDate="20260930" levelOfDetail="LOT" />
+        <OpenPosition accountId="U1234567" conid="76792991" symbol="TSLA" assetCategory="STK"
+            currency="USD" listingExchange="NASDAQ" position="-20" costBasisPrice="240"
+            markPrice="250.00" reportDate="20260930" levelOfDetail="SUMMARY" />
+      </OpenPositions>
+      <CashReport>
+        <CashReportCurrency accountId="U1234567" currency="BASE_SUMMARY" endingCash="12885.67"
+            levelOfDetail="Currency" />
+        <CashReportCurrency accountId="U1234567" currency="USD" endingCash="12345.67"
+            levelOfDetail="Currency" />
+        <CashReportCurrency accountId="U1234567" currency="EUR" endingCash="500"
+            levelOfDetail="Currency" />
+        <CashReportCurrency accountId="U1234567" currency="CHF" endingCash="10"
+            levelOfDetail="Summary" />
+      </CashReport>
+      <Trades>
+        <Trade accountId="U1234567" conid="265598" symbol="AAPL" assetCategory="STK"
+            currency="USD" buySell="BUY" quantity="100" tradePrice="150.25"
+            dateTime="20260915;093500" ibExecID="0000e0d5.66e6c1a1.01.01" ibOrderID="1234567890"
+            levelOfDetail="EXECUTION" />
+        <Trade accountId="U1234567" conid="265598" symbol="AAPL" assetCategory="STK"
+            currency="USD" buySell="BUY" quantity="100" tradePrice="150.25"
+            dateTime="20260915;093500" ibExecID="" ibOrderID="1234567890"
+            levelOfDetail="ORDER" />
+        <Order accountId="U1234567" conid="265598" symbol="AAPL" assetCategory="STK"
+            currency="USD" buySell="BUY" quantity="100" tradePrice="150.25"
+            dateTime="20260915;093500" ibOrderID="1234567890" levelOfDetail="ORDER" />
+        <Trade accountId="U1234567" conid="76792991" symbol="TSLA" assetCategory="STK"
+            currency="USD" buySell="SELL" quantity="-20" tradePrice="240"
+            dateTime="20260929;153000" ibExecID="0000e0d5.66f9a2b3.01.01" ibOrderID="1234567891"
+            levelOfDetail="EXECUTION" />
+      </Trades>
       <CorporateActions>
         <CorporateAction accountId="U1234567" currency="USD" assetCategory="STK"
             symbol="AAPL" description="AAPL(US0378331005) SPLIT 4 FOR 1 (AAPL, APPLE INC, US0378331005)"
@@ -50,6 +97,16 @@
     </FlexStatement>
     <FlexStatement accountId="U7654321" fromDate="20260901" toDate="20260930"
                    period="Last30CalendarDays" whenGenerated="20261001;083000">
+      <OpenPositions>
+        <OpenPosition accountId="U7654321" conid="8894" symbol="KO" assetCategory="STK"
+            currency="USD" listingExchange="NYSE" position="50" costBasisPrice="60"
+            markPrice="70.00" reportDate="20260930" levelOfDetail="SUMMARY" />
+      </OpenPositions>
+      <CashReport>
+        <CashReportCurrency accountId="U7654321" currency="USD" endingCash="1000"
+            levelOfDetail="Currency" />
+      </CashReport>
+      <Trades />
       <CorporateActions />
       <CashTransactions>
         <CashTransaction accountId="U7654321" currency="USD" assetCategory="STK"

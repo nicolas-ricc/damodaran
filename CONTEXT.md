@@ -71,7 +71,7 @@ they age differently:
 - **Stooq** (`stooq.com`): US EOD prices, free, no API key. Paired with SEC EDGAR as the default provider; see [ADR 0007](docs/adr/0007-free-data-stack-edgar-stooq.md).
 - **Damodaran datasets** (`pages.stern.nyu.edu/~adamodar/`): industry/country benchmarks, annual.
 - **Financial Modeling Prep** (optional, `BOT_DATA_PROVIDER=fmp`; M2): international fundamentals + global EOD prices, for the eventual non-US reopening. See [ADR 0007](docs/adr/0007-free-data-stack-edgar-stooq.md).
-- **Interactive Brokers TWS API** via `ib_async` (M5): portfolio sync, read-only. Needs a local TWS/IB Gateway on `BOT_IBKR_PORT` (default 7496). See [ADR 0004](docs/adr/0004-tws-api-via-ib-async.md).
+- **IBKR Flex Web Service** (M5): the only IBKR source. `bot portfolio` downloads one Activity Flex Query statement (positions, cash, trades, corporate actions) with `BOT_IBKR_FLEX_TOKEN` / `BOT_IBKR_FLEX_QUERY_ID`; no TWS, no local process. The snapshot is keyed on the statement date. See [ADR 0010](docs/adr/0010-flex-web-service-as-the-only-ibkr-source.md); supersedes [ADR 0004](docs/adr/0004-tws-api-via-ib-async.md).
 
 ## Conventions
 

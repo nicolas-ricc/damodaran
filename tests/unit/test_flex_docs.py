@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def _flex_section(readme: str) -> str:
-    start = readme.index("### Corporate actions via Flex Web Service")
+    start = readme.index("### Portfolio sync via Flex Web Service")
     return readme[start : readme.index("\n### ", start + 1)]
 
 
@@ -68,3 +68,54 @@ def test_no_more_nothing_populates_wording(path: str) -> None:
     assert "ibkr_flex" in text
     for stale in ("nothing populates it", "stays\n  empty", "stays empty", "nothing in this module populates it"):
         assert stale not in text
+
+
+def test_readme_documents_the_five_flex_sections() -> None:
+    readme = " ".join((ROOT / "README.md").read_text(encoding="utf-8").split())
+    for name in ("Open Positions", "Cash Report", "Trades", "Corporate Actions", "Cash Transactions"):
+        assert name in readme
+    assert "Last 7 Calendar Days" in readme
+    assert "BOT_IBKR_FLEX_TZ" in readme
+
+
+@pytest.mark.parametrize("path", ["README.md", ".env.example"])
+def test_no_tws_socket_settings_left(path: str) -> None:
+    assert "BOT_IBKR_HOST" not in (ROOT / path).read_text(encoding="utf-8")
+
+
+def test_adr_0004_is_superseded_by_0010() -> None:
+    text = (ROOT / "docs/adr/0004-tws-api-via-ib-async.md").read_text(encoding="utf-8")
+    status = text.split("## Status", 1)[1].split("##", 1)[0]
+    assert "Superseded by ADR 0010" in status
+
+
+def test_adr_0010_is_implemented() -> None:
+    (path,) = (ROOT / "docs/adr").glob("0010-*.md")
+    text = path.read_text(encoding="utf-8")
+    assert "Implemented" in text.split("## Status", 1)[1].split("##", 1)[0]
+
+
+@pytest.mark.parametrize(
+    ("section", "attrs"),
+    [
+        (
+            "Open Positions",
+            ["accountId", "conid", "symbol", "assetCategory", "currency", "listingExchange",
+             "position", "costBasisPrice", "reportDate", "levelOfDetail"],
+        ),
+        ("Cash Report", ["accountId", "currency", "endingCash", "levelOfDetail"]),
+        (
+            "Trades",
+            ["accountId", "conid", "symbol", "assetCategory", "currency", "buySell", "quantity",
+             "tradePrice", "dateTime", "ibExecID", "ibOrderID", "levelOfDetail"],
+        ),
+    ],
+)
+def test_readme_lists_every_attribute_the_parser_reads(section: str, attrs: list[str]) -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    start = readme.index(f"- **{section}**")
+    bullet = " ".join(readme[start : readme.index("\n   - **", start + 1)].split())
+    for attr in attrs:
+        if attr == "levelOfDetail" and section == "Open Positions":
+            continue  # chosen through the "level Summary" option, absent counts as summary
+        assert attr in bullet, (section, attr)

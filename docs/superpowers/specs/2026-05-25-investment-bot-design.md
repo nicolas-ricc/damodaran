@@ -358,14 +358,12 @@ Reglas de validación, todas con `ValueError` solo para ese ticker (el batch sig
 
 ### 8.1 Sync con IBKR
 
-**API elegida**: Client Portal API (REST), no TWS API.
+**API elegida**: IBKR Flex Web Service, única fuente de IBKR (ADR 0010; reemplaza a las ADR 0003 y 0004). Ni Client Portal ni TWS.
 
-- HTTP/JSON, más simple de operar
-- Auth OAuth + sesión renovable
-- IBKR provee Docker oficial `ibkr/cp-gateway` corriendo en localhost
-- Trade-off: requiere re-login interactivo cada ~24h (10 segundos en browser). Aceptable.
-
-Si la fricción de re-login molesta, migración natural a TWS API con IB Gateway headless.
+- Una sola Activity Flex Query en XML, período «Last 7 Calendar Days», con cinco secciones: Open Positions (accountId, conid, symbol, assetCategory, currency, listingExchange, position, costBasisPrice, markPrice, reportDate), Cash Report (accountId, currency, endingCash, levelOfDetail), Trades a nivel Executions (accountId, conid, symbol, assetCategory, currency, buySell, quantity, tradePrice, dateTime, ibExecID, ibOrderID, levelOfDetail), Corporate Actions y Cash Transactions
+- Auth con un token del Flex Web Service (vence como máximo al año), sin sesión de escritorio ni gateway: `bot portfolio` corre sin supervisión desde cron
+- `BOT_IBKR_FLEX_TOKEN` y `BOT_IBKR_FLEX_QUERY_ID` en `.env`; `BOT_IBKR_FLEX_TZ` (por defecto America/New_York) es la zona horaria de los `dateTime` de los trades
+- Trade-off: el statement es de fin de día, así que el snapshot lleva la fecha del statement (el día hábil anterior), no la de la corrida. Un hueco entre corridas mayor que el período de la query pierde fills salvo que se amplíe el período una vez.
 
 ### 8.2 Datos sincronizados diariamente
 

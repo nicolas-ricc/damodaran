@@ -15,7 +15,7 @@ Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
    the two required keys, `BOT_SEC_USER_AGENT` (your name + email) and `BOT_TIINGO_API_KEY` (a
    free token from [tiingo.com](https://www.tiingo.com/)); keys already set are never asked
    again. Then loads Damodaran's US sector benchmarks (`bot refresh --damodaran`), prints the
-   TWS checklist for `bot portfolio`, and runs `bot doctor` — its exit code is bootstrap's (a
+   Flex checklist for `bot portfolio`, and runs `bot doctor` — its exit code is bootstrap's (a
    failed Damodaran download stops bootstrap first, with that code). Safe to re-run. `--yes`
    never prompts and takes the keys from the environment (exit 1 naming any that is missing);
    `--skip-damodaran` skips the download. The default provider is
@@ -130,8 +130,9 @@ uv run bot show AAPL             # show a US company's fundamentals (M1)
   which fast-forwards the checkout to `origin/master` (`git pull --ff-only`). It skips a checkout
   on another branch, and a failed pull is logged and the run goes ahead on the code it has.
 - **Daily** (weekdays 09:00): `bot refresh --prices --fx && bot portfolio`. Fundamentals are
-  quarterly and are not refreshed daily. `bot portfolio` fails while TWS is not running and
-  logged in; that is logged, not a bug.
+  quarterly and are not refreshed daily. `bot portfolio` fails (exit 1) when the Flex
+  service does, and exits 2 while the Flex token or query id is unset; that is logged,
+  not a bug.
 - **Weekly** (Saturday 10:00): `bot refresh --all && bot screen --preset damodaran_value &&
   bot analyze --from-screen && scripts/publish_site.sh`. The last step commits only the
   `reports/*/analysis/*.json` sidecars and pushes them to `master`, which redeploys the
@@ -149,58 +150,52 @@ separate (Quickstart step 3).
 
 ## Portfolio sync — Interactive Brokers (M5)
 
-The bot reads your IBKR portfolio over the **TWS API** (local socket) using a
-**read-only** client (`bot.ingest.ibkr.IbkrClient`). It never places, modifies or
-cancels orders.
+The bot reads your IBKR portfolio from the **Flex Web Service**
+(`bot.ingest.ibkr_flex.FlexPortfolioClient`), read-only. It never places, modifies or
+cancels orders. There is no TWS, no gateway and no local process: `bot portfolio` runs
+unattended ([ADR 0010](docs/adr/0010-flex-web-service-as-the-only-ibkr-source.md)).
 
-### Prerequisites
-
-1. **Trader Workstation (TWS)** or **IB Gateway** installed, **running and
-   logged in**. Auth is entirely the desktop login — there is no OAuth, no REST
-   gateway and no Docker container.
-2. In TWS: **File → Global Configuration → API → Settings**, tick **"Enable
-   ActiveX and Socket Clients"** and add `127.0.0.1` to **Trusted IPs**.
-3. **Recommended (belt-and-braces):** also tick **"Read-Only API"** in the same
-   panel so the desktop refuses any write even if a client tried.
-
-### Configuration
-
-Host, port and client id are configurable via environment (`.env`) — never
-hard-coded. Defaults target **live TWS**:
-
-```bash
-BOT_IBKR_HOST=127.0.0.1   # default
-BOT_IBKR_PORT=7496        # default; live TWS. 7497 = paper TWS, 4001/4002 = IB Gateway live/paper
-BOT_IBKR_CLIENT_ID=1      # default; each concurrent client needs a distinct id
-```
-
-### Corporate actions via Flex Web Service
+### Portfolio sync via Flex Web Service
 
 Written from IBKR's documentation; the parser is validated against a real statement
 captured with the command below. Known corrections are tracked in #111.
 
-The TWS socket does not report dividends or splits, so `bot portfolio` pulls them
-from IBKR's **Flex Web Service** (`bot.ingest.ibkr_flex`) before computing the day's
-events. Without the two settings below the import is skipped with one INFO line;
-any failure during it is logged as a WARNING and the run carries on.
+`bot portfolio` downloads one Activity Flex Query statement per run and serves positions,
+cash, trades and corporate actions from it. The snapshot and `reports/<as_of>/` carry the
+statement date (the latest Open Positions `reportDate`, falling back to the statement's
+`toDate`), usually the previous business day. A statement more than 5 days old logs a
+warning. Snapshots stored before this change are keyed on the run day; there is no migration.
 
 1. In Client Portal, **Performance & Reports → Flex Queries → Activity Flex Query**,
-   create a query with:
+   create **one** query, format **XML**, period **Last 7 Calendar Days**, all accounts,
+   with five sections:
+   - **Open Positions** (level Summary): accountId, conid, symbol, assetCategory,
+     currency, listingExchange, position, costBasisPrice, markPrice, reportDate.
+   - **Cash Report**: accountId, currency, endingCash, levelOfDetail.
+   - **Trades** (level Executions): accountId, conid, symbol, assetCategory,
+     currency, buySell, quantity, tradePrice, dateTime, ibExecID, ibOrderID, levelOfDetail.
    - **Corporate Actions**: accountId, currency, assetCategory, symbol, description,
      conid, isin, reportDate, dateTime, actionID, type, quantity, amount, proceeds,
      value, code.
    - **Cash Transactions**: accountId, currency, assetCategory, symbol, description,
      conid, isin, dateTime, settleDate, reportDate, amount, type, transactionID, code.
-   - Period **Last 30 Calendar Days**, format **XML**, default date (`yyyyMMdd`) and
-     time (`HHmmss`) formats with the `;` separator, all accounts.
-   Note the query id.
-2. **Settings → Reporting → Flex Web Service**: generate a token and note its expiry.
+
+   Keep IBKR's default date and time formats (`yyyyMMdd;HHmmss`). Note the query id.
+   If you already have a corporate-actions-only query, add Open Positions, Cash Report
+   and Trades to it: a statement missing any of those three fails the run.
+2. **Settings → Reporting → Flex Web Service**: generate a token. It expires at most
+   yearly, so note its expiry.
 3. Put both in `.env` (never commit them):
 
    ```bash
    BOT_IBKR_FLEX_TOKEN=...      # Flex Web Service token
    BOT_IBKR_FLEX_QUERY_ID=...   # the Activity Flex Query id
+   BOT_IBKR_FLEX_TZ=America/New_York   # default; the account's reporting time zone
    ```
+
+   `BOT_IBKR_FLEX_TZ` is the time zone of the trade `dateTime` values; the bot converts
+   them to UTC. `bot portfolio` exits 2 when the token or query id is missing and 1 when
+   the Flex service fails; nothing is written in either case.
 4. **Validate against the live account.** From the repo root run:
 
    ```bash
@@ -214,16 +209,30 @@ any failure during it is logged as a WARNING and the run carries on.
      account ids replaced and amounts and quantities faked; symbols, conids, isins,
      ids, dates, types and descriptions stay real.
    - `tests/fixtures/ibkr_flex/statement_real_summary.json`: counts of accounts, date
-     range, rows, corporate-action and cash-transaction types, and what the parser
-     parsed or skipped.
+     range, rows, positions, cash rows, trades, corporate-action and cash-transaction
+     types, and what the parser parsed or skipped.
 
    The cassette and the redacted XML are safe to commit: the token is scrubbed and
-   account ids and amounts are redacted. They still show which symbols you held and
-   their corporate actions over the window. The JSON summary is also printed; paste it
+   account ids and every numeric column are redacted, and open positions and trades
+   carry pseudonyms (`SYM1`, conid `1`, ...) instead of their instruments. The repository
+   is public, and corporate-action and cash-transaction rows still show their real
+   symbols over the window: review the redacted XML before you commit it. The JSON summary is also printed; paste it
    into the #111 findings. The raw statement is never written. The command exits 2
    when `BOT_IBKR_FLEX_TOKEN` or `BOT_IBKR_FLEX_QUERY_ID` is missing, and 1 when the
-   Flex service fails or the token would leak into the cassette. In both cases
+   Flex service fails, the token would leak into the cassette, the query lacks Open
+   Positions, Cash Report or Trades, or a value cannot be parsed. In every case
    nothing is written.
+
+**Historical trade backfill.** Temporarily widen the query period in IBKR, run
+`bot portfolio` once, then set it back to Last 7 Calendar Days. The `exec_id` dedupe
+absorbs the overlap with fills already stored.
+
+**Gaps.** If more days pass between two runs than the query period covers (7), the fills
+in between are lost. Widen the period once, as above, to recover them.
+
+**Reruns.** `events_log` is append-only, so running `bot portfolio` again on a statement
+whose date was already synced replaces that date's snapshot but repeats its events
+(open issue #83).
 
 Dividends and payments in lieu become `DIVIDEND` events, forward and reverse
 splits become `SPLIT` events, for tickers held on the day. Other corporate
@@ -264,19 +273,6 @@ Failure modes:
 
 There is no automatic retry. Re-running `bot portfolio` the same day re-renders
 and re-sends that day's alerts.
-
-### Manual smoke test (human, not CI)
-
-CI never opens a real socket — the mapping logic is unit-tested against mocked
-`ib_async` responses. To verify the live round-trip yourself, with TWS running
-and logged in:
-
-```bash
-uv run python -c "from bot.config import load_settings; from bot.ingest.ibkr import IbkrClient; \
-print(IbkrClient.from_settings(load_settings()).accounts())"
-```
-
-It should print your real managed account id(s) (e.g. `['U1234567']`).
 
 ## Development
 

@@ -683,7 +683,7 @@ _PORTFOLIO_GROUPS = {
 # Issue #171 rules (a)-(k): checked, or marked broken.
 _PORTFOLIO_RULES = {
     "MisconfiguredChannelStoresNothing",
-    "UnreachableTwsWritesNoMarkOrEvent",
+    "UnavailableStatementWritesNoMarkOrEvent",
     "MarkedAfterTheSnapshot",
     "UnknownValueFiresNoMarkEvent",
     "FirstRunOpensEveryPosition",
@@ -692,7 +692,6 @@ _PORTFOLIO_RULES = {
     "ConcentrationOnEveryRun",
     "EventsLoggedBeforeAlerts",
     "AlertsWrittenSentOnlyWithText",
-    "CorporateActionsFailureNeverStops",
 }
 
 

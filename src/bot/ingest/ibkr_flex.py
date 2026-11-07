@@ -1,11 +1,13 @@
-"""IBKR Flex Web Service importer for corporate actions (M5, #56).
+"""IBKR Flex Web Service: portfolio, trades and corporate actions (M5, #56, #256).
 
-The TWS socket cannot supply dividends or splits (ADR 0004); IBKR's Flex Web
-Service can. A user-defined Activity Flex Query with the *Corporate Actions*
-and *Cash Transactions* sections is fetched over two GETs (protocol v3), parsed
-into :class:`CorporateActionRecord` rows and upserted into
+IBKR's Flex Web Service is the only IBKR source (ADR 0010, #256). A
+user-defined Activity Flex Query (Open Positions, Cash Report, Trades,
+Corporate Actions, Cash Transactions) is fetched over two GETs (protocol v3),
+parsed into :class:`CorporateActionRecord` rows and upserted into
 ``corporate_actions``, where :func:`bot.portfolio.events.compute_events` reads
-them.
+them. :func:`parse_statement` turns the same XML into a :class:`FlexStatement`
+(positions, cash, trades), which :class:`FlexPortfolioClient` serves as the
+portfolio source for ``bot portfolio``.
 
 The parser is validated against the redacted real statement captured by
 ``bot flex-capture`` (:mod:`bot.ingest.ibkr_flex_capture`); parser corrections
@@ -18,16 +20,19 @@ Follows the ingest convention: download (:class:`FlexClient`) -> parse
 from __future__ import annotations
 
 import json
+import math
 import re
 import time
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING
 from urllib.parse import quote, quote_plus
+from zoneinfo import ZoneInfo
 
 import httpx
 
+from bot.ingest.ibkr import CashBalance, PortfolioPosition, TradeExecution
 from bot.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -190,6 +195,173 @@ def parse_flex_statement(xml: str) -> list[CorporateActionRecord]:
     return [record for el in rows if (record := parse_flex_row(el)) is not None]
 
 
+class FlexError(RuntimeError):
+    """The Flex Web Service refused, failed or never produced the statement."""
+
+
+@dataclass(frozen=True)
+class FlexStatement:
+    """Portfolio data and corporate actions parsed from one Flex response."""
+
+    positions: list[PortfolioPosition]
+    cash: list[CashBalance]
+    trades: list[TradeExecution]
+    corporate_actions: list[CorporateActionRecord]
+    accounts: list[str]
+    as_of: date
+
+
+_TRADE_TIME_FORMAT = "%Y%m%d;%H%M%S"
+
+
+def _describe(el: ET.Element) -> str:
+    parts = (el.tag, _attr(el, "accountId"), _attr(el, "symbol") or _attr(el, "currency"))
+    return "<" + " ".join(filter(None, parts)) + ">"
+
+
+def _number(el: ET.Element, name: str) -> float:
+    raw = _attr(el, name)
+    try:
+        value = float(raw)
+    except ValueError:
+        value = math.nan
+    if not math.isfinite(value):
+        raise FlexError(f"Flex {_describe(el)}: {name} {raw!r} is not a number")
+    return value
+
+
+def _optional_date(el: ET.Element, name: str) -> date | None:
+    """Date of *name*; ``None`` when absent or empty, :class:`FlexError` when unparseable."""
+    raw = _attr(el, name)
+    if not raw:
+        return None
+    parsed = _flex_date(raw)
+    if parsed is None:
+        raise FlexError(f"Flex {_describe(el)}: {name} {raw!r} is not yyyyMMdd")
+    return parsed
+
+
+def _int_or_zero(el: ET.Element, name: str) -> int:
+    try:
+        return int(_attr(el, name))
+    except ValueError:
+        return 0
+
+
+def _trade_time(el: ET.Element, tz: ZoneInfo) -> datetime:
+    raw = _attr(el, "dateTime")
+    try:
+        local = datetime.strptime(raw, _TRADE_TIME_FORMAT).replace(tzinfo=tz)
+    except ValueError:
+        raise FlexError(
+            f"Flex {_describe(el)}: dateTime {raw!r} is not yyyyMMdd;HHmmss "
+            "(keep IBKR's default date/time format in the Flex Query)"
+        ) from None
+    return local.astimezone(UTC)
+
+
+def _row_account(el: ET.Element, statement_account: str) -> str:
+    """The row's ``accountId``, else its enclosing statement's; never empty."""
+    account = _attr(el, "accountId") or statement_account
+    if not account:
+        raise FlexError(f"Flex {_describe(el)}: no accountId on the row or its FlexStatement")
+    return account
+
+
+def _position(el: ET.Element, account: str) -> PortfolioPosition:
+    try:
+        con_id = int(_attr(el, "conid"))
+    except ValueError:
+        raise FlexError(f"Flex {_describe(el)}: conid {_attr(el, 'conid')!r} is not an integer") from None
+    return PortfolioPosition(
+        account=account,
+        con_id=con_id,
+        symbol=_attr(el, "symbol"),
+        sec_type=_attr(el, "assetCategory"),
+        currency=_attr(el, "currency"),
+        exchange=_attr(el, "listingExchange"),
+        quantity=_number(el, "position"),
+        avg_cost=_number(el, "costBasisPrice"),
+    )
+
+
+def _trade(el: ET.Element, account: str, tz: ZoneInfo) -> TradeExecution:
+    return TradeExecution(
+        account=account,
+        exec_id=_attr(el, "ibExecID"),
+        con_id=_int_or_zero(el, "conid"),
+        symbol=_attr(el, "symbol"),
+        sec_type=_attr(el, "assetCategory"),
+        currency=_attr(el, "currency"),
+        side=_attr(el, "buySell"),
+        quantity=_number(el, "quantity"),
+        price=_number(el, "tradePrice"),
+        executed_at=_trade_time(el, tz),
+        perm_id=_int_or_zero(el, "ibOrderID"),
+    )
+
+
+def _section(statement: ET.Element, name: str) -> ET.Element:
+    section = statement.find(name)
+    if section is None:
+        raise FlexError(
+            f"Flex statement for {_attr(statement, 'accountId')} has no {name} section: "
+            "add it to the Flex Query (README)"
+        )
+    return section
+
+
+def parse_statement(xml: str, *, tz: ZoneInfo) -> FlexStatement:
+    """Map a ``FlexQueryResponse`` to positions, cash, trades and actions (pure).
+
+    *tz* is the Flex reporting time zone of trade ``dateTime`` values. Raises
+    :class:`FlexError` for a missing section, an unparseable number or trade
+    time, a position without a ``conid``, or when no ``as_of`` date is found.
+    """
+    root = _flex_root(xml)
+    positions: list[PortfolioPosition] = []
+    cash: list[CashBalance] = []
+    trades: list[TradeExecution] = []
+    accounts: list[str] = []
+    report_dates: list[date] = []
+    to_dates: list[date] = []
+
+    def add_account(account: str) -> str:
+        if account and account not in accounts:
+            accounts.append(account)
+        return account
+
+    for statement in root.iter("FlexStatement"):
+        statement_account = add_account(_attr(statement, "accountId"))
+        if (to_date := _optional_date(statement, "toDate")) is not None:
+            to_dates.append(to_date)
+        for el in _section(statement, "OpenPositions").iter("OpenPosition"):
+            if _attr(el, "levelOfDetail") not in ("", "SUMMARY"):
+                continue
+            positions.append(_position(el, add_account(_row_account(el, statement_account))))
+            if (report_date := _optional_date(el, "reportDate")) is not None:
+                report_dates.append(report_date)
+        for el in _section(statement, "CashReport").iter("CashReportCurrency"):
+            if _attr(el, "levelOfDetail") != "Currency" or _attr(el, "currency") == "BASE_SUMMARY":
+                continue
+            account = add_account(_row_account(el, statement_account))
+            cash.append(CashBalance(account, _attr(el, "currency"), _number(el, "endingCash")))
+        for el in _section(statement, "Trades").iter("Trade"):
+            if _attr(el, "levelOfDetail") == "EXECUTION":
+                trades.append(_trade(el, add_account(_row_account(el, statement_account)), tz))
+    candidates = report_dates or to_dates
+    if not candidates:
+        raise FlexError("Flex statement has no OpenPosition reportDate or FlexStatement toDate to date it")
+    return FlexStatement(
+        positions=positions,
+        cash=cash,
+        trades=trades,
+        corporate_actions=parse_flex_statement(xml),
+        accounts=accounts,
+        as_of=max(candidates),
+    )
+
+
 def upsert_corporate_actions(
     conn: duckdb.DuckDBPyConnection, records: Iterable[CorporateActionRecord]
 ) -> int:
@@ -214,10 +386,6 @@ def upsert_corporate_actions(
         row = result.fetchone()
         inserted += int(row[0]) if row is not None and isinstance(row[0], int) else 0
     return inserted
-
-
-class FlexError(RuntimeError):
-    """The Flex Web Service refused, failed or never produced the statement."""
 
 
 class FlexClient:
@@ -296,6 +464,78 @@ class FlexClient:
         return text
 
 
+class FlexPortfolioClient:
+    """Portfolio and trade source backed by one Flex statement (#256).
+
+    Nothing is requested until the first read; the statement is then downloaded
+    once and every accessor serves from it. ``connect``/``disconnect`` are no-ops
+    that keep the :class:`~bot.portfolio.sync.PortfolioSource` shape.
+    """
+
+    def __init__(
+        self,
+        token: str,
+        query_id: str,
+        *,
+        tz: ZoneInfo,
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        self._token = token
+        self._query_id = query_id
+        self._tz = tz
+        self._transport = transport
+        self._statement: FlexStatement | None = None
+
+    @classmethod
+    def from_settings(
+        cls, settings: Settings, *, transport: httpx.BaseTransport | None = None
+    ) -> FlexPortfolioClient:
+        return cls(
+            settings.ibkr_flex_token.strip(),
+            settings.ibkr_flex_query_id.strip(),
+            tz=ZoneInfo(settings.ibkr_flex_tz),
+            transport=transport,
+        )
+
+    def connect(self) -> None:
+        """No-op: the statement is fetched lazily."""
+
+    def disconnect(self) -> None:
+        """No-op: the HTTP client is closed right after the download."""
+
+    def _load(self) -> FlexStatement:
+        if self._statement is None:
+            with FlexClient(self._token, self._query_id, transport=self._transport) as client:
+                xml = client.fetch_statement()
+            self._statement = parse_statement(xml, tz=self._tz)
+        return self._statement
+
+    def accounts(self) -> list[str]:
+        return list(self._load().accounts)
+
+    def positions(self, account_id: str) -> list[PortfolioPosition]:
+        return [p for p in self._load().positions if p.account == account_id]
+
+    def cash_balances(self, account_id: str) -> list[CashBalance]:
+        return [c for c in self._load().cash if c.account == account_id]
+
+    def trades(self, account_id: str, since: datetime | None = None) -> list[TradeExecution]:
+        """Fills of *account_id* executed at or after *since* (timezone-aware)."""
+        if since is not None and since.tzinfo is None:
+            raise ValueError("since must be timezone-aware")
+        return [
+            t
+            for t in self._load().trades
+            if t.account == account_id and (since is None or t.executed_at >= since)
+        ]
+
+    def as_of(self) -> date:
+        return self._load().as_of
+
+    def corporate_actions(self) -> list[CorporateActionRecord]:
+        return list(self._load().corporate_actions)
+
+
 def fetch_flex_statement(
     token: str,
     query_id: str,
@@ -306,26 +546,3 @@ def fetch_flex_statement(
     with FlexClient(token, query_id, transport=transport) as client:
         return client.fetch_statement()
 
-
-def import_corporate_actions(
-    conn: duckdb.DuckDBPyConnection,
-    settings: Settings,
-    *,
-    transport: httpx.BaseTransport | None = None,
-) -> int | None:
-    """Fetch the latest Flex statement and upsert its corporate actions.
-
-    Returns ``None`` (after one INFO line) when the token or query id is not
-    configured, otherwise the number of new rows. Failures propagate; the
-    caller decides that they are not fatal.
-    """
-    token = settings.ibkr_flex_token.strip()
-    query_id = settings.ibkr_flex_query_id.strip()
-    if not token or not query_id:
-        log.info("ibkr_flex_not_configured")
-        return None
-    statement = fetch_flex_statement(token, query_id, transport=transport)
-    records = parse_flex_statement(statement)
-    inserted = upsert_corporate_actions(conn, records)
-    log.info("ibkr_flex_imported", records=len(records), inserted=inserted)
-    return inserted

@@ -10,8 +10,8 @@
 # or BOT_PRICE_ROUNDS is reached; BOT_PRICE_RETRY_PAUSE seconds between rounds.
 #
 # Output appends to .cache/daily.log; the exit code is the bot's. `bot
-# portfolio` fails while TWS is not running and logged in — that is an
-# expected, logged outcome.
+# portfolio` reads the previous business day's Flex statement; it needs
+# BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID and no TWS.
 set -uo pipefail
 
 # Repo root = parent of this script's directory (resolve symlinks for cron).

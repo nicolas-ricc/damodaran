@@ -15,8 +15,7 @@ from bot.ingest.damodaran import import_damodaran
 from bot.ingest.edgar_stooq import EdgarStooqProvider
 from bot.ingest.edgar_tiingo import EdgarTiingoProvider
 from bot.ingest.fmp import FmpProvider
-from bot.ingest.ibkr import IbkrClient
-from bot.ingest.ibkr_flex import FlexError, import_corporate_actions
+from bot.ingest.ibkr_flex import FlexError, FlexPortfolioClient
 from bot.ingest.ibkr_flex_capture import (
     CASSETTE_PATH,
     REDACTED_XML_PATH,
@@ -589,18 +588,19 @@ def portfolio(
 ) -> None:
     """Sync the portfolio, diff it against the last snapshot, and write reports.
 
-    Connects to the read-only IBKR client, writes today's snapshot, appends the
-    executions newer than the last stored one to ``trades``, computes the §8.3
-    event stream versus the previous snapshot (persisting it to ``events_log``),
-    then writes two artefacts under
-    ``<reports_dir>/YYYY-MM-DD/``: ``portfolio.md`` (full state — positions, P&L,
-    concentration, suggested reviews; plus a P&L time series with ``--history``
-    and an explicit concentration breakdown with ``--concentration``) and
-    ``alerts.md`` (today's events only, always written, empty when there are none).
+    Downloads the IBKR Flex statement (``BOT_IBKR_FLEX_TOKEN`` and
+    ``BOT_IBKR_FLEX_QUERY_ID``, no TWS), writes the snapshot keyed on the
+    statement date, upserts its corporate actions, appends the executions newer
+    than the last stored one to ``trades``, computes the §8.3 event stream versus
+    the previous snapshot (persisting it to ``events_log``), then writes two
+    artefacts under ``<reports_dir>/YYYY-MM-DD/``: ``portfolio.md`` (full state —
+    positions, P&L, concentration, suggested reviews; plus a P&L time series with
+    ``--history`` and an explicit concentration breakdown with ``--concentration``)
+    and ``alerts.md`` (today's events only, always written, empty when there are
+    none).
 
-    Before computing events it imports corporate actions from the IBKR Flex Web
-    Service when ``BOT_IBKR_FLEX_TOKEN`` and ``BOT_IBKR_FLEX_QUERY_ID`` are set;
-    a failure there is a warning, not an error.
+    Missing credentials exit 2; a Flex failure exits 1. A statement more than
+    5 days old logs a warning.
 
     When ``BOT_NOTIFIER`` is ``email`` or ``telegram``, a non-empty ``alerts.md`` is then
     sent through that channel.
@@ -616,8 +616,15 @@ def portfolio(
         typer.echo(f"Screener config not found: {preset_path}", err=True)
         raise typer.Exit(code=2)
     preset = load_screener_config(preset_path)
+    if not settings.ibkr_flex_token.strip() or not settings.ibkr_flex_query_id.strip():
+        typer.echo(
+            "bot portfolio needs BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID "
+            "(README → Portfolio sync)",
+            err=True,
+        )
+        raise typer.Exit(code=2)
     conn, settings = _open_db()
-    client = IbkrClient.from_settings(settings)
+    client = FlexPortfolioClient.from_settings(settings)
     gates = [*preset.quality_gates.build(), *preset.trap_detection.build()]
     try:
         result = run_portfolio(
@@ -631,16 +638,9 @@ def portfolio(
             assumptions_dir=settings.assumptions_dir,
             currencies=load_currency_table(settings.currencies_path),
             default_spreads=load_default_spreads(settings.default_spreads_path),
-            corporate_actions_fn=lambda c: import_corporate_actions(c, settings),
         )
-    except (ConnectionError, TimeoutError) as exc:
-        # asyncio's TimeoutError carries no message; name the type instead.
-        reason = str(exc) or type(exc).__name__
-        typer.echo(
-            f"Cannot reach TWS / IB Gateway at {settings.ibkr_host}:{settings.ibkr_port}: {reason}. "
-            "Start it with the API enabled, or set BOT_IBKR_HOST / BOT_IBKR_PORT.",
-            err=True,
-        )
+    except FlexError as exc:
+        typer.echo(f"IBKR Flex statement unavailable: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(
         f"Synced snapshot {result.snapshot_date.isoformat()} "

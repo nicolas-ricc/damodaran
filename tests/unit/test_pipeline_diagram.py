@@ -222,8 +222,8 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.portfolio.report.build_report",
         "bot.portfolio.report.render_portfolio",
         "bot.portfolio.report.render_alerts",
-        "bot.ingest.ibkr.IbkrClient",
-        "bot.ingest.ibkr_flex.import_corporate_actions",
+        "bot.ingest.ibkr_flex.FlexPortfolioClient",
+        "bot.ingest.ibkr_flex.upsert_corporate_actions",
         "bot.notifier.build_notifier",
         "bot.notifier.notify_alerts",
         "bot.screener.engine.load_holding_inputs",
@@ -335,7 +335,7 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.notifier.build_notifier",
         "bot.portfolio.sync.sync_portfolio",
         "bot.portfolio.sync.value_positions",
-        "bot.ingest.ibkr_flex.import_corporate_actions",
+        "bot.ingest.ibkr_flex.upsert_corporate_actions",
         "bot.portfolio.trades.sync_trades",
     },
     "portfolio-marks": {
@@ -725,7 +725,6 @@ _ACRONYMS: dict[str, str] = {
     "EOD": "end of day",
     "FX": "foreign exchange",
     "IBKR": "Interactive Brokers",
-    "TWS": "Trader Workstation",
     "DCF": "discounted cash flow",
     "WACC": "weighted average cost of capital",
     "MoS": "margin of safety",
@@ -945,7 +944,6 @@ _EXTERNALS = {
     "tiingo": "Tiingo",
     "stooq": "Stooq",
     "fmp": "Financial Modeling Prep",
-    "tws": "Trader Workstation",
     "flex": "Flex",
     "pages": "GitHub Pages",
 }
@@ -2039,7 +2037,7 @@ _PORTFOLIO_TABLES = sorted(_REQUIRED_TABLES["portfolio"])
 
 _PORTFOLIO_NODES: list[tuple[str, str]] = (
     [("daily", "cron")]
-    + [(e, "external") for e in ("tws", "flex", "channels")]
+    + [(e, "external") for e in ("flex", "channels")]
     + [(f, "file") for f in ("preset", "override_yaml", "portfolio_template", "alerts_template")]
     + [(f"duckdb.{t}", "store") for t in _PORTFOLIO_TABLES]
     + [(o, "output") for o in ("portfolio_md", "alerts_md", "message")]
@@ -2090,12 +2088,10 @@ _PORTFOLIO_TEXT: dict[str, list[str]] = {
         "unpriced",
     ],
     "sync.corporate_actions": [
-        "BOT_IBKR_FLEX_TOKEN",
-        "BOT_IBKR_FLEX_QUERY_ID",
+        "from the same statement",
         "ct:<id>",
         "ca:<id>",
         "de-duplicated on action_id",
-        "warning",
     ],
     "sync.trades": [
         "newest executed_at",
@@ -2244,8 +2240,8 @@ def test_portfolio_run_steps_match_code() -> None:
     from bot.portfolio.command import run_portfolio
 
     source = inspect.getsource(run_portfolio)
-    calls = ["sync_portfolio(", "corporate_actions_fn(conn)", "sync_trades(", "mark_holdings(",
-             "compute_events(", "persist_events(", "build_report("]
+    calls = ["client.as_of()", "sync_portfolio(", "upsert_corporate_actions(", "sync_trades(",
+             "mark_holdings(", "compute_events(", "persist_events(", "build_report("]
     positions = [source.index(c) for c in calls]
     assert positions == sorted(positions)
     for key, number in (("sync.snapshot", "1."), ("sync.corporate_actions", "2."),
@@ -2330,7 +2326,7 @@ def test_portfolio_filing_auto_analyze_gap_is_current() -> None:
     ("src", "dst"),
     [
         ("daily", "cli"),
-        ("tws", "sync.snapshot"),
+        ("flex", "sync.snapshot"),
         ("flex", "sync.corporate_actions"),
         ("sync.value", "duckdb.portfolio_snapshots"),
         ("marks.persist", "duckdb.holding_marks"),
@@ -2575,7 +2571,7 @@ def test_adr_mentions_carry_their_status() -> None:
 
 
 _GOVERNING_ADRS = {
-    "0001": "pipeline", "0004": "portfolio", "0005": "refresh",
+    "0001": "pipeline", "0010": "portfolio", "0005": "refresh",
     "0006": "screen", "0007": "refresh", "0008": "site",
 }
 

@@ -3,11 +3,12 @@
 :func:`run_portfolio` ties the existing library functions together — it does
 **not** re-implement any of them. It:
 
-1. runs :func:`~bot.portfolio.sync.sync_portfolio` against the read-only IBKR
-   client to write today's snapshot (idempotent per day);
-2. imports the latest corporate actions through the optional
-   ``corporate_actions_fn`` hook (the IBKR Flex importer in the CLI); a failure
-   there is logged as a WARNING and the run continues;
+1. reads the snapshot date from the client (``client.as_of()``, the Flex
+   statement date; a statement older than :data:`STALE_AFTER_DAYS` days logs a
+   WARNING) and runs :func:`~bot.portfolio.sync.sync_portfolio` to write that
+   day's snapshot (idempotent per day);
+2. upserts the statement's corporate actions
+   (:func:`~bot.ingest.ibkr_flex.upsert_corporate_actions`);
 3. appends the executions newer than the stored watermark via
    :func:`~bot.portfolio.trades.sync_trades` (de-duped on ``exec_id``);
 4. marks each holding (valuation + quality gates) via
@@ -25,12 +26,13 @@ events. Sending ``alerts.md`` is the CLI's job (``bot.notifier``, #32).
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
+from bot.ingest.ibkr_flex import CorporateActionRecord, upsert_corporate_actions
 from bot.portfolio.events import compute_events, persist_events
 from bot.portfolio.marks import mark_holdings
 from bot.portfolio.report import build_report, render_alerts, render_portfolio
@@ -48,9 +50,19 @@ if TYPE_CHECKING:
 
 log = get_logger(__name__)
 
+STALE_AFTER_DAYS = 5
+
 
 class PortfolioClient(PortfolioSource, TradeSource, Protocol):
-    """The read-only IBKR slice a full portfolio run needs: snapshot + fills."""
+    """The slice a full portfolio run needs: snapshot, fills, statement date, actions."""
+
+    def as_of(self) -> date:
+        """The statement date the snapshot is keyed on."""
+        ...
+
+    def corporate_actions(self) -> list[CorporateActionRecord]:
+        """The corporate actions carried by the same statement."""
+        ...
 
 
 @dataclass(frozen=True)
@@ -90,7 +102,6 @@ def run_portfolio(
     analyze_fn: AnalyzeFn | None = None,
     quality_gates: Sequence[Rule] = (),
     assumptions_dir: Path | None = None,
-    corporate_actions_fn: Callable[[duckdb.DuckDBPyConnection], int | None] | None = None,
     currencies: CurrencyTable | None = None,
     default_spreads: DefaultSpreadTable | None = None,
 ) -> PortfolioRunResult:
@@ -100,7 +111,8 @@ def run_portfolio(
         conn: Open DuckDB connection with the schema applied.
         client: A read-only IBKR client (or any :class:`PortfolioClient`).
         reports_dir: Root reports directory; the dated subdir is created under it.
-        today: Calendar day to key the run on; defaults to today.
+        today: The run day (staleness check and report header); defaults to today.
+            The snapshot is keyed on ``client.as_of()``, not on this.
         history: Include the P&L time series in ``portfolio.md`` (``--history``).
         concentration: Include the concentration breakdown (``--concentration``).
         analyze_fn: Optional valuator override threaded into ``mark_holdings``;
@@ -114,54 +126,55 @@ def run_portfolio(
         default_spreads: Default-spread table threaded to ``mark_holdings``; ``None``
             lets the default valuator load it lazily. Ignored with an injected
             ``analyze_fn`` (it owns its own table).
-        corporate_actions_fn: Optional best-effort importer called right after the
-            snapshot sync (the IBKR Flex importer in the CLI). Any exception it
-            raises is logged as a WARNING (message only, no traceback) and ignored.
 
     Returns:
         A :class:`PortfolioRunResult` with the run summary and the two file paths.
     """
     run_day = today if today is not None else date.today()
 
-    # 1. Sync today's snapshot (idempotent per day).
-    sync_portfolio(conn, client, snapshot_date=run_day)
+    # 1. Sync the statement-date snapshot (idempotent per date).
+    snapshot_date = client.as_of()
+    age = (run_day - snapshot_date).days
+    if age > STALE_AFTER_DAYS:
+        log.warning(
+            "portfolio_statement_stale",
+            as_of=snapshot_date.isoformat(),
+            today=run_day.isoformat(),
+            days=age,
+        )
+    sync_portfolio(conn, client, snapshot_date=snapshot_date)
 
-    # 2. Best-effort corporate actions import (IBKR Flex); never fatal.
-    if corporate_actions_fn is not None:
-        try:
-            corporate_actions_fn(conn)
-        except Exception as exc:
-            # No exc_info: a traceback could carry request details (#56).
-            log.warning("corporate_actions_import_failed", error=str(exc) or type(exc).__name__)
+    # 2. Corporate actions carried by the same statement.
+    upsert_corporate_actions(conn, client.corporate_actions())
 
     # 3. Append the executions newer than the stored watermark (de-duped).
     trades = sync_trades(conn, client)
 
     # 4. Mark holdings, then diff against the previous snapshot and persist events.
-    prev_date = _previous_snapshot_date(conn, run_day)
+    prev_date = _previous_snapshot_date(conn, snapshot_date)
     mark_holdings(
         conn,
-        run_day,
+        snapshot_date,
         analyze_fn=analyze_fn,
         quality_gates=quality_gates,
         assumptions_dir=assumptions_dir,
         currencies=currencies,
         default_spreads=default_spreads,
     )
-    events = compute_events(conn, prev_date, run_day)
+    events = compute_events(conn, prev_date, snapshot_date)
     persist_events(conn, events)
 
     # 5. Build + render reports under the dated directory.
     report = build_report(
         conn,
-        run_day,
+        snapshot_date,
         include_history=history,
         include_concentration=concentration,
     )
     portfolio_md = render_portfolio(report, generated_on=run_day)
-    alerts_md = render_alerts(events, run_day, generated_on=run_day)
+    alerts_md = render_alerts(events, snapshot_date, generated_on=run_day)
 
-    out_dir = reports_dir / run_day.isoformat()
+    out_dir = reports_dir / snapshot_date.isoformat()
     out_dir.mkdir(parents=True, exist_ok=True)
     portfolio_path = out_dir / "portfolio.md"
     alerts_path = out_dir / "alerts.md"
@@ -170,7 +183,7 @@ def run_portfolio(
 
     log.info(
         "portfolio_report_written",
-        snapshot_date=run_day.isoformat(),
+        snapshot_date=snapshot_date.isoformat(),
         prev_snapshot_date=prev_date.isoformat() if prev_date else None,
         events=len(events),
         trades_inserted=trades.inserted,
@@ -178,7 +191,7 @@ def run_portfolio(
         alerts=str(alerts_path),
     )
     return PortfolioRunResult(
-        snapshot_date=run_day,
+        snapshot_date=snapshot_date,
         prev_snapshot_date=prev_date,
         events=len(events),
         trades_inserted=trades.inserted,

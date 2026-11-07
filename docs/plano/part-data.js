@@ -33,15 +33,15 @@ fmp:{role:"datos",titulo:"Financial Modeling Prep",lead:"Lo que hace que el univ
    "Los precios se guardan append-only por fecha; los fundamentals se refrescan semanalmente."]},
  caveat:"Este adapter importa el de SEC EDGAR para reutilizar cómo se escriben los estados. Es la tensión fmp → sec_edgar de la vista del código."},
 
-ibkr:{role:"vigila",titulo:"Interactive Brokers · TWS",lead:"Tu cartera real, por socket local y solo de lectura.",
- idea:["El monitor de cartera necesita saber qué tenés de verdad, no qué creés que tenés. De ahí salen las posiciones, el efectivo por moneda y las operaciones.",
+ibkr:{role:"vigila",titulo:"Interactive Brokers · Flex Web Service",lead:"Tu cartera real, por HTTPS y solo de lectura.",
+ idea:["El monitor de cartera necesita saber qué tenés de verdad, no qué creés que tenés. De ahí salen las posiciones, el efectivo por moneda, las operaciones y los dividendos y splits.",
   "La decisión de que sea solo lectura no es técnica sino de diseño: el bot sugiere candidatos para que un humano investigue. Un bot que puede operar es otro producto, con otros riesgos."],
- code:{where:[["módulo","bot.ingest.ibkr"],["librería","ib_async"],["puerto","7496 (TWS en vivo)"],["decisión","ADR 0004"]],
-  notes:["Se conecta a Trader Workstation o IB Gateway corriendo en tu máquina. La autenticación es el login de escritorio: no hay OAuth, ni gateway REST, ni contenedor que levantar.",
-   "El cliente nunca manda, modifica ni cancela una orden. Conviene además tildar «Read-Only API» en TWS, para que el escritorio rechace cualquier escritura aunque un cliente lo intentara.",
-   "Dos límites del socket, y conviene conocerlos: el historial de operaciones es solo el de la sesión actual, así que no se puede reconstruir hacia atrás; y los dividendos y splits no llegan por acá. Para eso haría falta el Flex Web Service.",
-   "La CI nunca abre un socket real: el mapeo se prueba contra respuestas simuladas."]},
- caveat:"El spec original (§8.1) elegía la Client Portal API. La ADR 0004 lo revirtió a TWS para no depender de un re-login interactivo cada 24 horas."},
+ code:{where:[["módulo","bot.ingest.ibkr_flex"],["clase","FlexPortfolioClient"],["config","BOT_IBKR_FLEX_TOKEN, BOT_IBKR_FLEX_QUERY_ID, BOT_IBKR_FLEX_TZ"],["decisión","ADR 0010"]],
+  notes:["Una sola Activity Flex Query (Open Positions, Cash Report, Trades, Corporate Actions, Cash Transactions) se descarga una vez por corrida, con un token: no hace falta ningún proceso de IBKR abierto en tu máquina.",
+   "El Flex Web Service no tiene superficie de órdenes: leer es lo único que puede hacer.",
+   "El precio de esto: el snapshot es el cierre del día hábil anterior, no en vivo. bot portfolio fecha el snapshot y el directorio de reportes con la fecha del statement.",
+   "La CI nunca llama a IBKR: el parser se prueba contra un statement sintético y el cliente contra un transporte HTTP simulado."]},
+ caveat:"El spec original (§8.1) elegía la Client Portal API; la ADR 0004 la cambió por el socket de TWS, que fallaba cada día que TWS no estaba abierto. La ADR 0010 deja el Flex Web Service como única fuente."},
 
 // ═══════════════ CAPA A ═══════════════
 adapters:{role:"datos",titulo:"Adapters de ingesta",lead:"Cuatro fuentes distintas, casi la misma forma.",
