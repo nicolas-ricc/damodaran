@@ -256,6 +256,9 @@ _REFRESH_TEXT: dict[str, list[str]] = {
         "the earlier file wins a shared column",
         "D/E = w ÷ (1 - w)",  # normalize() reads the minus sign as a hyphen
         "beta_unlevered = beta_levered ÷ (1 + (1 - tax) \u00d7 D/E)",
+        "the country rows are read sheet 'ERPs by country', two tables: the Moody's-rated "
+        "countries, then the unrated countries scored by PRS (Political Risk Services), "
+        "each read with its own columns; erp_basis says which",
     ],
     "refresh-fundamentals": ["5%", "25%", "deferred, not failed"],
     "refresh-facts": [

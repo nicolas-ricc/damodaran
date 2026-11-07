@@ -305,3 +305,28 @@ def test_import_damodaran_from_files_partial_when_country_empty(
     assert industry_count > 0
 
     conn.close()
+
+
+def test_import_damodaran_from_files_marks_single_table_rows_as_moodys(
+    tmp_path: Path,
+) -> None:
+    """A country sheet without the PRS table imports as before, every row rated."""
+    conn = _make_conn()
+    industry_xlsx = tmp_path / "wacc.xlsx"
+    country_xlsx = tmp_path / "ctry.xlsx"
+    _make_industry_xlsx(industry_xlsx)
+    _make_country_xlsx(country_xlsx)
+
+    result = import_damodaran_from_files(
+        conn,
+        industry_path=industry_xlsx,
+        country_path=country_xlsx,
+        region="US",
+        year=2026,
+    )
+
+    assert result.status == "success"
+    assert conn.execute(
+        "SELECT country, erp_basis, prs_score FROM damodaran_country ORDER BY country"
+    ).fetchall() == [("Brazil", "moodys_rating", None), ("United States", "moodys_rating", None)]
+    conn.close()
