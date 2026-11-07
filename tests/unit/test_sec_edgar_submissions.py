@@ -142,7 +142,7 @@ def test_is_auditor_change_rejects_other_items_and_forms(
 
 def test_is_late_filing_matches_the_nt_forms() -> None:
     assert all(is_late_filing(form) for form in LATE_FILING_FORMS)
-    assert LATE_FILING_FORMS == frozenset({"NT 10-K", "NT 10-K/A", "NT 10-Q", "NT 10-Q/A"})
+    assert frozenset({"NT 10-K", "NT 10-K/A", "NT 10-Q", "NT 10-Q/A"}) == LATE_FILING_FORMS
     assert not any(is_late_filing(form) for form in ("10-K", "NT 20-F", "8-K", None))
 
 

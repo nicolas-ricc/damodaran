@@ -11,7 +11,8 @@ _CONST = "@const bot.ingest.sec_edgar.AUDITOR_CHANGE_ITEM"
 
 
 def _line(board: str, needle: str) -> str:
-    lines = [ln for ln in (PIPELINE / board).read_text("utf-8").splitlines() if needle in ln]
+    text = (PIPELINE / board).read_text("utf-8")
+    lines = [ln for ln in text.splitlines() if ln.lstrip().startswith(needle)]
     assert len(lines) == 1, f"{board}: {needle!r} on {len(lines)} lines"
     return lines[0]
 
@@ -19,7 +20,7 @@ def _line(board: str, needle: str) -> str:
 @pytest.mark.parametrize(
     ("board", "needle"),
     [
-        ("refresh.d2", "  skip: "),
+        ("refresh.d2", "skip: "),
         ("refresh-fundamentals.d2", "ticker_checked: "),
         ("refresh-fundamentals.d2", "edgar -> ticker_checked: "),
     ],
