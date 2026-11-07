@@ -20,11 +20,19 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo
 
 import httpx
 import yaml
 
-from bot.ingest.ibkr_flex import _attr, _flex_date, _flex_root, fetch_flex_statement, parse_flex_row
+from bot.ingest.ibkr_flex import (
+    _attr,
+    _flex_date,
+    _flex_root,
+    fetch_flex_statement,
+    parse_flex_row,
+    parse_statement,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -39,7 +47,17 @@ _HEADER_COMMENT = (
     "only sign and shape). Symbols, conids, isins, ids, dates, types and "
     "descriptions are real."
 )
-_NUMERIC_ATTRS = ("amount", "proceeds", "value", "quantity")
+_NUMERIC_ATTRS = (
+    "amount",
+    "proceeds",
+    "value",
+    "quantity",
+    "position",
+    "costBasisPrice",
+    "markPrice",
+    "endingCash",
+    "tradePrice",
+)
 
 CASSETTE_PATH = Path("tests/fixtures/cassettes/ibkr_flex/statement_real.yaml")
 REDACTED_XML_PATH = Path("tests/fixtures/ibkr_flex/statement_real_redacted.xml")
@@ -100,6 +118,9 @@ class FlexSummary:
     from_date: str | None
     to_date: str | None
     rows: int
+    positions: int
+    cash_rows: int
+    trades: int
     corporate_action_types: dict[str, int]
     cash_transaction_types: dict[str, int]
     parsed: int
@@ -114,8 +135,14 @@ def _sorted(counter: Counter[str]) -> dict[str, int]:
     return dict(sorted(counter.items()))
 
 
-def summarize_statement(xml: str) -> FlexSummary:
-    """Count statements, row types and parser outcomes of a ``FlexQueryResponse``."""
+def summarize_statement(xml: str, *, tz: ZoneInfo | None = None) -> FlexSummary:
+    """Count statements, row types and parser outcomes of a ``FlexQueryResponse``.
+
+    With *tz*, the statement is also run through :func:`parse_statement` (which
+    raises :class:`FlexError` on an unusable query) and the position, cash and
+    trade counts are what it returned; without it they are 0.
+    """
+    parsed_statement = parse_statement(xml, tz=tz) if tz is not None else None
     root = _flex_root(xml)
     statements = list(root.iter("FlexStatement"))
     from_dates = [d for s in statements if (d := _flex_date(_attr(s, "fromDate"))) is not None]
@@ -135,6 +162,9 @@ def summarize_statement(xml: str) -> FlexSummary:
         from_date=min(from_dates).isoformat() if from_dates else None,
         to_date=max(to_dates).isoformat() if to_dates else None,
         rows=len(corporate_actions) + len(cash_transactions),
+        positions=len(parsed_statement.positions) if parsed_statement else 0,
+        cash_rows=len(parsed_statement.cash) if parsed_statement else 0,
+        trades=len(parsed_statement.trades) if parsed_statement else 0,
         corporate_action_types=_sorted(Counter(el.get("type", "") for el in corporate_actions)),
         cash_transaction_types=_sorted(Counter(el.get("type", "") for el in cash_transactions)),
         parsed=sum(parsed_by_type.values()),
@@ -267,8 +297,8 @@ def capture(
         )
     recorder = RecordingTransport(transport or httpx.HTTPTransport())
     statement = fetch_flex_statement(token, query_id, transport=recorder)
+    summary = summarize_statement(statement, tz=ZoneInfo(settings.ibkr_flex_tz))
     redacted = redact_statement(statement)
-    summary = summarize_statement(statement)
     cassette = render_cassette(recorder.interactions, token=token)
     for path, text in (
         (CASSETTE_PATH, cassette),

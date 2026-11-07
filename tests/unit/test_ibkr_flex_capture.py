@@ -14,6 +14,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import quote, quote_plus
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -36,6 +37,7 @@ from bot.ingest.ibkr_flex_capture import (
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "ibkr_flex" / "statement_sample.xml"
 MONEY_KEYS = ("amount", "proceeds", "quantity", "value")
+NY = ZoneInfo("America/New_York")
 
 
 @pytest.fixture
@@ -158,6 +160,9 @@ SAMPLE_SUMMARY = FlexSummary(
         "Payment In Lieu Of Dividends": 1,
         "Withholding Tax": 1,
     },
+    positions=3,
+    cash_rows=3,
+    trades=2,
     parsed=5,
     parsed_by_action_type={"dividend": 2, "split": 2, "tc": 1},
     skipped={"CashTransaction/Dividends": 1, "CashTransaction/Withholding Tax": 1},
@@ -165,21 +170,54 @@ SAMPLE_SUMMARY = FlexSummary(
 
 
 def test_summary_of_sample(sample: str) -> None:
-    assert summarize_statement(sample) == SAMPLE_SUMMARY
+    assert summarize_statement(sample, tz=NY) == SAMPLE_SUMMARY
 
 
 def test_summary_survives_redaction(redacted: str) -> None:
-    assert summarize_statement(redacted) == SAMPLE_SUMMARY
+    assert summarize_statement(redacted, tz=NY) == SAMPLE_SUMMARY
+
+
+def test_summary_counts_new_sections(sample: str) -> None:
+    summary = summarize_statement(sample, tz=NY)
+    assert (summary.positions, summary.cash_rows, summary.trades) == (3, 3, 2)
+    assert '"positions": 3' in summary.to_json()
+
+
+def test_redaction_fakes_position_money(sample: str, redacted: str) -> None:
+    tags = {"OpenPosition", "CashReportCurrency", "Trade"}
+    originals = [e for e in ET.fromstring(sample).iter() if e.tag in tags]
+    fakes = [e for e in ET.fromstring(redacted).iter() if e.tag in tags]
+    assert len(originals) == len(fakes)
+    checked = changed = 0
+    for old, el in zip(originals, fakes, strict=True):
+        for key in ("position", "costBasisPrice", "markPrice", "endingCash", "tradePrice"):
+            if key not in old.attrib:
+                continue
+            o, n = old.attrib[key], el.attrib[key]
+            assert n.startswith("-") == o.startswith("-"), (key, o, n)
+            assert _decimals(n) == _decimals(o), (key, o, n)
+            changed += n != o
+            checked += 1
+    assert checked >= 15
+    assert changed >= 5  # 171.10 -> 100.00, 12345.67 -> 10000.00, ...
+
+
+def test_capture_rejects_query_without_open_positions(sample: str, tmp_path: Path) -> None:
+    stripped = re.sub(r"<OpenPositions>.*?</OpenPositions>", "", sample, flags=re.S)
+    assert "OpenPositions" not in stripped
+    with pytest.raises(FlexError):
+        ibkr_flex_capture.capture(_flex_settings(), root=tmp_path, transport=_transport(stripped))
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_summary_dict_keys_sorted(sample: str) -> None:
-    for value in dataclasses.asdict(summarize_statement(sample)).values():
+    for value in dataclasses.asdict(summarize_statement(sample, tz=NY)).values():
         if isinstance(value, dict):
             assert list(value) == sorted(value)
 
 
 def test_to_json_round_trips(sample: str) -> None:
-    summary = summarize_statement(sample)
+    summary = summarize_statement(sample, tz=NY)
     text = summary.to_json()
     assert json.loads(text) == dataclasses.asdict(summary)
     assert text.endswith("\n")
@@ -284,9 +322,18 @@ def test_capture_writes_exactly_the_three_paths(captured: FlexSummary, tmp_path:
         ibkr_flex_capture.REDACTED_XML_PATH,
         ibkr_flex_capture.SUMMARY_PATH,
     }
-    assert Path("tests/fixtures/cassettes/ibkr_flex/statement_real.yaml") == ibkr_flex_capture.CASSETTE_PATH
-    assert Path("tests/fixtures/ibkr_flex/statement_real_redacted.xml") == ibkr_flex_capture.REDACTED_XML_PATH
-    assert Path("tests/fixtures/ibkr_flex/statement_real_summary.json") == ibkr_flex_capture.SUMMARY_PATH
+    assert (
+        Path("tests/fixtures/cassettes/ibkr_flex/statement_real.yaml")
+        == ibkr_flex_capture.CASSETTE_PATH
+    )
+    assert (
+        Path("tests/fixtures/ibkr_flex/statement_real_redacted.xml")
+        == ibkr_flex_capture.REDACTED_XML_PATH
+    )
+    assert (
+        Path("tests/fixtures/ibkr_flex/statement_real_summary.json")
+        == ibkr_flex_capture.SUMMARY_PATH
+    )
 
 
 def test_capture_cassette_is_scrubbed_and_redacted(captured: FlexSummary, tmp_path: Path) -> None:
@@ -304,18 +351,22 @@ def test_capture_cassette_is_scrubbed_and_redacted(captured: FlexSummary, tmp_pa
     assert len(cassette["interactions"]) == 3
 
 
-def test_capture_writes_redacted_xml_and_summary(sample: str, captured: FlexSummary, tmp_path: Path) -> None:
+def test_capture_writes_redacted_xml_and_summary(
+    sample: str, captured: FlexSummary, tmp_path: Path
+) -> None:
     redacted_text = (tmp_path / ibkr_flex_capture.REDACTED_XML_PATH).read_text(encoding="utf-8")
     summary_text = (tmp_path / ibkr_flex_capture.SUMMARY_PATH).read_text(encoding="utf-8")
     assert redacted_text == redact_statement(sample)
-    assert summary_text == summarize_statement(sample).to_json()
+    assert summary_text == summarize_statement(sample, tz=NY).to_json()
 
 
 def test_capture_returns_the_summary(sample: str, captured: FlexSummary) -> None:
-    assert captured == summarize_statement(sample)
+    assert captured == summarize_statement(sample, tz=NY)
 
 
-def test_capture_cassette_replays_through_vcr(sample: str, captured: FlexSummary, tmp_path: Path) -> None:
+def test_capture_cassette_replays_through_vcr(
+    sample: str, captured: FlexSummary, tmp_path: Path
+) -> None:
     path = tmp_path / ibkr_flex_capture.CASSETTE_PATH
     replayer = vcr.VCR(record_mode="none", filter_query_parameters=[("t", "SCRUBBED")])
     with replayer.use_cassette(str(path)):
@@ -329,7 +380,9 @@ def test_capture_cassette_replays_through_vcr(sample: str, captured: FlexSummary
 def test_capture_refuses_a_cassette_carrying_the_token(sample: str, tmp_path: Path) -> None:
     leaky = sample.replace("SPLIT 4 FOR 1", f"SPLIT 4 FOR 1 {TOKEN}")
     assert TOKEN in leaky
-    with pytest.raises(ibkr_flex_capture.FlexCaptureError, match="token found in the rendered cassette"):
+    with pytest.raises(
+        ibkr_flex_capture.FlexCaptureError, match="token found in the rendered cassette"
+    ):
         ibkr_flex_capture.capture(_flex_settings(), root=tmp_path, transport=_transport(leaky))
     assert list(tmp_path.iterdir()) == []
 
@@ -458,7 +511,7 @@ def test_cli_success_prints_paths_and_summary(
     ]
     wrote = [line for line in result.stdout.splitlines() if line.startswith("Wrote ")]
     assert wrote == [f"Wrote {p}" for p in expected_paths]
-    assert result.stdout.endswith(summarize_statement(sample).to_json())
+    assert result.stdout.endswith(summarize_statement(sample, tz=NY).to_json())
     for form in FORMS:
         assert form not in result.output
 

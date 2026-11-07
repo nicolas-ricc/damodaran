@@ -209,8 +209,8 @@ warning. Snapshots stored before this change are keyed on the run day; there is 
      account ids replaced and amounts and quantities faked; symbols, conids, isins,
      ids, dates, types and descriptions stay real.
    - `tests/fixtures/ibkr_flex/statement_real_summary.json`: counts of accounts, date
-     range, rows, corporate-action and cash-transaction types, and what the parser
-     parsed or skipped.
+     range, rows, positions, cash rows, trades, corporate-action and cash-transaction
+     types, and what the parser parsed or skipped.
 
    The cassette and the redacted XML are safe to commit: the token is scrubbed and
    account ids and amounts are redacted. They still show which symbols you held and
