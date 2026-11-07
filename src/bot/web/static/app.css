@@ -90,7 +90,7 @@ body.page-detail .list-pane { display: none; }
 #rows.htmx-request { opacity: 0.6; }
 
 table { border-collapse: collapse; width: 100%; }
-.list { font-size: var(--text-sm); }
+.list { display: table; font-size: var(--text-sm); }
 .list th, .list td { padding: var(--space-xs); text-align: left; vertical-align: middle; border-bottom: var(--rule-hair) solid var(--rule-faint); }
 .list th:first-child, .list td:first-child { padding-left: var(--space-md); }
 .list th:last-child, .list td:last-child { padding-right: 0; }

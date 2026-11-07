@@ -110,3 +110,10 @@ def test_no_rim_token_survives() -> None:
         text = path.read_text()
         for token in _RIM_TOKENS:
             assert token not in text, f"{token} in {path.name}"
+
+
+def test_list_table_overrides_daisyui_list_component() -> None:
+    css = (_STATIC / "app.css").read_text()
+    rule = re.search(r"^\.list \{[^}]*\}", css, re.M)
+    assert rule is not None
+    assert "display: table" in rule.group(0)
