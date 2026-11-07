@@ -1,6 +1,6 @@
 # ShareCountNotDiluting M&A exception (#279) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use `.agents/skills/subagent-driven-development` (implementers use `.agents/skills/test-driven-development`) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** `ShareCountNotDiluting` passes a company whose share-count growth exceeds the cap when the cash it paid for acquisitions over the last `ma_window` reported fiscal years is at least `ma_materiality` of its latest total assets.
 
@@ -31,6 +31,7 @@
   - fail, total assets `None` or `<= 0`: `avg share-count growth {g} > maximum {m}, not justified: total assets unavailable`
 - **`n` is `len(recent)`, not `ma_window`.** A company with two reported years is summed over two, and the sentence must say two. With the issue's examples (three values, window 3) it reads "3", as the issue shows. "Fiscal years" names the reported years summed; years without the datum are omitted upstream (issue: "years without the datum omitted").
 - **Check order** on the above-cap branch: empty `recent` first, then total assets. A company with neither reads `no acquisitions reported`.
+- **NaN total assets** read as unavailable: the guard is written `total_assets is None or not total_assets > 0`, so a NaN (for which `<= 0` is false) falls into `total assets unavailable` instead of printing `nanx`. Rejected alternative: `total_assets <= 0`, which lets NaN through to the ratio.
 - **Net divestitures** (negative values, #278 stores FMP's net divestiture negative) are summed as they are: they reduce the ratio. No clamping. The issue says `sum(recent)`.
 
 ## Review Focus
@@ -86,8 +87,38 @@ All tests below use `share_count_history=(100.0, 110.0, 121.0)` (growth 0.100 > 
   - `test_share_count_dilution_materiality_is_inclusive`: `ShareCountNotDiluting(ma_materiality=0.05)`, `(0.0, 0.0, 50.0)`, `1000.0` → passes.
   - `test_share_count_dilution_short_history_summed_as_reported`: `(300.0,)`, `1000.0` → passes, `"last 1 fiscal years" in reason`.
   - `test_share_count_dilution_net_divestiture_lowers_ratio`: `(400.0, -350.0)`, `1000.0` → fails, `"0.050x" in reason`.
+  - `test_share_count_dilution_nan_total_assets_unavailable`: `(0.0, 0.0, 300.0)`, `total_assets=float("nan")` → fails, `"total assets unavailable" in reason`.
   - `test_share_count_within_cap_ignores_acquisitions`: `share_count_history=(100.0, 103.0, 106.09)`, `(0.0, 0.0, 300.0)`, `1000.0` → `reason == "avg share-count growth 0.030 <= maximum 0.050"`.
 - [ ] **Step 2: Run** `uv run pytest -q tests/unit/test_screener_trap_detection.py -k share_count` — expect the new pass tests and the reason-content tests FAIL; existing tests PASS.
-- [ ] **Step 3: Implement** the new `__init__` signature (store both params as attributes) and the above-cap branch exactly as the "Reason wording" assumption fixes: `recent = company.acquisitions_history[-self.ma_window:]`; empty → fail; `total_assets is None or <= 0` → fail; else `ratio = sum(recent) / total_assets`, `ratio >= ma_materiality` passes. Rewrite the class docstring's last paragraph: the M&A qualification of spec §6.4 is implemented through cash paid for acquisitions over the last `ma_window` reported fiscal years relative to the latest total assets, inclusive floor `ma_materiality`; drop the sentence saying it is not implemented.
+- [ ] **Step 3: Implement** the new `__init__` signature (store both params as attributes) and the above-cap branch exactly as the "Reason wording" assumption fixes: `recent = company.acquisitions_history[-self.ma_window:]`; empty → fail; `total_assets is None or not total_assets > 0` → fail; else `ratio = sum(recent) / total_assets`, `ratio >= ma_materiality` passes. Rewrite the class docstring's last paragraph: the M&A qualification of spec §6.4 is implemented through cash paid for acquisitions over the last `ma_window` reported fiscal years relative to the latest total assets, inclusive floor `ma_materiality`; drop the sentence saying it is not implemented.
 - [ ] **Step 4: Run** `uv run pytest -q tests/unit/test_screener_trap_detection.py tests/unit/test_screener_rules.py tests/unit/test_screener_second_pass_golden.py` — expect PASS; then `uv run pytest -q` and `uv run ruff check . && uv run mypy src`.
 - [ ] **Step 5: Commit** `feat(#279): ShareCountNotDiluting lifts the cap on material acquisitions`.
+
+## Grilling
+
+One round (the revisions below are local, the seams did not change), 18 questions, griller model fable.
+
+| # | Answer |
+|---|---|
+| 1 | CODE: `src/bot/screener/engine.py` `build_company_data`, `total_assets = latest.total_assets` where `latest = annual[-1]`: the latest fiscal year's value; `types.py` declares `total_assets: float \| None`. |
+| 2 | ISSUE: "If `ratio >= ma_materiality` (inclusive) the rule passes"; reason examples quoted in the issue. Exact wording of the four strings beyond those examples is a declared assumption. CODE: the golden test renders the shortlist `repr`, it holds no share-count reason. |
+| 3 | CODE: `tests/unit/test_screener_second_pass_golden.py` fixture `conn` builds an in-memory DB with `apply_schema`, so the column exists (`schema.sql` lines 126, 136); its seed inserts no `acquisitions`, so every history is empty. ISSUE: "fixture companies have no acquisitions". |
+| 4 | CODE: `grep -rn _AnnualRow src tests` lists only `engine.py` and the three sites in `tests/unit/test_screener_engine.py` (lines 151-154, 207-217, 223-232). ISSUE lists the same. |
+| 5 | CODE: `engine.py` `_load_all_annual`: `WHERE is_restated = FALSE ORDER BY ticker, fiscal_year`. |
+| 6 | CODE: `engine.py` `_tuple` "Drop `None` holes, preserving order". ISSUE (#62 comment, nicolas-ricc): "years without the datum omitted (same convention as the other histories)". Wording "fiscal years" for reported years: declared assumption. |
+| 7 | CODE: `src/bot/screener/config.py:43-70`: params passed verbatim as kwargs; defaults cover absent keys. ISSUE: "Do not add params to the presets in this task ... Defaults apply meanwhile." |
+| 8 | ISSUE (#62 comment): "All are duration cash-flow facts already positive as outflows" (EDGAR); FMP negated (`src/bot/ingest/fmp.py:540-544`). Negative sum: ISSUE "`ratio = sum(recent) / company.total_assets`". |
+| 9 | NO SOURCE → technical assumption: NaN reads as unavailable; test added. |
+| 10 | CODE: `tests/unit/test_screener_trap_detection.py:24-31` `_company(**overrides)` forwards any `CompanyData` kwarg. |
+| 11 | CODE: same file, test asserts `"had_recent_ma"` absent and `"M&A" not in result.reason` with no acquisitions. ISSUE: "every existing `ShareCountNotDiluting` test still passes unchanged". It stays. |
+| 12 | DOC: spec `docs/superpowers/specs/2026-05-25-investment-bot-design.md` §6.4: "Share count creciendo > 5% anual sin M&A justificado". ISSUE (#62 comment) chose cash paid for acquisitions as the source. |
+| 13 | ISSUE: "`recent = company.acquisitions_history[-ma_window:]`", independent of the growth series. No alignment required. |
+| 14 | CODE: `_AnnualRow` is a frozen `@dataclass` with no defaults (`engine.py:264-278`), so a short positional call raises `TypeError`. |
+| 15 | CODE: `tests/unit/test_screener_engine.py:35-37` fixture uses `apply_schema`. |
+| 16 | ISSUE: Task 1 and 2 are one issue, one PR; a failed Task 2 is fixed, not abandoned. Golden: see 3. |
+| 17 | ISSUE: "`ma_materiality: float = 0.10`" and "`ma_materiality=0.05` with ratio 0.05 passes (inclusive)". |
+| 18 | DOC: AGENTS.md lists the skills under `.agents/skills/`; header corrected. |
+
+Source counts: ISSUE 10, CODE 11, DOC 2 (several answers cite more than one), NO SOURCE 1 (technical assumption).
+Assumptions added: NaN total assets read as unavailable.
+Issues opened: none.
