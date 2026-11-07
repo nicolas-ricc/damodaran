@@ -129,11 +129,11 @@ class EdgarPricedProvider:
     def _restamp(self, parsed: ParsedCompanyData) -> ParsedCompanyData:
         """Re-stamp ``source`` as this provider's name (not the raw "sec_edgar").
 
-        ``parse_company_facts`` always stamps "sec_edgar" so the ``bot show
-        --fetch`` path keeps its own provenance. But the incremental-skip
-        watermark (``universe.latest_local_filing_date``) is queried under
-        ``provider.name``; leaving the raw stamp means the watermark query never
-        finds a row and every fundamentals refresh re-imports the full universe.
+        ``parse_company_facts`` stamps the raw "sec_edgar" source, but the
+        incremental-skip watermark (``universe.latest_local_filing_date``) is
+        queried under ``provider.name``; leaving the raw stamp means the watermark
+        query never finds a row and every fundamentals refresh re-imports the full
+        universe.
         """
         return ParsedCompanyData(
             company={**parsed.company, "source": self.name},

@@ -258,8 +258,7 @@ def import_company(
 ) -> IngestResult:
     """Fetch + upsert one ticker's fundamentals through the provider port.
 
-    Mirrors :func:`bot.ingest.sec_edgar.import_company_from_sec`: it returns the
-    same :class:`IngestResult` contract and reuses the existing
+    Returns an :class:`IngestResult` and reuses the existing
     ``upsert_company`` / ``upsert_financials_*`` helpers. All writes happen in a
     single transaction; the run is recorded in ``refresh_log`` under
     ``provider.name``.
