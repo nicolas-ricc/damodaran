@@ -88,7 +88,10 @@ def test_story_margin_yellow_when_high_growth_above_sector() -> None:
     )
     assert flag.color is FlagColor.YELLOW
     assert flag.name == "story_margin"
-    assert "high-growth" in flag.reason
+    assert flag.reason == (
+        "A high-growth story, but the operating margin of 30.0% already exceeds the "
+        "sector's 20.0%: little room left for the margin to improve."
+    )
 
 
 def test_story_margin_green_when_high_growth_at_or_below_sector() -> None:
@@ -105,22 +108,10 @@ def test_story_margin_green_when_high_growth_at_or_below_sector() -> None:
         ),
     )
     assert flag.color is FlagColor.GREEN
-
-
-def test_story_margin_green_for_other_story_types() -> None:
-    fin = _financials()
-    asm = _assumptions()
-    flag = story_margin_flag(
-        fin,
-        asm,
-        _result(fin, asm),
-        _ctx(
-            story_type="mature-stable",
-            company_operating_margin=0.40,
-            sector_operating_margin=0.20,
-        ),
+    assert flag.reason == (
+        "A high-growth story with an operating margin of 18.0%, at or below the "
+        "sector's 20.0%: there is room for the margin to improve."
     )
-    assert flag.color is FlagColor.GREEN
 
 
 def test_story_margin_unknown_when_inputs_missing() -> None:
@@ -131,7 +122,10 @@ def test_story_margin_unknown_when_inputs_missing() -> None:
         fin, asm, _result(fin, asm), _ctx(story_type="high-growth")
     )
     assert flag.color is FlagColor.UNKNOWN
-    assert flag.reason.startswith("not evaluated:")
+    assert flag.reason == (
+        "not evaluated: the company's latest operating margin or the sector's "
+        "median margin is missing."
+    )
 
 
 def test_story_margin_unknown_when_only_sector_margin_is_missing() -> None:
@@ -163,9 +157,10 @@ def test_story_margin_still_reaches_yellow_with_a_real_company_margin() -> None:
         ),
     )
     assert flag.color is FlagColor.YELLOW
-    assert "41.2%" in flag.reason
-    assert "18.3%" in flag.reason
-    assert "at/below sector" not in flag.reason
+    assert flag.reason == (
+        "A high-growth story, but the operating margin of 41.2% already exceeds the "
+        "sector's 18.3%: little room left for the margin to improve."
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -187,6 +182,10 @@ def test_growth_reinvestment_red_when_reinvestment_exceeds_nopat() -> None:
     flag = growth_reinvestment_flag(fin, asm, result, _ctx())
     assert flag.color is FlagColor.RED
     assert flag.name == "growth_reinvestment"
+    assert flag.reason == (
+        "In at least one year growth needs more reinvestment than after-tax operating "
+        "profit (NOPAT) provides, so free cash flow to the firm (FCFF) turns negative."
+    )
 
 
 def test_growth_reinvestment_yellow_when_reinvestment_stretches_nopat() -> None:
@@ -203,6 +202,10 @@ def test_growth_reinvestment_yellow_when_reinvestment_stretches_nopat() -> None:
     assert 0.90 < worst < 1.0
     flag = growth_reinvestment_flag(fin, asm, result, _ctx())
     assert flag.color is FlagColor.YELLOW
+    assert flag.reason == (
+        "In year 3 reinvestment takes 95% of after-tax operating profit (NOPAT): "
+        "growth is funded, but only just."
+    )
 
 
 def test_growth_reinvestment_red_when_nopat_non_positive_but_reinvesting() -> None:
@@ -227,6 +230,10 @@ def test_growth_reinvestment_green_when_comfortably_funded() -> None:
     result = _result(fin, asm)
     flag = growth_reinvestment_flag(fin, asm, result, _ctx())
     assert flag.color is FlagColor.GREEN
+    assert flag.reason == (
+        "Every year the reinvestment growth needs fits within after-tax operating "
+        "profit (NOPAT)."
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -247,6 +254,11 @@ def test_beta_business_risk_yellow_when_defensive_beta_high_leverage() -> None:
     )
     assert flag.color is FlagColor.YELLOW
     assert flag.name == "beta_business_risk"
+    assert flag.reason == (
+        "The sector beta of 0.80 is below 1, which looks defensive, but operating "
+        "leverage of 2.00 is above 1.5 and debt at 50% of capital is above 40%: the "
+        "beta understates the risk."
+    )
 
 
 def test_beta_business_risk_green_when_beta_high() -> None:
@@ -259,6 +271,9 @@ def test_beta_business_risk_green_when_beta_high() -> None:
         _ctx(sector_beta=1.2, operating_leverage=2.0, company_debt_weight=0.5),
     )
     assert flag.color is FlagColor.GREEN
+    assert flag.reason == (
+        "The sector beta of 1.20 fits operating leverage of 2.00 and debt at 50% of capital."
+    )
 
 
 def test_beta_business_risk_green_when_low_leverage() -> None:
@@ -285,7 +300,7 @@ def test_beta_business_risk_uses_the_company_leverage() -> None:
         _ctx(sector_beta=0.8, operating_leverage=2.0, company_debt_weight=0.55),
     )
     assert flag.color is FlagColor.YELLOW
-    assert "55%" in flag.reason
+    assert "debt at 55% of capital" in flag.reason
 
 
 def test_beta_business_risk_unknown_without_company_leverage() -> None:
@@ -298,7 +313,10 @@ def test_beta_business_risk_unknown_without_company_leverage() -> None:
         fin, asm, _result(fin, asm), _ctx(sector_beta=0.8, operating_leverage=2.0)
     )
     assert flag.color is FlagColor.UNKNOWN
-    assert "not evaluated" in flag.reason
+    assert flag.reason == (
+        "not evaluated: the sector beta, the operating leverage or the company's debt "
+        "share is missing."
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -321,6 +339,10 @@ def test_terminal_value_share_yellow_above_ceiling() -> None:
     flag = terminal_value_share_flag(fin, asm, result, _ctx())
     assert flag.color is FlagColor.YELLOW
     assert flag.name == "terminal_value_share"
+    assert flag.reason == (
+        "88% of enterprise value comes from the terminal value, above the 80% ceiling: "
+        "the valuation rests almost entirely on the perpetuity."
+    )
 
 
 def test_terminal_value_share_green_below_ceiling() -> None:
@@ -330,6 +352,9 @@ def test_terminal_value_share_green_below_ceiling() -> None:
     assert result.terminal_value_share <= 0.80
     flag = terminal_value_share_flag(fin, asm, result, _ctx())
     assert flag.color is FlagColor.GREEN
+    assert flag.reason == (
+        "74% of enterprise value comes from the terminal value, within the 80% ceiling."
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -348,7 +373,11 @@ def test_country_exposure_red_when_foreign_and_erp_gap_wide() -> None:
     )
     assert flag.color is FlagColor.RED
     assert flag.name == "country_exposure"
-    assert "bps" in flag.reason
+    assert flag.reason == (
+        "70% of revenue is earned abroad and the revenue-weighted equity risk premium "
+        "(ERP) of 9.0% is 400 basis points above the listing country's 5.0%, more than "
+        "300: the discount rate under-prices country risk."
+    )
 
 
 def test_country_exposure_green_when_mostly_domestic() -> None:
@@ -361,6 +390,10 @@ def test_country_exposure_green_when_mostly_domestic() -> None:
         _ctx(foreign_revenue_share=0.30, erp_weighted=0.09, erp_listing=0.05),
     )
     assert flag.color is FlagColor.GREEN
+    assert flag.reason == (
+        "30% of revenue is earned abroad and the revenue-weighted equity risk premium "
+        "(ERP) is 9.0% against 5.0% for the listing country, a gap of 400 basis points."
+    )
 
 
 def test_country_exposure_green_when_erp_gap_narrow() -> None:
@@ -384,7 +417,10 @@ def test_country_exposure_is_unknown_not_green_without_data() -> None:
         fin, asm, _result(fin, asm), _ctx(foreign_revenue_share=0.70)
     )
     assert flag.color is FlagColor.UNKNOWN
-    assert "not evaluated" in flag.reason
+    assert flag.reason == (
+        "not evaluated: it needs revenue by geography and a revenue-weighted equity "
+        "risk premium (ERP), and no data source supplies either."
+    )
 
 
 def test_country_exposure_red_when_the_data_is_present() -> None:
@@ -416,11 +452,45 @@ def test_country_exposure_green_when_the_gap_is_small() -> None:
 # --------------------------------------------------------------------------- #
 
 
-def test_narrative_flags_runs_all_five_in_spec_order() -> None:
+_BASE_FLAG_NAMES = [
+    "growth_reinvestment",
+    "beta_business_risk",
+    "terminal_value_share",
+    "country_exposure",
+]
+
+
+def test_narrative_flags_runs_the_four_base_checks_in_spec_order() -> None:
     fin = _financials()
     asm = _assumptions()
     flags = narrative_flags(fin, asm, _result(fin, asm), _ctx())
     assert isinstance(flags, tuple)
+    assert [f.name for f in flags] == _BASE_FLAG_NAMES
+    assert all(isinstance(f, NarrativeFlag) for f in flags)
+
+
+@pytest.mark.parametrize(
+    "story_type",
+    ["mature-stable", "mature-decline", "cyclical", "distressed", "hypergrowth", None],
+)
+def test_narrative_flags_omit_story_margin_for_other_story_types(
+    story_type: str | None,
+) -> None:
+    # A check that does not apply is not emitted, the way hypergrowth_flags() omits its
+    # flags; a margin far above the sector must not bring it back (issue #265).
+    fin = _financials()
+    asm = _assumptions()
+    context = _ctx(
+        story_type=story_type, company_operating_margin=0.40, sector_operating_margin=0.20
+    )
+    flags = narrative_flags(fin, asm, _result(fin, asm), context)
+    assert [f.name for f in flags] == _BASE_FLAG_NAMES
+
+
+def test_narrative_flags_runs_five_for_high_growth() -> None:
+    fin = _financials()
+    asm = _assumptions()
+    flags = narrative_flags(fin, asm, _result(fin, asm), _ctx(story_type="high-growth"))
     assert [f.name for f in flags] == [
         "story_margin",
         "growth_reinvestment",
@@ -428,7 +498,15 @@ def test_narrative_flags_runs_all_five_in_spec_order() -> None:
         "terminal_value_share",
         "country_exposure",
     ]
-    assert all(isinstance(f, NarrativeFlag) for f in flags)
+
+
+def test_narrative_flags_keep_an_unknown_story_margin_for_high_growth() -> None:
+    # The check applies and the data is missing: unknown stays visible (spec §7.5).
+    fin = _financials()
+    asm = _assumptions()
+    flags = narrative_flags(fin, asm, _result(fin, asm), _ctx(story_type="high-growth"))
+    assert flags[0].name == "story_margin"
+    assert flags[0].color is FlagColor.UNKNOWN
 
 
 def test_narrative_flags_surfaces_each_flags_color() -> None:
@@ -472,7 +550,10 @@ def test_hypergrowth_story_red_without_story() -> None:
     flag = _hypergrowth_flag(hypergrowth_signals=True, story_file_present=False)
     assert flag.name == "hypergrowth_story"
     assert flag.color is FlagColor.RED
-    assert flag.reason == "hypergrowth signals but no story file: default valuation is not reliable"
+    assert flag.reason == (
+        "The classifier sees hypergrowth signals but there is no story file, so the "
+        "default valuation is not reliable."
+    )
 
 
 def test_hypergrowth_story_yellow_without_signals() -> None:
@@ -480,7 +561,10 @@ def test_hypergrowth_story_yellow_without_signals() -> None:
         story_type="hypergrowth", hypergrowth_signals=False, story_file_present=True
     )
     assert flag.color is FlagColor.YELLOW
-    assert flag.reason == "story file present but the classifier signals are absent"
+    assert flag.reason == (
+        "A story file is present but the classifier sees no hypergrowth signals: the two "
+        "disagree."
+    )
 
 
 def test_hypergrowth_story_green_with_both() -> None:
@@ -488,6 +572,7 @@ def test_hypergrowth_story_green_with_both() -> None:
         story_type="hypergrowth", hypergrowth_signals=True, story_file_present=True
     )
     assert flag.color is FlagColor.GREEN
+    assert flag.reason == "The classifier's hypergrowth signals and the story file agree."
 
 
 def _hypergrowth_flags(**context: object) -> tuple[NarrativeFlag, ...]:
@@ -514,10 +599,10 @@ def test_hypergrowth_flags_on_story_type() -> None:
     ]
 
 
-def test_narrative_flags_stay_five_with_hypergrowth_signals() -> None:
+def test_narrative_flags_stay_four_with_hypergrowth_signals() -> None:
     fin, asm = _financials(), _assumptions()
     flags = narrative_flags(fin, asm, _result(fin, asm), _ctx(hypergrowth_signals=True))
-    assert len(flags) == 5
+    assert len(flags) == 4
     assert "hypergrowth_story" not in {f.name for f in flags}
 
 
@@ -526,6 +611,7 @@ def test_hypergrowth_story_green_when_neither_signals_nor_story_file() -> None:
         story_type="hypergrowth", hypergrowth_signals=False, story_file_present=False
     )
     assert flag.color is FlagColor.GREEN
+    assert flag.reason == "No hypergrowth signals and no story file: there is nothing to reconcile."
 
 
 # --------------------------------------------------------------------------- #
@@ -552,7 +638,8 @@ def test_revenue_scale_yellow_above_the_largest_company() -> None:
     assert flag.name == "hypergrowth_revenue_scale"
     assert flag.color is FlagColor.YELLOW
     assert flag.reason == (
-        "year-10 revenue 750B exceeds the largest company revenue today (~750B)"
+        "Year-10 revenue of 750 billion is larger than the revenue of the largest "
+        "company today, about 750 billion."
     )
 
 
@@ -560,6 +647,10 @@ def test_revenue_scale_green_at_the_largest_company() -> None:
     flag = _revenue_scale_flag(750e9)
     assert flag.name == "hypergrowth_revenue_scale"
     assert flag.color is FlagColor.GREEN
+    assert flag.reason == (
+        "Year-10 revenue of 750 billion is within the revenue of the largest company "
+        "today, about 750 billion."
+    )
 
 
 def _terminal_roic_flag(**context: object) -> NarrativeFlag:
@@ -573,12 +664,23 @@ def test_terminal_roic_yellow_above_twice_the_sector() -> None:
     flag = _terminal_roic_flag(terminal_roic=0.24 + 1e-9, sector_roic=0.12)
     assert flag.name == "hypergrowth_terminal_roic"
     assert flag.color is FlagColor.YELLOW
-    assert "12.0%" in flag.reason
+
+
+def test_terminal_roic_yellow_reason() -> None:
+    flag = _terminal_roic_flag(terminal_roic=0.30, sector_roic=0.12)
+    assert flag.reason == (
+        "The terminal return on invested capital (ROIC) of 30.0% is above 24.0%, 2 times "
+        "the sector's 12.0%: the story claims an advantage far beyond the sector's."
+    )
 
 
 def test_terminal_roic_green_at_exactly_twice_the_sector() -> None:
     flag = _terminal_roic_flag(terminal_roic=0.24, sector_roic=0.12)
     assert flag.color is FlagColor.GREEN
+    assert flag.reason == (
+        "The terminal return on invested capital (ROIC) of 24.0% is within 24.0%, 2 times "
+        "the sector's 12.0%."
+    )
 
 
 @pytest.mark.parametrize(
@@ -589,6 +691,10 @@ def test_terminal_roic_unknown_without_both_roics(
 ) -> None:
     flag = _terminal_roic_flag(terminal_roic=terminal_roic, sector_roic=sector_roic)
     assert flag.color is FlagColor.UNKNOWN
+    assert flag.reason == (
+        "not evaluated: the terminal return on invested capital (ROIC) or the sector's "
+        "ROIC is missing."
+    )
 
 
 def test_hypergrowth_flags_three_for_a_story_in_order() -> None:
@@ -613,19 +719,22 @@ def test_hypergrowth_flags_one_for_signals_without_a_story() -> None:
     assert [f.name for f in flags] == ["hypergrowth_story"]
 
 
-def test_narrative_flags_stay_five_for_a_hypergrowth_story() -> None:
+def test_narrative_flags_stay_four_for_a_hypergrowth_story() -> None:
     fin, asm = _financials(), _assumptions()
     flags = narrative_flags(
         fin, asm, _result(fin, asm), _ctx(story_type="hypergrowth", hypergrowth_signals=True)
     )
-    assert len(flags) == 5
+    assert [f.name for f in flags] == _BASE_FLAG_NAMES
 
 
 @pytest.mark.parametrize("sector_roic", [0.0, -0.03])
 def test_terminal_roic_unknown_when_the_sector_roic_is_not_positive(sector_roic: float) -> None:
     flag = _terminal_roic_flag(terminal_roic=0.15, sector_roic=sector_roic)
     assert flag.color is FlagColor.UNKNOWN
-    assert "not a usable benchmark" in flag.reason
+    assert flag.reason == (
+        f"not evaluated: a sector return on invested capital (ROIC) of {sector_roic:.1%} "
+        "is not a usable benchmark."
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -709,11 +818,16 @@ def test_sweep_results_reach_the_bands() -> None:
 def test_every_flag_is_classified_by_red_capability() -> None:
     # The flags analyze returns (bot.valuator.analysis.analyze): keep in sync with its
     # narrative_flags(...) + hypergrowth_flags(...) concatenation.
+    # story_margin only comes out for high-growth, the hypergrowth flags only for signals
+    # or the hypergrowth story type: the union of the two contexts emits every flag.
     fin, asm = _financials(), _assumptions()
     result = _result(fin, asm)
-    ctx = _ctx(story_type="hypergrowth", hypergrowth_signals=True)
     emitted = {
         f.name
+        for ctx in (
+            _ctx(story_type="hypergrowth", hypergrowth_signals=True),
+            _ctx(story_type="high-growth"),
+        )
         for f in narrative_flags(fin, asm, result, ctx) + hypergrowth_flags(fin, asm, result, ctx)
     }
     never_red = {f.__name__.removesuffix("_flag") for f in _NEVER_RED}
@@ -744,3 +858,117 @@ def test_never_red_flag_is_not_red_over_a_sweep(
         if flag(fin, asm, result, ctx).color is FlagColor.RED
     ]
     assert reds == []
+
+
+# --------------------------------------------------------------------------- #
+# Every reason reads as a sentence for a human (issue #265)                   #
+# --------------------------------------------------------------------------- #
+
+
+def test_country_exposure_green_reason_with_a_negative_gap() -> None:
+    fin, asm = _financials(), _assumptions()
+    flag = country_exposure_flag(
+        fin,
+        asm,
+        _result(fin, asm),
+        _ctx(foreign_revenue_share=0.70, erp_weighted=0.045, erp_listing=0.05),
+    )
+    assert flag.color is FlagColor.GREEN
+    assert flag.reason.endswith("a gap of -50 basis points.")
+
+
+def test_country_exposure_green_reason_never_prints_minus_zero() -> None:
+    fin, asm = _financials(), _assumptions()
+    flag = country_exposure_flag(
+        fin,
+        asm,
+        _result(fin, asm),
+        _ctx(foreign_revenue_share=0.70, erp_weighted=0.04997, erp_listing=0.05),
+    )
+    assert flag.reason.endswith("a gap of 0 basis points.")
+
+
+#: Each acronym a reason may use, with the expansion that must come before it.
+_EXPANSIONS = {
+    "NOPAT": "after-tax operating profit (NOPAT)",
+    "FCFF": "free cash flow to the firm (FCFF)",
+    "ERP": "equity risk premium (ERP)",
+    "ROIC": "return on invested capital (ROIC)",
+}
+
+#: Every (name, colour) pair the eight checks can return.
+_EVERY_BRANCH = {
+    ("story_margin", FlagColor.GREEN),
+    ("story_margin", FlagColor.YELLOW),
+    ("story_margin", FlagColor.UNKNOWN),
+    ("growth_reinvestment", FlagColor.GREEN),
+    ("growth_reinvestment", FlagColor.YELLOW),
+    ("growth_reinvestment", FlagColor.RED),
+    ("beta_business_risk", FlagColor.GREEN),
+    ("beta_business_risk", FlagColor.YELLOW),
+    ("beta_business_risk", FlagColor.UNKNOWN),
+    ("terminal_value_share", FlagColor.GREEN),
+    ("terminal_value_share", FlagColor.YELLOW),
+    ("country_exposure", FlagColor.GREEN),
+    ("country_exposure", FlagColor.RED),
+    ("country_exposure", FlagColor.UNKNOWN),
+    ("hypergrowth_story", FlagColor.GREEN),
+    ("hypergrowth_story", FlagColor.YELLOW),
+    ("hypergrowth_story", FlagColor.RED),
+    ("hypergrowth_revenue_scale", FlagColor.GREEN),
+    ("hypergrowth_revenue_scale", FlagColor.YELLOW),
+    ("hypergrowth_terminal_roic", FlagColor.GREEN),
+    ("hypergrowth_terminal_roic", FlagColor.YELLOW),
+    ("hypergrowth_terminal_roic", FlagColor.UNKNOWN),
+}
+
+_ALL_FLAGS = (
+    story_margin_flag,
+    growth_reinvestment_flag,
+    beta_business_risk_flag,
+    terminal_value_share_flag,
+    country_exposure_flag,
+    hypergrowth_story_flag,
+    hypergrowth_revenue_scale_flag,
+    hypergrowth_terminal_roic_flag,
+)
+
+
+def _every_reason() -> list[NarrativeFlag]:
+    """Every check over inputs that reach each of its branches."""
+    contexts = [
+        *_sweep_contexts(),
+        *(
+            NarrativeContext(
+                foreign_revenue_share=foreign, erp_weighted=weighted, erp_listing=listing
+            )
+            for foreign, weighted, listing in (
+                (None, None, None),
+                (0.70, 0.09, 0.05),
+                (0.70, 0.046, 0.045),
+            )
+        ),
+        *(
+            NarrativeContext(hypergrowth_signals=signals, story_file_present=story)
+            for signals, story in itertools.product((False, True), (False, True))
+        ),
+    ]
+    return [
+        flag(fin, asm, result, ctx)
+        for fin, asm, result in _sweep_results()
+        for ctx in contexts
+        for flag in _ALL_FLAGS
+    ]
+
+
+def test_every_reason_reads_for_a_person() -> None:
+    flags = _every_reason()
+    assert {(f.name, f.color) for f in flags} == _EVERY_BRANCH
+    for reason in {f.reason for f in flags}:
+        for notation in ("\u2014", "<=", ">", "bps", "~"):
+            assert notation not in reason, (notation, reason)
+        for acronym, expansion in _EXPANSIONS.items():
+            if acronym in reason:
+                assert expansion in reason, (acronym, reason)
+                # The first use of the acronym is the one inside its expansion.
+                assert reason.index(acronym) > reason.index(expansion), reason

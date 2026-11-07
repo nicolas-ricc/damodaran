@@ -633,3 +633,13 @@ def test_context_source_of_truth_links_the_lesson() -> None:
         context.index("## Source of truth") : context.index("## Working with the plans")
     ]
     assert "docs/leccion/" in section
+
+
+def test_story_margin_row_says_it_runs_only_for_high_growth() -> None:
+    """A check that does not apply is not emitted (#265)."""
+    html = _html()
+    row = html[html.index("<code>story_margin</code></th>") :]
+    row = row[: row.index("</tr>")]
+    assert "Solo para historias <code>high-growth</code>" in row
+    assert "Otras historias no llevan esta flag." in row
+    assert "Verde en cualquier otro caso" not in row
