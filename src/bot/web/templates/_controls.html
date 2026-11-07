@@ -16,6 +16,13 @@
 </nav>
 {% endmacro %}
 
+{% macro search_box() %}
+<label class="input input-sm" id="search" hidden>
+  <span class="sr">Search by ticker or name</span>
+  <input type="search" autocomplete="off" spellcheck="false" placeholder="Ticker or name" aria-controls="rows">
+</label>
+{% endmacro %}
+
 {% macro sort_th(key, label) %}
 {% set f, s, d = active %}
 {% set nd = ("asc" if d == "desc" else "desc") if s == key else ("desc" if key == "mos" else "asc") %}
