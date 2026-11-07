@@ -58,8 +58,9 @@
       var ticker = row.querySelector("td.ticker");
       if (!ticker) return;
       var name = row.querySelector("td.name");
-      var text = ticker.textContent.toLowerCase() + " " + (name ? name.textContent.toLowerCase() : "");
-      row.hidden = !!q && text.indexOf(q) === -1;
+      var inTicker = ticker.textContent.toLowerCase().indexOf(q) !== -1;
+      var inName = !!name && name.textContent.toLowerCase().indexOf(q) !== -1;
+      row.hidden = !!q && !inTicker && !inName;
       if (!row.hidden) visible++;
     });
     if (count) count.textContent = visible + " of " + count.dataset.total;

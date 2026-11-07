@@ -89,6 +89,13 @@ def test_no_match_row_writes_the_query_as_text() -> None:
     assert not re.search(r"innerHTML\s*=[^;]*\+", script)
 
 
+def test_search_matches_each_cell_separately() -> None:
+    script = _SCRIPT.read_text()
+    body = script[script.index("function applySearch") : script.index("function announceDetail")]
+    assert '+ " " +' not in body
+    assert body.count("indexOf(q)") == 2
+
+
 def test_mark_selected_skips_hidden_rows() -> None:
     assert "if (row.hidden) return;" in _SCRIPT.read_text()
 
