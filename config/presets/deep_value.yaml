@@ -74,6 +74,9 @@ trap_detection:
     - name: share_count_not_diluting
       params:
         max_annual_growth: 0.05
+    - name: auditor_changes_and_late_filings
+      params:
+        window_years: 2            # 8-K item 4.01 or NT 10-K/10-Q in the last 2 years
 
 # --- Ranking score weights (spec §6.5) ------------------------------------- #
 # Weight off growth and onto cheapness + margin of safety: we are buying the
