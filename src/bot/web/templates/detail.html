@@ -2,11 +2,11 @@
 <header class="detail-head">
   <h1 tabindex="-1"><span class="big-ticker">{{ detail.ticker }}</span> <span class="co-name">{{ detail.name }}</span></h1>
   {% if detail.history | length > 1 %}
-  <nav class="history" aria-label="Analysis date">
+  <nav class="history join" aria-label="Analysis date">
     {% for d in detail.history %}
     {% set path = "c/" ~ detail.ticker ~ ".html" if d == latest else "c/" ~ detail.ticker ~ "/" ~ d ~ ".html" %}
     {% set frag = "f/" ~ detail.ticker ~ ".html" if d == latest else "f/" ~ detail.ticker ~ "/" ~ d ~ ".html" %}
-    <a href="{{ base_url }}{{ path }}" hx-get="{{ base_url }}{{ frag }}" hx-target="#detail" hx-swap="innerHTML settle:220ms" hx-push-url="{{ base_url }}{{ path }}" hx-indicator="#detail"{% if d == detail.date %} aria-current="page"{% endif %}>{{ d }}</a>
+    <a class="btn btn-xs join-item{% if d == detail.date %} btn-active{% endif %}" href="{{ base_url }}{{ path }}" hx-get="{{ base_url }}{{ frag }}" hx-target="#detail" hx-swap="innerHTML settle:220ms" hx-push-url="{{ base_url }}{{ path }}" hx-indicator="#detail"{% if d == detail.date %} aria-current="page"{% endif %}>{{ d }}</a>
     {% endfor %}
   </nav>
   {% endif %}
