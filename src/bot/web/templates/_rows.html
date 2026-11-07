@@ -1,6 +1,6 @@
 <tbody id="rows">
 {% for r in rows %}
-  <tr{% if r.ticker == selected %} class="selected"{% endif %}>
+  <tr{% if r.ticker == selected %} class="selected bg-base-300"{% endif %}>
     <td class="ticker"><a href="{{ base_url }}c/{{ r.ticker }}.html" hx-get="{{ base_url }}f/{{ r.ticker }}.html" hx-target="#detail" hx-swap="innerHTML settle:220ms" hx-push-url="{{ base_url }}c/{{ r.ticker }}.html" hx-indicator="#detail"{% if r.ticker == selected %} aria-current="true"{% endif %}>{{ r.ticker }}</a></td>
     <td class="name">{{ r.name }}</td>
     <td>{{ verdict_mark(r.verdict) }}</td>
@@ -8,11 +8,11 @@
     <td class="num" data-label="Price">{{ r.price }}</td>
     <td class="num" data-label="Intrinsic">{{ r.intrinsic }}</td>
     <td data-label="Story">{{ r.story }}</td>
-    <td class="flags">{% for f in r.flags %}{{ flag_mark(f.color, f.name) }}{% endfor %}</td>
+    <td class="flags">{% for f in r.flags %}<span class="badge badge-xs badge-{{ f.tone }}" title="{{ f.severity }}: {{ f.label }}">{{ flag_mark(f.color, f.name) }}</span>{% endfor %}</td>
     <td class="num" data-label="Date">{{ r.date }}</td>
   </tr>
 {% else %}
   {% set f, s, d = active %}
-  <tr><td colspan="9" class="none">No company is {{ {"na": "without a verdict"}.get(f, f) }} yet. <a href="{{ list_href("all", s, d) }}" hx-get="{{ rows_href("all", s, d) }}" hx-target="#rows" hx-swap="outerHTML" hx-indicator="#rows">Show all</a></td></tr>
+  <tr><td colspan="9" class="none">No company is {{ {"na": "without a verdict"}.get(f, f) }} yet. <a class="btn btn-link btn-xs" href="{{ list_href("all", s, d) }}" hx-get="{{ rows_href("all", s, d) }}" hx-target="#rows" hx-swap="outerHTML" hx-indicator="#rows">Show all</a></td></tr>
 {% endfor %}
 </tbody>

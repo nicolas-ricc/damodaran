@@ -34,6 +34,7 @@
       var link = row.querySelector("td.ticker a");
       var on = !!link && link.textContent.trim() === ticker;
       row.classList.toggle("selected", on);
+      row.classList.toggle("bg-base-300", on);
       if (link) {
         if (on) link.setAttribute("aria-current", "true");
         else link.removeAttribute("aria-current");
@@ -66,7 +67,7 @@
       // a filter that has rows again leaves the "no company is ..." pane behind: ask for a pick instead
       var empty = document.querySelector("#detail .empty-detail");
       if (empty && document.querySelector("#rows td.ticker")) {
-        empty.innerHTML = "<p>Pick a company from the list to read its analysis.</p>";
+        empty.innerHTML = '<div class="hero-content"><div><p>Pick a company from the list to read its analysis.</p></div></div>';
       }
     } else if (id === "detail") {
       markSelected();

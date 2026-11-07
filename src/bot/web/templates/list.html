@@ -4,11 +4,11 @@
 {% block body_class %}{{ page_class | default("page-list") }}{% endblock %}
 {% block content %}
 {% if total == 0 %}
-<main class="empty">
+<main class="hero empty"><div class="hero-content"><div>
   <h1>No analyses yet</h1>
   <p>Each company the bot analyses appears here with its verdict. Run one to populate the viewer:</p>
   <p><code>bot analyze --from-screen</code></p>
-</main>
+</div></div></main>
 {% else %}
 <main class="split">
   <div class="list-pane">
@@ -17,7 +17,7 @@
       {{ filter_nav(False) }}
       {{ count(False) }}
     </div>
-    <table class="list">
+    <table class="table table-sm table-pin-rows list">
       {{ list_head(False) }}
       {% include "_rows.html" %}
     </table>
