@@ -34,6 +34,7 @@
 
 {% if detail.tornado %}
 <section class="drivers">
+  <div class="divider" aria-hidden="true"></div>
   <div class="head-row"><h2>Drivers</h2></div>
   <p class="lede">Intrinsic value per share when each input alone moves: a rate by one percentage point either way, sales_to_capital by 20%. The vertical line is today's price; a bar that crosses it means that input alone can flip the verdict.</p>
   {{ tornado_table(detail.tornado, price=detail.price) }}
@@ -43,6 +44,7 @@
 <div class="pair-grid">
   {% if detail.grid %}
   <section class="scenarios">
+    <div class="divider" aria-hidden="true"></div>
     <div class="head-row"><h2>Scenarios</h2><p class="count-line"><span class="num">{{ detail.grid.matching }}</span> of <span class="num">{{ detail.grid.total }}</span> agree</p></div>
     <p class="lede">The verdict when {{ detail.grid.axis_a }} and {{ detail.grid.axis_b }} move together: a rate by up to one percentage point, sales_to_capital by up to 20%. The glyphs are the ones in the verdict filter.</p>
     {{ scenario_grid_table(detail.grid) }}
@@ -50,6 +52,7 @@
   {% endif %}
   {% if detail.flags %}
   <section class="flag-list">
+    <div class="divider" aria-hidden="true"></div>
     <div class="head-row"><h2>Flags</h2></div>
     <p class="lede">Checks on the story behind the numbers. A failed check does not change the verdict; it tells you how much to trust it.</p>
     <ul>
@@ -63,6 +66,7 @@
 
 <div class="pair-grid wide-first">
   <section class="assumptions">
+    <div class="divider" aria-hidden="true"></div>
     <div class="head-row"><h2>Assumptions</h2>{% if detail.defaulted %}<p class="count-line"><span class="num">{{ detail.defaulted }}</span> of <span class="num">{{ detail.assumptions | length }}</span> are sector defaults</p>{% endif %}</div>
     <p class="lede">The inputs of the DCF and where each came from. A sector default is Damodaran's industry average, not a fact about this company.</p>
     <table>
@@ -75,6 +79,7 @@
   </section>
   {% if detail.sanity %}
   <section class="sanity">
+    <div class="divider" aria-hidden="true"></div>
     <div class="head-row"><h2>Sanity</h2></div>
     <p class="lede">Each multiple against the sector median: company / sector. The implied ones come from the intrinsic value, the market P/E from the price.</p>
     <p class="pairs">{% for s in detail.sanity %}<span class="pair"><span class="key">{{ s.label }}</span> <span class="num">{{ s.value }}</span></span> {% endfor %}</p>
@@ -82,6 +87,7 @@
   {% endif %}
 </div>
 
+<div class="divider" aria-hidden="true"></div>
 <details class="dcf">
   <summary><abbr title="Discounted cash flow">DCF</abbr></summary>
   <p class="lede">{{ detail.dcf_rows | length }} years of projected free cash flow to the firm, discounted, plus a terminal value for everything after. Money in the company's reporting currency.</p>
