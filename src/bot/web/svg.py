@@ -25,13 +25,13 @@ from bot.web.views import (
     flag_severity,
 )
 
-_INK = "var(--color-ink)"
-_SOFT = "var(--color-muted)"
-_INTRINSIC = "var(--color-accent-2)"
+_INK = "var(--color-base-content)"
+_SOFT = "var(--ink-soft)"
+_INTRINSIC = "var(--color-secondary)"
 _VERDICT_COLOR = {
-    Verdict.UNDERVALUED: "var(--color-under)",
-    Verdict.FAIR: "var(--color-fair)",
-    Verdict.OVERVALUED: "var(--color-over)",
+    Verdict.UNDERVALUED: "var(--color-success)",
+    Verdict.FAIR: "var(--color-warning)",
+    Verdict.OVERVALUED: "var(--color-error)",
     Verdict.NA: _SOFT,
 }
 _FLAG_VERDICT = {
