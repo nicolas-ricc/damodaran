@@ -34,6 +34,10 @@ Regenerated for #213 (a mature-decline company keeps its own latest margin): onl
 the mature_decline fixture moved.
 
 Re-run for #213 (distressed p from coverage): unchanged — the distressed fixture has a manual p.
+
+Regenerated for #265 (narrative flags: story_margin only for a high-growth story,
+every reason reworded for a reader): only the narrative-flag rows moved. That run
+also pinned the optional ``bankruptcy_derivation`` key (null) added by #246.
 """
 
 from __future__ import annotations
