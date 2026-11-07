@@ -822,7 +822,9 @@ def test_bby_shaped_series_has_revenue_every_year_from_2009() -> None:
     annual = _annual(_facts({"Revenues": revenues, "SalesRevenueNet": sales}))
     expected = [y for y in range(2009, 2026) if y != 2013]  # 2013: 335-day transition
     assert sorted(annual) == expected
-    assert all(r["revenue"] is not None and r["revenue"] >= 1_000_000_000 for r in annual.values())
+    assert all(
+        r["revenue"] is not None and r["revenue"] >= 1_000_000_000 for r in annual.values()
+    )
 
 
 # --- #124: filer scale errors on diluted shares ------------------------------------
@@ -830,7 +832,9 @@ def test_bby_shaped_series_has_revenue_every_year_from_2009() -> None:
 
 def _shares_facts(values: dict[int, float | None]) -> dict[str, object]:
     """One 10-K Revenues row per year, plus diluted shares where ``values`` has one."""
-    revenues = [_fact(f"{year}-12-31", 25_000_000_000, start=f"{year}-01-01") for year in values]
+    revenues = [
+        _fact(f"{year}-12-31", 25_000_000_000, start=f"{year}-01-01") for year in values
+    ]
     shares = [
         _fact(f"{year}-12-31", val, start=f"{year}-01-01")
         for year, val in values.items()
@@ -842,7 +846,9 @@ def _shares_facts(values: dict[int, float | None]) -> dict[str, object]:
         "facts": {
             "us-gaap": {
                 "Revenues": {"units": {"USD": revenues}},
-                "WeightedAverageNumberOfDilutedSharesOutstanding": {"units": {"shares": shares}},
+                "WeightedAverageNumberOfDilutedSharesOutstanding": {
+                    "units": {"shares": shares}
+                },
             }
         },
     }
@@ -850,9 +856,7 @@ def _shares_facts(values: dict[int, float | None]) -> dict[str, object]:
 
 def _shares_by_year(values: dict[int, float | None]) -> tuple[dict[int, object], int]:
     parsed = parse_company_facts("MCD", _shares_facts(values))
-    return {
-        r["fiscal_year"]: r.get("shares_diluted") for r in parsed.annual
-    }, parsed.shares_rescaled
+    return {r["fiscal_year"]: r.get("shares_diluted") for r in parsed.annual}, parsed.shares_rescaled
 
 
 def test_shares_scaled_in_millions_are_rescaled() -> None:
