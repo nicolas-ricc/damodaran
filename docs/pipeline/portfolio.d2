@@ -165,7 +165,7 @@ notify: "6. notify: channel checked first, alerts sent after the run" {
 }
 
 # Edges
-daily -> cli: "bot portfolio, after prices and FX succeeded;\nstatement unavailable: exit code 1, logged to .cache/daily.log"
+daily -> cli: "bot portfolio, after prices and FX succeeded;\nFlex credentials missing: exit code 2; statement unavailable: exit code 1, logged to .cache/daily.log"
 cli -> sync.snapshot: "1. run_portfolio"
 preset -> marks.gates: "quality gates and trap detection"
 override_yaml -> marks.valuation: "override of the holding"

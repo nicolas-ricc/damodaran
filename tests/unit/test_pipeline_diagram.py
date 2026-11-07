@@ -725,7 +725,6 @@ _ACRONYMS: dict[str, str] = {
     "EOD": "end of day",
     "FX": "foreign exchange",
     "IBKR": "Interactive Brokers",
-    "TWS": "Trader Workstation",
     "DCF": "discounted cash flow",
     "WACC": "weighted average cost of capital",
     "MoS": "margin of safety",
