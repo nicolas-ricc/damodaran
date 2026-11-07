@@ -31,6 +31,7 @@
     var listOnly = document.body.classList.contains("page-list") && !wide.matches;
     var ticker = big && !listOnly ? big.textContent.trim() : null;
     document.querySelectorAll("#rows tr").forEach(function (row) {
+      if (row.hidden) return;
       var link = row.querySelector("td.ticker a");
       var on = !!link && link.textContent.trim() === ticker;
       row.classList.toggle("selected", on);
@@ -40,6 +41,46 @@
         else link.removeAttribute("aria-current");
       }
     });
+  }
+
+  // Hide the rows the box does not match; swaps and Back replace these nodes, so look them up every time.
+  function applySearch() {
+    var input = document.querySelector("#search input");
+    if (!input) return;
+    var rows = document.getElementById("rows");
+    var count = document.getElementById("count");
+    if (!rows) return;
+    var raw = input.value.trim();
+    var q = raw.toLowerCase();
+    var visible = 0;
+    rows.querySelectorAll("tr").forEach(function (row) {
+      var ticker = row.querySelector("td.ticker");
+      if (!ticker) return;
+      var name = row.querySelector("td.name");
+      var inTicker = ticker.textContent.toLowerCase().indexOf(q) !== -1;
+      var inName = !!name && name.textContent.toLowerCase().indexOf(q) !== -1;
+      row.hidden = !!q && !inTicker && !inName;
+      if (!row.hidden) visible++;
+    });
+    if (count) count.textContent = visible + " of " + count.dataset.total;
+    var none = document.getElementById("search-empty");
+    if (q && visible === 0) {
+      if (!none) {
+        none = document.createElement("tr");
+        none.id = "search-empty";
+        none.innerHTML = '<td colspan="9" class="none">No company matches "<span></span>". <button type="button" class="btn btn-link btn-xs">Clear search</button></td>';
+        none.querySelector("button").addEventListener("click", function () {
+          input.value = "";
+          applySearch();
+          input.focus();
+        });
+      }
+      none.querySelector("span").textContent = raw;
+      rows.appendChild(none);
+    } else if (none) {
+      none.remove();
+    }
+    markSelected();
   }
 
   // One line for screen readers instead of the whole analysis, then focus the heading.
@@ -59,9 +100,31 @@
   markSelected();
   wide.addEventListener("change", markSelected);
 
+  // Show the box only where the script runs; Back restores a snapshot whose rows may still be hidden.
+  function initSearch() {
+    var search = document.getElementById("search");
+    if (!search) return;
+    search.removeAttribute("hidden");
+    applySearch();
+  }
+
+  initSearch();
+  document.addEventListener("htmx:historyRestore", initSearch);
+
+  document.addEventListener("input", function (e) {
+    if (e.target instanceof Element && e.target.matches("#search input")) applySearch();
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key !== "Escape" || !(e.target instanceof Element) || !e.target.matches("#search input")) return;
+    e.preventDefault();
+    e.target.value = "";
+    applySearch();
+  });
+
   document.addEventListener("htmx:afterSettle", function (e) {
     var id = e.target && e.target.id;
     if (id === "rows") {
+      applySearch();
       markSelected();
       restoreFocus();
       // a filter that has rows again leaves the "no company is ..." pane behind: ask for a pick instead
