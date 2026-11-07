@@ -23,11 +23,17 @@
 - Valuator, screener and e2e tests pass without edits.
 - `uv run ruff check . && uv run mypy src && uv run pytest -q` green; `python3 docs/pipeline/check.py` passes.
 
-## Technical assumptions (declared)
+## Assumptions
 
 - `tests/integration/test_damodaran_import.py::test_import_fills_country_tax_rates_and_no_risk_free_column` asserts `with_tax / total >= 0.95`. With 178 rows and only Russia of the 21 PRS countries on the tax sheet, the ratio becomes 158/178 ≈ 0.89. The assertion is narrowed to the Moody's rows (`WHERE erp_basis = 'moodys_rating'`, all 157 carry a rate on the fixture, so `>= 0.95` holds) and its comment no longer cites the title row. This is a test edit in an integration test of the importer, which the spec allows ("tests" may change; only valuator/screener/e2e must not).
 - The second header is searched only after the main header and only in the PK column index; a sheet without one yields first-table rows only (the existing minimal xlsx in `test_damodaran_importer.py`).
 - "Title row" = a first-table row whose every mapped non-PK value is `None` after normalization. Applied to the first table only (the spec's decision 5).
+- A "blank" PK cell is `None` or a value whose `str(...).strip()` is `""` (xlrd returns `""` for empty cells, openpyxl `None`). The second-header search tests a cell only when it is not blank, so `str(None) == "None"` can never match. Rejected: `str(cell).strip()` on raw cells.
+- The title-row debug event is named `damodaran.country.title_row_dropped` (the issue only says "with a debug log"); rejected: no event name.
+- The PK column is `next(iter(column_map))`, the existing contract of `_to_normalized_rows` and `IndustryDataset.column_map` ("`industry` must be first"). A custom map whose first key is not the PK is unsupported, as today.
+- Empty sheet: `rows` empty, or no body row under the main header → the existing `damodaran.country.empty_file` warning and `[]` (the header-only importer test relies on the empty result; `_import_files_into_run` sets `partial`).
+- The 0.95 tax-coverage narrowing is part of the stage-3 evals commit (it holds on the current code, 157/157 vs 157/158), so no intermediate commit is red because of it.
+- `upsert_country_rows` lives in `src/bot/ingest/damodaran.py`, which may change; it already uses the union of row keys with `r.get(c)`, so heterogeneous keys are fine and no change there is expected.
 
 ## Review Focus
 
@@ -96,7 +102,11 @@ In `test_damodaran_parser.py`, replace `test_country_parse_stops_at_the_second_t
 rows = parse_country_xls(FIXTURES / "ctryprem_sample.xls", year=2026, column_map=DEFAULT_COUNTRY_COLUMN_MAP)
 assert len(rows) == 178
 assert sum(r["erp_basis"] == "moodys_rating" for r in rows) == 157
-assert sum(r["erp_basis"] == "prs_score" for r in rows) == 21
+assert sorted(r["country"] for r in rows if r["erp_basis"] == "prs_score") == sorted([
+    "Algeria", "Brunei", "Gambia", "Guinea", "Guinea-Bissau", "Guyana", "Haiti", "Iran",
+    "Korea, D.P.R.", "Liberia", "Libya", "Madagascar", "Malawi", "Myanmar", "Russia",
+    "Sierra Leone", "Somalia", "Sudan", "Syria", "Yemen, Republic", "Zimbabwe",
+])  # hand-read from rows 167-187 of the fixture
 countries = {r["country"] for r in rows}
 assert "Frontier Markets (no sovereign ratings)" not in countries
 assert "Country" not in countries
@@ -162,3 +172,11 @@ In `test_damodaran_importer.py`: after `import_damodaran_from_files` on the mini
 - [ ] **Step 2:** `PATH=/usr/local/lib/d2/d2-v0.9.0/bin:$PATH docs/pipeline/build.sh`; `python3 docs/pipeline/check.py` → 0 errors.
 - [ ] **Step 3:** `uv run pytest tests/unit/test_pipeline_diagram.py tests/unit/test_pipeline_subboards.py tests/unit/test_pipeline_models.py tests/unit/test_hypergrowth_docs.py -q` → PASS.
 - [ ] **Step 4:** Commit `docs(#59): boards and status plan read both country tables` with the `.d2`, changed `.svg`, `rendered.sha256`, `estado.py`, `engine.py`.
+
+## Grilling
+
+- Rounds: 1 (griller model: fable). Revisions were additive (assumptions, one pinned list), no seam changed, so no second round.
+- Questions: 18. Sources: ISSUE 7 (Q1, Q4, Q5, Q10, Q15, Q16 partly, Q18 partly), CODE 14 (Q1–Q3, Q6–Q8, Q11, Q13, Q14, Q16, Q17; several questions cite both), NO SOURCE 5, all technical assumptions (Q9 blank definition, Q11 empty rule, Q12 event name, Q6 custom map, Q18 commit order).
+- Verified on the fixture: `Country` appears in the PK column only at rows 7 and 166; the 21 PRS names are the list pinned in Task 2; none duplicates a first-table country; only `Russia` is on the tax sheet (no near-miss spellings for the other twenty); DuckDB 1.5.3 accepts `ADD COLUMN IF NOT EXISTS` twice.
+- Assumptions: see `## Assumptions`.
+- Issues opened: none (nothing out of scope; #271 already covers the US/United States join).
