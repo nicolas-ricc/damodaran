@@ -43,21 +43,42 @@ REDACTED_ACCOUNT = "U0000000"
 
 _HEADER_COMMENT = (
     "Redacted real statement captured by bot flex-capture for #110. Account ids and "
-    "money and quantity columns are fakes (a placeholder account id; amounts keep "
-    "only sign and shape). Symbols, conids, isins, ids, dates, types and "
+    "every numeric column are fakes (a placeholder account id; numbers keep only "
+    "sign and shape). Symbols, conids, isins, ids, dates, types and "
     "descriptions are real."
 )
-_NUMERIC_ATTRS = (
-    "amount",
-    "proceeds",
-    "value",
-    "quantity",
-    "position",
-    "costBasisPrice",
-    "markPrice",
-    "endingCash",
-    "tradePrice",
+# Allow-list redaction: every attribute holding a number is faked, except these
+# identifiers and dates (and names ending in Date or ID), which stay real.
+_KEEP_ATTRS = frozenset(
+    {
+        "conid",
+        "underlyingConid",
+        "ibOrderID",
+        "ibExecID",
+        "orderID",
+        "execID",
+        "tradeID",
+        "transactionID",
+        "actionID",
+        "isin",
+        "cusip",
+        "figi",
+        "securityID",
+        "reportDate",
+        "dateTime",
+        "settleDate",
+        "tradeDate",
+        "fromDate",
+        "toDate",
+        "whenGenerated",
+        "count",
+    }
 )
+
+
+def _is_kept(name: str) -> bool:
+    return name in _KEEP_ATTRS or name.endswith(("Date", "ID"))
+
 
 CASSETTE_PATH = Path("tests/fixtures/cassettes/ibkr_flex/statement_real.yaml")
 REDACTED_XML_PATH = Path("tests/fixtures/ibkr_flex/statement_real_redacted.xml")
@@ -100,9 +121,9 @@ def redact_statement(xml: str) -> str:
             el.set("accountId", REDACTED_ACCOUNT)
         if "acctAlias" in el.attrib:
             el.set("acctAlias", "")
-        for key in _NUMERIC_ATTRS:
-            if key in el.attrib:
-                el.set(key, _fake_number(el.attrib[key]))
+        for key, value in list(el.attrib.items()):
+            if key not in {"accountId", "acctAlias"} and not _is_kept(key):
+                el.set(key, _fake_number(value))
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         f"<!-- {_HEADER_COMMENT} -->\n"
@@ -135,14 +156,14 @@ def _sorted(counter: Counter[str]) -> dict[str, int]:
     return dict(sorted(counter.items()))
 
 
-def summarize_statement(xml: str, *, tz: ZoneInfo | None = None) -> FlexSummary:
+def summarize_statement(xml: str, *, tz: ZoneInfo) -> FlexSummary:
     """Count statements, row types and parser outcomes of a ``FlexQueryResponse``.
 
-    With *tz*, the statement is also run through :func:`parse_statement` (which
-    raises :class:`FlexError` on an unusable query) and the position, cash and
-    trade counts are what it returned; without it they are 0.
+    The statement is also run through :func:`parse_statement` (which raises
+    :class:`FlexError` on an unusable query); the position, cash and trade counts
+    are what it returned.
     """
-    parsed_statement = parse_statement(xml, tz=tz) if tz is not None else None
+    parsed_statement = parse_statement(xml, tz=tz)
     root = _flex_root(xml)
     statements = list(root.iter("FlexStatement"))
     from_dates = [d for s in statements if (d := _flex_date(_attr(s, "fromDate"))) is not None]
@@ -162,9 +183,9 @@ def summarize_statement(xml: str, *, tz: ZoneInfo | None = None) -> FlexSummary:
         from_date=min(from_dates).isoformat() if from_dates else None,
         to_date=max(to_dates).isoformat() if to_dates else None,
         rows=len(corporate_actions) + len(cash_transactions),
-        positions=len(parsed_statement.positions) if parsed_statement else 0,
-        cash_rows=len(parsed_statement.cash) if parsed_statement else 0,
-        trades=len(parsed_statement.trades) if parsed_statement else 0,
+        positions=len(parsed_statement.positions),
+        cash_rows=len(parsed_statement.cash),
+        trades=len(parsed_statement.trades),
         corporate_action_types=_sorted(Counter(el.get("type", "") for el in corporate_actions)),
         cash_transaction_types=_sorted(Counter(el.get("type", "") for el in cash_transactions)),
         parsed=sum(parsed_by_type.values()),

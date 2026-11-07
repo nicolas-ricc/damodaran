@@ -217,7 +217,8 @@ warning. Snapshots stored before this change are keyed on the run day; there is 
    their corporate actions over the window. The JSON summary is also printed; paste it
    into the #111 findings. The raw statement is never written. The command exits 2
    when `BOT_IBKR_FLEX_TOKEN` or `BOT_IBKR_FLEX_QUERY_ID` is missing, and 1 when the
-   Flex service fails or the token would leak into the cassette. In both cases
+   Flex service fails, the token would leak into the cassette, the query lacks Open
+   Positions, Cash Report or Trades, or a value cannot be parsed. In every case
    nothing is written.
 
 **Historical trade backfill.** Temporarily widen the query period in IBKR, run

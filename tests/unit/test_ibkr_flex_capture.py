@@ -223,40 +223,41 @@ def test_to_json_round_trips(sample: str) -> None:
     assert text.endswith("\n")
 
 
-def test_summary_dates_none_when_absent() -> None:
-    xml = (
+_SECTIONS = (
+    '<OpenPositions><OpenPosition accountId="U1" conid="1" symbol="X" position="1" '
+    'costBasisPrice="1" markPrice="1" reportDate="20260930" levelOfDetail="SUMMARY" />'
+    "</OpenPositions><CashReport /><Trades />"
+)
+
+
+def _minimal(attrs: str = "", extra: str = "") -> str:
+    return (
         "<FlexQueryResponse><FlexStatements>"
-        '<FlexStatement accountId="U1" />'
+        f'<FlexStatement accountId="U1" {attrs}>{_SECTIONS}{extra}</FlexStatement>'
         "</FlexStatements></FlexQueryResponse>"
     )
-    summary = summarize_statement(xml)
+
+
+def test_summary_dates_none_when_absent() -> None:
+    summary = summarize_statement(_minimal(), tz=NY)
     assert (summary.from_date, summary.to_date) == (None, None)
     assert (summary.accounts, summary.rows) == (1, 0)
 
 
 def test_summary_dates_tolerate_padding() -> None:
-    xml = (
-        "<FlexQueryResponse><FlexStatements>"
-        '<FlexStatement accountId="U1" fromDate=" 20260901" toDate="20260930 " />'
-        "</FlexStatements></FlexQueryResponse>"
-    )
-    summary = summarize_statement(xml)
+    xml = _minimal('fromDate=" 20260901" toDate="20260930 "')
+    summary = summarize_statement(xml, tz=NY)
     assert (summary.from_date, summary.to_date) == ("2026-09-01", "2026-09-30")
 
 
 def test_summary_missing_type_counts_under_empty() -> None:
-    xml = (
-        "<FlexQueryResponse><FlexStatements>"
-        '<FlexStatement accountId="U1" fromDate="20260901" toDate="20260930">'
-        '<CorporateActions><CorporateAction symbol="X" actionID="9" /></CorporateActions>'
-        "</FlexStatement></FlexStatements></FlexQueryResponse>"
-    )
-    assert summarize_statement(xml).corporate_action_types == {"": 1}
+    xml = _minimal(extra='<CorporateActions><CorporateAction symbol="X" actionID="9" /></CorporateActions>')
+    assert summarize_statement(xml, tz=NY).corporate_action_types == {"": 1}
 
 
 def test_summarize_rejects_other_root() -> None:
     with pytest.raises(ValueError, match="expected a FlexQueryResponse, got Foo"):
-        summarize_statement("<Foo/>")
+        summarize_statement("<Foo/>", tz=NY)
 
 
 TOKEN = "1234567890/abc+def=4567"  # not purely alphanumeric: httpx percent-encodes it in URLs
@@ -526,3 +527,33 @@ def test_render_cassette_without_a_token_has_nothing_to_refuse() -> None:
     interactions = _record(lambda request: httpx.Response(200, text=SUCCESS))
     text = ibkr_flex_capture.render_cassette(interactions, token="")
     assert len(yaml.safe_load(text)["interactions"]) == 1
+
+
+def test_redaction_fakes_unlisted_money_columns_and_keeps_identifiers() -> None:
+    xml = (
+        "<FlexQueryResponse><FlexStatements><FlexStatement>"
+        '<OpenPosition accountId="U1" conid="265598" costBasisMoney="12345.6" reportDate="20260930" '
+        'dateTime="20260915;093500" ibOrderID="1234567890" actionID="777" fifoPnlUnrealized="-5.5" />'
+        '<CashReportCurrency currency="USD" startingCash="99.5" netCash="-20" />'
+        '<Trade ibCommission="-1.25" ibExecID="0000e0d5.66e6c1a1.01.01" />'
+        "</FlexStatement></FlexStatements></FlexQueryResponse>"
+    )
+    root = ET.fromstring(redact_statement(xml))
+    pos, cash, trade = (root.find(f".//{t}") for t in ("OpenPosition", "CashReportCurrency", "Trade"))
+    assert pos is not None
+    assert cash is not None
+    assert trade is not None
+    assert pos.get("costBasisMoney") == "10000.0"
+    assert pos.get("fifoPnlUnrealized") == "-1.0"
+    assert cash.get("startingCash") == "10.0"
+    assert cash.get("netCash") == "-10"
+    assert trade.get("ibCommission") == "-1.00"
+    for key, value in (
+        ("conid", "265598"),
+        ("reportDate", "20260930"),
+        ("dateTime", "20260915;093500"),
+        ("ibOrderID", "1234567890"),
+        ("actionID", "777"),
+    ):
+        assert pos.get(key) == value
+    assert trade.get("ibExecID") == "0000e0d5.66e6c1a1.01.01"
