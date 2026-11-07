@@ -87,8 +87,11 @@ def test_hand_drawn_controls_are_gone() -> None:
         ".list .none a",
     ):
         assert gone not in css, gone
+    assert "\na { color: inherit" not in css
     for kept in (
-        ".empty .hero-content > div, .empty-detail .hero-content > div { display: grid; gap: var(--space-sm); }",
+        ".empty .hero-content > div, .empty-detail .hero-content > div { display: grid; justify-items: start; gap: var(--space-sm); }",
+        "a:not(.btn) {",
+        "a:not(.btn):hover { text-decoration: underline; }",
         "[hidden] { display: none !important; }",
         ".sr {",
         ".split {",
