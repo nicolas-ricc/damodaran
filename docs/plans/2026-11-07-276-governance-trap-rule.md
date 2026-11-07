@@ -27,6 +27,9 @@
 - **Acronym expansion on the boards.** `tests/unit/test_pipeline_diagram.py::test_acronyms_are_expanded` requires `SEC` and `NT` to share their first-use line with their expansion ("Securities and Exchange Commission", "notification of late filing"). Neither board expands them today, so the decided labels of decisions 7 and 8 fail that test verbatim. The labels keep every decided word and add only the expansions: `SEC` becomes `Securities and Exchange Commission (SEC)` on its first use and `NT` is preceded by `a notification of late filing` (the wording `refresh.d2` already uses), e.g. screen.d2 line 1 `no auditor change (8-K item 4.01) and no notification of late filing (NT 10-K, NT 10-Q)`, line 2 `in the last 2 years of Securities and Exchange Commission (SEC) filings, read from filings_log`. Rejected: adding the tokens to `_ACRONYMS_EXEMPT` (a weakening the AC forbids).
 - **Dates.** DuckDB returns `DATE` as `datetime.date`; `_load_governance_filings` coerces with `bot.ingest.base.coerce_date` only if a value is not already a `date` (mirrors `_load_latest_prices`).
 - **`as_of` source.** `CompanyData.as_of` is the `as_of` argument `build_company_data` already receives (the newest market-cap row's date, `_PriceSnapshot.as_of`), as decision 4 says.
+- **`filings_log` always exists.** `apply_schema` creates it (`src/bot/storage/schema.sql:153`, with the idempotent `items` migration) and every CLI command applies the schema (`src/bot/cli.py:70`), so no "table missing" branch is written.
+- **No ticker restriction on the governance query.** Only governance filings are stored (story #61 decision 2), a handful of rows per US company; `load_holding_inputs` also loads all tickers' annual rows and prices the same way. Rejected: a `WHERE ticker IN (...)` variant for the marks path (a second code path for no measurable gain).
+- **`as_of=None` in the marks path.** A holding without a price gets `as_of=None` and every known adverse filing counts (issue decision 1, verbatim); not re-decided here.
 - **Lesson line numbers.** Engine citations in `docs/leccion/index.html` already drift (warnings only); the rule citation gets its exact line; other lines this change moves (`rules.py` none, since the class is appended last; `engine.py` ones) are refreshed so `check.py` prints no new warning.
 
 ## Review Focus
@@ -95,6 +98,8 @@ Stage 3 of the pipeline writes every test named below first, failing, in one com
   - `test_build_company_data_governance_none_outside_us`: the Germany company of `test_build_company_data_roic_uses_country_tax_rate`, with an `NT 10-K` row → both fields `None`.
   - `test_build_company_data_without_governance_is_empty_in_us`: `governance=None`, US → both `()`.
   - `test_governance_dates_deduplicated_and_sorted`: `8-K` 4.01 and `8-K/A` 4.01 same day, plus an older `8-K` 4.01 from source `fmp` → two dates, ascending.
+  - `test_governance_amended_8k_counts_alone`: a lone `8-K/A` with items `'4.01'` → its date in `auditor_change_dates` (distinguishes classifying `8-K/A` from ignoring it).
+  - `test_governance_skip_is_eliminatory`: `evaluate_company` with `trap_detection=[AuditorChangesAndLateFilings()]` on a `CompanyData` whose two date fields are `None` → `passed is False` and `"auditor_changes_and_late_filings" in failed_gates` (the ADR 0006 path the non-US case depends on).
   - `test_load_holding_inputs_carries_governance_dates`: same tuples as the screen path for TST.
   - `test_run_screen_rejects_a_company_with_a_recent_late_filing`: `_seed_sector`, `_seed_company(conn, "TST")`, `NT 10-K` on 2026-02-27 → `"TST"` in `{r.ticker for r in result.rejected}` and `"auditor_changes_and_late_filings"` in its `failed_gates`; with `_value_preset()`, `valuator=None`. Also assert the company is a candidate without the row (control, separate DB via a second test or inline before inserting).
 - [ ] **Step 2: Run** `uv run pytest tests/unit/test_screener_engine.py -q` → new tests FAIL.
@@ -132,3 +137,12 @@ Stage 3 of the pipeline writes every test named below first, failing, in one com
 ### Final verification
 
 - [ ] `uv run ruff check . && uv run mypy src && uv run pytest -q` → green.
+
+## Grilling
+
+- Rounds: 1 (the revision only added two tests and four assumptions, no change of seam, so no second round).
+- Questions: 16. Sources: ISSUE 9, CODE 12, DOC 1, pipeline instruction 1 (several answers cite two kinds); NO SOURCE 3, all technical assumptions.
+- Assumptions added: `filings_log` always exists; no ticker restriction on the governance query; `as_of=None` in the marks path follows decision 1 (recorded under Assumptions). Acronym expansion on the board labels was already declared.
+- Tests added: `test_governance_amended_8k_counts_alone`, `test_governance_skip_is_eliminatory`.
+- Issues opened: none.
+- Status: ok.
