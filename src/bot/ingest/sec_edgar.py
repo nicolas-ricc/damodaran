@@ -787,18 +787,21 @@ def upsert_financials_quarterly(conn: duckdb.DuckDBPyConnection, rows: list[dict
 def upsert_filings(conn: duckdb.DuckDBPyConnection, filings: list[dict[str, Any]]) -> int:
     """Upsert filings_log entries on PK match. Returns row count.
 
-    Conflicts update only the accession number: ``fetched_at`` must keep the
+    Conflicts update the accession number and ``items`` (an incoming NULL
+    ``items`` keeps the stored value, so whichever row arrives second, the
+    item numbers survive). ``fetched_at`` is never updated: it must keep the
     first-ingestion time, since new-filing events are keyed off it.
     """
     if not filings:
         return 0
-    cols = ["ticker", "filing_type", "filing_date", "accession_number", "source"]
+    cols = ["ticker", "filing_type", "filing_date", "accession_number", "items", "source"]
     placeholders = ", ".join(["?"] * len(cols))
     for f in filings:
         conn.execute(
             f"INSERT INTO filings_log ({', '.join(cols)}) VALUES ({placeholders}) "
             f"ON CONFLICT (ticker, filing_type, filing_date, source) "
-            f"DO UPDATE SET accession_number = excluded.accession_number",
+            f"DO UPDATE SET accession_number = excluded.accession_number, "
+            f"items = COALESCE(excluded.items, filings_log.items)",
             [f.get(c) for c in cols],
         )
     return len(filings)
