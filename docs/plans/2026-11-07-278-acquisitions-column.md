@@ -23,6 +23,13 @@
 
 "Quarterly rows never carry `acquisitions`" is read as: no quarterly row stored in `financials_quarterly` carries it (the table has no such column and `upsert_financials_quarterly` filters on `FINANCIALS_QUARTERLY_COLS`), and quarterly rows built from 10-K-only facts have no `acquisitions` key. The issue also says the quarterly path "must stay untouched", so the parser's in-memory quarterly dicts, which already carry non-stored helper keys such as `capex` for derivations, are not filtered further.
 
+## Assumptions
+
+- Quarterly rows: see "Declared technical assumption" above. Rejected alternative: popping `acquisitions` from quarterly dicts in `parse_company_facts`, which would touch the quarterly path the issue says stays untouched. A 10-K fact cannot reach a quarterly dict anyway: the quarterly collector accepts only `10-Q`/`10-Q/A` forms with an 80–100 day span (`sec_edgar.py` `QUARTERLY_SPAN_DAYS`, `allowed_forms`).
+- FMP dialects: only `acquisitionsNet` is mapped, as the issue says; no legacy `/api/v3` alias is added. Rejected alternative: guessing a legacy field name with no payload to back it.
+- FMP zero: `acquisitionsNet: 0` is negated to `-0.0`, which equals `0.0` in Python and DuckDB. Rejected alternative: special-casing zero, which changes no stored comparison.
+- EDGAR negative values are stored as reported ("no derivation, no sign change", issue #278). No cross-provider sign test is added.
+
 ## Review Focus
 
 1. A legacy database with existing `financials_annual` rows: the migration keeps the rows and leaves `acquisitions` NULL on them (Task 1 test asserts the old row survives with NULL).
@@ -44,7 +51,7 @@
 
 - [ ] **Step 1: Write the failing tests** in `tests/unit/test_storage_db.py`:
   - `test_financials_annual_has_acquisitions_column`: `connect(":memory:")`, `apply_schema`, assert `"acquisitions" in _financials_annual_columns(conn)` and its `data_type` is `DOUBLE`.
-  - `test_apply_schema_adds_acquisitions_to_a_legacy_financials_annual`: execute `_LEGACY_FINANCIALS_ANNUAL_DDL`, insert `('AAPL', 2024, 'sec_edgar', capex=1.0)`, `apply_schema` twice, assert the column exists and `SELECT ticker, fiscal_year, capex, acquisitions FROM financials_annual` == `[("AAPL", 2024, 1.0, None)]`.
+  - `test_apply_schema_adds_acquisitions_to_a_legacy_financials_annual`: execute `_LEGACY_FINANCIALS_ANNUAL_DDL`, insert `('AAPL', 2024, 'sec_edgar', capex=1.0)`, `apply_schema` twice, assert the migrated column set equals a fresh database's column set (so a hand-typed legacy DDL that diverges from what shipped fails), and `SELECT ticker, fiscal_year, capex, acquisitions FROM financials_annual` == `[("AAPL", 2024, 1.0, None)]`. Copy the legacy DDL from the `financials_annual` block of `schema.sql` at `origin/feature/62-dilution-ma-exception` (unchanged since master 22be2a9).
 - [ ] **Step 2: Run** `uv run pytest -q tests/unit/test_storage_db.py` — expect the two new tests to FAIL (column missing).
 - [ ] **Step 3: Implement**: add `acquisitions    DOUBLE,` after `dividends_paid` in the CREATE TABLE; after the table add
 
@@ -105,3 +112,10 @@
 - `uv run pytest -q tests/unit/test_storage_db.py tests/unit/test_sec_edgar_parser.py tests/unit/test_fmp_parser.py tests/integration/test_sec_edgar_import.py tests/unit/test_screener_engine.py`
 - `uv run pytest -q`
 - `uv run ruff check . && uv run mypy src`
+
+## Grilling
+
+- Rounds: 1 (revisions were minor: one stronger assertion and an Assumptions section; no steps added or removed, same seams).
+- Questions: 16. Sources: CODE 11, ISSUE 5. NO SOURCE parts became 2 technical assumptions (no FMP legacy alias; `-0.0` for a zero `acquisitionsNet`). Spec ambiguities: 0. Out of scope: 0.
+- Assumptions: see `## Assumptions`.
+- Issues opened: none.
