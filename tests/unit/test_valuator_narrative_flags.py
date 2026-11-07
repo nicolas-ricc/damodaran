@@ -376,7 +376,7 @@ def test_country_exposure_red_when_foreign_and_erp_gap_wide() -> None:
     assert flag.reason == (
         "70% of revenue is earned abroad and the revenue-weighted equity risk premium "
         "(ERP) of 9.0% is 400 basis points above the listing country's 5.0%, more than "
-        "300: the discount rate under-prices country risk."
+        "the 300 basis points allowed: the discount rate under-prices country risk."
     )
 
 

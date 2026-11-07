@@ -46,7 +46,7 @@ Placeholders are the existing local variables; formats as shown.
 | terminal_value_share | yellow | `{share:.0%} of enterprise value comes from the terminal value, above the {_TERMINAL_VALUE_SHARE_CEILING:.0%} ceiling: the valuation rests almost entirely on the perpetuity.` |
 | terminal_value_share | green | `{share:.0%} of enterprise value comes from the terminal value, within the {_TERMINAL_VALUE_SHARE_CEILING:.0%} ceiling.` |
 | country_exposure | unknown | `not evaluated: it needs revenue by geography and a revenue-weighted equity risk premium (ERP), and no data source supplies either.` |
-| country_exposure | red | `{foreign:.0%} of revenue is earned abroad and the revenue-weighted equity risk premium (ERP) of {erp_weighted:.1%} is {gap_bps} basis points above the listing country's {erp_listing:.1%}, more than {threshold_bps}: the discount rate under-prices country risk.` |
+| country_exposure | red | `{foreign:.0%} of revenue is earned abroad and the revenue-weighted equity risk premium (ERP) of {erp_weighted:.1%} is {gap_bps} basis points above the listing country's {erp_listing:.1%}, more than the {threshold_bps} basis points allowed: the discount rate under-prices country risk.` |
 | country_exposure | green | `{foreign:.0%} of revenue is earned abroad and the revenue-weighted equity risk premium (ERP) is {erp_weighted:.1%} against {erp_listing:.1%} for the listing country, a gap of {gap_bps} basis points.` |
 | hypergrowth_story | red | `The classifier sees hypergrowth signals but there is no story file, so the default valuation is not reliable.` |
 | hypergrowth_story | yellow | `A story file is present but the classifier sees no hypergrowth signals: the two disagree.` |

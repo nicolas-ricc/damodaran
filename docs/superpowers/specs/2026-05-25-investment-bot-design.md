@@ -299,7 +299,7 @@ Proxies de "story↔numbers consistency" (verde/amarillo/rojo). Cuatro controles
 - **Terminal value share > 80%**: flag amarillo (valuación frágil, depende casi todo de perpetuidad).
 - **Country exposure vs ERP listado**: si revenue mayoritariamente fuera del país de listado y ERP weighted > listado + 300bps, flag rojo.
 
-Se suman hasta tres flags más, el segundo de dos grupos condicionales (el primero es story-margin, solo para `high-growth`): `hypergrowth_story` aparece cuando disparan las señales del clasificador o cuando el story type es `hypergrowth`; los otros dos, solo cuando el story type es `hypergrowth`:
+Se suman hasta tres flags más, también condicionales. `hypergrowth_story` aparece cuando disparan las señales del clasificador o cuando el story type es `hypergrowth`; los otros dos, solo cuando el story type es `hypergrowth`:
 
 - **`hypergrowth_story`**: reconcilia las señales del clasificador con el archivo de story. Rojo si hay señales y no hay archivo (la valuación default no es confiable); amarillo si hay archivo y no hay señales; verde si están las dos.
 - **`hypergrowth_revenue_scale`**: si los ingresos del año 10 superan a los de la empresa más grande hoy (~750B), flag amarillo.

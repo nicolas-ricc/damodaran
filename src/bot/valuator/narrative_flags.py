@@ -397,8 +397,8 @@ def country_exposure_flag(
                 f"{foreign:.0%} of revenue is earned abroad and the "
                 f"revenue-weighted equity risk premium (ERP) of {erp_weighted:.1%} "
                 f"is {gap_bps} basis points above the listing country's "
-                f"{erp_listing:.1%}, more than {threshold_bps}: the discount rate "
-                "under-prices country risk."
+                f"{erp_listing:.1%}, more than the {threshold_bps} basis points "
+                "allowed: the discount rate under-prices country risk."
             ),
         )
     return NarrativeFlag(
