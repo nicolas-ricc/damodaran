@@ -271,9 +271,11 @@ def test_pipeline_does_not_compare_the_sector_margin_to_itself(
 
     assert analysis.story_type == "high-growth"
     assert flag.color is FlagColor.YELLOW
-    assert "30.0%" in flag.reason and "12.0%" in flag.reason
     # A margin materially *above* sector must never be described as at/below it.
-    assert "at/below sector" not in flag.reason
+    assert flag.reason == (
+        "A high-growth story, but the operating margin of 30.0% already exceeds the "
+        "sector's 12.0%: little room left for the margin to improve."
+    )
 
 
 def test_pipeline_story_margin_unknown_when_the_sector_row_is_absent(
@@ -292,6 +294,27 @@ def test_pipeline_story_margin_unknown_when_the_sector_row_is_absent(
 
     assert flag.color is FlagColor.UNKNOWN
     assert flag.reason.startswith("not evaluated:")
+
+
+def test_pipeline_omits_story_margin_outside_high_growth(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    # LEV's realised margin (30%) is far above the sector's (12%), yet a mature-stable
+    # story carries no story-margin check at all (issue #265).
+    _seed_company(conn, ticker="LEV", industry_damodaran="Computers/Peripherals")
+    _seed_leveraged_financials(conn, ticker="LEV")
+    override = tmp_path / "LEV.yaml"
+    override.write_text("story_type: mature-stable\n")
+
+    analysis = analyze("LEV", conn, override_path=override)
+
+    assert analysis.story_type == "mature-stable"
+    assert [f.name for f in analysis.narrative_flags] == [
+        "growth_reinvestment",
+        "beta_business_risk",
+        "terminal_value_share",
+        "country_exposure",
+    ]
 
 
 def test_analyze_returns_complete_result(seeded_conn: duckdb.DuckDBPyConnection) -> None:
@@ -313,8 +336,8 @@ def test_analyze_returns_complete_result(seeded_conn: duckdb.DuckDBPyConnection)
     assert len(analysis.tornado) == len(list(SensitivityAxis))
     assert len(analysis.grid.cells) == 5
     assert all(len(row) == 5 for row in analysis.grid.cells)
-    # Five narrative flags.
-    assert len(analysis.narrative_flags) == 5
+    # Four narrative flags: no story-margin check for a mature-stable story.
+    assert len(analysis.narrative_flags) == 4
     assert all(f.color in set(FlagColor) for f in analysis.narrative_flags)
 
 
@@ -728,7 +751,7 @@ def test_hypergrowth_story_values_anthropic_end_to_end(
     assert a.dcf_result.wacc_path is not None
     assert a.financials.fixed_commitments == 485_319.79e6
     assert a.financials.extra_cash == 100_000e6
-    assert len(a.narrative_flags) == 8
+    assert len(a.narrative_flags) == 7
 
 
 def test_hypergrowth_story_without_terminal_growth_uses_currency_rule(
@@ -767,12 +790,12 @@ def test_founded_year_40_years_back_is_distressed(
     override.write_text(f"founded_year: {date.today().year - 40}\n")
     a = analyze("ANTH", conn, override_path=override)
     assert a.story_type == "distressed"
-    assert len(a.narrative_flags) == 5
+    assert len(a.narrative_flags) == 4
 
 
-def test_mature_company_still_has_five_flags(seeded_conn: duckdb.DuckDBPyConnection) -> None:
+def test_mature_company_still_has_four_flags(seeded_conn: duckdb.DuckDBPyConnection) -> None:
     a = analyze("AAPL", seeded_conn)
-    assert len(a.narrative_flags) == 5
+    assert len(a.narrative_flags) == 4
     assert "hypergrowth_story" not in {f.name for f in a.narrative_flags}
     assert a.auto_story_type == a.story_type
     assert a.story_file_present is False
@@ -814,7 +837,7 @@ def test_story_file_without_hypergrowth_signals_is_yellow(
     assert a.auto_story_type != "hypergrowth"
     assert a.story_reasons[0].startswith("manually overridden")
     assert f"would have said {a.auto_story_type}" in a.story_reasons[0]
-    assert len(a.narrative_flags) == 8
+    assert len(a.narrative_flags) == 7
     assert _flag(a, "hypergrowth_story").color is FlagColor.YELLOW
 
 
@@ -876,8 +899,8 @@ def test_hypergrowth_scenarios_governance_and_flags(
     assert a.intrinsic_value_after_governance == a.dcf_result.intrinsic_value * (1 - 0.20)
     assert a.current_price is not None
     assert a.margin_of_safety == a.intrinsic_value_after_governance / a.current_price
-    assert len(a.narrative_flags) == 8
-    assert [f.name for f in a.narrative_flags[5:]] == [
+    assert len(a.narrative_flags) == 7
+    assert [f.name for f in a.narrative_flags[4:]] == [
         "hypergrowth_story",
         "hypergrowth_revenue_scale",
         "hypergrowth_terminal_roic",
@@ -885,7 +908,7 @@ def test_hypergrowth_scenarios_governance_and_flags(
     assert _flag(a, "hypergrowth_revenue_scale").color is FlagColor.YELLOW
     roic = _flag(a, "hypergrowth_terminal_roic")
     assert roic.color is FlagColor.GREEN
-    assert "12.0%" in roic.reason
+    assert "the sector's 12.0%" in roic.reason
 
 
 def test_hypergrowth_without_scenarios_has_no_range(

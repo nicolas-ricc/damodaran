@@ -196,9 +196,9 @@ sensitivity: "5. sensitivity" {
 }
 
 # Section 6: narrative flags
-narrative_flags: "6. narrative flags: five checks, three more for hypergrowth; for a human, not in any ranking" {  # @symbol bot.valuator.narrative_flags.narrative_flags @enum bot.valuator.narrative_flags.FlagColor
+narrative_flags: "6. narrative flags: four checks, five for high-growth, three more for hypergrowth; for a human, not in any ranking" {  # @symbol bot.valuator.narrative_flags.narrative_flags @enum bot.valuator.narrative_flags.FlagColor
   link: "./analyze-flags.svg"
-  story_margin: "story margin\nstory type not high-growth: green\ncompany or sector margin missing: unknown\ncompany EBIT ÷ revenue (latest year) > sector op_margin: yellow\nelse green" {  # @symbol bot.valuator.narrative_flags.story_margin_flag
+  story_margin: "story margin: only for a high-growth story type; other story types carry no such flag\ncompany or sector margin missing: unknown\ncompany EBIT ÷ revenue (latest year) > sector op_margin: yellow\nelse green" {  # @symbol bot.valuator.narrative_flags.story_margin_flag
     class: decision
   }
   growth_reinvestment: "growth funded by reinvestment\nany year with FCFF < 0, or reinvestment > 0 with NOPAT ≤ 0: red\nhighest reinvestment ÷ NOPAT over the years with NOPAT > 0\nis > 0.90: yellow\nelse green" {  # @symbol bot.valuator.narrative_flags.growth_reinvestment_flag @const bot.valuator.narrative_flags._STRETCHED_REINVESTMENT_RATE
@@ -219,7 +219,7 @@ narrative_flags: "6. narrative flags: five checks, three more for hypergrowth; f
   hypergrowth: "hypergrowth flags\nhypergrowth_story: red with signals and no story file, yellow with a story file and no signals, green otherwise\nrevenue scale: year-10 revenue > 750B: yellow\nterminal ROIC > 2 × the sector ROIC: yellow\na ROIC missing, or sector ROIC ≤ 0: unknown\nrun only with hypergrowth signals or the hypergrowth story type; revenue scale and terminal ROIC only with the hypergrowth story type" {  # @symbol bot.valuator.narrative_flags.hypergrowth_flags @symbol bot.valuator.narrative_flags.hypergrowth_story_flag @const bot.valuator.narrative_flags._LARGEST_COMPANY_REVENUE @const bot.valuator.narrative_flags._ROIC_SECTOR_MULTIPLE
     class: decision
   }
-  only_red: |md Only growth_reinvestment can be red among the five checks: three stop at yellow and country exposure is always unknown. Among the hypergrowth flags, only hypergrowth_story can be red (signals without a story file). | {class: note}
+  only_red: |md Only growth_reinvestment can be red among the five spec checks: three stop at yellow and country exposure is always unknown. Among the hypergrowth flags, only hypergrowth_story can be red (signals without a story file). | {class: note}
 }
 
 # Section 7: margin of safety and verdict

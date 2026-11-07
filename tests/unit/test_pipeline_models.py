@@ -884,3 +884,18 @@ def test_analyze_model_and_boards_name_no_crash() -> None:
     assert paths
     hits = [p.name for p in paths if "crash" in p.read_text().lower()]
     assert hits == []
+
+
+def test_analyze_story_margin_runs_only_for_high_growth() -> None:
+    """The story-margin check is skipped, not green, outside high-growth (#265)."""
+    bodies = {name: body for name, _, body in _definitions("analyze")}
+    for action in ("StoryMarginGreen", "StoryMarginYellow", "StoryMarginUnknown"):
+        assert '/\\ storyType = "high-growth"' in bodies[action], action
+    skipped = bodies["StoryMarginSkipped"]
+    assert '/\\ storyType # "high-growth"' in skipped
+    assert '/\\ phase\' = "story_margin_checked"' in skipped
+    assert "flags'" not in skipped
+    assert _map("analyze", "steps")["StoryMarginSkipped"] == (
+        "story margin is skipped [not high-growth]"
+    )
+    assert "FlagNames \\ {\"story margin\"}" in _text("analyze", ".tla")

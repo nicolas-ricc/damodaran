@@ -2,7 +2,7 @@
 
 direction: down
 
-objective: |md Objective: raise five narrative flags for a human reader, and three more for a hypergrowth company; they decide nothing and enter no ranking. | {class: note}
+objective: |md Objective: raise four narrative flags for a human reader, five for a high-growth story, and three more for a hypergrowth company; they decide nothing and enter no ranking. | {class: note}
 back: |md back to the analyze board | {
   class: note
   link: "./analyze.svg"
@@ -10,7 +10,7 @@ back: |md back to the analyze board | {
 
 # States
 # @symbol bot.valuator.narrative_flags.story_margin_flag @enum bot.valuator.narrative_flags.FlagColor
-story_margin_checked: "the story margin flag is set" {class: decision}
+story_margin_checked: "the story margin check is done" {class: decision}
 # @symbol bot.valuator.narrative_flags.growth_reinvestment_flag
 reinvestment_checked: "the reinvestment flag is set" {class: decision}
 # @symbol bot.valuator.narrative_flags.beta_business_risk_flag
@@ -28,7 +28,7 @@ hypergrowth_checked: "the hypergrowth flags are settled" {class: step}
 
 always_unknown: |md Gap: analyze never supplies the foreign revenue share or the two equity risk premiums, so country exposure is always unknown. | {class: gap}
 
-only_red: |md Only growth_reinvestment can be red among the five checks: three stop at yellow and country exposure is always unknown. Among the hypergrowth flags, only hypergrowth_story can be red (signals without a story file). | {class: note}
+only_red: |md Only growth_reinvestment can be red among the five spec checks: three stop at yellow and country exposure is always unknown. Among the hypergrowth flags, only hypergrowth_story can be red (signals without a story file). | {class: note}
 
 execution_order: |md Execution order, not dependency: the margin of safety and the verdict read the value after the governance discount and the latest close; the sanity check reads the latest close, net income, diluted shares and revenue, the discounted cash flow's intrinsic value per share and enterprise value, and the sector multiples. The flags change none of them, and the sanity check does not read the verdict. | {class: note}
 
@@ -39,12 +39,13 @@ scenarios_done: "the scenario range is settled" {class: decision; link: "./analy
 discounted: "the governance discount is applied" {class: decision; link: "./analyze-verdict.svg"}  # No outgoing edge: the flow leaves through analyze-verdict
 
 # @symbol bot.valuator.narrative_flags.narrative_flags @symbol bot.valuator.narrative_flags.hypergrowth_flags
-out: "Comes out:\nfive flags, each green, yellow, red or unknown, with its reason; three more for hypergrowth" {class: output; link: "./analyze-verdict.svg"}
+out: "Comes out:\nfour flags, five for high-growth, each green, yellow, red or unknown, with its reason; three more for hypergrowth" {class: output; link: "./analyze-verdict.svg"}
 
 # Edges
-scenarios_done -> story_margin_checked: "story margin is green [not high-growth, or company margin at most the sector's]"
+scenarios_done -> story_margin_checked: "story margin is green [company margin at most the sector's]"
 scenarios_done -> story_margin_checked: "story margin is yellow [high-growth and company margin above the sector's]\ncompany margin = earnings before interest and taxes (EBIT) ÷ revenue, latest year"
 scenarios_done -> story_margin_checked: "story margin is unknown [a margin missing]"
+scenarios_done -> story_margin_checked: "story margin is skipped [not high-growth]"
 story_margin_checked -> reinvestment_checked: "reinvestment is red [a year with negative free cash flow, or reinvestment without profit]\nfree cash flow to the firm (FCFF) = net operating profit after tax (NOPAT) − reinvestment"
 story_margin_checked -> reinvestment_checked: "reinvestment is yellow [reinvestment above 90% of after-tax operating profit]\nreinvestment ÷ NOPAT, highest over the years with NOPAT above 0"  # @const bot.valuator.narrative_flags._STRETCHED_REINVESTMENT_RATE
 story_margin_checked -> reinvestment_checked: "reinvestment is green [otherwise]"

@@ -179,7 +179,8 @@ def test_detail_from_a_real_analysis() -> None:
     ]
     assert all(a.source for a in detail.assumptions)
     assert detail.assumptions[0].value == f"{growth[0]:.1%} → {growth[-1]:.1%}"
-    assert [f.color for f in detail.flags] == ["green", "green", "unknown", "green", "unknown"]
+    # story_margin only comes out for a high-growth story (#265); this one is mature.
+    assert [f.color for f in detail.flags] == ["green", "unknown", "green", "unknown"]
     assert [s.label for s in detail.sanity] == ["P/E implied (DCF)", "P/E market", "EV/Sales"]
     assert len(detail.dcf_rows) == len(payload["analysis"]["dcf_result"]["projections"])
     assert [t.label for t in detail.dcf_totals] == [
