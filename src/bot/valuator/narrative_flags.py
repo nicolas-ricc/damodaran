@@ -1,7 +1,7 @@
 """Quantitative narrative-consistency flags (spec §7.5, issue #15 / M4.5).
 
 Damodaran's *Narrative and Numbers* insists a valuation only holds together when
-the story and the numbers agree. These five flags are cheap quantitative proxies
+the story and the numbers agree. These flags are cheap quantitative proxies
 for that agreement — they do **not** enter the screener ranking (spec §7.5); they
 are signals for a human to read and decide.
 
@@ -9,7 +9,8 @@ Each flag is a pure function that returns a :class:`NarrativeFlag` with a
 :class:`FlagColor` in ``{green, yellow, red, unknown}`` and a human-readable
 ``reason``. ``unknown`` means the check could not run for lack of data — it is
 deliberately distinct from ``green`` so an un-run check never reads as a pass.
-The five flags (spec §7.5):
+The flags (spec §7.5) are four that always run, plus ``story_margin``, which
+runs only for a ``high-growth`` story:
 
 1. **Story-margin consistency** — a ``high-growth`` story whose operating margin
    already sits *above* the sector is internally tense (yellow).
@@ -30,7 +31,7 @@ flag-specific inputs are gathered in :class:`NarrativeContext`, so the flag
 functions stay pure: ``(financials, assumptions, result, context) -> flag`` with
 no I/O and no global state.
 
-The hypergrowth flags (issues #195, #197) sit outside the five §7.5 flags: they
+The hypergrowth flags (issues #195, #197) sit outside the §7.5 flags: they
 are produced by :func:`hypergrowth_flags` and never by :func:`narrative_flags`.
 :func:`hypergrowth_flags` emits up to three: ``hypergrowth_story`` when signals
 or the hypergrowth story type call for it, then ``hypergrowth_revenue_scale``
@@ -170,17 +171,12 @@ def story_margin_flag(
 
     A ``high-growth`` story usually projects margins *improving toward* the
     sector; starting *above* it leaves little room for the story to play out, so
-    the flag turns yellow. Any other story type, or a margin at/below sector, is
-    green. Without both margins the check cannot run and returns ``unknown`` — an
+    the flag turns yellow; a margin at/below sector is green. The flag has no
+    branch for other story types: :func:`narrative_flags` only calls it for a
+    ``high-growth`` story. Without both margins the check cannot run and returns ``unknown`` — an
     un-run check must never read as a pass (spec §7.5).
     """
     name = "story_margin"
-    if context.story_type != _HIGH_GROWTH_STORY:
-        return NarrativeFlag(
-            name=name,
-            color=FlagColor.GREEN,
-            reason=f"story type {context.story_type!r} is not {_HIGH_GROWTH_STORY!r}",
-        )
     company = context.company_operating_margin
     sector = context.sector_operating_margin
     if company is None or sector is None:
@@ -539,7 +535,8 @@ def hypergrowth_flags(
     )
 
 
-#: The five §7.5 flag functions, in spec order. The aggregator runs each.
+#: The §7.5 flag functions, in spec order. The aggregator runs each, except
+#: ``story_margin_flag`` outside a high-growth story.
 _FLAG_FUNCTIONS: tuple[
     Callable[[Financials, Assumptions, DCFResult, NarrativeContext], NarrativeFlag],
     ...,
@@ -558,7 +555,11 @@ def narrative_flags(
     result: DCFResult,
     context: NarrativeContext,
 ) -> tuple[NarrativeFlag, ...]:
-    """Run all five §7.5 narrative-consistency flags, in spec order.
+    """Run the §7.5 narrative-consistency flags, in spec order.
+
+    The four flags that always apply run for every story;
+    ``story_margin`` runs, first, only for a ``high-growth`` story. A check
+    that does not apply is not emitted, but ``unknown`` stays visible.
 
     Args:
         financials: The company's current-year financial state (DCF input).
@@ -568,7 +569,12 @@ def narrative_flags(
         context: Flag-specific inputs not carried by the DCF types (§7.5).
 
     Returns:
-        The five :class:`NarrativeFlag` verdicts, in the spec §7.5 order. These
+        Four :class:`NarrativeFlag` verdicts (five with ``story_margin`` for a
+        high-growth story), in the spec §7.5 order. These
         are signals for a human and do **not** feed the screener ranking.
     """
-    return tuple(flag(financials, assumptions, result, context) for flag in _FLAG_FUNCTIONS)
+    return tuple(
+        flag(financials, assumptions, result, context)
+        for flag in _FLAG_FUNCTIONS
+        if flag is not story_margin_flag or context.story_type == _HIGH_GROWTH_STORY
+    )
