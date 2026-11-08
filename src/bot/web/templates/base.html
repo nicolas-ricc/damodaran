@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="Read-only viewer of the bot's company analyses: each company's verdict, its margin of safety and the assumptions behind it.">
 <title>{% block title %}{% endblock %}</title>
+<meta name="htmx-config" content='{"historyCacheSize":0}'>
 <link rel="preload" href="{{ base_url }}static/fonts/switzer-400.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="{{ base_url }}static/fonts/geist-mono-400.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="{{ base_url }}static/daisyui.css">
@@ -22,6 +23,7 @@
     </pattern>
   </defs>
 </svg>
+{% block skip %}{% endblock %}
 <header class="navbar">
   <div class="navbar-start"><a class="brand" href="{{ base_url }}index.html" aria-label="Analyses, all companies">Analyses</a></div>
   <div class="navbar-end">{% if total %}<span class="badge badge-ghost"><span class="num">{{ total }}</span> {{ "company" if total == 1 else "companies" }}</span>{% endif %}</div>

@@ -12,7 +12,7 @@
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --dur-micro: 120ms; --dur-short: 220ms;
   --container: 1680px; --bar-height: 56px;
-  --z-raised: 10; --z-sticky: 200;
+  --z-sticky: 200;
   --font-body: "Switzer", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "Geist Mono", ui-monospace, monospace;
   --rule-hair: 1px;
@@ -92,8 +92,8 @@ table { border-collapse: collapse; width: 100%; }
 .list thead th[aria-sort] { color: var(--color-base-content); }
 .list thead th[aria-sort] a { border-bottom-color: var(--color-primary); }
 .list thead th[aria-sort] a::after { font-family: var(--font-mono); color: var(--ink-soft); margin-left: var(--space-2xs); }
-.list thead th[aria-sort="descending"] a::after { content: "\2193"; }
-.list thead th[aria-sort="ascending"] a::after { content: "\2191"; }
+.list thead th[aria-sort="descending"] a::after { content: "\2193"; content: "\2193" / ""; }
+.list thead th[aria-sort="ascending"] a::after { content: "\2191"; content: "\2191" / ""; }
 .list thead a:hover { text-decoration: none; color: var(--color-base-content); }
 .list td.num { text-align: right; }
 .list .ticker { position: relative; }
@@ -308,6 +308,11 @@ table { border-collapse: collapse; width: 100%; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
-  #detail, #rows { transition: none; }
-  #detail.htmx-settling > * { animation: none; }
+}
+
+.skip { position: absolute; left: var(--space-md); top: var(--space-xs); z-index: var(--z-sticky); transform: translateY(-200%); }
+.skip:focus { transform: none; }
+#detail:focus { outline: none; }
+@media (max-width: 1099px) {
+  body.page-list .skip { display: none; }
 }

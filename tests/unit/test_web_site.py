@@ -13,7 +13,8 @@ from tests.web_sidecars import make_sidecar, write_sidecar
 _FILTERS = ("all", "undervalued", "fair", "overvalued", "na")
 _SORTS = ("ticker", "mos", "date")
 _DIRS = ("asc", "desc")
-_URL_ATTR = re.compile(r'\b(href|src|hx-get|hx-push-url)="([^"]*)"')
+# same-page fragment links (the skip link) are not site URLs
+_URL_ATTR = re.compile(r'\b(href|src|hx-get|hx-push-url)="([^#"][^"]*)"')
 
 
 @pytest.fixture
@@ -549,7 +550,12 @@ def test_fragments_carry_their_page_title(reports: Path, tmp_path: Path) -> None
     ]
     for fragment, page in pairs:
         text = fragment.read_text()
-        assert text.lstrip().startswith(f"<title>{_page_title(page)}</title>"), fragment
+        title = f"<title>{_page_title(page)}</title>"
+        if fragment.parent.name == "rows":
+            # a leading <title> makes the browser's template parser drop <tbody>/<thead>, so rows end with it
+            assert text.rstrip().endswith(title), fragment
+        else:
+            assert text.lstrip().startswith(title), fragment
         assert "<html" not in text
     assert _page_title(out / "c" / "AAA.html").startswith("AAA · ")
 

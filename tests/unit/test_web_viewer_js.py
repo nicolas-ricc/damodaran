@@ -150,3 +150,13 @@ def test_announcement_does_not_double_the_period() -> None:
     body = script[script.index("function announceDetail()") :]
     body = body[: body.index("\n  }\n")]
     assert 'replace(/\\.$/, "")' in body
+
+
+def test_viewer_takes_the_title_of_a_rows_swap_from_the_response() -> None:
+    # htmx finds the first <title> in a fragment, which in a rows fragment is an svg mark's; the page title is last
+    script = _SCRIPT.read_text()
+    assert "htmx:beforeSwap" in script
+    body = script[script.index('"htmx:beforeSwap"') :]
+    body = body[: body.index("\n  });\n")]
+    assert "serverResponse" in body
+    assert "document.title" in body

@@ -1,4 +1,5 @@
-{% from "_controls.html" import filter_nav, list_head, count, empty_detail with context %}
+{# the title goes last: a leading <title> makes the template parser drop the table sections that follow #}
+{% from "_controls.html" import filter_nav, list_head, count, empty_detail, page_title with context %}
 {% include "_rows.html" %}
 {{ filter_nav(True) }}
 {{ list_head(True) }}
@@ -6,3 +7,4 @@
 {% if not rows %}
 {{ empty_detail(True) }}
 {% endif %}
+<title>{{ page_title() }}</title>

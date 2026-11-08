@@ -43,6 +43,17 @@
     });
   }
 
+  // On a deep link, bring the selected row into the list pane's box; only the pane scrolls, never the window.
+  function revealSelected() {
+    var row = document.querySelector("#rows tr.selected");
+    var pane = document.querySelector(".list-pane");
+    if (!row || !pane || !wide.matches) return;
+    var p = pane.getBoundingClientRect();
+    var r = row.getBoundingClientRect();
+    if (r.top >= p.top && r.bottom <= p.bottom) return;
+    pane.scrollTop += r.top - p.top - p.height / 3;
+  }
+
   // Hide the rows the box does not match; swaps and Back replace these nodes, so look them up every time.
   function applySearch() {
     var input = document.querySelector("#search input");
@@ -90,7 +101,7 @@
     var mos = document.querySelector("#detail .facts .lead-figure .stat-value");
     var out = document.getElementById("announce");
     if (out && heading) {
-      out.textContent = heading.textContent.trim() + ". " +
+      out.textContent = heading.textContent.trim().replace(/\.$/, "") + ". " +
         (verdict ? verdict.textContent.trim() : "") +
         (mos ? ", margin of safety " + mos.textContent.trim() : "") + ".";
     }
@@ -98,6 +109,7 @@
   }
 
   markSelected();
+  revealSelected();
   wide.addEventListener("change", markSelected);
 
   // Show the box only where the script runs; Back restores a snapshot whose rows may still be hidden.
@@ -119,6 +131,13 @@
     e.preventDefault();
     e.target.value = "";
     applySearch();
+  });
+
+  // A rows fragment ends with its page title (a leading one breaks the table parse), and htmx would pick an svg's title first.
+  document.addEventListener("htmx:beforeSwap", function (e) {
+    if (!e.detail || !e.detail.target || e.detail.target.id !== "rows") return;
+    var m = /<title>([^<]*)<\/title>\s*$/.exec(e.detail.serverResponse || "");
+    if (m) document.title = m[1];
   });
 
   document.addEventListener("htmx:afterSettle", function (e) {
