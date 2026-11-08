@@ -91,9 +91,7 @@ def build_estado(
 
 
 def _html(module: ModuleType) -> str:
-    dest: Path = module.AQUI / "estado.html"
-    assert dest.exists()
-    return dest.read_text(encoding="utf-8")
+    return (module.AQUI / "estado.html").read_text(encoding="utf-8")
 
 
 def test_src_commit_after_audit_is_counted(
