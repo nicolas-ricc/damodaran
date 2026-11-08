@@ -123,6 +123,10 @@ SOURCES: dict[str, Term] = {
         "sector default (Damodaran)",
         "Damodaran's industry average for this company's sector, not a fact about the company itself.",
     ),
+    "country_default_damodaran": Term(
+        "country default (Damodaran)",
+        "Damodaran's corporate tax rate for this company's country, used when its sector has no tax rate.",
+    ),
     "historical_average": Term(
         "historical average",
         "The company's own average over its reported history.",
