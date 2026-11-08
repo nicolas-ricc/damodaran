@@ -955,8 +955,10 @@ def test_run_screen_honours_assumptions_dir_override(
 def test_run_screen_unreadable_override_falls_back(
     conn: duckdb.DuckDBPyConnection, tmp_path: object
 ) -> None:
-    """An override that cannot be read leaves the ticker without a MoS, not a crash (#227)."""
+    """An override that cannot be read keeps the placeholder MoS, not a crash (#227)."""
     from pathlib import Path
+
+    from bot.screener.ranking import PLACEHOLDER_MARGIN_OF_SAFETY
 
     assert isinstance(tmp_path, Path)
     _seed_valuable_sector(conn)
@@ -967,7 +969,7 @@ def test_run_screen_unreadable_override_falls_back(
     result = run_screen(conn, _value_preset(), top=1, assumptions_dir=assumptions_dir)
 
     assert result.shortlist[0].ticker == "AAA"
-    assert result.shortlist[0].margin_of_safety is None
+    assert result.shortlist[0].margin_of_safety == pytest.approx(PLACEHOLDER_MARGIN_OF_SAFETY)
 
 
 def test_batch_dcf_margins_query_count_independent_of_shortlist(

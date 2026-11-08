@@ -34,7 +34,7 @@
 2. An `OSError` raised by YAML parsing is impossible (parsing a string), but an `OSError` subclass from `read_text` other than `PermissionError` / `IsADirectoryError` (e.g. `EIO`) must also become `ValueError` — the wrap catches `OSError`, and the unit test parametrises over a generic `OSError(errno.EIO, ...)`.
 3. A `UnicodeDecodeError` from a binary override file is a `ValueError` already and keeps reaching `_analyze_one` as "cannot value" — no change, not tested here.
 4. The unreadable ticker writes no partial reports: AAPL has no files in the analysis dir while MSFT's three are there — asserted in the CLI tests.
-5. `bot screen` with an unreadable shortlisted override keeps the ticker in the shortlist with `margin_of_safety is None` (existing fallback), and portfolio marks leave that holding unvalued — asserted in Task 2.
+5. `bot screen` with an unreadable shortlisted override keeps the ticker in the shortlist with the placeholder MoS (existing fallback), and portfolio marks leave that holding unvalued — asserted in Task 2.
 
 ---
 
@@ -93,7 +93,7 @@ No production code expected: both already catch `ValueError`. These tests pin it
 
 - [ ] **Step 1: Failing tests** (written and committed failing in pipeline stage 3)
 
-`test_run_screen_unreadable_override_falls_back` (screener) — seed like `test_run_screen_honours_assumptions_dir_override`; `assumptions_dir / "AAA.yaml"` is a directory; `run_screen(conn, _value_preset(), top=1, assumptions_dir=assumptions_dir)` returns without raising, `shortlist[0].ticker == "AAA"`, `shortlist[0].margin_of_safety is None`.
+`test_run_screen_unreadable_override_falls_back` (screener) — seed like `test_run_screen_honours_assumptions_dir_override`; `assumptions_dir / "AAA.yaml"` is a directory; `run_screen(conn, _value_preset(), top=1, assumptions_dir=assumptions_dir)` returns without raising, `shortlist[0].ticker == "AAA"`, `shortlist[0].margin_of_safety == pytest.approx(PLACEHOLDER_MARGIN_OF_SAFETY)` (the existing fallback, `engine.py:973`).
 
 `test_mark_holdings_unreadable_override_leaves_the_holding_unvalued` (marks) — seed like `test_mark_holdings_stores_the_converted_price` (`_seed_valuable`, `_hold(conn, "AAPL")`), `tmp_path / "AAPL.yaml"` is a directory; `mark_holdings(conn, DAY, assumptions_dir=tmp_path)` returns one mark with `intrinsic_value is None`.
 
