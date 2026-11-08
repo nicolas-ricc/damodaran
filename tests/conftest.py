@@ -14,6 +14,8 @@ from pathlib import Path
 
 import pytest
 
+from bot.reference import currencies, default_spreads
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -37,6 +39,17 @@ def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
 def _currencies_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """Point the CLI at the repo's currency file, whatever the CWD (#109)."""
     monkeypatch.setenv("BOT_CURRENCIES_PATH", str(REPO_ROOT / "config" / "currencies.yaml"))
+
+
+@pytest.fixture(autouse=True)
+def _config_defaults_on_repo_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point the default currency and spread files at the repo's config, whatever the CWD."""
+    monkeypatch.setattr(
+        currencies, "DEFAULT_CURRENCIES_PATH", REPO_ROOT / "config" / "currencies.yaml"
+    )
+    monkeypatch.setattr(
+        default_spreads, "DEFAULT_SPREADS_PATH", REPO_ROOT / "config" / "default_spreads.yaml"
+    )
 
 
 @pytest.fixture(autouse=True)
