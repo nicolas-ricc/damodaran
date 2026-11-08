@@ -277,8 +277,16 @@ and re-sends that day's alerts.
 ## Development
 
 ```bash
-uv run pytest                    # tests
-uv run ruff check .              # lint
-uv run ruff format .             # format
+uv run pytest -q                 # tests
+uv run ruff check .              # lint (--fix allowed)
 uv run mypy src                  # type check
 ```
+
+These are the checks CI runs (`.github/workflows/site.yml`); the lint gate
+is `uv run ruff check . && uv run mypy src`.
+
+Formatting is not enforced: neither CI nor the lint gate runs `ruff format`,
+and much of the tree is not formatted. Never run `ruff format` over the
+whole tree; it rewrites about a hundred files of unrelated code. If you format
+at all, format only the files you change (`uv run ruff format path/to/file.py`),
+and keep the diff to the lines you touched.
