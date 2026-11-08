@@ -104,6 +104,7 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
+    { name = "packaging" },
     { name = "pytest" },
     { name = "pytest-vcr" },
     { name = "ruff" },
@@ -137,7 +138,8 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=1.10" },
-    { name = "pytest", specifier = ">=8.2" },
+    { name = "packaging", specifier = ">=26.2" },
+    { name = "pytest", specifier = ">=9.0" },
     { name = "pytest-vcr", specifier = ">=1.0.2" },
     { name = "ruff", specifier = ">=0.5" },
     { name = "shellcheck-py", specifier = ">=0.11.0.1" },

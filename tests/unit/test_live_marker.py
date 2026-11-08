@@ -22,7 +22,7 @@ def test_hits_the_network():
 
 def _run(pytester: pytest.Pytester) -> pytest.RunResult:
     pytester.makeconftest(_ROOT_CONFTEST.read_text())
-    pytester.makeini("[pytest]\naddopts = --strict-markers\nmarkers =\n    live: x\n")
+    pytester.makeini("[pytest]\nstrict_markers = true\nmarkers =\n    live: x\n")
     pytester.makepyfile(_LIVE_TEST)
     return pytester.runpytest("-q")
 

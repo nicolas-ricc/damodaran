@@ -28,10 +28,11 @@ bot = "bot.cli:app"
 
 [dependency-groups]
 dev = [
-    "pytest>=8.2",
+    "pytest>=9.0",
     "pytest-vcr>=1.0.2",
     "ruff>=0.5",
     "mypy>=1.10",
+    "packaging>=26.2",
     "types-openpyxl",
     "types-pyyaml>=6.0.12.20260518",
     "types-markdown>=3.10.2.20260518",
@@ -75,7 +76,9 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-v --strict-markers"
+addopts = "-v"
+# pytest 9 reads this ini key; --strict-markers in addopts only warned (#112)
+strict_markers = true
 markers = [
     "integration: tests that hit external services (use VCR cassettes)",
     "live: downloads current published data; skipped unless BOT_LIVE_TESTS=1",
