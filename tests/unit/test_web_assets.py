@@ -315,3 +315,29 @@ def test_skip_link_rules() -> None:
 
 def test_scroll_box_is_shared() -> None:
     assert "overflow-x: auto" in _rule((_STATIC / "app.css").read_text(), ".scroll")
+
+
+def test_scenario_grid_shrinks_to_fit_a_phone_pane() -> None:
+    narrow = _blocks((_STATIC / "app.css").read_text(), "@container (max-width: 28rem)")
+    heads = _rule(narrow, ".scenario-grid th")
+    assert "font-size: 0.75rem" in heads
+    assert "padding-inline: 0" in _rule(narrow, ".scenario-grid thead tr:last-child th")
+    assert "width: 2rem" in _rule(narrow, ".scenario-grid .cell")
+    assert "height: 2rem" in _rule(narrow, ".scenario-grid .cell")
+
+
+def test_drivers_shock_wraps_under_the_input_in_a_phone_pane() -> None:
+    narrow = _blocks((_STATIC / "app.css").read_text(), "@container (max-width: 28rem)")
+    shock = _rule(narrow, ".tornado .shock")
+    assert "display: block" in shock
+    assert "margin-left: 0" in shock
+
+
+def test_drivers_cells_tighten_in_a_phone_pane() -> None:
+    narrow = _blocks((_STATIC / "app.css").read_text(), "@container (max-width: 28rem)")
+    assert "padding-inline: var(--space-2xs)" in _rule(narrow, ".tornado th, .tornado td")
+
+
+def test_drivers_numbers_shrink_in_a_phone_pane() -> None:
+    narrow = _blocks((_STATIC / "app.css").read_text(), "@container (max-width: 28rem)")
+    assert "font-size: 0.75rem" in _rule(narrow, ".tornado th, .tornado td")

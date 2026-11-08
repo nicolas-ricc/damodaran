@@ -134,7 +134,7 @@ table { border-collapse: collapse; width: 100%; }
   .list td.flags { grid-area: flags; justify-self: end; }
   .list td[data-label="Price"] { grid-area: price; }
   .list td[data-label="Intrinsic"] { grid-area: intrinsic; }
-  .list td[data-label="Story"] { grid-area: story; white-space: normal; overflow-wrap: anywhere; }
+  .list td[data-label="Story"] { grid-area: story; white-space: normal; }
   .list td[data-label="Date"] { grid-area: date; }
   .list td[data-label]::before { display: block; content: attr(data-label); font-family: var(--font-body); font-weight: 500; color: var(--ink-soft); }
   .list td.none { display: block; }
@@ -235,7 +235,11 @@ table { border-collapse: collapse; width: 100%; }
 .tornado td.track { width: 100%; padding-inline: var(--space-xs); }
 .tornado td.track svg { width: 100%; height: 14px; overflow: visible; }
 @container (max-width: 28rem) {
-  .tornado tbody th { font-size: 0.8rem; }
+  .tornado tbody th { font-size: 0.75rem; }
+  .tornado .shock { display: block; margin-left: 0; }
+  .tornado th, .tornado td { padding-inline: var(--space-2xs); font-size: 0.75rem; }
+  .tornado td.track { padding-inline: 2px; }
+  .tornado th.num, .tornado td.num { padding-inline: 2px; }
 }
 
 /* the pairs split on the detail pane's own width, never the window's */
@@ -257,6 +261,12 @@ table { border-collapse: collapse; width: 100%; }
 .scenario-grid .cell-fair { background: color-mix(in oklab, var(--color-warning) 28%, var(--color-base-100)); }
 .scenario-grid .cell-overvalued { background: color-mix(in oklab, var(--color-error) 28%, var(--color-base-100)); }
 .scenario-grid .cell-none { outline: 1px dashed var(--ink-soft); outline-offset: -2px; }
+@container (max-width: 28rem) {
+  .scenario-grid th { font-size: 0.75rem; }
+  .scenario-grid thead tr:last-child th { padding-inline: 0; }
+  .scenario-grid tbody th { padding-right: var(--space-2xs); white-space: normal; }
+  .scenario-grid .cell { width: 2rem; height: 2rem; }
+}
 
 /* each assumption is one ruled row: the label with its source beneath, the value on the right */
 .assumptions-table { font-size: var(--text-md); }
@@ -265,7 +275,7 @@ table { border-collapse: collapse; width: 100%; }
 .assumptions th, .assumptions td { padding: 0; border: 0; text-align: left; font-weight: 400; vertical-align: top; }
 .assumptions th { color: var(--color-base-content); }
 .assumptions .num { grid-column: 2; grid-row: 1 / span 2; align-self: start; text-align: right; color: var(--color-base-content); }
-.assumptions .src { grid-column: 1; font-size: var(--text-sm); color: var(--ink-soft); overflow-wrap: anywhere; }
+.assumptions .src { grid-column: 1; font-size: var(--text-sm); color: var(--ink-soft); }
 
 .flag-list ul { list-style: none; margin: 0; padding: 0; }
 .flag-list li { padding: var(--space-xs) 0; border-bottom: var(--rule-hair) solid var(--rule-faint); }
