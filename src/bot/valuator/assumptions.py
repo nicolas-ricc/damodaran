@@ -742,7 +742,6 @@ class _Range:
         )
 
     def phrase(self) -> str:
-        """The range in words, for the refusal message."""
         if (
             self.low is not None
             and self.high is not None
