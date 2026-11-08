@@ -263,8 +263,8 @@ table { border-collapse: collapse; width: 100%; }
 .scenario-grid .cell-overvalued { background: color-mix(in oklab, var(--color-error) 28%, var(--color-base-100)); }
 .scenario-grid .cell-none { outline: 1px dashed var(--ink-soft); outline-offset: -2px; }
 @container (max-width: 28rem) {
-  .scenario-grid th { font-size: 0.6875rem; }
-  .scenario-grid thead tr:last-child th { padding-inline: 2px; }
+  .scenario-grid th { font-size: 0.75rem; }
+  .scenario-grid thead tr:last-child th { padding-inline: 3px; }
   .scenario-grid tbody th { padding-right: var(--space-2xs); white-space: normal; }
   .scenario-grid .cell { width: 2rem; height: 2rem; }
 }

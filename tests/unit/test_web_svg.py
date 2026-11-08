@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import replace
 
 import pytest
 
@@ -191,7 +192,7 @@ def test_scenario_grid_is_a_table_with_headers_and_a_verdict_per_cell() -> None:
     assert 'aria-label="Scenarios 10/24"' in html
     assert html.count('<th scope="row">') == 5
     assert html.count('<th scope="col">') == 5
-    assert '<th scope="col" class="axis">cost_of_equity ↓</th>' in html
+    assert '<th scope="col" class="axis">cost_of_equity (pp) ↓</th>' in html
     assert html.count('class="cell cell-undervalued"') == 10
     assert html.count('class="cell cell-fair"') == 14
     assert html.count("cell-none") == 1
@@ -293,3 +294,21 @@ def test_scenario_grid_scrolls_inside_its_section() -> None:
     html = str(scenario_grid_table(_grid()))
     assert html.startswith('<div class="scroll"><table class="table table-xs scenario-grid"')
     assert html.endswith("</table></div>")
+
+
+def test_pp_axes_name_their_unit_once() -> None:
+    html = str(scenario_grid_table(_grid()))
+    assert "pp</th>" not in html
+    assert '<th scope="col">-1.0</th>' in html and '<th scope="col">+0.5</th>' in html
+    assert '<th scope="row">+0.0</th>' in html
+    assert 'class="axis">operating_margin (yr 1) (pp) →</th>' in html
+    assert "cost_of_equity (pp) ↓" in html
+
+
+def test_a_factor_axis_keeps_its_heads_and_gets_no_unit() -> None:
+    labels = ("\u00d70.8", "\u00d70.9", "\u00d71.0", "\u00d71.1", "\u00d71.2")
+    grid = replace(_grid(), axis_a="sales_to_capital", row_labels=labels)
+    html = str(scenario_grid_table(grid))
+    assert '<th scope="row">\u00d70.8</th>' in html
+    assert "sales_to_capital ↓" in html and "sales_to_capital (pp)" not in html
+    assert "(pp) →" in html  # the pp column axis still names its unit

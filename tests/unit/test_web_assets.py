@@ -320,8 +320,8 @@ def test_scroll_box_is_shared() -> None:
 def test_scenario_grid_shrinks_to_fit_a_phone_pane() -> None:
     narrow = _blocks((_STATIC / "app.css").read_text(), "@container (max-width: 28rem)")
     heads = _rule(narrow, ".scenario-grid th")
-    assert "font-size: 0.6875rem" in heads
-    assert "padding-inline: 2px" in _rule(narrow, ".scenario-grid thead tr:last-child th")
+    assert "font-size: 0.75rem" in heads
+    assert "padding-inline: 3px" in _rule(narrow, ".scenario-grid thead tr:last-child th")
     assert "width: 2rem" in _rule(narrow, ".scenario-grid .cell")
     assert "height: 2rem" in _rule(narrow, ".scenario-grid .cell")
 

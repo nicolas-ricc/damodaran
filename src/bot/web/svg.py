@@ -233,18 +233,27 @@ def flag_mark(color: str, name: str | None = None) -> Markup:
     return _mark(inner, title)
 
 
+def _unit_once(name: str, labels: Sequence[str]) -> tuple[str, tuple[str, ...]]:
+    """Move a unit every step label ends with ("pp") into the axis name, once."""
+    if labels and all(label.endswith("pp") for label in labels):
+        return f"{name} (pp)", tuple(label[:-2] for label in labels)
+    return name, tuple(labels)
+
+
 def scenario_grid_table(grid: ScenarioGrid) -> Markup:
     """The scenario grid as a table: one axis down, one across, a verdict per cell."""
+    axis_a, row_labels = _unit_once(grid.axis_a, grid.row_labels)
+    axis_b, col_labels = _unit_once(grid.axis_b, grid.col_labels)
     head = [
         '<tr><td class="corner"></td>'
-        f'<th scope="colgroup" colspan="{len(grid.col_labels)}" class="axis">'
-        f"{escape(grid.axis_b)} →</th></tr>",
-        f'<tr><th scope="col" class="axis">{escape(grid.axis_a)} ↓</th>'
-        + "".join(f'<th scope="col">{escape(label)}</th>' for label in grid.col_labels)
+        f'<th scope="colgroup" colspan="{len(col_labels)}" class="axis">'
+        f"{escape(axis_b)} →</th></tr>",
+        f'<tr><th scope="col" class="axis">{escape(axis_a)} ↓</th>'
+        + "".join(f'<th scope="col">{escape(label)}</th>' for label in col_labels)
         + "</tr>",
     ]
     body: list[str] = []
-    for label, row in zip(grid.row_labels, grid.cells, strict=False):
+    for label, row in zip(row_labels, grid.cells, strict=False):
         cells = []
         for verdict in row:
             if verdict is None:
