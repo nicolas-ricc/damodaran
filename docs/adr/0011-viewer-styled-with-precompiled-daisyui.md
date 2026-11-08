@@ -57,13 +57,13 @@ files.
 ## Consequences
 
 - The whole component stylesheet ships even though the viewer uses a fraction of it:
-  `daisyui.css` is about 1.1 MB uncompressed. GitHub Pages serves it compressed, and the
-  browser caches it, but it is the largest asset of the site.
+  `daisyui.css` is about 1.1 MB uncompressed. GitHub Pages serves it compressed, but it is
+  still the largest asset of the site.
 - Theme changes are edits to `src/bot/web/static/theme.css`. A test reads the variables of
   that file, so docs/DESIGN.md has to follow.
 - Upgrading DaisyUI means editing the two pins in `scripts/vendor_daisyui.sh`
-  (`DAISYUI_VERSION` and `DAISYUI_SHA256`), editing the `daisyui` line in
-  `src/bot/web/static/VERSIONS`, and running the script. The script is not run in CI; a test
+  (`DAISYUI_VERSION` and `DAISYUI_SHA256`), running the script, and editing the `daisyui`
+  line in `src/bot/web/static/VERSIONS`, in the order the script header gives. The script is not run in CI; a test
   checks that the committed `daisyui.css` matches the pinned SHA-256, so a hand edit of the
   vendored file is caught.
 - `.impeccable/design.json` still describes the previous system until the tool that

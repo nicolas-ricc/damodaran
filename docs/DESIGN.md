@@ -93,7 +93,7 @@ components:
 
 The viewer is read at a desk, beside a terminal, late. It lists the companies the bot has analysed and, for each one, shows why it got its verdict. It is an instrument, not a drawing: the hand-drawn system of the explanatory pieces (`docs/plano/DESIGN.md`) stops at its door. Every number on the page says where it came from, and the page admits what it does not know.
 
-The system has one component library, one theme and one rule for colour. The library is DaisyUI, vendored as a precompiled stylesheet (ADR 0011), so every control is a DaisyUI component: `navbar`, `join`, `btn`, `badge`, `input`, `table`, `stats`, `hero`, `divider`. The theme is `synthwave`, a single dark theme defined in `static/theme.css` and selected by `data-theme="synthwave"` on the page; no other theme is loaded. `static/app.css` holds only what DaisyUI has no component for (the split layout, typography, the charts) and reads DaisyUI variables rather than literal colours. Colour is notation: each DaisyUI role carries one meaning on every screen (section 2).
+The system has one component library, one theme and one rule for colour. The library is DaisyUI, vendored as a precompiled stylesheet (ADR 0011), so every control is a DaisyUI component: `navbar`, `join`, `btn`, `badge`, `input`, `table`, `stats`, `hero`, `divider`. The theme is `synthwave`, a single dark theme defined in `static/theme.css` and selected by `data-theme="synthwave"` on the page; no other theme is selected (DaisyUI's built-in `light` and `dark` ship in the stylesheet but are never applied). `static/app.css` holds only what DaisyUI has no component for (the split layout, typography, the charts) and reads DaisyUI variables rather than literal colours. Colour is notation: each DaisyUI role carries one meaning on every screen (section 2).
 
 The system is dark only, by decision. One grotesk sans carries every label and sentence; a mono carries every figure, date and identifier so that a number is recognisable as a number before it is read.
 
@@ -160,20 +160,20 @@ The 20 colour variables of `[data-theme="synthwave"]`, listed in the frontmatter
 The theme sets these shape variables, and DaisyUI components read them:
 
 - **Radius 0.** `--radius-selector`, `--radius-field` and `--radius-box` are all `0rem`: buttons, badges, inputs and boxes are square.
-- **`--border: 1px`.** The border width of buttons, inputs and badges, and the weight of every rule.
+- **`--border: 1px`.** The border width of buttons, inputs and badges, and of the dashed separators between stacked stats. The viewer's own rules use `--rule-hair` in `app.css`, also 1px.
 - **`--depth: 1`.** Scales DaisyUI's relief on buttons (an inset highlight, a text shadow and a small drop shadow) and on inputs (inset shadows). Badges ignore it. It is the only elevation the theme adds.
 - **`--noise: 1`.** Turns on DaisyUI's fine grain texture on buttons and badges.
 
 `--size-selector` and `--size-field` are `0.25rem`, the base unit DaisyUI scales its control sizes (`-xs`, `-sm`) from.
 
-Beyond that, depth is tonal: the page is `base-100`, the list pane sits on the lighter `base-200`, and the selected row drops to `base-300`. 1px rules separate sections and rows. The viewer's own CSS adds no shadow, blur or glow; the only shadows are the depth-scaled ones DaisyUI puts on buttons and inputs.
+Beyond that, depth is tonal: the page is `base-100`, the list pane sits on the lighter `base-200`, and the selected row is set on `base-300`, the lightest of the three. 1px rules separate rows, and DaisyUI's `divider` separates the detail sections. The viewer's own CSS adds no shadow, blur or glow; the only shadows are the depth-scaled ones DaisyUI puts on buttons and inputs.
 
 ### Named Rules
-**The Flat Well Rule.** If an element needs to come forward, it gets a lighter surface or a rule above it, never a shadow of its own. If it needs to recede, it gets `base-300`.
+**The Flat Well Rule.** If an element needs to come forward, it gets a lighter surface (`base-200`, then `base-300` for the selected row) or a rule above it, never a shadow of its own.
 
 ## 5. Components
 
-Each component is the DaisyUI classes that ship in `src/bot/web/templates/` and `src/bot/web/svg.py`.
+Each component is the DaisyUI classes that ship in `src/bot/web/templates/` and `src/bot/web/svg.py`. The flag tones `badge-success`, `badge-warning`, `badge-error` and `badge-ghost` are composed as `badge-{{ f.tone }}` from `FlagView.tone` in `src/bot/web/views.py`.
 
 ### Header bar
 `navbar` with the brand link in `navbar-start` and the company count in `navbar-end` as `badge badge-ghost`.
@@ -194,7 +194,7 @@ A `join` of `btn btn-sm join-item` links, so the row reads as one segmented cont
 In the list, `badge badge-xs badge-{tone}` holding a flag glyph; in the detail pane, `badge badge-sm badge-{tone}` holding the severity word. The tone comes from the flag's severity: `badge-success` for a pass, `badge-warning` for a warning, `badge-error` for a fail, and `badge-ghost` for anything else.
 
 ### Empty states and 404
-`hero` with `hero-content`. The empty list, the empty filter and the 404 each say what is missing and offer one way forward: `btn btn-link` in the list and filter states, `btn btn-primary` on the 404 page.
+`hero` with `hero-content`. The empty list, the empty filter and the 404 each say what is missing and offer one way forward. The empty list shows the command that fills it (`bot analyze --from-screen`). The empty filter offers `btn btn-link` in the detail hero, and `btn btn-link btn-xs` in the empty row of the list. The 404 page offers `btn btn-primary`.
 
 ### Facts
 `stats stats-vertical lg:stats-horizontal` holding five `stat` blocks (MoS leading, then price, intrinsic, story, date), each with `stat-title` and `stat-value`. The MoS value is `stat-value text-secondary`, the lead figure of the page.

@@ -1,4 +1,4 @@
-"""The docs record the web viewer (issue #92)."""
+"""The docs record the web viewer (issues #92, #261)."""
 
 from __future__ import annotations
 
