@@ -19,7 +19,7 @@ _TRAPS_5 = (
     "traps-5",
     "Cinco de los seis trap detectors",
     "hecho",
-    "screener/rules.py:529-804",
+    "screener/rules.py:529-605,639-804",
     "Ingresos, margen, accruals, dilución y gobernanza. El detector de gobernanza lee de "
     "filings_log los 8-K ítem 4.01 (cambio de auditor) y los avisos NT 10-K/10-Q de los "
     "últimos dos años, que el proveedor EDGAR guarda desde el índice de submissions; fuera "
@@ -71,14 +71,17 @@ def _card(card_id: str) -> tuple[Any, ...]:
     return matches[0]
 
 
-def _cited_range(evidence: str, path: str) -> tuple[list[str], int, int]:
-    match = re.fullmatch(rf"{re.escape(path)}:(\d+)(?:-(\d+))?", evidence)
+def _cited_ranges(evidence: str, path: str) -> tuple[list[str], list[tuple[int, int]]]:
+    match = re.fullmatch(rf"{re.escape(path)}:(\d+(?:-\d+)?(?:,\d+(?:-\d+)?)*)", evidence)
     assert match is not None, f"{evidence!r} does not cite {path}"
-    start = int(match.group(1))
-    end = int(match.group(2) or start)
     lines = (_SRC / path).read_text("utf-8").splitlines()
-    assert 1 <= start <= end <= len(lines), f"{evidence} out of bounds ({len(lines)} lines)"
-    return lines, start, end
+    spans: list[tuple[int, int]] = []
+    for part in match.group(1).split(","):
+        start, _, end = part.partition("-")
+        spans.append((int(start), int(end or start)))
+    for start, end in spans:
+        assert 1 <= start <= end <= len(lines), f"{evidence} out of bounds ({len(lines)} lines)"
+    return lines, spans
 
 
 def test_capa_b_subtitle_counts_seventeen_rules() -> None:
@@ -111,27 +114,33 @@ def test_registered_rules_are_seventeen() -> None:
 
 
 def test_touched_cards_cite_real_lines() -> None:
-    lines, start, end = _cited_range(_card("traps-5")[3], "screener/rules.py")
-    assert lines[start - 1] == "@register"
-    assert lines[start].startswith("class RevenueNotDeclining(")
-    assert end == len(lines)
-    cited = "\n".join(lines[start - 1 : end])
-    for cls in (
+    lines, spans = _cited_ranges(_card("traps-5")[3], "screener/rules.py")
+    assert [start for start, _ in spans] == [529, 639]
+    cited = ""
+    for start, end in spans:
+        assert lines[start - 1] == "@register"
+        assert end == len(lines) or lines[end] == "", f"{end} ends mid-block"
+        cited += "\n" + "\n".join(lines[start - 1 : end])
+    assert lines[spans[0][0]].startswith("class RevenueNotDeclining(")
+    assert spans[-1][1] == len(lines)
+    classes = re.findall(r"^class (\w+)\(", cited, flags=re.MULTILINE)
+    assert classes == [
+        "RevenueNotDeclining",
         "OperatingMarginNotContracting",
         "SloanAccrualsBelow",
         "ShareCountNotDiluting",
         "AuditorChangesAndLateFilings",
-    ):
-        assert f"\nclass {cls}(" in cited
+    ]
+    assert "class ROICAboveSectorWACC(" not in cited
 
-    lines, start, end = _cited_range(_card("motor-trap")[3], "screener/engine.py")
+    lines, [(start, end)] = _cited_ranges(_card("motor-trap")[3], "screener/engine.py")
     assert lines[start - 1] == "    for detector in trap_detection:"
     assert lines[end - 1] == "            passed = False"
     defs = [i for i, ln in enumerate(lines[:start], 1) if ln.startswith("def ")]
     assert lines[defs[-1] - 1].startswith("def evaluate_company(")
     assert not any(ln.startswith("def ") for ln in lines[start - 1 : end])
 
-    lines, start, _ = _cited_range(_card("registro")[3], "screener/config.py")
+    lines, [(start, _)] = _cited_ranges(_card("registro")[3], "screener/config.py")
     assert lines[start - 1].startswith("def load_screener_config(")
 
 

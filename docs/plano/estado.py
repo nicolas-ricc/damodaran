@@ -75,7 +75,7 @@ INVENTARIO = {
   "Los siete con aritmética real y tests dedicados. Ninguno es un esbozo."),
  ("value-4", "Los cuatro value indicators", "hecho", "screener/rules.py:346-491",
   "Tres son relativos al sector y se saltean sin mediana. FCF yield es absoluto, y es el único que puede admitir a una empresa sin cobertura sectorial."),
- ("traps-5", "Cinco de los seis trap detectors", "hecho", "screener/rules.py:529-804",
+ ("traps-5", "Cinco de los seis trap detectors", "hecho", "screener/rules.py:529-605,639-804",
   "Ingresos, margen, accruals, dilución y gobernanza. El detector de gobernanza lee de filings_log los 8-K ítem 4.01 (cambio de auditor) y los avisos NT 10-K/10-Q de los últimos dos años, que el proveedor EDGAR guarda desde el índice de submissions; fuera de la región US no hay índice y el detector se saltea, y saltearse elimina (ADR 0006). El tope de dilución no implementa la excepción por adquisición justificada que pide el spec, y lo dice en su propio docstring."),
  ("trap-roic", "ROIC contra WACC", "hecho", "screener/rules.py:601-624; screener/engine.py:698-707,815-830",
   "El filtro central del método ya es eliminatorio de punta a punta. La regla sigue skipeando cuando falta la mediana de WACC (rules.py:617-620), pero ese caso ya no llega a evaluate_company: la compuerta de cobertura (ADR 0006) saca a la empresa del universo antes, así que todo sobreviviente tiene WACC sectorial real y, si el detector skipea o falla, engine.py:704-707 lo trata como eliminación, no como aprobación."),
