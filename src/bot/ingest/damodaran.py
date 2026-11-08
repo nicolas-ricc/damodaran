@@ -1,9 +1,9 @@
 """Damodaran datasets — parser (Capa A).
 
 Column headers reflect the January 2026 Damodaran release.  If headers drift in
-a future release, update ``DEFAULT_INDUSTRY_COLUMN_MAP`` and
-``DEFAULT_COUNTRY_COLUMN_MAP`` to match the new strings; no other code change is
-required.
+a future release, update ``WACC_COLUMN_MAP``, ``INDUSTRY_PARSE_ARTEFACT_COLUMNS``
+and ``DEFAULT_COUNTRY_COLUMN_MAP`` to match the new strings; no other code change
+is required.
 
 ``tax_rate`` is not a column of the ``ERPs by country`` sheet: it comes from the
 ``Country Tax Rates`` sheet of ``ctryprem.xls``. The risk-free rate is not imported;
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import zipfile
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -29,13 +29,14 @@ from bot.utils.logging import get_logger
 log = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
-# Column maps — db_column_name -> xls_header_string
+# Column maps — db_column_name -> xls_header_string, except the parse
+# artefacts, whose keys are row fields that never reach the DB
 # Inspected from Damodaran Jan-2026 files:
 #   wacc.xls      sheet "Industry Averages"   header row 18
 #   ctryprem.xls  sheet "ERPs by country"     header row 7
 # ---------------------------------------------------------------------------
 
-DEFAULT_INDUSTRY_COLUMN_MAP: dict[str, str] = {
+WACC_COLUMN_MAP: dict[str, str] = {
     "industry": "Industry Name",
     "beta_levered": "Beta",
     "cost_of_equity": "Cost of Equity",
@@ -43,8 +44,12 @@ DEFAULT_INDUSTRY_COLUMN_MAP: dict[str, str] = {
     "tax_rate": "Tax Rate",
     # "Cost of Capital" is labelled "WACC" in the DB schema
     "wacc": "Cost of Capital",
-    # Parsing artefact, not a DB column: the published file carries D/(D+E) and
-    # `derive_industry_columns` turns it into debt_to_equity + beta_unlevered.
+}
+
+# Parsing artefact, not a DB column: the published file carries D/(D+E) and
+# `derive_industry_columns` consumes and pops this row field, turning it into
+# debt_to_equity + beta_unlevered.
+INDUSTRY_PARSE_ARTEFACT_COLUMNS: dict[str, str] = {
     "debt_weight_raw": "D/(D+E)",
 }
 
@@ -91,12 +96,21 @@ class IndustryDataset:
         column_map: DB column → exact header string, as observed in the file.
             ``industry`` must be first: ``_to_normalized_rows`` treats the first
             key as the primary key of the row.
+        parse_artefacts: Row field → header string for values the parser reads but
+            that are not DB columns (``derive_industry_columns`` consumes them).
+        header_map: ``column_map`` plus ``parse_artefacts``: everything the parser
+            reads from the sheet, ``industry`` still first.
     """
 
     key: str
     url: str
     sheet_keywords: tuple[str, ...]
     column_map: dict[str, str]
+    parse_artefacts: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def header_map(self) -> dict[str, str]:
+        return {**self.column_map, **self.parse_artefacts}
 
 
 #: Industry datasets merged into ``damodaran_industry``, in precedence order: an
@@ -111,7 +125,8 @@ INDUSTRY_DATASETS: tuple[IndustryDataset, ...] = (
         key="wacc",
         url=INDUSTRY_WACC_URL,
         sheet_keywords=("industry", "average"),
-        column_map=DEFAULT_INDUSTRY_COLUMN_MAP,
+        column_map=WACC_COLUMN_MAP,
+        parse_artefacts=INDUSTRY_PARSE_ARTEFACT_COLUMNS,
     ),
     # margin.xls — margins. "Pre-tax Unadjusted Operating Margin" is the plain
     # operating margin; the file also publishes lease- and R&D-adjusted variants.
@@ -555,7 +570,9 @@ def parse_industry_xls(
         path: Path to the ``.xls`` / ``.xlsx`` file.
         region: Region tag injected into every row (e.g. ``"US"``).
         year: Data year injected into every row.
-        column_map: Mapping ``db_column_name -> xls_header_string``.
+        column_map: Mapping ``row_field -> xls_header_string``; may include parse
+            artefacts that are not DB columns (callers pass
+            ``IndustryDataset.header_map``).
         sheet_name: Explicit sheet to open; auto-detected when *None*.
         sheet_keywords: Keywords driving that auto-detection, most specific
             first; the module default is used when *None*.
@@ -767,7 +784,7 @@ def _import_files_into_run(
             industry_path,
             region=region,
             year=year,
-            column_map=_WACC_DATASET.column_map,
+            column_map=_WACC_DATASET.header_map,
             sheet_keywords=_WACC_DATASET.sheet_keywords,
         )
     ]
@@ -781,7 +798,7 @@ def _import_files_into_run(
                 path,
                 region=region,
                 year=year,
-                column_map=dataset.column_map,
+                column_map=dataset.header_map,
                 sheet_keywords=dataset.sheet_keywords,
             )
         except Exception as exc:
