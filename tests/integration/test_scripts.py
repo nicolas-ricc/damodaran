@@ -42,13 +42,12 @@ exec "{VENV_BIN}/$1" "${{@:2}}"
 # set, is the exit code of `refresh --prices` alone. `uv run python -` (the
 # price_fill.sh missing-count query) prints FAKE_MISSING (default 0) and nothing else.
 _UV_RECORDER = """#!/usr/bin/env bash
+echo "$*" >> "{calls}"
 if [ "$2" = python ]; then
-  echo "$*" >> "{calls}"
   cat > /dev/null
   echo "${{FAKE_MISSING-0}}"
   exit 0
 fi
-echo "$*" >> "{calls}"
 echo "fake uv: $*"
 if [ "$3 $4" = "refresh --prices" ]; then
   n=$(( $(cat "{calls}.rounds" 2>/dev/null || echo 0) + 1 ))
@@ -119,11 +118,16 @@ def _env(bin_dir: Path, **extra: str) -> dict[str, str]:
 
 
 def _run(
-    script: Path, *args: str, env: dict[str, str], stdin: str | None = None
+    script: Path,
+    *args: str,
+    env: dict[str, str],
+    stdin: str | None = None,
+    cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [str(script), *args],
         env=env,
+        cwd=cwd,
         input=stdin,
         stdin=None if stdin is not None else subprocess.DEVNULL,
         capture_output=True,
@@ -498,14 +502,7 @@ def test_price_fill_through_a_symlink_logs_in_the_real_checkout(
     link.parent.mkdir()
     link.symlink_to(repo / "scripts" / "price_fill.sh")
 
-    result = subprocess.run(
-        [str(link)],
-        cwd=tmp_path,
-        env=_env(recorder_bin),
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        check=False,
-    )
+    result = _run(link, env=_env(recorder_bin), cwd=tmp_path)
 
     assert result.returncode == 0, result.stderr
     assert " run ===" in _price_fill_log(repo)
@@ -516,14 +513,7 @@ def test_price_fill_through_a_symlink_logs_in_the_real_checkout(
 def test_price_fill_run_from_another_directory_logs_in_the_checkout(
     repo: Path, tmp_path: Path, recorder_bin: Path
 ) -> None:
-    result = subprocess.run(
-        [str(repo / "scripts" / "price_fill.sh")],
-        cwd=tmp_path,
-        env=_env(recorder_bin),
-        stdin=subprocess.DEVNULL,
-        capture_output=True,
-        check=False,
-    )
+    result = _run(repo / "scripts" / "price_fill.sh", env=_env(recorder_bin), cwd=tmp_path)
 
     assert result.returncode == 0, result.stderr
     assert " run ===" in _price_fill_log(repo)

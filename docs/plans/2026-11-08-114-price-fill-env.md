@@ -72,7 +72,7 @@
 - [ ] **Step 2: Run them, see the expected failures**
 
   Run: `uv run pytest -q tests/integration/test_scripts.py -k price_fill`
-  Expected red on today's script: every test that asserts `_calls(calls)` or the `missing=` lines. Line 29 prepends `$HOME/.local/bin`, and line 30 resolves `UV` with `command -v uv` after that, so the decoy (or this machine's `/usr/local/bin/uv`) runs instead of the recorder. Expected green already: shellcheck/executable (checked: `.venv/bin/shellcheck scripts/price_fill.sh` exits 0, and git mode is 100755), the DONE test, and the symlink and other-directory tests. These assert only where the log lands and `returncode == 0`, and `readlink -f` plus `$REPO`-anchored paths (lines 24-34) already get those right. They pin kept behaviour.
+  Expected red on today's script: the 4 tests that need the recorder to run (`uses_the_first_uv_on_path`, `writes_done_when_nothing_is_missing`, `with_tickers_missing_keeps_going`, `pulls_origin_master_before_running`). Line 29 prepends `$HOME/.local/bin`, and line 30 resolves `UV` with `command -v uv` after that, so the decoy (or this machine's `/usr/local/bin/uv`) runs instead of the recorder. Expected green already: shellcheck/executable (checked: `.venv/bin/shellcheck scripts/price_fill.sh` exits 0, and git mode is 100755), the DONE test (no `uv` call either way), the `missing=?` test (a failing real `uv` also prints nothing), and the symlink and other-directory tests. These assert only where the log lands and `returncode == 0`, and `readlink -f` plus `$REPO`-anchored paths (lines 24-34) already get those right. They pin kept behaviour.
 
 - [ ] **Step 3: Edit `scripts/price_fill.sh`**
 
