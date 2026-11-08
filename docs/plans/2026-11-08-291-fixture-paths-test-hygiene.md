@@ -25,6 +25,8 @@
 
 - **Which "26 passed" is meant.** The two modules collect 26 tests today (16 passed + 10 skipped from `tests/`, 26 passed from the root). The rename keeps the count; nothing is added, so 26 stays the target from both directories.
 - **Stage-3 evals live outside the repo.** The issue is test-only: the committed tests *are* the deliverable, and the behaviour they cover already works, so no in-repo test can fail before the change and pass after it without being one of the deliverables. The acceptance criteria (including the two temporary mutations) become an executable script, `.scratch/evals-291.sh`, git-excluded, which fails on the base branch and must pass at the end.
+- **Who writes the eval script.** Pipeline stage 3, before Task 1, adds `.scratch/` to `.git/info/exclude` and writes the script; it restores both mutated files with a shell `trap ... EXIT` (`git checkout -- <file>`), and Task 3 Step 3's `git diff --stat -- src` would still catch a leftover `PROBE`.
+- **Empty import guard.** The fill-rate test also asserts `total > 0` (rejected: relying on `result.status == "success"` alone, which does not prove rows were written). The issue fixes the per-column assertion; this extra line only closes the vacuous `0 >= 0` case.
 - **Mutation probes are temporary.** The `0.97` threshold and the `PROBE = "probe"` member are applied, observed failing and reverted inside the eval script; neither is ever committed.
 - **The scan counts `AssumptionSource.<NAME>` tokens with a regex** (`r"AssumptionSource\.([A-Z_]+)"`) over every module's source. The enum body declares members as `NAME = "value"`, never `AssumptionSource.NAME`, so no body stripping is needed (the issue allows this equivalent).
 
@@ -34,7 +36,7 @@
 - A committed fixture deleted or renamed: the test errors with a missing-file error instead of skipping. Pinned by the absence of any guard (criterion 2 grep).
 - A header drift leaving one column mostly NULL: the fill-rate test fails naming the column. Pinned by the `0.97` mutation (criterion 4).
 - A new `AssumptionSource` member nobody emits: the reachability test fails naming it. Pinned by the `PROBE` mutation (criterion 5).
-- A `bot.valuator` submodule whose import has side effects or fails: the scan imports every submodule; today all eight import cleanly in the unit suite. No extra test.
+- A `bot.valuator` submodule whose import has side effects or fails: the scan imports every submodule; today the seven submodules (`analysis`, `assumptions`, `dcf`, `hypergrowth`, `narrative_flags`, `sensitivity`, `story_types`; no subpackage) import cleanly in the unit suite, and an import error fails the test loudly, which is the wanted outcome. No extra test.
 
 ---
 
@@ -68,7 +70,7 @@
 assert count >= 0.9 * total, f"{column}: {count} of {total} industries populated"
 ```
 
-  Update the docstring to say every mapped column arrives populated for at least 90% of industries.
+  Before the loop, `assert total > 0, "the import wrote no industry rows"`, so an empty table cannot pass `count >= 0.9 * 0` vacuously. Update the docstring to say every mapped column arrives populated for at least 90% of industries.
 - [ ] **Step 3: Prove it is live.** Temporarily change `0.9` to `0.97`; the test fails on `roe` (`92 of 96`). Revert.
 - [ ] **Step 4: Verify.** `uv run pytest -q tests/unit/test_damodaran_datasets.py` → 15 passed (the module's count, no skip); `uv run pytest -q tests/unit/test_damodaran_datasets.py -k cost_of_capital` selects nothing.
 - [ ] **Step 5: Commit** `test(#291): rename the margin-precedence test, assert a 90% fill rate per column`.
@@ -96,3 +98,11 @@ assert not unreachable, f"AssumptionSource members nothing emits: {sorted(unreac
 ### Final verification
 
 - [ ] `.scratch/evals-291.sh` passes; `uv run ruff check . && uv run mypy src && uv run pytest -q` green.
+
+## Grilling
+
+- Rounds: 1 (revisions were local: one assertion, two clarifications; no step added or removed, no seam changed).
+- Questions: 17. Sources: ISSUE 9, CODE 7, DOC 0, NO SOURCE 2 (both technical assumptions).
+- Answers in brief: criteria 3 and 6 are the rename (Task 2 Step 1) and the final lint+suite (Final verification); `bot.valuator` has no subpackage and no `AssumptionSource.<NAME>` reference exists outside it (`grep -rn` over `src/`); the regex scan, comments included, is the variant the issue's decision 4 allows; 96/92 and the per-column counts are measured in the issue body (only `roe` is under 97%); line numbers are from base `bf1c94b`; no `pytest.skip`, `importorskip`, `parametrize` or other `exists()` guard is in either module (15 + 11 = 26 `def test_`); fixtures are named `<key>_sample.xls` (`ls tests/fixtures/damodaran`, keys from `INDUSTRY_DATASETS`, `src/bot/ingest/damodaran.py:109-180`); the `test_ibkr_flex_capture.py` exclusion and the `test:` commit type are quoted from the issue; ruff selects no `PLC` rule (`pyproject.toml:59`), and `test_valuator_assumptions.py:995` already imports locally; base is `feature/64-remediation-follow-ups` (issue body, `Branch:` line of #64).
+- Assumptions added: the eval script's author and its `trap` restore; the `total > 0` guard.
+- Issues opened: none.
