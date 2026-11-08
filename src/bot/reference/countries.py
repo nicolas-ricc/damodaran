@@ -225,7 +225,7 @@ def damodaran_country_name(country: str | None) -> str | None:
     if not stripped:
         return None
     key = stripped.upper() if len(stripped) == 2 else stripped
-    name = ISO_TO_DAMODARAN_COUNTRY.get(key) if len(stripped) == 2 else None
+    name = ISO_TO_DAMODARAN_COUNTRY.get(key)
     if name is not None:
         return name
     if stripped in _KNOWN_NAMES:

@@ -571,9 +571,8 @@ def bulk_load_valuation_inputs(
     }
     # companies.country is ISO alpha-2; damodaran_country is keyed by Damodaran name.
     names = {
-        c.country: damodaran_country_name(c.country)
-        for t in kept
-        if (c := companies[t]).country is not None
+        code: damodaran_country_name(code)
+        for code in {companies[t].country for t in kept} - {None}
     }
     countries = sorted({n for n in names.values() if n is not None})
     country_rows: dict[str, str] = {

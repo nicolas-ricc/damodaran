@@ -442,7 +442,7 @@ def _resolve_region(conn: duckdb.DuckDBPyConnection, country: str | None) -> str
         "AND region IS NOT NULL ORDER BY year DESC LIMIT 1",
         [name],
     ).fetchone()
-    return dataset_region(name, str(row[0]) if row is not None and row[0] is not None else None)
+    return dataset_region(country, str(row[0]) if row is not None and row[0] is not None else None)
 
 
 def _resolve_tax_rate(conn: duckdb.DuckDBPyConnection, country: str | None) -> float:
