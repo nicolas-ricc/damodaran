@@ -2,8 +2,8 @@
 
 Spec §7.3: the six critical DCF assumptions, each carrying its provenance
 (``source ∈ {manual, sector_default_damodaran,
-sector_default_damodaran_cross_region, rule_based, historical_average,
-unresolved}``). ``analyst_consensus`` was removed: nothing ever emitted it.
+sector_default_damodaran_cross_region, country_default_damodaran, rule_based,
+historical_average, unresolved}``). ``analyst_consensus`` was removed: nothing ever emitted it.
 The resolution order is:
 
 1. Manual override from ``config/assumptions/<TICKER>.yaml`` if present
