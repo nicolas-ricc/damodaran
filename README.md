@@ -285,6 +285,19 @@ Failure modes:
 There is no automatic retry. Re-running `bot portfolio` the same day re-renders
 and re-sends that day's alerts.
 
+`bot notify` sends any text through the same configured notifier. It reads the
+message from stdin and sends it verbatim; for email, the first non-empty line,
+with leading `#` stripped, becomes the subject. It never opens the database, so
+it works when a pipeline step has failed. `scripts/daily.sh` pipes a failure
+summary into it when a step fails. On success it prints `Sent via <channel>`
+and exits 0; with `BOT_NOTIFIER=none` it prints that nothing was sent and also
+exits 0. Misconfigured notifier settings or an empty message on stdin give exit
+code 2; a send failure (`Message not sent: ...`) gives exit code 1.
+
+```bash
+echo "# hello" | uv run bot notify
+```
+
 ## Development
 
 ```bash
