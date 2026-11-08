@@ -12,11 +12,14 @@ from __future__ import annotations
 
 from datetime import date
 
+import pytest
+
 from bot.screener.rules import (
     AuditorChangesAndLateFilings,
     OperatingMarginNotContracting,
     RevenueNotDeclining,
     ROICAboveSectorWACC,
+    RuleResult,
     ShareCountNotDiluting,
     SloanAccrualsBelow,
     get_rule,
@@ -321,6 +324,105 @@ def test_share_count_not_diluting_configurable() -> None:
     assert result.passed is False
 
 
+# 10%/yr issuance: above the 5% default cap, so the M&A exception is consulted.
+_DILUTING = (100.0, 110.0, 121.0)
+
+
+def _dilution(
+    acquisitions: tuple[float, ...],
+    total_assets: float | None,
+    rule: ShareCountNotDiluting | None = None,
+) -> RuleResult:
+    company = _company(
+        share_count_history=_DILUTING,
+        acquisitions_history=acquisitions,
+        total_assets=total_assets,
+    )
+    return (rule or ShareCountNotDiluting()).evaluate(company, _benchmarks())
+
+
+def test_share_count_dilution_justified_by_material_acquisitions() -> None:
+    result = _dilution((0.0, 0.0, 300.0), 1000.0)
+    assert result.passed is True
+    assert result.skipped is False
+    assert "0.300x total assets" in result.reason
+    assert "last 3 fiscal years" in result.reason
+
+
+def test_share_count_dilution_not_justified_by_small_acquisitions() -> None:
+    result = _dilution((0.0, 0.0, 50.0), 1000.0)
+    assert result.passed is False
+    assert result.skipped is False
+    assert "0.050x" in result.reason
+    assert "not justified" in result.reason
+
+
+def test_share_count_dilution_no_acquisitions_reported() -> None:
+    result = _dilution((), 1000.0)
+    assert result.passed is False
+    assert "no acquisitions reported" in result.reason
+
+
+def test_share_count_dilution_total_assets_unavailable() -> None:
+    result = _dilution((0.0, 0.0, 300.0), None)
+    assert result.passed is False
+    assert "total assets unavailable" in result.reason
+
+
+def test_share_count_dilution_zero_total_assets_unavailable() -> None:
+    result = _dilution((0.0, 0.0, 300.0), 0.0)
+    assert result.passed is False
+    assert "total assets unavailable" in result.reason
+
+
+def test_share_count_dilution_nan_total_assets_unavailable() -> None:
+    result = _dilution((0.0, 0.0, 300.0), float("nan"))
+    assert result.passed is False
+    assert "total assets unavailable" in result.reason
+
+
+def test_share_count_dilution_acquisitions_outside_window_ignored() -> None:
+    # The 900 is four years back, outside the 3-year window.
+    result = _dilution((900.0, 0.0, 0.0, 0.0), 1000.0, ShareCountNotDiluting(ma_window=3))
+    assert result.passed is False
+    assert "0.000x" in result.reason
+
+
+def test_share_count_dilution_rejects_empty_window() -> None:
+    # history[-0:] would be the whole history, not an empty window.
+    with pytest.raises(ValueError, match="ma_window"):
+        ShareCountNotDiluting(ma_window=0)
+
+
+def test_share_count_dilution_materiality_is_inclusive() -> None:
+    result = _dilution((0.0, 0.0, 50.0), 1000.0, ShareCountNotDiluting(ma_materiality=0.05))
+    assert result.passed is True
+
+
+def test_share_count_dilution_short_history_summed_as_reported() -> None:
+    result = _dilution((300.0,), 1000.0)
+    assert result.passed is True
+    assert result.reason.endswith("over the last 1 fiscal year")
+
+
+def test_share_count_dilution_net_divestiture_lowers_ratio() -> None:
+    # 400 bought, 350 net divested: 50 / 1000 = 0.05 < 0.10.
+    result = _dilution((400.0, -350.0), 1000.0)
+    assert result.passed is False
+    assert "0.050x" in result.reason
+
+
+def test_share_count_within_cap_ignores_acquisitions() -> None:
+    result = ShareCountNotDiluting().evaluate(
+        _company(
+            share_count_history=(100.0, 103.0, 106.09),
+            acquisitions_history=(0.0, 0.0, 300.0),
+            total_assets=1000.0,
+        ),
+        _benchmarks(),
+    )
+    assert result.passed is True
+    assert result.reason == "avg share-count growth 0.030 <= maximum 0.050"
 # --------------------------------------------------------------------------- #
 # AuditorChangesAndLateFilings
 # --------------------------------------------------------------------------- #

@@ -19,13 +19,13 @@ _TRAPS_5 = (
     "traps-5",
     "Cinco de los seis trap detectors",
     "hecho",
-    "screener/rules.py:529-605,639-804",
+    "screener/rules.py:529-605,639-839",
     "Ingresos, margen, accruals, dilución y gobernanza. El detector de gobernanza lee de "
     "filings_log los 8-K ítem 4.01 (cambio de auditor) y los avisos NT 10-K/10-Q de los "
     "últimos dos años, que el proveedor EDGAR guarda desde el índice de submissions; fuera "
     "de la región US no hay índice y el detector se saltea, y saltearse elimina (ADR 0006). "
-    "El tope de dilución no implementa la excepción por adquisición justificada que pide el "
-    "spec, y lo dice en su propio docstring.",
+    "El tope de dilución ya implementa la excepción por adquisición justificada del spec "
+    "§6.4: compara la caja pagada por adquisiciones con los activos totales.",
 )
 _REGISTRO = (
     "Los tres presets cargan y construyen sin error. qarp usa dieciséis reglas: "
@@ -35,7 +35,7 @@ _MOTOR_TRAP = (
     "motor-trap",
     "La rama que elimina por trampa",
     "hecho",
-    "screener/engine.py:779-787",
+    "screener/engine.py:782-790",
     "El test de motor que faltaba existe: run_screen rechaza una empresa sembrada con un "
     "aviso NT 10-K reciente y la deja en rejected con auditor_changes_and_late_filings "
     "entre sus reglas falladas (tests/unit/test_screener_engine.py).",

@@ -53,6 +53,13 @@ def test_parse_company_facts_from_cassette_populates_db():
     ).fetchone()
     assert newest == (2025, date(2025, 9, 27))
 
+    # PaymentsToAcquireBusinessesNetOfCashAcquired, as the 10-Ks in the cassette report it.
+    acquisitions = conn.execute(
+        "SELECT fiscal_year, acquisitions FROM financials_annual "
+        "WHERE ticker = 'AAPL' AND fiscal_year IN (2020, 2021) ORDER BY fiscal_year"
+    ).fetchall()
+    assert acquisitions == [(2020, 1_524_000_000.0), (2021, 33_000_000.0)]
+
     filings_count = conn.execute(
         "SELECT COUNT(*) FROM filings_log WHERE ticker = 'AAPL'"
     ).fetchone()[0]

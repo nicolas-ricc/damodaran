@@ -123,12 +123,17 @@ CREATE TABLE IF NOT EXISTS financials_annual (
     operating_cashflow DOUBLE,
     free_cashflow   DOUBLE,
     dividends_paid  DOUBLE,
+    acquisitions    DOUBLE,
     shares_diluted  DOUBLE,
     is_restated     BOOLEAN DEFAULT FALSE,
     source          VARCHAR NOT NULL,
     fetched_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (ticker, fiscal_year, is_restated)
 );
+
+-- Adds the #62 acquisitions column to existing DBs: cash paid for businesses,
+-- net of cash acquired, outflow positive. Idempotent. Rollback: DROP COLUMN acquisitions.
+ALTER TABLE financials_annual ADD COLUMN IF NOT EXISTS acquisitions DOUBLE;
 
 CREATE TABLE IF NOT EXISTS financials_quarterly (
     ticker          VARCHAR NOT NULL,
