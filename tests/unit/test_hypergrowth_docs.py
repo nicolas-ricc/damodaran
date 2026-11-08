@@ -19,6 +19,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 _ADR = _ROOT / "docs" / "adr" / "0009-hypergrowth-story-driven-gated-on-story-file.md"
 _SPEC = _ROOT / "docs" / "superpowers" / "specs" / "2026-05-25-investment-bot-design.md"
 _PLANO = _ROOT / "docs" / "plano"
+_ASSUMPTIONS_README = _ROOT / "config" / "assumptions" / "README.md"
 _STORY_KEYS = {f.name for f in fields(StoryInputs)}
 
 
@@ -223,3 +224,31 @@ def test_estado_build_passes() -> None:
         check=False,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def _story_file_section() -> str:
+    text = _ASSUMPTIONS_README.read_text(encoding="utf-8")
+    return _section(text, "## Hypergrowth story file", "## Probability of bankruptcy")
+
+
+def test_assumptions_readme_drops_the_stale_sentence() -> None:
+    assert "does not read it yet" not in _ASSUMPTIONS_README.read_text(encoding="utf-8")
+
+
+def test_assumptions_readme_says_what_the_story_drives() -> None:
+    section = _story_file_section()
+    for phrase in (
+        "story_type: hypergrowth",
+        "apply_story",
+        "ten-year paths",
+        "sales_to_capital",
+        "source `story`",
+        "scenarios",
+        "range",
+        "governance_discount",
+        "never enters the DCF",
+        "margin of safety",
+        "ADR 0009",
+    ):
+        assert phrase in section, phrase
+    assert "weighted" not in section
