@@ -211,8 +211,11 @@ src/bot/web/
 2. Gate: `ruff check`, `mypy src`, `pytest -q`. Si falla, no se deploya.
 3. `uv run bot site --out site --base-url /${{ github.event.repository.name }}/`.
 4. `actions/upload-pages-artifact` → `actions/deploy-pages` (environment
-   `github-pages`; permisos `pages: write`, `id-token: write`).
+   `github-pages`; permisos `pages: write`, `id-token: write` solo en el job
+   `deploy`; el workflow entero tiene `contents: read`, #96).
 5. `concurrency: pages`, `cancel-in-progress: true`.
+6. Cada `uses:` fijado a un SHA de commit con la versión como comentario;
+   `.github/dependabot.yml` propone las actualizaciones semanalmente (#96).
 
 CI no corre `bot analyze`: sin DB ni APIs no hay qué analizar. Flujo:
 `bot analyze` local → commit de los `.json` → push a `master` → CI construye y

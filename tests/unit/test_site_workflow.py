@@ -1,4 +1,4 @@
-"""The GitHub Pages workflow gates on quality before deploying (issue #92)."""
+"""The GitHub Pages workflow gates on quality before deploying (issues #92, #96)."""
 
 from __future__ import annotations
 
@@ -25,7 +25,10 @@ def test_build_gates_then_builds_the_site() -> None:
     steps = _load()["jobs"]["build"]["steps"]
     runs = [s["run"] for s in steps if "run" in s]
     gate = ["uv run ruff check .", "uv run mypy src", "uv run pytest -q"]
-    positions = [runs.index(cmd) for cmd in gate]
+    positions: list[int] = []
+    for cmd in gate:
+        assert cmd in runs, f"gate command missing from the build job of site.yml: {cmd}"
+        positions.append(runs.index(cmd))
     assert positions == sorted(positions)
     site = [i for i, r in enumerate(runs) if r.startswith("uv run bot site")]
     assert len(site) == 1 and site[0] > positions[-1]
@@ -41,4 +44,10 @@ def test_deploy_needs_build_and_uses_pages() -> None:
     assert deploy["needs"] == "build"
     assert deploy["environment"]["name"] == "github-pages"
     assert any(s.get("uses", "").startswith("actions/deploy-pages@") for s in deploy["steps"])
-    assert data["permissions"] == {"contents": "read", "pages": "write", "id-token": "write"}
+    assert data["permissions"] == {"contents": "read"}
+    assert deploy["permissions"] == {"pages": "write", "id-token": "write"}
+    assert "permissions" not in data["jobs"]["build"]
+
+
+def test_concurrency_cancels_superseded_deploys() -> None:
+    assert _load()["concurrency"] == {"group": "pages", "cancel-in-progress": True}
