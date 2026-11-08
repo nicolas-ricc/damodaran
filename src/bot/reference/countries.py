@@ -9,8 +9,9 @@ Two country vocabularies meet in the database:
 
 Joining one to the other with ``WHERE country = ?`` never matched, so every
 non-default country lookup silently fell back to defaults. This module is the
-single translation point: every reader of ``damodaran_country`` runs the
-company country through :func:`damodaran_country_name` first.
+single translation point: every reader of ``damodaran_country`` and the
+dataset-region overrides runs the company country through
+:func:`damodaran_country_name` first.
 """
 
 from __future__ import annotations

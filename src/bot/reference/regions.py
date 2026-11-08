@@ -14,6 +14,9 @@ The consumers need the first but were reading the second, so
 ``WHERE industry = ? AND region = ?`` never matched and every company resolved
 no sector row at all. This module is the single translation point.
 
+Country overrides are keyed by Damodaran name; ISO codes are translated first
+(:mod:`bot.reference.countries`).
+
 Only the US dataset is ingested today (``import_damodaran`` downloads the US
 files regardless of ``--region`` — a separate known defect), so a non-US company
 resolves a dataset region that has no rows. The valuator handles that by
@@ -23,6 +26,8 @@ than silently presenting another region's medians as the company's own.
 """
 
 from __future__ import annotations
+
+from bot.reference.countries import damodaran_country_name
 
 #: The regional file sets Damodaran publishes.
 DATASET_REGIONS: frozenset[str] = frozenset(
@@ -63,8 +68,9 @@ def dataset_region(country: str | None, geographic_region: str | None) -> str:
     malformed grouping falls back to :data:`DEFAULT_DATASET_REGION` rather than
     resolving to nothing, so a sector lookup always has a region to try.
     """
-    if country is not None:
-        override = COUNTRY_REGION_OVERRIDES.get(country.strip())
+    name = damodaran_country_name(country)
+    if name is not None:
+        override = COUNTRY_REGION_OVERRIDES.get(name)
         if override is not None:
             return override
     if geographic_region is not None:
