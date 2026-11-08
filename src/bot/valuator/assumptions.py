@@ -3,24 +3,23 @@
 A valuation is only as honest as its inputs, so every one of the six critical
 assumptions from spec §7.3 carries its *provenance* — where the number came
 from — alongside its value. The report (spec §7.7) shows that provenance for
-each assumption so a human can see which figures are analyst-driven, which are
+each assumption so a human can see which figures are history-driven, which are
 sector defaults, and which are pure rules.
 
 Resolution order (highest-priority source wins, spec §7.3/§7.6)::
 
     1. Manual override    — config/assumptions/<TICKER>.yaml, if present
-    2. Analyst consensus  — FMP (M2). There is no consensus feed, so revenue
-                            growth starts at the company's own historical average
-                            (HISTORICAL_AVERAGE) and fades to terminal growth over
-                            ten years.
-    3. Sector default     — medians from damodaran_industry; the country's tax
+    2. Sector default     — medians from damodaran_industry; the country's tax
                             rate from damodaran_country is sourced
                             COUNTRY_DEFAULT_DAMODARAN.
-    4. Rule-based         — e.g. terminal_growth = min(rfr_ccy, gdp_ccy), where
+    3. Rule-based         — e.g. terminal_growth = min(rfr_ccy, gdp_ccy), where
                             both come from the company's valuation currency in
                             ``config/currencies.yaml`` (#109), or a distressed
                             company's probability of bankruptcy from its interest
                             coverage via ``config/default_spreads.yaml`` (#213).
+
+Revenue growth starts at the company's own history (historical revenue CAGR) and fades
+to terminal growth over ten years; analyst consensus is not a source, by decision (#63).
 
 The valuation currency is the currency of the company's latest non-restated
 ``financials_annual`` row. A currency missing from the table (or a NULL one)
@@ -81,8 +80,8 @@ T = TypeVar("T")
 # single scalar (sector/rule-based growth or margin), and the span over which
 # revenue growth fades to terminal growth. Ten years gives a fast grower time to
 # converge to the steady state instead of capitalising its growth into the terminal
-# value; a richer year-by-year path comes from the analyst-consensus / story-type
-# layer (M4.3+), which overrides this default.
+# value; a hypergrowth story file supplies its own year-by-year path (§7.6), which
+# overrides this default.
 _HORIZON = 10
 
 # A cyclical company's "cycle average" margin is only meaningful once we hold at
@@ -1119,11 +1118,10 @@ def _resolve_revenue_growth(
 ) -> Sourced[tuple[float, ...] | None]:
     """Resolve the revenue-growth path: ``_HORIZON`` (10) years fading to terminal growth.
 
-    Spec §7.3 describes this path. Analyst consensus as the years 1-5 start is planned
-    (#63) but not implemented (FMP's analyst-estimates endpoint is not wired, so there
-    is no ANALYST_CONSENSUS source). Every path starts at the company's own growth and
-    fades linearly to the terminal growth rate, so the last explicit year already grows
-    at the rate the terminal value assumes.
+    Spec §7.3 describes this path. Analyst consensus is not a source, by decision (#63):
+    every path starts at the company's own growth and fades linearly to the terminal
+    growth rate, so the last explicit year already grows at the rate the terminal value
+    assumes.
 
     With history the start is the historical revenue CAGR (the flat path's value; a
     high-growth story is sourced STORY_PATTERN, anything else HISTORICAL_AVERAGE). With

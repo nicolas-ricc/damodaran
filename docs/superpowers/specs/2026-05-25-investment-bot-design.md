@@ -273,15 +273,14 @@ Reinvestment = ΔWC + Capex − Depreciation ≈ ΔRevenue / sales_to_capital
 Cada supuesto lleva un `source` (`AssumptionSource` en `bot.valuator.assumptions`). El reporte muestra siempre cuál es cuál. Valores implementados:
 
 - `manual`: override en `config/assumptions/<TICKER>.yaml`.
-- `sector_default_damodaran`: mediana sectorial de Damodaran de la región de la empresa, o el dato de país de `damodaran_country`.
+- `sector_default_damodaran`: mediana sectorial de Damodaran de la región de la empresa.
+- `country_default_damodaran`: el dato de país de `damodaran_country` (solo la tasa impositiva), cuando la fila sectorial no trae tasa.
 - `sector_default_damodaran_cross_region`: mediana sectorial de Damodaran de otra región, porque la de la empresa no tiene filas ingeridas; el reporte muestra la sustitución.
 - `rule_based`: una regla fija, p. ej. `g = min(rfr, GDP nominal)` de la moneda de valuación, o el GDP nominal como arranque del growth sin historia.
 - `historical_average`: la historia propia de la empresa (CAGR de ingresos, margen promedio del ciclo).
 - `story_pattern`: trayectoria del patrón de proyección del story type (§7.1), derivada de datos de la empresa y del sector (growth de `high-growth`, rampa de margen).
 - `story`: la sección `story` del archivo de override; aplica solo para `hypergrowth`, ver §7.6.
 - `unresolved`: ninguna capa produjo un valor; el reporte muestra el hueco en lugar de un número.
-
-Planificado, no implementado: `analyst_consensus`, el consenso de analistas como arranque del growth de los años 1-5 (#63).
 
 | Supuesto | Default | Override común |
 |---|---|---|
@@ -581,5 +580,5 @@ Part-time: ~2-3 meses. Full-time: ~4-6 semanas.
 1. **Mapeo industrias proveedor → Damodaran**: trabajo manual sostenido. Industrias nuevas en FMP/EOD requieren actualizar el CSV.
 2. **Calidad de fundamentals internacionales**: variable por país. Gaps de cobertura pueden requerir cambiar de proveedor.
 3. **IBKR Client Portal session re-auth**: fricción operativa diaria. Tolerable, migración a TWS posible si molesta.
-4. **DCF garbage-in/garbage-out**: el valor del bot depende críticamente de la calidad de los supuestos. La sensitivity analysis y los narrative flags mitigan, pero no eliminan, el riesgo de confiar en un intrinsic value derivado de un consensus de analistas sesgado.
+4. **DCF garbage-in/garbage-out**: el valor del bot depende críticamente de la calidad de los supuestos. La sensitivity analysis y los narrative flags mitigan, pero no eliminan, el riesgo de confiar en un intrinsic value derivado de un CAGR histórico de ingresos que no representa el futuro de la empresa: proyecta hacia adelante lo que ya pasó.
 5. **No detectar fraudes contables**: ningún screener cuantitativo es robusto a fraude. Los filtros de quality (accruals, cashflow) ayudan, pero la lectura humana sigue siendo necesaria.
