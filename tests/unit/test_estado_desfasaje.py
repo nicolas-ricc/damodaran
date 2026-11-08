@@ -37,8 +37,9 @@ def _git(root: Path, *args: str) -> str:
         cwd=root,
         capture_output=True,
         text=True,
-        check=True,
+        check=False,
     )
+    assert result.returncode == 0, result.stderr
     return result.stdout.strip()
 
 
@@ -63,16 +64,30 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, str]:
     return root, _git(root, "rev-parse", "HEAD")
 
 
-@pytest.fixture
-def build_estado(monkeypatch: pytest.MonkeyPatch, repo: tuple[Path, str]) -> ModuleType:
+@pytest.fixture(scope="module")
+def _loaded() -> ModuleType:
+    """Load build_estado once, undoing the sys.path entry and bare imports it adds."""
+    path, modules = list(sys.path), set(sys.modules)
     spec = importlib.util.spec_from_file_location("plano_build_estado", _PLANO / "build_estado.py")
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    root, audited = repo
-    monkeypatch.setattr(module, "AQUI", root / "docs" / "plano")
-    monkeypatch.setattr(module.estado, "AUDITADO_EN", audited)
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.path[:] = path
+        for name in set(sys.modules) - modules:
+            del sys.modules[name]
     return module
+
+
+@pytest.fixture
+def build_estado(
+    _loaded: ModuleType, monkeypatch: pytest.MonkeyPatch, repo: tuple[Path, str]
+) -> ModuleType:
+    root, audited = repo
+    monkeypatch.setattr(_loaded, "AQUI", root / "docs" / "plano")
+    monkeypatch.setattr(_loaded.estado, "AUDITADO_EN", audited)
+    return _loaded
 
 
 def _html(module: ModuleType) -> str:
