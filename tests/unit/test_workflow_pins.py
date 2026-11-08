@@ -9,6 +9,7 @@ from typing import Any
 import yaml
 
 _ROOT = Path(__file__).resolve().parents[2]
+_USES = re.compile(r"^\s*(?:- )?uses:")
 _PINNED = re.compile(r"^\s*(?:- )?uses:\s*[\w.-]+/[\w.-]+@[0-9a-f]{40} # v\d+\.\d+\.\d+\s*$")
 
 
@@ -18,11 +19,11 @@ def test_every_action_is_pinned_to_a_sha_with_a_version_comment() -> None:
         (wf.name, line)
         for wf in sorted((_ROOT / ".github" / "workflows").glob("*.yml"))
         for line in wf.read_text().splitlines()
-        if "uses:" in line
+        if _USES.match(line)
     ]
     for name, line in lines:
         assert _PINNED.match(line), f"{name}: not pinned to a SHA with a version comment: {line}"
-    assert len(lines) >= 10
+    assert len(lines) >= 10, f"expected at least 10 uses: lines, found {len(lines)}"
 
 
 def test_dependabot_updates_github_actions_weekly() -> None:

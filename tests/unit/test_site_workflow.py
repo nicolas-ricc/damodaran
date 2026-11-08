@@ -1,4 +1,4 @@
-"""The GitHub Pages workflow gates on quality before deploying (issue #92)."""
+"""The GitHub Pages workflow gates on quality before deploying (issues #92, #96)."""
 
 from __future__ import annotations
 
