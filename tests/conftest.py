@@ -11,7 +11,9 @@ pytest-socket (``addopts`` in ``pyproject.toml``) refuses non-loopback
 connections so the suite stays offline. Two exemptions lift the guard, by
 adding the ``enable_socket`` marker at collection: ``live`` tests when
 ``BOT_LIVE_TESTS=1`` (otherwise they are skipped), and every test when
-``--vcr-record`` names a recording mode other than ``none``.
+``--vcr-record`` names a recording mode other than ``none``. The guard
+patches ``socket.connect`` in fixture setup and the test body only: child
+processes, fixture finalizers and ``connect_ex`` are not covered.
 """
 
 from __future__ import annotations

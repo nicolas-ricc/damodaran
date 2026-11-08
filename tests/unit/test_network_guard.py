@@ -2,12 +2,14 @@
 
 ``203.0.113.1`` is TEST-NET-3 (RFC 5737) and ``example.invalid`` never
 resolves, so no proof here reaches the internet: the guard raises before any
-packet, and the unguarded proofs give up after half a second.
+packet, and the unguarded proofs send one SYN to an unrouted address and give
+up after half a second.
 """
 
 from __future__ import annotations
 
 import re
+import shlex
 import socket
 import threading
 from collections.abc import Iterator
@@ -105,10 +107,15 @@ def test_connect():
 
 
 def _run(pytester: pytest.Pytester, source: str, *args: str) -> pytest.RunResult:
+    """Run ``source`` in a subprocess: in-process, it would inherit this test's guard.
+
+    pytest-socket's ``enable_socket`` restores ``socket.socket`` but not the
+    patched ``connect``, so a nested in-process run could never lift the guard.
+    """
     pytester.makeconftest(_ROOT_CONFTEST.read_text())
     pytester.makeini(
         f"[pytest]\naddopts = {GUARD_ADDOPTS}\nstrict_markers = true\n"
-        f"pythonpath = {_ROOT_CONFTEST.parent.parent}\nmarkers =\n    live: x\n"
+        f"pythonpath = {shlex.quote(str(_ROOT_CONFTEST.parent.parent))}\nmarkers =\n    live: x\n"
     )
     pytester.makepyfile(source)
     return pytester.runpytest_subprocess("-q", *args)
