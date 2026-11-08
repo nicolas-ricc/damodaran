@@ -717,7 +717,7 @@ TheMultiplesAreCompared ==
   /\ phase' = "sanity_checked"
   /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
-(* src/bot/cli.py: _analyze_one, three write_text calls after render_* *)
+(* src/bot/cli.py: _analyze_one renders the three reports, then write_report_set writes them all-or-none *)
 TheReportsAreWritten ==
   /\ phase = "sanity_checked"
   /\ phase' = "reported"
@@ -871,7 +871,7 @@ FlagsAfterTheDcfNotInTheVerdict ==
   (flags # {} => valued)
   /\ (verdict # "none" => (flags \in {FlagNames, FlagNames \cup {"hypergrowth story"}, FlagNames \cup HypergrowthFlagNames, BaseFlagNames, BaseFlagNames \cup {"hypergrowth story"}, BaseFlagNames \cup HypergrowthFlagNames} /\ verdict = ThresholdVerdict(margin)))
 
-(* Cites: cli.py _analyze_one: three write_text calls in a row, after a successful run_analysis. *)
+(* Cites: cli.py _analyze_one: renders the three reports after a successful run_analysis, then write_report_set writes them all-or-none. *)
 \* The markdown, HTML and JSON reports are written together, and only for a valued company.
 ReportsTogetherOnlyWhenValued ==
   reports # {} => (reports = {"markdown", "HTML", "JSON"} /\ valued /\ verdict # "none")

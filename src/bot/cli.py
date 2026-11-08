@@ -40,6 +40,7 @@ from bot.reference.default_spreads import DefaultSpreadTable, load_default_sprea
 from bot.reporting.analysis_json import render_analysis_json
 from bot.reporting.analysis_report import analysis_summary, render_analysis
 from bot.reporting.html import render_analysis_html
+from bot.reporting.report_set import ReportWriteError, write_report_set
 from bot.reporting.screen_report import render_csv, render_markdown
 from bot.reporting.show import format_company_summary
 from bot.screener.config import load_screener_config
@@ -413,7 +414,8 @@ def analyze(
     HTML with a base64-inlined Matplotlib tornado chart, openable in a browser
     with no external assets.
 
-    A per-ticker failure (unknown ticker, missing data) is printed and does not
+    A per-ticker failure (unknown ticker, missing data, a report that can't be
+    rendered or written) is printed and does not
     abort the rest of the batch; the command exits with the worst per-ticker
     code.
     """
@@ -483,7 +485,9 @@ def _analyze_one(
     """Analyze one ticker and write its §7.7 reports. Returns its exit code.
 
     ``0`` on success, ``2`` for an unknown ticker (``LookupError``), ``1`` when
-    the ticker can't be valued (``ValueError``). Errors are printed, not raised,
+    the ticker can't be valued or its reports can't be rendered (``ValueError``),
+    or written (``ReportWriteError``; the three files are written all-or-none).
+    Errors are printed, not raised,
     so a batch of tickers keeps going after one fails.
     """
     ticker = ticker.upper()
@@ -508,21 +512,24 @@ def _analyze_one(
         return 1
 
     today = date.today()
-    report_md = render_analysis(analysis, generated_on=today)
-    report_html = render_analysis_html(analysis, generated_on=today)
-    report_json = render_analysis_json(analysis, generated_on=today)
+    try:
+        reports = {
+            f"{ticker}.md": render_analysis(analysis, generated_on=today),
+            f"{ticker}.html": render_analysis_html(analysis, generated_on=today),
+            f"{ticker}.json": render_analysis_json(analysis, generated_on=today),
+        }
+    except ValueError as exc:
+        typer.echo(f"{ticker}: cannot render report — {exc}", err=True)
+        return 1
     out_dir = settings.reports_dir / today.isoformat() / "analysis"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{ticker}.md"
-    html_path = out_dir / f"{ticker}.html"
-    json_path = out_dir / f"{ticker}.json"
-    out_path.write_text(report_md)
-    html_path.write_text(report_html)
-    json_path.write_text(report_json)
+    try:
+        paths = write_report_set(out_dir, reports)
+    except ReportWriteError as exc:
+        typer.echo(f"{ticker}: cannot write report — {exc}", err=True)
+        return 1
 
-    typer.echo(f"Wrote {out_path}")
-    typer.echo(f"Wrote {html_path}")
-    typer.echo(f"Wrote {json_path}")
+    for path in paths:
+        typer.echo(f"Wrote {path}")
     summary = analysis_summary(analysis)
     if summary is not None:
         typer.echo(summary)
