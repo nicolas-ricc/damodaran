@@ -12,6 +12,9 @@ import os
 import shutil
 import subprocess
 import sys
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -424,6 +427,177 @@ def test_daily_log_marks_each_price_round(repo: Path, recorder_bin: Path) -> Non
     log = (repo / ".cache" / "daily.log").read_text()
     assert "--- prices round 1/10 " in log
     assert "--- prices round 2/10 " in log
+
+
+# --- the shared DB lock (#108): daily.sh and weekly.sh wait for it --------------------
+
+_LOCK_REL = Path(".cache") / "bot.lock"
+
+
+@contextmanager
+def _hold_lock(repo: Path) -> Iterator[int]:
+    """Hold repo/.cache/bot.lock from the test process, as another wrapper would."""
+    lock = repo / _LOCK_REL
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield fd
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def _probe(lock: Path, label: str, calls: Path) -> str:
+    """A bash line recording whether ``lock`` is free right now, as ``<label> lock-*``."""
+    return (
+        f'if flock -n "{lock}" true; then echo "{label} lock-free" >> "{calls}"; '
+        f'else echo "{label} lock-held" >> "{calls}"; fi\n'
+    )
+
+
+@pytest.mark.parametrize("name", list(_WRAPPERS))
+def test_wrapper_times_out_when_the_db_lock_stays_held(
+    name: str, repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    env = _env(recorder_bin, BOT_DB_LOCK_WAIT="1", **_NO_PAUSE)
+    with _hold_lock(repo):
+        result = _run(repo / "scripts" / name, env=env)
+
+    assert result.returncode == 75, result.stderr
+    assert _calls(calls) == []
+    log = (repo / ".cache" / name.replace(".sh", ".log")).read_text()
+    assert "lock timeout:" in log
+    assert ".cache/bot.lock" in log
+
+
+@pytest.mark.parametrize("name", list(_WRAPPERS))
+def test_wrapper_waits_for_the_db_lock_then_runs(
+    name: str, repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    env = _env(recorder_bin, BOT_DB_LOCK_WAIT="60")
+    with _hold_lock(repo):
+        proc = subprocess.Popen(
+            [str(repo / "scripts" / name)],
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                assert _calls(calls) == []
+                time.sleep(0.1)
+        except BaseException:
+            proc.kill()
+            proc.wait()
+            raise
+    try:
+        returncode = proc.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        raise
+
+    assert returncode == 0
+    assert _calls(calls) == _WRAPPERS[name]
+
+
+def test_daily_releases_the_db_lock_during_the_pause_between_rounds(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    lock = repo / _LOCK_REL
+    _write_exe(recorder_bin / "sleep", "#!/usr/bin/env bash\n" + _probe(lock, "sleep $*", calls))
+    env = _env(recorder_bin, FAKE_DEFERRED_ROUNDS="99", BOT_PRICE_ROUNDS="3")
+    result = _run(repo / "scripts" / "daily.sh", env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert [c for c in _calls(calls) if c.startswith("sleep ")] == ["sleep 3600 lock-free"] * 2
+
+
+@pytest.mark.parametrize("name", list(_WRAPPERS))
+def test_wrapper_holds_the_db_lock_while_bot_runs(
+    name: str, repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    lock = repo / _LOCK_REL
+    (recorder_bin / "uv").rename(recorder_bin / "uv-real")
+    _write_exe(
+        recorder_bin / "uv",
+        "#!/usr/bin/env bash\n"
+        + _probe(lock, "uv $*", calls)
+        + f'exec "{recorder_bin / "uv-real"}" "$@"\n',
+    )
+    result = _run(repo / "scripts" / name, env=_env(recorder_bin))
+
+    assert result.returncode == 0, result.stderr
+    probes = [c for c in _calls(calls) if c.startswith("uv run bot ")]
+    assert len(probes) == 3
+    assert all(p.endswith(" lock-held") for p in probes), probes
+
+
+# Records its argv, skips the options up to the lock path, then runs the command,
+# as flock(1) does with a free lock.
+_FAKE_FLOCK = """#!/usr/bin/env bash
+echo "flock $*" >> "{calls}"
+while [ "$#" -gt 0 ]; do
+  arg="$1"
+  shift
+  [[ "$arg" == *bot.lock ]] && break
+done
+exec "$@"
+"""
+
+
+@pytest.mark.parametrize(
+    ("wait", "expected"), [("5", "-w 5"), ("soon", "-w 900"), (None, "-w 900")]
+)
+def test_wrapper_lock_wait_is_configurable_and_falls_back_when_invalid(
+    repo: Path, recorder_bin: Path, calls: Path, wait: str | None, expected: str
+) -> None:
+    _write_exe(recorder_bin / "flock", _FAKE_FLOCK.format(calls=calls))
+    extra = {} if wait is None else {"BOT_DB_LOCK_WAIT": wait}
+    result = _run(repo / "scripts" / "daily.sh", env=_env(recorder_bin, **extra))
+
+    assert result.returncode == 0, result.stderr
+    flocks = [c for c in _calls(calls) if c.startswith("flock ")]
+    assert len(flocks) == 3
+    for line in flocks:
+        assert f" {expected} " in line
+        assert ".cache/bot.lock" in line
+
+
+def test_weekly_runs_publish_site_without_the_db_lock(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    lock = repo / _LOCK_REL
+    _write_exe(
+        repo / "scripts" / "publish_site.sh",
+        "#!/usr/bin/env bash\n" + _probe(lock, "publish", calls),
+    )
+    result = _run(repo / "scripts" / "weekly.sh", env=_env(recorder_bin))
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls)[-1] == "publish lock-free"
+
+
+def test_readme_scheduling_documents_the_shared_db_lock() -> None:
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    start = readme.index("\n## Scheduling\n")
+    end = readme.find("\n## ", start + 1)
+    section = " ".join(readme[start : None if end == -1 else end].split())
+    for fact in (
+        ".cache/bot.lock",
+        "daily.sh",
+        "weekly.sh",
+        "price_fill.sh",
+        "BOT_DB_LOCK_WAIT",
+        "900",
+        "lock timeout:",
+        "75",
+        "skips",
+    ):
+        assert fact in section, fact
 
 
 def test_weekly_exits_with_screen_failure(repo: Path, recorder_bin: Path, calls: Path) -> None:

@@ -145,12 +145,19 @@ uv run bot show AAPL             # show a US company's fundamentals (M1)
   never touched. cron has no ssh-agent:
   the push needs an SSH key that works without a passphrase (a deploy key with write access
   is fine). Everything the screen shortlists becomes public once pushed.
+- **DB lock**: `daily.sh`, `weekly.sh` and `price_fill.sh` share the lock `.cache/bot.lock`, so
+  only one of them opens the database at a time (DuckDB allows one process per file, even
+  read-only). `daily.sh` and `weekly.sh` take it per `bot` command, so it is released between
+  price rounds and during `publish_site.sh`. They wait up to `BOT_DB_LOCK_WAIT` seconds
+  (default 900) for it. After that the command fails with a logged `lock timeout:` line and the
+  run exits 75 (`daily.sh` still tries FX after a timed-out price round, so it can wait twice).
+  The hourly `price_fill.sh` drip does not wait: it skips that hour's run instead.
 
 Each run appends to `.cache/daily.log` / `.cache/weekly.log` under a `=== <timestamp> run ===`
-header; the job's exit code is the bot's. Running the installer again adds nothing; lines are
-found by their `# bot-daily` / `# bot-weekly` markers, and every other crontab line is kept.
-`scripts/install_cron.sh --remove` drops just those two lines. The hourly `price_fill.sh` drip is
-separate (Quickstart step 3).
+header; the job's exit code is the bot's, or 75 after a lock timeout. Running the installer
+again adds nothing; lines are found by their `# bot-daily` / `# bot-weekly` markers, and every
+other crontab line is kept. `scripts/install_cron.sh --remove` drops just those two lines. The
+hourly `price_fill.sh` drip is separate (Quickstart step 3).
 
 ## Portfolio sync — Interactive Brokers (M5)
 
