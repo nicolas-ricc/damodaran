@@ -992,7 +992,24 @@ def test_distress_value_per_share_override_reaches_the_dcf(
 
 
 def test_assumption_source_has_no_unreachable_member() -> None:
+    """Every member is referenced by name somewhere in bot.valuator outside the
+    enum body, and the member list is pinned."""
+    import importlib
+    import inspect
+    import pkgutil
+    import re
+
+    import bot.valuator
     from bot.valuator.assumptions import AssumptionSource
+
+    referenced: set[str] = set()
+    for info in pkgutil.iter_modules(bot.valuator.__path__):
+        module = importlib.import_module(f"bot.valuator.{info.name}")
+        source = inspect.getsource(module)
+        referenced |= set(re.findall(r"AssumptionSource\.([A-Z_]+)", source))
+
+    unreachable = {member.name for member in AssumptionSource} - referenced
+    assert not unreachable, f"AssumptionSource members nothing emits: {sorted(unreachable)}"
 
     # ANALYST_CONSENSUS was never emitted by any resolver: revenue growth comes
     # from the historical average. Deleted so the enum describes what can happen.
