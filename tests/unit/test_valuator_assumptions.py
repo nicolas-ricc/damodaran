@@ -18,7 +18,9 @@ override_path).
 
 from __future__ import annotations
 
+import errno
 import itertools
+import re
 from datetime import date
 from pathlib import Path
 
@@ -1205,6 +1207,45 @@ def test_conventional_override_path_finds_the_ticker_yaml(tmp_path: Path) -> Non
 def test_conventional_override_path_is_none_when_missing_or_no_dir(tmp_path: Path) -> None:
     assert conventional_override_path(tmp_path, "MSFT") is None
     assert conventional_override_path(None, "MSFT") is None
+
+
+def test_conventional_override_path_passes_a_directory_on(tmp_path: Path) -> None:
+    """A directory named ``TICKER.yaml`` is handed to ``load_override``, which refuses it (#227)."""
+    (tmp_path / "AAPL.yaml").mkdir()
+    assert conventional_override_path(tmp_path, "AAPL") == tmp_path / "AAPL.yaml"
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        pytest.param(PermissionError(errno.EACCES, "Permission denied"), id="permission"),
+        pytest.param(OSError(errno.EIO, "Input/output error"), id="io-error"),
+    ],
+)
+def test_load_override_unreadable_file_is_a_value_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error: OSError
+) -> None:
+    path = tmp_path / "AAPL.yaml"
+    path.write_text("notes: unreadable\n")
+    real = Path.read_text
+
+    def read_text(self: Path, *args: object, **kwargs: object) -> str:
+        if self.name == "AAPL.yaml":
+            raise error
+        return real(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    with pytest.raises(ValueError, match=re.escape(f"override file {path} cannot be read")) as exc:
+        load_override(path)
+    assert exc.value.__cause__ is error
+
+
+def test_load_override_directory_is_a_value_error(tmp_path: Path) -> None:
+    path = tmp_path / "AAPL.yaml"
+    path.mkdir()
+    with pytest.raises(ValueError, match=re.escape(f"override file {path} cannot be read")) as exc:
+        load_override(path)
+    assert isinstance(exc.value.__cause__, IsADirectoryError)
 
 
 def test_cyclical_margin_needs_a_full_cycle_of_history() -> None:
