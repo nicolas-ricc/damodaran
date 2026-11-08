@@ -67,6 +67,7 @@ CYCLICAL_INDUSTRIES: frozenset[str] = frozenset(
         "Shipbuilding & Marine",
         "Steel",
         "Transportation",
+        "Transportation (Railroads)",
         "Trucking",
     }
 )
