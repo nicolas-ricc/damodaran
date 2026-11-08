@@ -1115,11 +1115,11 @@ def _resolve_revenue_growth(
 ) -> Sourced[tuple[float, ...] | None]:
     """Resolve the revenue-growth path: ``_HORIZON`` (10) years fading to terminal growth.
 
-    Spec §7.3 wants analyst consensus for years 1-5 with convergence to nominal GDP by
-    year 10. Consensus is not implemented (FMP's analyst-estimates endpoint is not
-    wired, so there is no ANALYST_CONSENSUS source). Every path instead starts at the
-    company's own growth and fades linearly to the terminal growth rate, so the last
-    explicit year already grows at the rate the terminal value assumes.
+    Spec §7.3 describes this path. Analyst consensus as the years 1-5 start is planned
+    (#63) but not implemented (FMP's analyst-estimates endpoint is not wired, so there
+    is no ANALYST_CONSENSUS source). Every path starts at the company's own growth and
+    fades linearly to the terminal growth rate, so the last explicit year already grows
+    at the rate the terminal value assumes.
 
     With history the start is the historical revenue CAGR (the flat path's value; a
     high-growth story is sourced STORY_PATTERN, anything else HISTORICAL_AVERAGE). With

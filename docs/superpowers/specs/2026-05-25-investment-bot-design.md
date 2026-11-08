@@ -270,11 +270,22 @@ Reinvestment = ΔWC + Capex − Depreciation ≈ ΔRevenue / sales_to_capital
 
 ### 7.3 Seis supuestos críticos con source explícito
 
-Cada supuesto tiene `source ∈ {manual, analyst_consensus, sector_default_damodaran, rule_based, historical_average, story}`. El reporte muestra siempre cuál es cuál. `story` aplica solo para `hypergrowth`, ver §7.6.
+Cada supuesto lleva un `source` (`AssumptionSource` en `bot.valuator.assumptions`). El reporte muestra siempre cuál es cuál. Valores implementados:
+
+- `manual`: override en `config/assumptions/<TICKER>.yaml`.
+- `sector_default_damodaran`: mediana sectorial de Damodaran de la región de la empresa, o el dato de país de `damodaran_country`.
+- `sector_default_damodaran_cross_region`: mediana sectorial de Damodaran de otra región, porque la de la empresa no tiene filas ingeridas; el reporte muestra la sustitución.
+- `rule_based`: una regla fija, p. ej. `g = min(rfr, GDP nominal)` de la moneda de valuación, o el GDP nominal como arranque del growth sin historia.
+- `historical_average`: la historia propia de la empresa (CAGR de ingresos, margen promedio del ciclo).
+- `story_pattern`: trayectoria del patrón de proyección del story type (§7.1), derivada de datos de la empresa y del sector (growth de `high-growth`, rampa de margen).
+- `story`: la sección `story` del archivo de override; aplica solo para `hypergrowth`, ver §7.6.
+- `unresolved`: ninguna capa produjo un valor; el reporte muestra el hueco en lugar de un número.
+
+Planificado, no implementado: `analyst_consensus`, el consenso de analistas como arranque del growth de los años 1-5 (#63).
 
 | Supuesto | Default | Override común |
 |---|---|---|
-| Revenue growth path (años 1-5) | analyst_consensus → converge a GDP nominal país en y10 | Manual cuando consensus está sesgado |
+| Revenue growth path (10 años) | Arranca en el growth propio de la empresa: el CAGR histórico de ingresos (`story_pattern` en `high-growth`, `historical_average` en los demás), o el GDP nominal de la moneda sin historia (`rule_based`). Converge linealmente al terminal growth (g, ver abajo, o el `terminal_growth` manual) en y10. `hypergrowth` sigue su story (§7.6) y también termina en g en y10. Sin g, o sin historia ni GDP de la moneda, el default queda `unresolved` | Manual (escalar, o lista de un valor por año cuyo largo fija el horizonte) cuando el CAGR histórico no representa el futuro |
 | Operating margin steady-state | Sector default Damodaran | Manual si hay razón estructural |
 | Sales-to-capital ratio | Sector default Damodaran | Manual |
 | WACC | CAPM con beta sectorial + ERP país (ambos Damodaran) + estructura de capital de la empresa | Raro, solo si estructura atípica |
