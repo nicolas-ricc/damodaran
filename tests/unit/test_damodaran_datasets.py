@@ -137,7 +137,7 @@ def test_no_dataset_maps_a_column_the_table_does_not_have() -> None:
 
 
 def test_real_import_fills_the_columns_the_extra_datasets_publish() -> None:
-    """The end of the silent-NULL bug: every mapped column arrives populated."""
+    """The end of the silent-NULL bug: every mapped column arrives populated for at least 90% of industries."""
     conn = _seeded_conn()
     result = import_damodaran_from_files(
         conn,
@@ -161,11 +161,13 @@ def test_real_import_fills_the_columns_the_extra_datasets_publish() -> None:
         "roic",
     )
     counts = conn.execute(
-        "SELECT " + ", ".join(f"COUNT({c})" for c in columns) + " FROM damodaran_industry"
+        "SELECT COUNT(*), " + ", ".join(f"COUNT({c})" for c in columns) + " FROM damodaran_industry"
     ).fetchone()
     assert counts is not None
-    for column, count in zip(columns, counts, strict=True):
-        assert count > 0, f"{column} is NULL for every industry"
+    total, *populated = counts
+    assert total > 0, "the import wrote no industry rows"
+    for column, count in zip(columns, populated, strict=True):
+        assert count >= 0.9 * total, f"{column}: {count} of {total} industries populated"
     conn.close()
 
 
@@ -212,7 +214,7 @@ def test_a_blanked_sector_margin_leaves_the_dcf_unresolved() -> None:
     conn.close()
 
 
-def test_the_cost_of_capital_file_wins_the_columns_it_shares() -> None:
+def test_the_margin_file_wins_the_columns_it_shares_with_psdata() -> None:
     """psdata.xls also publishes Net Margin; margin.xls comes first and wins."""
     conn = _seeded_conn()
     import_damodaran_from_files(
