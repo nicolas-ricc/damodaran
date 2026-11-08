@@ -2,6 +2,7 @@ import re
 from datetime import date, timedelta
 from pathlib import Path
 
+import pytest
 from typer.testing import CliRunner
 
 from bot.cli import app
@@ -240,3 +241,99 @@ def test_doctor_flex_half_configured_is_not_configured(tmp_path, monkeypatch):
     assert "not configured" in result.stdout
     assert "Latest snapshot:" not in result.stdout
     _assert_no_secret(result)
+
+
+def _expiry_env(tmp_path, monkeypatch, value: str | None) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "x.duckdb"))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(tmp_path / "reports"))
+    monkeypatch.delenv("BOT_IBKR_FLEX_TOKEN", raising=False)
+    monkeypatch.delenv("BOT_IBKR_FLEX_QUERY_ID", raising=False)
+    if value is None:
+        monkeypatch.delenv("BOT_IBKR_FLEX_TOKEN_EXPIRES", raising=False)
+    else:
+        monkeypatch.setenv("BOT_IBKR_FLEX_TOKEN_EXPIRES", value)
+
+
+def _in_days(n: int) -> str:
+    return (date.today() + timedelta(days=n)).isoformat()
+
+
+def test_doctor_flex_token_expiry_far_is_info(tmp_path, monkeypatch):
+    _expiry_env(tmp_path, monkeypatch, _in_days(30))
+
+    result = CliRunner().invoke(app, ["doctor"])
+
+    assert result.exit_code == 0, result.stderr
+    assert f"Flex token expiry: {_in_days(30)} (30 days left)" in result.stdout
+    assert "WARN:" not in result.stdout
+
+
+def test_doctor_flex_token_expiry_just_outside_window_is_info(tmp_path, monkeypatch):
+    _expiry_env(tmp_path, monkeypatch, _in_days(15))
+
+    result = CliRunner().invoke(app, ["doctor"])
+
+    assert result.exit_code == 0, result.stderr
+    assert f"Flex token expiry: {_in_days(15)} (15 days left)" in result.stdout
+    assert "WARN:" not in result.stdout
+
+
+@pytest.mark.parametrize("days", [14, 0])
+def test_doctor_flex_token_expiry_within_window_warns(tmp_path, monkeypatch, days):
+    _expiry_env(tmp_path, monkeypatch, _in_days(days))
+
+    result = CliRunner().invoke(app, ["doctor"])
+
+    assert result.exit_code == 0, result.stderr
+    assert f"WARN: Flex token expires in {days} day(s) ({_in_days(days)})" in result.stdout
+    assert "WARN:" not in result.stderr
+    assert "All checks OK." in result.stdout
+
+
+def test_doctor_flex_token_expired_fails(tmp_path, monkeypatch):
+    _expiry_env(tmp_path, monkeypatch, _in_days(-1))
+
+    result = CliRunner().invoke(app, ["doctor"])
+
+    assert result.exit_code == 1
+    prefix = f"FAIL: Flex token expired on {_in_days(-1)} (BOT_IBKR_FLEX_TOKEN_EXPIRES)"
+    assert any(line.startswith(prefix) for line in result.stderr.splitlines())
+
+
+def test_doctor_flex_token_expiry_unset(tmp_path, monkeypatch):
+    _expiry_env(tmp_path, monkeypatch, None)
+
+    result = CliRunner().invoke(app, ["doctor"])
+
+    assert result.exit_code == 0, result.stderr
+    assert "Flex token expiry: not set (BOT_IBKR_FLEX_TOKEN_EXPIRES)" in result.stdout
+
+
+def test_doctor_flex_token_expiry_blank_is_not_set(tmp_path, monkeypatch):
+    _expiry_env(tmp_path, monkeypatch, "  ")
+
+    result = CliRunner().invoke(app, ["doctor"])
+
+    assert result.exit_code == 0, result.stderr
+    assert "Flex token expiry: not set" in result.stdout
+
+
+def test_doctor_flex_token_expiry_garbage_is_settings_invalid(tmp_path, monkeypatch):
+    _expiry_env(tmp_path, monkeypatch, "garbage")
+
+    result = CliRunner().invoke(app, ["doctor"])
+
+    assert result.exit_code == 1
+    assert "Settings invalid" in result.stderr
+
+
+def test_doctor_flex_token_expiry_follows_query_id_line(tmp_path, monkeypatch):
+    _expiry_env(tmp_path, monkeypatch, _in_days(30))
+
+    result = CliRunner().invoke(app, ["doctor"])
+
+    lines = result.stdout.splitlines()
+    (index,) = [i for i, line in enumerate(lines) if line.startswith("Flex query id:")]
+    assert lines[index + 1].startswith("Flex token expiry:")
