@@ -45,19 +45,22 @@ A valid story file drives the valuation of that ticker (ADR 0009). Without one,
 no hypergrowth valuation runs. With `story_type: hypergrowth` and a `story`:
 
 - **Assumptions.** `resolve_assumptions` overlays the story on the resolved
-  bundle through `apply_story`. Its ten-year paths replace the growth, margin
-  and reinvestment assumptions: revenue growth (year 1 `year1_growth`, then
+  bundle through `apply_story`, replacing the growth, margin and reinvestment
+  assumptions. Its ten-year paths: revenue growth (year 1 `year1_growth`, then
   solved so year-10 revenue meets `target_revenue_y10`), the operating margin
-  (`year1_margin` to `target_margin` minus `regulatory_drag`), `sales_to_capital`
-  and `terminal_roic`, plus the WACC and tax paths. The failure blend
-  (`failure_probability`, `failure_proceeds_pct_of_value`), `fixed_commitments_pv`
-  and `extra_cash` enter the DCF too. Each such input shows source `story` in the report.
+  (`year1_margin` to `target_margin` minus `regulatory_drag`), the WACC
+  (`wacc_start` to `wacc_terminal`) and the tax rate. With them come
+  `sales_to_capital`, `terminal_roic`, the cost of equity (`wacc_start`, all
+  equity, no debt), the failure blend (`failure_probability`,
+  `failure_proceeds_pct_of_value`), `fixed_commitments_pv` and `extra_cash`.
+  Each such input shows source `story` in the report.
 - **Scenarios.** `bot analyze` values `base` and then every entry of
   `scenarios`, in file order, with one plain DCF each. The report shows the
   range next to the tornado.
 - **Governance discount.** `governance_discount` never enters the DCF. The
   margin of safety is measured on the intrinsic value after the discount,
-  `intrinsic_value * (1 - governance_discount)`.
+  `intrinsic_value * (1 - governance_discount)`. The tornado, the grid and the
+  scenarios use the raw value.
 
 ## Probability of bankruptcy
 

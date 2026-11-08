@@ -228,7 +228,8 @@ def test_estado_build_passes() -> None:
 
 def _story_file_section() -> str:
     text = _ASSUMPTIONS_README.read_text(encoding="utf-8")
-    return _section(text, "## Hypergrowth story file", "## Probability of bankruptcy")
+    section = _section(text, "## Hypergrowth story file", "## Probability of bankruptcy")
+    return _section(section, "A valid story file drives", None)
 
 
 def test_assumptions_readme_drops_the_stale_sentence() -> None:
@@ -239,15 +240,17 @@ def test_assumptions_readme_says_what_the_story_drives() -> None:
     section = _story_file_section()
     for phrase in (
         "story_type: hypergrowth",
+        "no hypergrowth valuation runs",
         "apply_story",
         "ten-year paths",
         "sales_to_capital",
         "source `story`",
-        "scenarios",
-        "range",
+        "one plain DCF each",
+        "range next to the tornado",
         "governance_discount",
         "never enters the DCF",
         "margin of safety",
+        "scenarios use the raw value",
         "ADR 0009",
     ):
         assert phrase in section, phrase
