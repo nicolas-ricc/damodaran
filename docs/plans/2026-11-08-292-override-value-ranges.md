@@ -32,6 +32,10 @@
 - **Phrase derivation.** Both bounds inclusive → `between {low} and {high}`. Otherwise the present bounds joined by ` and `: low inclusive `at least {low}`, exclusive `greater than {low}`; high inclusive `at most {high}`, exclusive `less than {high}`. Numbers formatted with `:g` (`0`, `1`, `-1`). This yields exactly the seven phrases of decision 2.
 - **Every numeric key has a range.** `set(_OVERRIDE_RANGES) == _OVERRIDE_KEYS - _OVERRIDE_TEXT_KEYS - _OVERRIDE_STORY_KEYS` is pinned by a test, so a new numeric key cannot silently skip the range check.
 - **The example-file test lives in `tests/unit/test_valuator_assumptions.py`** (none exists today; `test_valuator_hypergrowth.py::test_example_file_documents_every_story_key` only greps for names). It uncomments every top-level numeric line (`# <key>: ...` at column 0 with `<key>` in `_OVERRIDE_RANGES`), keeps everything else (the `notes:` line is already active), writes it to `tmp_path / "EX.yaml"`, and asserts `load_override` returns all eleven numeric keys. The repo root is `Path(__file__).resolve().parents[2]`.
+- **Scalar path key message.** Decision 2 fixes ` (every element)` for the two path keys without distinguishing scalar from list; a scalar path value broadcasts to every year (`assumptions.py:846-848`), so the suffix stays true and is used for both forms (rejected: a separate scalar phrase, which the issue does not list).
+- **Every phrase is pinned.** `phrase()` is derived, so a direct test asserts the phrase of every entry in `_OVERRIDE_RANGES` against the seven literals of decision 2 (rejected: storing the phrase as a literal field, which could drift from the bounds).
+- **The message shows the parsed YAML value.** Decision 2 fixes `got {value!r}`; a quoted `'25'` therefore reports `got '25'`, pinned in the message test.
+- **Stage-3 tests are authoritative.** Pipeline stage 3 writes the Task 1-3 tests with the names and assertions listed here, before any implementation; an implementer who finds them already present keeps them as written.
 - **Board re-render is local.** `PATH=/usr/local/lib/d2/d2-v0.9.0/bin:$PATH docs/pipeline/build.sh` works here (tala layout verified). Only `.svg` files whose bytes changed and `rendered.sha256` are committed; PNGs are git-ignored.
 
 ## Review Focus
@@ -55,9 +59,10 @@
 
 - [ ] **Step 1: Write the failing tests** (they may already exist from pipeline stage 3; keep them).
   - `test_override_value_outside_its_range_is_refused`, parametrised `(body, key)` with ids, over at least: `tax_rate: 25`, `tax_rate: '25'`, `probability_of_bankruptcy: 1.5`, `equity_weight: -0.1`, `debt_weight: 1.2`, `cost_of_equity: 0`, `pretax_cost_of_debt: 1`, `terminal_growth: -1`, `sales_to_capital: 0`, `distress_value_per_share: -1`, `operating_margin: [0.2, 1.0]`, `operating_margin: 1.0`, `revenue_growth: -1`. Body: `_seed_full_sector(conn)`, `_write_override`, `pytest.raises(ValueError, match=rf"ACME\.yaml: {key} must be")` around `resolve_assumptions("ACME", conn, override_path=override)`.
-  - `test_override_range_error_names_the_range_and_the_value`: `tax_rate: 25` → match `r"ACME\.yaml: tax_rate must be between 0 and 1, got 25$"`; `revenue_growth: [0.1, -1.5, 0.1]` → match `r"revenue_growth must be greater than -1 \(every element\), got \[0\.1, -1\.5, 0\.1\]"`.
+  - `test_override_range_error_names_the_range_and_the_value`: `tax_rate: 25` → match `r"ACME\.yaml: tax_rate must be between 0 and 1, got 25$"`; `tax_rate: '25'` → match `r"got '25'$"`; `revenue_growth: [0.1, -1.5, 0.1]` → match `r"revenue_growth must be greater than -1 \(every element\), got \[0\.1, -1\.5, 0\.1\]"`.
   - `test_override_boundary_value_is_accepted`, parametrised `(body, field, expected)`: `tax_rate: 0` → `tax_rate`, `0.0`; `tax_rate: 1` → `1.0`; `probability_of_bankruptcy: 0` → `0.0`; `distress_value_per_share: 0` → `0.0`; `operating_margin: -0.5` → `(-0.5,) * 10`; `revenue_growth: 2.0` → `(2.0,) * 10`. Asserts `getattr(result, field).value == pytest.approx(expected)` and `.source is AssumptionSource.MANUAL`.
   - `test_override_type_and_range_errors_keep_file_order`, parametrised: `"tax_rate: [0.2]\ncost_of_equity: 5\n"` → `tax_rate`; `"cost_of_equity: 5\ntax_rate: abc\n"` → `cost_of_equity`. Match `rf"ACME\.yaml: {key} must be"`.
+  - `test_override_range_phrases`: `{k: r.phrase() for k, r in assumptions_mod._OVERRIDE_RANGES.items()}` equals the per-key phrase of Global Constraints, without the ` (every element)` suffix (that is added by the check).
   - `test_every_numeric_override_key_has_a_range`: `set(assumptions_mod._OVERRIDE_RANGES) == assumptions_mod._OVERRIDE_KEYS - assumptions_mod._OVERRIDE_TEXT_KEYS - assumptions_mod._OVERRIDE_STORY_KEYS`.
 - [ ] **Step 2: Run** `uv run pytest -q tests/unit/test_valuator_assumptions.py -k "range or boundary or file_order"`. Expected: the refusal cases, the message test, the `cost_of_equity` ordering case and the table test FAIL (today `tax_rate: 25` resolves `MANUAL`; `_OVERRIDE_RANGES` does not exist); boundary cases PASS.
 - [ ] **Step 3: Implement** `_Range` and `_OVERRIDE_RANGES` (values from Global Constraints) next to `_OVERRIDE_PATH_KEYS`, each with a `#:` comment in the file's style. In `_check_override_values`, after the existing `if not ok: raise`, look up `_OVERRIDE_RANGES[key]`; for a path key check every element of the list (or the scalar), else the scalar; on failure raise with `phrase()` plus ` (every element)` for path keys. Update the function docstring ("not a finite number, or outside its range") and add "out-of-range values" to the refusal list in `load_override`'s docstring.
@@ -89,9 +94,35 @@
 - [ ] **Step 1: Write the failing test**: add `"a numeric value outside its range"` to `_ANALYZE_TEXT["override"]`.
 - [ ] **Step 2: Run** `uv run pytest -q tests/unit/test_pipeline_diagram.py` → FAIL naming the missing phrase.
 - [ ] **Step 3: Edit the node label**: the finite-number line becomes `a numeric value that is not a finite number (or a non-empty list of them for revenue_growth / operating_margin), a numeric value outside its range,` (same line, right after the finite-number reason, no digits).
-- [ ] **Step 4: Re-render and check**: `PATH=/usr/local/lib/d2/d2-v0.9.0/bin:$PATH docs/pipeline/build.sh`, then `python3 docs/pipeline/check.py` → passes; `uv run pytest -q tests/unit/test_pipeline_diagram.py` → passes. `git status --short docs/pipeline` shows `analyze.d2`, `analyze.svg`, `rendered.sha256` (revert any other `.svg` only if its diff is pure re-render noise unrelated to this edit, and say so in the commit body).
+- [ ] **Step 4: Re-render and check**: `PATH=/usr/local/lib/d2/d2-v0.9.0/bin:$PATH docs/pipeline/build.sh`, then `python3 docs/pipeline/check.py` → passes; `uv run pytest -q tests/unit/test_pipeline_diagram.py` → passes. `git status --short docs/pipeline` shows `analyze.d2`, `analyze.svg`, `rendered.sha256`; commit every `.svg` the render changed as it came out (`check.py:192` hashes only the `*.d2` sources, and CI re-renders with the pinned version and fails on a stale `rendered.sha256`).
 - [ ] **Step 5: Commit** `docs(#292): the analyze board refuses an override value outside its range`.
 
 ### Final: full suite
 
 - [ ] `uv run ruff check . && uv run mypy src && uv run pytest -q` → green.
+
+## Grilling
+
+One round (the revision added assertions inside existing steps and four declared assumptions; no step added or removed, same seam), griller model `fable`. 15 questions.
+
+| # | Source | Answer |
+|---|--------|--------|
+| 1 | ISSUE | Criteria 1-3 → Task 1; criterion 4 → Task 1 Step 4 + Task 2; criterion 5 (board, `_ANALYZE_TEXT`, svg, `check.py`) → Task 3; criterion 6 → Final. Task 3 is decision 5 of the issue. |
+| 2 | CODE + ISSUE | `assumptions.py:702-731` defines `_OVERRIDE_KEYS`, `_OVERRIDE_TEXT_KEYS`, `_OVERRIDE_STORY_KEYS`; the difference is the issue's eleven numeric keys ("The numeric keys are: ..."). |
+| 3 | CODE | `_check_override_values` (`assumptions.py:810-829`) only calls `is_finite_number` (`hypergrowth.py:37-49`, returns a bool), so the range check recomputes `float()`. It runs inside `load_override`, before `_override_path_field` broadcasts a scalar (`assumptions.py:838-848`). |
+| 4 | CODE + DOC | Screener second pass catches `ValueError` and falls back (`screener/engine.py:102,163`); `bot analyze` prints and goes on (`cli.py:486-506`; `analyze.d2:24` "any invalid file: cannot value, exit code 1, and the batch goes on"). No `<TICKER>.yaml` is committed in `config/assumptions/` (only `README.md`, `_EXAMPLE.yaml.example`); the refusal is the issue's goal. |
+| 5 | ISSUE | Decision 2 fixes `got {value!r}`; the parsed value's repr is shown. `got '25'` added to the message test (assumption). |
+| 6 | CODE | `assumptions.py:821` `bool(value) and all(...)`; test id `empty-path` (`tests/unit/test_valuator_assumptions.py:418`). |
+| 7 | CODE | `hypergrowth.py:42` rejects `bool`; test id `bool` (`tax_rate: true`, test file :412). |
+| 8 | ISSUE + assumption | Decision 2 lists the suffix per path key; scalar form declared under Assumptions. |
+| 9 | NO SOURCE → technical assumption | `test_override_range_phrases` added. |
+| 10 | CODE | `load_override` (`assumptions.py:750-779`) runs only the key, value and story checks; `_resolve_weights` runs in `resolve_assumptions`. Example weights 0.85 + 0.15. No file-name check. |
+| 11 | CODE | `_EXAMPLE.yaml.example` lines 2-12 are `# <key>: ...` at column 0; story lines are indented (`#   year1_growth`); `notes:` (last line) is active. |
+| 12 | CODE | `check.py:192` hashes `*.d2` only, `:226` flags a stale stamp; `.github/workflows` pipeline-diagram re-renders with `D2_VERSION` and runs `check.py`. Revert rule dropped. |
+| 13 | NO SOURCE → technical assumption | Stage-3 tests are authoritative (Assumptions). |
+| 14 | CODE + DOC | `#:` comments: `assumptions.py:699-735`; digit rule: `docs/pipeline/README.md:78`; Spanish comments: every comment of `_EXAMPLE.yaml.example`. |
+| 15 | ISSUE | The goal is the refusal; no permissive mode is asked for. The branch is squash-merged as one commit, so Tasks 1-2 land together. |
+
+Sources: ISSUE 5, CODE 10, DOC 2 (some answers cite two). Assumptions added: 4 (scalar path message, phrase test, parsed-value repr, stage-3 tests authoritative). Spec ambiguities: 0. Follow-up issues opened: 0.
+
+Result: `ok`.
