@@ -145,6 +145,7 @@ table { border-collapse: collapse; width: 100%; }
   .list th, .list td { padding-left: var(--space-2xs); padding-right: var(--space-2xs); }
   .list th:first-child, .list td:first-child { padding-left: var(--space-md); }
 }
+@media (min-width: 700px) and (max-width: 799px) { .value-line.mini { display: none; } }
 @media (min-width: 1100px) {
   /* the ledger beside the detail: the name shortens; Intrinsic and Story leave (the facts strip names both) */
   .list .name { max-width: 6rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -155,8 +156,8 @@ table { border-collapse: collapse; width: 100%; }
   .list th, .list td { padding-left: var(--space-2xs); padding-right: var(--space-2xs); }
   .list th:first-child, .list td:first-child { padding-left: var(--space-md); }
 }
-@media (min-width: 1400px) and (max-width: 1599px) { .value-line.mini { width: 4rem; } }
-@media (min-width: 1100px) and (max-width: 1399px) { .value-line.mini { display: none; } }
+@media (min-width: 1440px) and (max-width: 1599px) { .value-line.mini { width: 4rem; } }
+@media (min-width: 1100px) and (max-width: 1439px) { .value-line.mini { display: none; } }
 @media (min-width: 1100px) and (max-width: 1299px) { .list th:nth-child(2), .list td.name { display: none; } }
 
 /* the detail: the head, the instrument, then the ruled sections */
