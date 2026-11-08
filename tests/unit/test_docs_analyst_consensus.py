@@ -19,7 +19,8 @@ import bot.valuator.assumptions
 _ROOT = Path(__file__).resolve().parents[2]
 _PATTERN = re.compile(r"analyst[ _-]consensus|consens\w* de (los )?analistas", re.I)
 _PENDING = re.compile(
-    r"\b(planned|planificado|pendiente|todavía|pide|gap)\b|no implementado|not implemented", re.I
+    r"\b(planned|planificado|pendiente|todavía|pide|gap|missing|hueco)\b|no implementado|not implemented",
+    re.I,
 )
 _SKIPPED = ("docs/superpowers/plans/",)
 _PLANS = "docs/plans/"
@@ -67,5 +68,6 @@ def test_pending_wording_is_flagged() -> None:
     assert _offending_lines("analyst consensus is planned (#63)") == [1]
     assert _offending_lines("Gap: no analyst_consensus (#63)") == [1]
     assert _offending_lines("el consenso de analistas") == [1]
+    assert _offending_lines("analyst consensus is missing (#63)") == [1]
     assert _offending_lines("analyst consensus is not a source, by decision (#63)") == []
     assert _offending_lines("lo impide el consenso de analistas (#63)") == []
