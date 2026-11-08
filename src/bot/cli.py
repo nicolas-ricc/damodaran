@@ -37,6 +37,11 @@ from bot.ingest.universe import (
 )
 from bot.notifier import NotificationError, NotifierConfigError, build_notifier, notify_alerts
 from bot.portfolio.command import run_portfolio
+from bot.portfolio.freshness import (
+    MAX_SNAPSHOT_AGE_BUSINESS_DAYS,
+    business_days_between,
+    latest_snapshot_date,
+)
 from bot.reference.currencies import CurrencyTable, load_currency_table
 from bot.reference.default_spreads import DefaultSpreadTable, load_default_spreads
 from bot.reporting.analysis_json import render_analysis_json
@@ -774,6 +779,17 @@ def doctor() -> None:
                 "scripts/stooq_browser_fetch.mjs first, or unset it."
             )
 
+    token_set = bool(settings.ibkr_flex_token.strip())
+    query_set = bool(settings.ibkr_flex_query_id.strip())
+    flex_configured = token_set and query_set
+    typer.echo(f"Flex token:       {'set' if token_set else 'MISSING'}")
+    typer.echo(f"Flex query id:    {'set' if query_set else 'MISSING'}")
+    if not flex_configured:
+        typer.echo(
+            "Portfolio sync:   not configured "
+            "(needs BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID)"
+        )
+
     try:
         conn = connect(settings.db_path)
         apply_schema(conn)
@@ -788,6 +804,26 @@ def doctor() -> None:
             )
         else:
             typer.echo(f"DB tables:        {tables} (OK)")
+        if flex_configured:
+            latest = latest_snapshot_date(conn)
+            if latest is None:
+                issues.append(
+                    "Flex is configured but portfolio_snapshots is empty — "
+                    "run bot portfolio, or check .cache/daily.log"
+                )
+            else:
+                age = business_days_between(latest, date.today())
+                if age <= MAX_SNAPSHOT_AGE_BUSINESS_DAYS:
+                    typer.echo(
+                        f"Latest snapshot:  {latest.isoformat()} "
+                        f"({age} business day(s) old, OK)"
+                    )
+                else:
+                    issues.append(
+                        f"Latest portfolio snapshot {latest.isoformat()} is {age} "
+                        f"business days old (limit {MAX_SNAPSHOT_AGE_BUSINESS_DAYS}) — "
+                        "the daily sync has stopped; check .cache/daily.log and the Flex token"
+                    )
         conn.close()
     except Exception as e:
         issues.append(f"DB error — {e}")
