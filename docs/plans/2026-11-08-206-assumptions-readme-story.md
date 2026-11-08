@@ -117,3 +117,30 @@ Expected: green.
 git add config/assumptions/README.md tests/unit/test_hypergrowth_docs.py
 git commit -m "docs(#206): assumptions README says what the story drives"
 ```
+
+## Assumptions
+
+- **A1. "Weighted" is dropped** (decision 1). The issue's criterion says "consistent with ADR 0009", and its brief says "The wording matches the CONTEXT.md glossary and ADR 0009". The code runs one plain DCF per scenario (`src/bot/valuator/sensitivity.py:447-461`), and the report lists the scenarios as rows with no weighted total (`src/bot/reporting/templates/analysis.md.j2:113-124`). A README that said "weighted" would contradict both. Rejected alternative: keep the word "weighted" for the scenarios.
+- **A2. Commit type `docs`.** No repository document defines the Conventional Commit types. The convention is taken from history (`docs(#105)`, `docs(#78)` in `git log`). Rejected alternative: `fix(#206)`, chosen because the issue carries the `bug` label.
+
+## Grilling
+
+- **Rounds:** 1, with the `fable` griller. The plan was not changed substantially (no step added or removed, same seam), so there was no second round.
+- **Questions:** 16. They are answered by source type as follows:
+  - ISSUE: 4 (Q1, Q12, Q15, plus Q1's criterion quote).
+  - CODE: 11.
+    - Q2: `hypergrowth.py:53-71` (`StoryInputs` keys). The DCF names in the constraints are the bundle's.
+    - Q3: `hypergrowth.py:222,248-264`. The growth rate is solved by bisection. The drag reaches every year of the margin path, because each year converges linearly on `target_margin - regulatory_drag`.
+    - Q4: `assumptions.py:850-858` (mismatches raise `ValueError`) and `assumptions.py:1035-1041` (non-hypergrowth or no story returns the generic bundle).
+    - Q5: `assumptions.py:123` (`STORY = "story"`) and `analysis.md.j2:44-70` (the source column).
+    - Q6: `analysis.md.j2:54-70`. Rows are printed for the WACC path, tax path, terminal ROIC, failure proceeds, commitments and extra cash.
+    - Q7: `hypergrowth.py:356` (`base` comes first). Scenarios are parsed into an insertion-ordered dict (`hypergrowth.py:162-163`).
+    - Q8: `analysis.md.j2:113-124`. The "Scenario range" table follows the tornado table.
+    - Q9: `config/assumptions/README.md:44`. This is the only hit in the repo.
+    - Q10: `test_hypergrowth_docs.py:24-28`. `_section` uses `str.index`, so a missing heading raises `ValueError`.
+    - Q11: `README.md:8,46`. These are the only two H2 headings around the section.
+    - Q13: `hypergrowth.py:78` (`HORIZON: int = 10`), a module constant that is not configurable.
+  - DOC: 1. Q14: ADR 0009, "`terminal_roic` sets the terminal reinvestment to `g / ROIC`".
+  - NO SOURCE: 2. Q1 is partly sourced and recorded as A1. Q16 is recorded as A2. Both are technical assumptions.
+- **Assumptions:** A1, A2.
+- **Issues opened:** none.
