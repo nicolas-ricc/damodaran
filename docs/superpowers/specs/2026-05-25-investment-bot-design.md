@@ -285,7 +285,7 @@ Planificado, no implementado: `analyst_consensus`, el consenso de analistas como
 
 | Supuesto | Default | Override común |
 |---|---|---|
-| Revenue growth path (10 años) | Arranca en el growth propio de la empresa: el CAGR histórico de ingresos (`story_pattern` en `high-growth`, `historical_average` en los demás), o el GDP nominal de la moneda sin historia (`rule_based`). Converge linealmente al terminal growth (g, ver abajo, o el `terminal_growth` manual) en y10. `hypergrowth` sigue su story (§7.6) y también termina en g en y10. Sin g, el default queda `unresolved` | Manual (escalar o lista de 10 años) cuando el CAGR histórico no representa el futuro |
+| Revenue growth path (10 años) | Arranca en el growth propio de la empresa: el CAGR histórico de ingresos (`story_pattern` en `high-growth`, `historical_average` en los demás), o el GDP nominal de la moneda sin historia (`rule_based`). Converge linealmente al terminal growth (g, ver abajo, o el `terminal_growth` manual) en y10. `hypergrowth` sigue su story (§7.6) y también termina en g en y10. Sin g, o sin historia ni GDP de la moneda, el default queda `unresolved` | Manual (escalar, o lista de un valor por año cuyo largo fija el horizonte) cuando el CAGR histórico no representa el futuro |
 | Operating margin steady-state | Sector default Damodaran | Manual si hay razón estructural |
 | Sales-to-capital ratio | Sector default Damodaran | Manual |
 | WACC | CAPM con beta sectorial + ERP país (ambos Damodaran) + estructura de capital de la empresa | Raro, solo si estructura atípica |
