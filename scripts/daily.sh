@@ -15,8 +15,8 @@
 # Output appends to .cache/daily.log; the exit code is the bot's, or 75 after a
 # lock timeout. A failed run also sends one message (failed steps with exit
 # codes, last 20 log lines) through `bot notify`; that never changes the exit
-# code. `bot portfolio` reads the previous business day's Flex
-# statement; it needs BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID and no TWS.
+# code. `bot portfolio` reads the previous business day's Flex statement; it
+# needs BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID and no TWS.
 set -uo pipefail
 
 # Repo root = parent of this script's directory (resolve symlinks for cron).
@@ -102,12 +102,12 @@ run_steps() {
 # One message per failed run through `bot notify` (no DB, so not under locked).
 # Called before notify's own output reaches the log, so the tail is the run's.
 notify_failure() {
-  local joined="" step message
+  local status=$1 joined="" step message
   for step in "${FAILED[@]}"; do
     joined+="${joined:+, }$step"
   done
   message="$(printf '# daily.sh failed: %s\n\n%s on %s, run exit code %s\nLast 20 lines of .cache/daily.log:\n\n%s' \
-    "$joined" "$(date -Is)" "${HOSTNAME:-unknown}" "$1" "$(tail -n 20 "$LOG")")"
+    "$joined" "$(date -Is)" "${HOSTNAME:-unknown}" "$status" "$(tail -n 20 "$LOG")")"
   printf '%s\n' "$message" | uv run bot notify
 }
 
