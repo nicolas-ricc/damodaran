@@ -576,7 +576,7 @@ def test_price_fill_skips_when_the_db_lock_is_held(
     repo: Path, recorder_bin: Path, calls: Path
 ) -> None:
     (repo / ".cache").mkdir()
-    fd = os.open(repo / ".cache" / "bot.lock", os.O_WRONLY | os.O_CREAT)
+    fd = os.open(repo / ".cache" / "bot.lock", os.O_WRONLY | os.O_CREAT, 0o644)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
         result = _run(repo / "scripts" / "price_fill.sh", env=_env(recorder_bin))
@@ -605,9 +605,16 @@ def test_price_fill_runs_when_the_db_lock_is_free(
     assert "skipped: DB busy" not in _price_fill_log(repo)
 
 
-# Records, per call, whether .cache/bot.lock was held by someone else while `uv` ran.
+# Records, per call, whether .cache/bot.lock was held by someone else while `uv` ran;
+# any other `flock` failure (127: not installed) records its exit code instead.
 _UV_LOCK_PROBE = """#!/usr/bin/env bash
-if flock -n "{lock}" true; then state=lock-free; else state=lock-held; fi
+flock -n "{lock}" true
+rc=$?
+case $rc in
+  0) state=lock-free ;;
+  1) state=lock-held ;;
+  *) state="flock-exit-$rc" ;;
+esac
 echo "$state $*" >> "{calls}"
 if [ "$2" = python ]; then
   cat > /dev/null
@@ -627,6 +634,11 @@ def test_price_fill_holds_the_db_lock_while_uv_runs(
 
     assert result.returncode == 0, result.stderr
     assert _calls(calls) == [f"lock-held {c}" for c in _PRICE_FILL]
+    fd = os.open(lock, os.O_WRONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)  # released once the script exits
+    finally:
+        os.close(fd)
 
 
 _UA = "Jane Doe jane@example.com"
