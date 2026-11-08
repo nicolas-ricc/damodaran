@@ -121,9 +121,8 @@ def test_spec_7_1_has_the_hypergrowth_row() -> None:
 
 def test_spec_7_3_lists_story_source() -> None:
     section = _spec("### 7.3", "### 7.4")
-    sources = re.search(r"source ∈ \{([^}]*)\}", section)
-    assert sources is not None
-    assert "story" in [s.strip() for s in sources.group(1).split(",")]
+    sources = re.findall(r"^- `([a-z_]+)`:", section, re.M)
+    assert "story" in sources
 
 
 def test_spec_7_5_lists_hypergrowth_flags() -> None:
