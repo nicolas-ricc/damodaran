@@ -161,3 +161,4 @@ def test_viewer_takes_the_title_of_a_rows_swap_from_the_response() -> None:
     assert "serverResponse" in body
     assert "document.title" in body
     assert "e.detail.serverResponse =" in body
+    assert "e.detail.shouldSwap" in body

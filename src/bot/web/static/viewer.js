@@ -135,10 +135,13 @@
 
   // A rows fragment ends with its page title (a leading one breaks the table parse), and htmx would pick an svg's title first.
   document.addEventListener("htmx:beforeSwap", function (e) {
-    if (!e.detail || !e.detail.target || e.detail.target.id !== "rows") return;
+    if (!e.detail || !e.detail.shouldSwap || !e.detail.target || e.detail.target.id !== "rows") return;
     var m = /<title>([^<]*)<\/title>\s*$/.exec(e.detail.serverResponse || "");
     if (!m) return;
-    document.title = m[1];
+    // the title arrives HTML-escaped; a textarea decodes it without running markup
+    var text = document.createElement("textarea");
+    text.innerHTML = m[1];
+    document.title = text.value;
     // htmx removes only the first <title>, an svg mark's here: take ours out so none piles up in the table
     e.detail.serverResponse = e.detail.serverResponse.slice(0, m.index);
   });

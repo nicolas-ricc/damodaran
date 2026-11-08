@@ -347,3 +347,9 @@ def test_drivers_high_column_keeps_a_gap_from_the_price_line() -> None:
     narrow = _blocks((_STATIC / "app.css").read_text(), "@container (max-width: 28rem)")
     rule = _rule(narrow, ".tornado td.high, .tornado thead th.num:last-child")
     assert "padding-inline-start: 3px" in rule
+
+
+def test_drivers_head_and_track_share_one_scale_in_a_narrow_pane() -> None:
+    narrow = _blocks((_STATIC / "app.css").read_text(), "@container (max-width: 28rem)")
+    assert "padding-inline: 2px" in _rule(narrow, ".tornado td.track")
+    assert "padding-inline: 2px" in _rule(narrow, ".tornado thead .track-head")

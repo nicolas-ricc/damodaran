@@ -216,7 +216,7 @@ Technical decisions taken while grilling the plan, each with the alternative it 
   - the phone row as one link.
 - [ ] **Step 4: Browser check** (the search walk-through and navigation part of `.scratch/evals-262.md`):
   - A detail click sets `document.title` to `<T> · <name> · Analyses`.
-  - The fair filter pushes `/l/fair-mos-desc.html` and its title. Back returns to `/` with search visible and the query re-applied.
+  - The fair filter pushes `/l/fair-mos-desc.html` and its title. Back returns to `/` with search visible and empty (the query is not kept, spec §6).
   - Loading `/c/ABT.html` at 1440 shows the ABT row inside the list pane.
   - Tab from a fresh load: the first stop is "Skip to analysis", and Enter puts the next Tab inside the detail.
 - [ ] **Step 5:** full gate, then commit `fix(#262): title, pushed filters, skip link and deep link follow the reader`

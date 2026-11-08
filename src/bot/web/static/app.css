@@ -239,6 +239,7 @@ table { border-collapse: collapse; width: 100%; }
   .tornado .shock { display: block; margin-left: 0; }
   .tornado th, .tornado td { padding-inline: var(--space-2xs); font-size: 0.75rem; }
   .tornado td.track { padding-inline: 2px; }
+  .tornado thead .track-head { padding-inline: 2px; }
   .tornado th.num, .tornado td.num { padding-inline: 2px; }
   .tornado td.high, .tornado thead th.num:last-child { padding-inline-start: 3px; }
 }
