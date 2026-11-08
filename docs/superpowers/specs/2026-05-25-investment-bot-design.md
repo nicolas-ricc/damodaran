@@ -270,7 +270,18 @@ Reinvestment = ΔWC + Capex − Depreciation ≈ ΔRevenue / sales_to_capital
 
 ### 7.3 Seis supuestos críticos con source explícito
 
-Cada supuesto tiene `source ∈ {manual, analyst_consensus, sector_default_damodaran, rule_based, historical_average, story}`. El reporte muestra siempre cuál es cuál. `story` aplica solo para `hypergrowth`, ver §7.6.
+Cada supuesto lleva un `source` (`AssumptionSource` en `bot.valuator.assumptions`). El reporte muestra siempre cuál es cuál. Valores implementados:
+
+- `manual`: override en `config/assumptions/<TICKER>.yaml`.
+- `sector_default_damodaran`: mediana sectorial de Damodaran de la región de la empresa, o el dato de país de `damodaran_country`.
+- `sector_default_damodaran_cross_region`: mediana sectorial de Damodaran de otra región, porque la de la empresa no tiene filas ingeridas; el reporte muestra la sustitución.
+- `rule_based`: una regla fija, p. ej. `g = min(rfr, GDP nominal)` de la moneda de valuación, o el GDP nominal como arranque del growth sin historia.
+- `historical_average`: la historia propia de la empresa (CAGR de ingresos, margen promedio del ciclo).
+- `story_pattern`: trayectoria del patrón de proyección del story type (§7.1), derivada de datos de la empresa y del sector (growth de `high-growth`, rampa de margen).
+- `story`: la sección `story` del archivo de override; aplica solo para `hypergrowth`, ver §7.6.
+- `unresolved`: ninguna capa produjo un valor; el reporte muestra el hueco en lugar de un número.
+
+Planificado, no implementado: `analyst_consensus`, el consenso de analistas como arranque del growth de los años 1-5 (#63).
 
 | Supuesto | Default | Override común |
 |---|---|---|
