@@ -262,3 +262,13 @@ def test_detail_labels_carry_descriptions_and_no_identifiers() -> None:
     assert detail.grid.axis_a.description and not snake.search(detail.grid.axis_a.label)
     assert detail.grid.axis_b.description and not snake.search(detail.grid.axis_b.label)
     assert detail.grid.axis_a.label == "Cost of equity"
+
+
+def test_country_tax_source_is_worded_with_a_tooltip() -> None:
+    payload = real_sidecar()
+    payload["analysis"]["assumptions"]["tax_rate"]["source"] = "country_default_damodaran"
+    detail = detail_view(_entry(_ref(payload)), _ref(payload))
+    tax = next(a for a in detail.assumptions if a.label == "Tax rate")
+    assert tax.source == "country default (Damodaran)"
+    assert tax.source_description
+    assert "_" not in tax.source + tax.source_description

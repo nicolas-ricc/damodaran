@@ -1696,7 +1696,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "rule_based",
         "unresolved",
     ],
-    "assumptions.tax": ["sector label", "country tax_rate", "sector_default_damodaran", "25%"],
+    "assumptions.tax": ["sector label", "country tax_rate", "country_default_damodaran", "25%"],
     "assumptions.bankruptcy": [
         "manual",
         "interest coverage",

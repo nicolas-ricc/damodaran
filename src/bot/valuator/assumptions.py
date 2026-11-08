@@ -13,8 +13,9 @@ Resolution order (highest-priority source wins, spec §7.3/§7.6)::
                             growth starts at the company's own historical average
                             (HISTORICAL_AVERAGE) and fades to terminal growth over
                             ten years.
-    3. Sector default     — medians from damodaran_industry (and the country's
-                            ERP / tax rate from damodaran_country).
+    3. Sector default     — medians from damodaran_industry; the country's tax
+                            rate from damodaran_country is sourced
+                            COUNTRY_DEFAULT_DAMODARAN.
     4. Rule-based         — e.g. terminal_growth = min(rfr_ccy, gdp_ccy), where
                             both come from the company's valuation currency in
                             ``config/currencies.yaml`` (#109), or a distressed
@@ -114,6 +115,9 @@ class AssumptionSource(StrEnum):
     #: the report shows the substitution rather than passing it off as the
     #: company's own region.
     SECTOR_DEFAULT_DAMODARAN_CROSS_REGION = "sector_default_damodaran_cross_region"
+    #: The value is the Damodaran country row's figure for the company's country
+    #: (tax rate only), taken when the sector row carries no tax rate.
+    COUNTRY_DEFAULT_DAMODARAN = "country_default_damodaran"
     RULE_BASED = "rule_based"
     HISTORICAL_AVERAGE = "historical_average"
     #: The value sails from the archetype's projection pattern (spec §7.1): a path
@@ -1294,8 +1298,8 @@ def _resolve_tax_rate(
     The DCF taxes EBIT to NOPAT, so a tax rate is always required. Damodaran
     publishes effective tax rates at both the industry and country level; the
     sector figure is the closer proxy and wins, falling back to the country
-    figure and finally a neutral default so the model never collapses to a
-    zero-NOPAT (100%-tax) degenerate case.
+    figure (sourced COUNTRY_DEFAULT_DAMODARAN) and finally a neutral default so
+    the model never collapses to a zero-NOPAT (100%-tax) degenerate case.
     """
     manual = _override_scalar(override, "tax_rate")
     if manual is not None:
@@ -1303,7 +1307,7 @@ def _resolve_tax_rate(
     if sector.row is not None and sector.row.tax_rate is not None:
         return Sourced(value=sector.row.tax_rate, source=sector.source)
     if country is not None and country.tax_rate is not None:
-        return Sourced(value=country.tax_rate, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN)
+        return Sourced(value=country.tax_rate, source=AssumptionSource.COUNTRY_DEFAULT_DAMODARAN)
     return Sourced(value=_DEFAULT_TAX_RATE, source=AssumptionSource.RULE_BASED)
 
 

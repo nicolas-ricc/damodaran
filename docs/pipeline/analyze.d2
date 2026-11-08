@@ -100,7 +100,7 @@ story_type: "2. story type: first rule that matches wins" {  # @symbol bot.valua
 # Section 3: assumptions
 assumptions: "3. assumptions: the first source that yields a value wins; paths over 10 years, growth fading to terminal growth" {  # @symbol bot.valuator.assumptions.resolve_assumptions @const bot.valuator.assumptions._HORIZON @enum bot.valuator.assumptions.AssumptionSource
   link: "./analyze-assumptions.svg"
-  plano_sources: |md Gap: plano assumptions card lists six sources without story_pattern, and plano a-growth says the default is the historical average; a high-growth company with history gets the story_pattern path. | {class: gap}
+  plano_sources: |md Gap: plano assumptions card lists six sources without story_pattern or country_default_damodaran, and plano a-growth says the default is the historical average; a high-growth company with history gets the story_pattern path. | {class: gap}
   # Step: the story shapes the ten-year paths
   story: "hypergrowth story: the story file shapes the ten-year paths\ngrowth: year 1, then one solved rate up to year 5 so year-10 revenue meets the target, then a fade to terminal growth\nmargin, weighted average cost of capital (WACC), tax: from the story file\neach path covers 10 years; the generic chain runs first for every company\nalso from the story: sales-to-capital, cost of equity = wacc_start (equity weight 1, debt weight 0), bankruptcy odds = failure_probability (0 by default), terminal return on invested capital (ROIC), proceeds share, fixed commitments, extra cash, governance discount; all sourced story\nkept with their own source: terminal growth, the marginal tax rate (manual, sector, country, or 25%), pre-tax cost of debt, distress value per share" {  # @symbol bot.valuator.hypergrowth.apply_story @symbol bot.valuator.hypergrowth.solve_stage_growth @const bot.valuator.hypergrowth.HORIZON @const bot.valuator.hypergrowth._STAGE_END @const bot.valuator.assumptions._DEFAULT_TAX_RATE
     class: step
@@ -130,7 +130,7 @@ assumptions: "3. assumptions: the first source that yields a value wins; paths o
   terminal_growth: "terminal growth g_terminal\n1. manual → manual\n2. valuation currency in config/currencies.yaml:\nmin(risk-free rate, nominal GDP growth) of that currency → rule_based\n3. uncovered currency: unresolved, so the DCF cannot run" {  # @symbol bot.valuator.assumptions._resolve_terminal_growth @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table
     class: step
   }
-  tax: "tax rate\n1. manual → manual\n2. sector tax_rate → sector label\n3. country tax_rate (newest damodaran_country row)\n→ sector_default_damodaran\n4. else 25% → rule_based" {  # @symbol bot.valuator.assumptions._resolve_tax_rate @const bot.valuator.assumptions._DEFAULT_TAX_RATE
+  tax: "tax rate\n1. manual → manual\n2. sector tax_rate → sector label\n3. country tax_rate (newest damodaran_country row)\n→ country_default_damodaran\n4. else 25% → rule_based" {  # @symbol bot.valuator.assumptions._resolve_tax_rate @const bot.valuator.assumptions._DEFAULT_TAX_RATE
     class: step
   }
   bankruptcy: "probability of bankruptcy p and distress value per share\n1. manual → manual\n2. distressed: interest coverage → synthetic rating → ten-year cumulative default probability,\nboth tables in config/default_spreads.yaml → rule_based\ncoverage unknown, or the file absent or malformed: 0 → rule_based, and the report says why\n3. else 0 → rule_based\ndistress value per share: manual, else 0 → rule_based" {  # @symbol bot.valuator.assumptions._resolve_probability_of_bankruptcy @file config/default_spreads.yaml @symbol bot.reference.default_spreads.load_default_spreads
@@ -143,8 +143,9 @@ assumptions: "3. assumptions: the first source that yields a value wins; paths o
     - story_pattern: a path built for the story type
     - story: the story file of a hypergrowth company
     - historical_average: the company's own history
-    - sector_default_damodaran: the sector or country row of the company's region
+    - sector_default_damodaran: the sector row of the company's region
     - sector_default_damodaran_cross_region: the sector row of another region
+    - country_default_damodaran: the country row of the company's country (tax rate only)
     - rule_based: a fixed rule or default
     - unresolved: no source, so the company cannot be valued
     | {class: note}
