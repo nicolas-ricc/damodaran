@@ -19,21 +19,16 @@ from bot.ingest.damodaran import (
 )
 from bot.storage.db import apply_schema
 
-_WACC_FIXTURE = Path("tests/fixtures/damodaran/wacc_sample.xls")
-_CTRY_FIXTURE = Path("tests/fixtures/damodaran/ctryprem_sample.xls")
+_FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "damodaran"
+_WACC_FIXTURE = _FIXTURES / "wacc_sample.xls"
+_CTRY_FIXTURE = _FIXTURES / "ctryprem_sample.xls"
 
 #: The additional published industry files (margins, sales-to-capital, multiples),
 #: keyed by their INDUSTRY_DATASETS key.
 _EXTRA_FIXTURES = {
-    key: Path(f"tests/fixtures/damodaran/{key}_sample.xls")
+    key: _FIXTURES / f"{key}_sample.xls"
     for key in ("margin", "capex", "pedata", "pbvdata", "vebitda", "psdata")
 }
-
-_ALL_FIXTURES_PRESENT = (
-    _WACC_FIXTURE.exists()
-    and _CTRY_FIXTURE.exists()
-    and all(p.exists() for p in _EXTRA_FIXTURES.values())
-)
 
 
 def test_debt_to_equity_derived_from_debt_weight() -> None:
@@ -83,7 +78,6 @@ def test_derive_drops_the_helper_column() -> None:
     assert "debt_weight_raw" not in row
 
 
-@pytest.mark.skipif(not _CTRY_FIXTURE.exists(), reason="country fixture absent")
 def test_parse_country_tax_rates_from_the_real_workbook() -> None:
     rates = parse_country_tax_rates(_CTRY_FIXTURE)
     assert rates["Australia"] == pytest.approx(0.30)
@@ -93,7 +87,6 @@ def test_parse_country_tax_rates_from_the_real_workbook() -> None:
     assert "Country" not in rates
 
 
-@pytest.mark.skipif(not _ALL_FIXTURES_PRESENT, reason="fixtures absent")
 def test_dcf_assumptions_resolve_after_the_real_import() -> None:
     """The regression this task exists for: analyze() must not raise.
 
@@ -144,7 +137,6 @@ def test_dcf_assumptions_resolve_after_the_real_import() -> None:
     assert 0.0 < dcf_inputs.terminal_growth < 1.0
 
 
-@pytest.mark.skipif(not _ALL_FIXTURES_PRESENT, reason="fixtures absent")
 def test_analyze_values_a_us_company_after_the_real_import() -> None:
     """The phase's acceptance criterion: `bot analyze` no longer raises.
 
