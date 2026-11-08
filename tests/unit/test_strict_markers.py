@@ -25,6 +25,7 @@ def _ini_options() -> dict[str, Any]:
 
 
 def _run(pytester: pytest.Pytester, marker: str) -> pytest.RunResult:
+    # The whole repo pyproject.toml: an ini key that needs repo files will break this sandbox.
     pytester.makepyprojecttoml(_PYPROJECT.read_text())
     pytester.makepyfile(
         test_bogus=f"import pytest\n\n@pytest.mark.{marker}\ndef test_marked():\n    pass\n"
@@ -65,4 +66,4 @@ def test_pytest_floor_is_9() -> None:
         if req.name == "pytest"
     ]
     assert not spec.specifier.contains("8.4.2")
-    assert spec.specifier.contains("9.0.3")
+    assert spec.specifier.contains(pytest.__version__)
