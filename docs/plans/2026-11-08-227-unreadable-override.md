@@ -16,7 +16,7 @@
 - The `ValueError` is chained from the original `OSError` (`raise ... from exc`).
 - `_analyze_one`'s contract stays: `LookupError` → 2, `ValueError` → 1, the batch goes on, the command exits with the worst per-ticker code (#180).
 - Unchanged: a missing conventional file means no override; a missing or directory `--override` is refused with exit 2 before the DB opens (`--override {path}: no such file.`); malformed YAML gives exit 1.
-- Tests must not rely on `chmod` (CI may run as root): simulate `PermissionError` by monkeypatching `Path.read_text` for the one path.
+- Tests must not rely on `chmod` (CI may run as root): simulate `PermissionError` by monkeypatching `Path.read_text` with a wrapper that raises when `self.name == "AAPL.yaml"` and delegates to the saved original otherwise (the pattern of `_fail_html_write`, `tests/unit/test_cli_analyze.py:563-570`).
 - `mypy --strict` and ruff stay clean.
 
 ## Decision: a directory at the conventional path
@@ -26,7 +26,7 @@
 ## Out of scope
 
 - Report render/write failures (#178), whether the screener's second pass should fail loudly on a bad override (#77), and the TLA+ analyze model: all excluded by the brief.
-- The pipeline boards (`docs/pipeline/analyze*.d2`) list the reasons `load_override` refuses a file. Adding "cannot be read" there needs a d2 v0.9.0 re-render (not available locally; CI artifact `pipeline-render`) and is not required by any criterion. Candidate follow-up.
+- The pipeline boards (`docs/pipeline/analyze*.d2`) list the reasons `load_override` refuses a file. Adding "cannot be read" there needs a d2 v0.9.0 re-render and is not required by any criterion: follow-up #309.
 
 ## Review Focus
 
@@ -48,7 +48,7 @@
 - Consumes: nothing new.
 - Produces: `load_override(override_path: Path | None) -> dict[str, Any]` (signature unchanged) now raises `ValueError("override file {path} cannot be read: {exc}")` chained from the `OSError` for a path that exists but cannot be read.
 
-- [ ] **Step 1: Failing unit tests** (in `test_valuator_assumptions.py`, already committed in stage 3)
+- [ ] **Step 1: Failing unit tests** (in `test_valuator_assumptions.py`; written and committed failing in pipeline stage 3, before any production change)
 
 `test_load_override_unreadable_file_is_a_value_error` — parametrised over `PermissionError(errno.EACCES, "Permission denied")` and `OSError(errno.EIO, "Input/output error")`; writes `AAPL.yaml`, monkeypatches `Path.read_text` to raise that error for that path only; asserts `pytest.raises(ValueError, match=re.escape(f"override file {path} cannot be read"))` and `excinfo.value.__cause__ is the_error`.
 
@@ -91,7 +91,7 @@ No production code expected: both already catch `ValueError`. These tests pin it
 - Consumes: Task 1's `ValueError` from `load_override`.
 - Produces: nothing.
 
-- [ ] **Step 1: Failing tests** (committed in stage 3)
+- [ ] **Step 1: Failing tests** (written and committed failing in pipeline stage 3)
 
 `test_run_screen_unreadable_override_falls_back` (screener) — seed like `test_run_screen_honours_assumptions_dir_override`; `assumptions_dir / "AAA.yaml"` is a directory; `run_screen(conn, _value_preset(), top=1, assumptions_dir=assumptions_dir)` returns without raising, `shortlist[0].ticker == "AAA"`, `shortlist[0].margin_of_safety is None`.
 
@@ -102,3 +102,29 @@ No production code expected: both already catch `ValueError`. These tests pin it
 Run: `uv run pytest -q tests/unit/test_screener_engine.py tests/unit/test_portfolio_marks.py -k unreadable`
 
 - [ ] **Step 3: Commit** (only if anything changed beyond stage 3).
+
+## Acceptance criteria → tests
+
+| Criterion (issue #227 Agent Brief) | Test |
+|---|---|
+| unreadable conventional `AAPL.yaml`, `analyze AAPL MSFT` exits 1, AAPL error names path, MSFT reports | `test_batch_unreadable_conventional_override_fails_the_ticker_alone` |
+| directory named `AAPL.yaml`: no traceback, MSFT analysed, worst code | `test_batch_directory_conventional_override_fails_the_ticker_alone` |
+| `--override` existing-but-unreadable → exit 1 "cannot value" naming path | `test_analyze_unreadable_explicit_override_cannot_value` |
+| `load_override` raises `ValueError` chained from `OSError` | `test_load_override_unreadable_file_is_a_value_error`, `test_load_override_directory_is_a_value_error` |
+| existing behaviour unchanged (missing conventional, missing/dir `--override` exit 2, malformed YAML exit 1) | existing `test_conventional_override_path_is_none_when_missing_or_no_dir`, `test_load_override_without_a_path_is_empty`, `test_analyze_explicit_override_that_does_not_exist_is_rejected`, `test_analyze_explicit_override_that_is_a_directory_is_rejected`, `test_analyze_malformed_override_fails_its_ticker_and_continues_batch` |
+| `bot screen` doesn't crash, ticker gets existing fallback | `test_run_screen_unreadable_override_falls_back` |
+
+## Assumptions
+
+- Directory at the conventional path is refused (exit 1), not treated as no override. Rejected alternative: `is_file()` in `conventional_override_path`. Both allowed by the brief ("Either is acceptable … state the choice in the PR").
+- A broken symlink at the conventional path keeps `exists() == False` → no override, the brief's unchanged "a missing conventional file means no override". Rejected: refusing it (not asked).
+- Tests select the failing read by file name (`self.name == "AAPL.yaml"`), not by `Path` equality, so absolute/relative variants do not matter. MSFT has no override file, so no other override `read_text` is affected.
+- The real-directory tests assert `IsADirectoryError`: CI runs `uv run pytest -q` on `ubuntu-latest` only (`.github/workflows/site.yml:14-23`).
+- The marks test covers portfolio marks although no criterion names them: the brief's "Current behavior" names them as reached by the same escape.
+
+## Grilling
+
+- Rounds: 1 (griller model: fable). Questions: 14.
+- Sources: CODE 10 (Q1 `analysis.py:898` `load_override` runs inside `analyze`, which `engine.py:154-165` and `marks.py:196-199` call inside `try … except (…, ValueError)`; Q3 `assumptions.py:814` uses `override_path.read_text()`; Q5/Q8 `cli.py:433` uses `is_file()` for `--override`, pinned by `test_cli_analyze.py:348-368`, and #214 has no test for a directory at the conventional path; Q7 `cli.py:509` prints `{exc}`, and the message starts with the path, so the hand-made errno string doesn't matter; Q10 `engine.py:154` uses `conventional_override_path`; Q11 CI is `ubuntu-latest`; Q12 the only `except Exception` in `cli.py` is in `doctor` (706, 758, 767), nothing around `load_override`; Q13 `test_pipeline_diagram.py:1617-1628` checks a fixed phrase list, which stays green). ISSUE 2 (Q4 the criteria table above; Q9 "a missing conventional file means no override"). DOC 1 (Q14 CONTEXT.md asks for an ADR note only when a stage implements an ADR, and none does here). NO SOURCE 1 (Q6, a technical assumption about the test seam, see above).
+- Plan corrections: the stage-3 wording (tests are written in pipeline stage 3, not before), the test seam made explicit, and the criteria table added.
+- Issues opened: #309 (pipeline boards).
