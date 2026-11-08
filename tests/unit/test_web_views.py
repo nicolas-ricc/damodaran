@@ -272,4 +272,3 @@ def test_country_tax_source_is_worded_with_a_tooltip() -> None:
     assert tax.source == "country default (Damodaran)"
     assert tax.source_description
     assert "_" not in tax.source + tax.source_description
-
