@@ -9,7 +9,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 
 def _drip_paragraph() -> str:
     readme = (_ROOT / "README.md").read_text(encoding="utf-8")
-    start = readme.index("`price_fill.sh` drip is only for")
+    start = readme.index("The wrappers share")
     end = readme.index("Tiingo Power", start)
     return " ".join(readme[start:end].split())
 
@@ -23,6 +23,7 @@ def test_readme_quickstart_says_the_drip_skips_on_the_shared_lock() -> None:
         "scripts/install_cron.sh",
         "(#108)",
     ):
-        assert fact in text
+        assert fact in text, fact
+    assert "Tiingo quota, so the drip" in text
     assert "do not run both" not in text
     assert "same DuckDB file" not in text
