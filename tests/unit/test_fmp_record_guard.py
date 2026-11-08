@@ -32,8 +32,8 @@ def _snapshot(cassettes: Path) -> dict[str, bytes]:
     return {p.name: p.read_bytes() for p in sorted(cassettes.iterdir())}
 
 
-@pytest.mark.parametrize("key", [None, "test-fmp-key", "  "], ids=["unset", "dummy", "blank"])
-def test_record_without_key_aborts_and_keeps_cassettes(tmp_path: Path, key: str | None) -> None:
+def _record_fmp_client(tmp_path: Path, key: str | None) -> tuple[str, dict[str, bytes], Path]:
+    """Run the copied FMP client tests with ``--vcr-record=all``; return stdout and snapshot."""
     for rel in COPIED:
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(REPO_ROOT / rel, tmp_path / rel)
@@ -63,8 +63,22 @@ def test_record_without_key_aborts_and_keeps_cassettes(tmp_path: Path, key: str 
         timeout=120,
         check=False,
     )
-
     assert result.returncode != 0, result.stdout
-    assert "BOT_FMP_API_KEY" in result.stdout
-    assert "no FMP cassette was recorded" in result.stdout
+    return result.stdout, before, cassettes
+
+
+@pytest.mark.parametrize("key", [None, "test-fmp-key", "  "], ids=["unset", "dummy", "blank"])
+def test_record_without_key_aborts_and_keeps_cassettes(tmp_path: Path, key: str | None) -> None:
+    stdout, before, cassettes = _record_fmp_client(tmp_path, key)
+    assert "BOT_FMP_API_KEY" in stdout
+    assert "no FMP cassette was recorded" in stdout
+    assert _snapshot(cassettes) == before
+
+
+def test_record_with_real_key_sends_it_and_never_echoes_it(tmp_path: Path) -> None:
+    # The guard lets the run through: requests reach the dead proxy and fail.
+    stdout, before, cassettes = _record_fmp_client(tmp_path, "real-key-xyz")
+    assert "no FMP cassette was recorded" not in stdout
+    assert "ConnectError" in stdout
+    assert "real-key-xyz" not in stdout
     assert _snapshot(cassettes) == before

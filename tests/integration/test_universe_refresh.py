@@ -24,7 +24,7 @@ from bot.ingest.fmp import FmpProvider
 from bot.ingest.provider import CompanyInfo, FundamentalsBundle, FxRate, PriceBar
 from bot.ingest.universe import refresh_universe
 from bot.storage.db import apply_schema, connect
-from tests.vcr_settings import vcr_kwargs
+from tests.vcr_settings import record_option, vcr_kwargs
 
 MINI_UNIVERSE = ["AAPL", "MSFT", "NVDA", "NESN.SW", "SAP.DE"]
 
@@ -95,7 +95,7 @@ class _CassetteFmpProvider:
 def test_bulk_refresh_imports_full_mini_universe(
     cassette_dir: Path, pytestconfig: pytest.Config, fmp_api_key: str
 ) -> None:
-    record = pytestconfig.getoption("--vcr-record")
+    record = record_option(pytestconfig)
     conn = connect(":memory:")
     apply_schema(conn)
 
@@ -147,7 +147,7 @@ def test_bulk_refresh_imports_full_mini_universe(
 def test_second_run_skips_unchanged_tickers(
     cassette_dir: Path, pytestconfig: pytest.Config, fmp_api_key: str
 ) -> None:
-    record = pytestconfig.getoption("--vcr-record")
+    record = record_option(pytestconfig)
     conn = connect(":memory:")
     apply_schema(conn)
 

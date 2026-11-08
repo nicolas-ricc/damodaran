@@ -121,3 +121,9 @@ def test_record_option_reads_deprecated_flag() -> None:
     assert record_option(_config(**{"--vcr-record": None, "--vcr-record-mode": "all"})) == "all"
     assert record_option(_config(**{"--vcr-record": "once", "--vcr-record-mode": "all"})) == "once"
     assert record_option(_config(**{"--vcr-record": None, "--vcr-record-mode": None})) is None
+
+
+def test_real_key_repr_is_redacted() -> None:
+    key = fmp_test_key("all", {"BOT_FMP_API_KEY": "real-key"})
+    assert key == "real-key"
+    assert "real-key" not in repr(key)

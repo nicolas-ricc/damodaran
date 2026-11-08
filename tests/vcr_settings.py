@@ -20,8 +20,19 @@ class MissingFmpKeyError(RuntimeError):
     """Re-recording FMP cassettes needs a real key and none was supplied."""
 
 
+class _RedactedKey(str):
+    """A real key whose repr never shows it: pytest echoes test arguments on failure."""
+
+    def __repr__(self) -> str:
+        return "'<BOT_FMP_API_KEY>'"
+
+
 def drop_error_response(response: dict[str, Any]) -> dict[str, Any] | None:
-    """Keep 2xx responses only; ``None`` makes vcrpy skip recording the rest."""
+    """Keep 2xx responses only; ``None`` makes vcrpy skip recording the rest.
+
+    Redirect hops are dropped too: a cassette with a missing hop fails loudly
+    on replay, which beats silently persisting anything that is not a 2xx.
+    """
     return response if 200 <= response["status"]["code"] < 300 else None
 
 
@@ -32,7 +43,7 @@ VCR_CONFIG: dict[str, object] = {
     "filter_query_parameters": [("apikey", "SCRUBBED"), ("t", "SCRUBBED")],
     "filter_headers": [("User-Agent", "Tester t@example.com")],
     "record_mode": "none",
-    # A 401/403 must never replace a cassette.
+    # An error body (401/403, 5xx...) must never replace a cassette.
     "before_record_response": drop_error_response,
 }
 
@@ -57,7 +68,7 @@ def fmp_test_key(record: str | None, environ: Mapping[str, str]) -> str:
             f"BOT_FMP_API_KEY must hold a real FMP key to re-record (mode {record!r}); "
             "no FMP cassette was recorded"
         )
-    return key
+    return _RedactedKey(key)
 
 
 _CASSETTE_SUBDIRS = {
