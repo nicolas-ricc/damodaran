@@ -206,10 +206,12 @@ def desfasaje():
 
     Se filtra por src/ a propósito: un commit de documentación no invalida una
     auditoría del código, y contarlo solo enseñaría a ignorar el aviso.
+    El pathspec es de raíz (`:/src`): git resuelve un `src` pelado contra
+    cwd=AQUI, o sea `docs/plano/src`, y el conteo daría siempre 0.
     """
     try:
         r = subprocess.run(
-            ['git', 'rev-list', '--count', f'{estado.AUDITADO_EN}..HEAD', '--', 'src'],
+            ['git', 'rev-list', '--count', f'{estado.AUDITADO_EN}..HEAD', '--', ':/src'],
             capture_output=True, text=True, cwd=AQUI, timeout=10)
         if r.returncode != 0:
             return None
