@@ -84,6 +84,13 @@ def _anchor(x: float, width: float, margin: float = 60.0) -> str:
     return "end" if x > width - margin else "middle"
 
 
+def _svg_name(vl: ValueLine, mini: bool) -> str:
+    """The mini axis is decorative (its verdict cell names the verdict); the full one is named."""
+    if mini:
+        return 'aria-hidden="true" focusable="false"'
+    return f'role="img" aria-label="{escape(VERDICT_TEXT[vl.verdict])}"'
+
+
 def value_line_svg(vl: ValueLine, *, mini: bool) -> Markup:
     """Price vs intrinsic value on one axis, with the fair and undervalued ticks.
 
@@ -103,7 +110,7 @@ def value_line_svg(vl: ValueLine, *, mini: bool) -> Markup:
         fixed = ' vector-effect="non-scaling-stroke"'
     scale = _scaler(vl.axis_min, vl.axis_max, left, right)
     px, ix = scale(vl.price), scale(vl.intrinsic)
-    fair_x, under_x = scale(vl.fair), scale(vl.undervalued)
+    under_x = scale(vl.undervalued)
     lo_x, hi_x = scale(vl.range_low), scale(vl.range_high)
     end_x = scale(vl.axis_max)
 
@@ -119,7 +126,7 @@ def value_line_svg(vl: ValueLine, *, mini: bool) -> Markup:
         f'height="{_n(half * 1.2)}" fill="{_INTRINSIC}" fill-opacity="0.22"/>'
     )
     parts.append(_line(left, mid, right, mid, _INK, sw, fixed))
-    for x in (fair_x, under_x):
+    for x in (scale(vl.fair), under_x):
         parts.append(_line(x, mid - tick, x, mid + tick, _SOFT, sw, fixed))
     parts.append(_line(px, mid, ix, mid, color, sw * 2.5, fixed))
     parts.append(
@@ -133,28 +140,27 @@ def value_line_svg(vl: ValueLine, *, mini: bool) -> Markup:
     )
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {_n(width)} {_n(height)}" '
-        f'class="value-line{" mini" if mini else ""}" role="img" '
-        f'aria-label="{escape(VERDICT_TEXT[vl.verdict])}"><g>{"".join(parts)}</g></svg>'
+        f'class="value-line{" mini" if mini else ""}" {_svg_name(vl, mini)}'
+        f"><g>{''.join(parts)}</g></svg>"
     )
     if mini:
         return Markup(svg)
 
-    def label(x: float, text: str, cls: str, anchor: str | None = None) -> str:
+    def label(x: float, text: str, cls: str) -> str:
         return (
-            f'<span class="axis-label {cls} at-{anchor or _anchor(x, width, 30.0)}" '
+            f'<span class="axis-label {cls} at-{_anchor(x, width, width * 0.3)}" '
             f'style="left:{_pct(x, width)}">{escape(text)}</span>'
         )
 
-    # the fair tick always sits left of the undervalued one: label them away from each other
+    # fair is the price by definition (fair == price * MOS_FAIR), so one label names both
     return Markup(
         '<figure class="value-axis">'
         '<div class="axis-row axis-ticks">'
-        + label(fair_x, f"fair {MOS_FAIR:.1f}\u00d7", "tick", "end")
-        + label(under_x, f"undervalued {MOS_UNDERVALUED:.1f}\u00d7", "tick", "start")
+        + label(under_x, f"undervalued {MOS_UNDERVALUED:.1f}\u00d7", "tick")
         + "</div>"
         + svg
         + '<div class="axis-row">'
-        + label(px, f"price {_num(vl.price)}", "price")
+        + label(px, f"price {_num(vl.price)} \u00b7 fair {MOS_FAIR:.1f}\u00d7", "price")
         + "</div>"
         + '<div class="axis-row">'
         + label(ix, f"intrinsic {_num(vl.intrinsic)}", "intrinsic")
@@ -227,31 +233,41 @@ def flag_mark(color: str, name: str | None = None) -> Markup:
     return _mark(inner, title)
 
 
+def _unit_once(name: str, labels: Sequence[str]) -> tuple[str, tuple[str, ...]]:
+    """Move a unit every step label ends with ("pp") into the axis name, once."""
+    if labels and all(label.endswith("pp") for label in labels):
+        return f"{name} (pp)", tuple(label[:-2] for label in labels)
+    return name, tuple(labels)
+
+
 def scenario_grid_table(grid: ScenarioGrid) -> Markup:
     """The scenario grid as a table: one axis down, one across, a verdict per cell."""
+    axis_a, row_labels = _unit_once(grid.axis_a, grid.row_labels)
+    axis_b, col_labels = _unit_once(grid.axis_b, grid.col_labels)
     head = [
         '<tr><td class="corner"></td>'
-        f'<th scope="colgroup" colspan="{len(grid.col_labels)}" class="axis">'
-        f"{escape(grid.axis_b)} →</th></tr>",
-        f'<tr><th scope="col" class="axis">{escape(grid.axis_a)} ↓</th>'
-        + "".join(f'<th scope="col">{escape(label)}</th>' for label in grid.col_labels)
+        f'<th scope="colgroup" colspan="{len(col_labels)}" class="axis">'
+        f"{escape(axis_b)} →</th></tr>",
+        f'<tr><th scope="col" class="axis">{escape(axis_a)} ↓</th>'
+        + "".join(f'<th scope="col">{escape(label)}</th>' for label in col_labels)
         + "</tr>",
     ]
     body: list[str] = []
-    for label, row in zip(grid.row_labels, grid.cells, strict=False):
+    for label, row in zip(row_labels, grid.cells, strict=False):
         cells = []
         for verdict in row:
             if verdict is None:
                 cells.append('<td class="cell cell-none"><span class="sr">no verdict</span></td>')
             else:
                 cells.append(
-                    f'<td class="cell cell-{verdict.value}">{verdict_mark(verdict)}'
+                    f'<td class="cell cell-{verdict.value}">{verdict_mark(verdict, decorative=True)}'
                     f'<span class="sr">{escape(VERDICT_LABEL[verdict])}</span></td>'
                 )
         body.append(f'<tr><th scope="row">{escape(label)}</th>{"".join(cells)}</tr>')
     return Markup(
+        '<div class="scroll">'
         f'<table class="table table-xs scenario-grid" aria-label="Scenarios {grid.matching}/{grid.total}">'
-        f"<thead>{''.join(head)}</thead><tbody>{''.join(body)}</tbody></table>"
+        f"<thead>{''.join(head)}</thead><tbody>{''.join(body)}</tbody></table></div>"
     )
 
 
@@ -266,6 +282,13 @@ def tornado_table(bars: Sequence[TornadoBar], *, price: float | None) -> Markup:
     pad = (hi - lo) * 0.03 or 1.0
     scale = _scaler(lo - pad, hi + pad, 0.0, 100.0)
     rows: list[str] = []
+    price_head = "range"
+    if price is not None:
+        px = float(_n(scale(price)))  # the price line's own x
+        price_head = (
+            f'<span class="track-price at-{_anchor(px, 100.0, 30.0)}" '
+            f'style="margin-left:{px:.2f}%">price {_num(price)}</span>'
+        )
     for bar in ordered:
         x0, x1 = sorted((scale(bar.low), scale(bar.high)))
         lo_val, hi_val = sorted((bar.low, bar.high))
@@ -286,11 +309,10 @@ def tornado_table(bars: Sequence[TornadoBar], *, price: float | None) -> Markup:
             f'aria-hidden="true" focusable="false">{track}</svg></td>'
             f'<td class="num high">{_num(hi_val)}</td></tr>'
         )
-    price_head = f"price {_num(price)}" if price is not None else "range"
     return Markup(
         '<table class="table table-xs tornado" aria-label="Drivers"><thead><tr>'
         '<th scope="col">Input</th><th scope="col" class="num">Low</th>'
-        f'<th scope="col" class="track-head">{escape(price_head)}</th>'
+        f'<th scope="col" class="track-head">{price_head}</th>'
         '<th scope="col" class="num">High</th></tr></thead>'
         f"<tbody>{''.join(rows)}</tbody></table>"
     )

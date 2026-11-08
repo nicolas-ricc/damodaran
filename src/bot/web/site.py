@@ -134,7 +134,7 @@ def build(reports_dir: Path, out_dir: Path, base_url: str) -> int:
     env = _environment(base_url)
     list_tpl = env.get_template("list.html")
     rows_tpl = env.get_template("rows_fragment.html")
-    detail_tpl = env.get_template("detail.html")
+    detail_tpl = env.get_template("detail_fragment.html")
 
     def context(
         rows: list[RowView],

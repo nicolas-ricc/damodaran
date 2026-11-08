@@ -128,3 +128,37 @@ def test_announce_reads_the_stat_value() -> None:
     script = _SCRIPT.read_text()
     assert '"#detail .facts .lead-figure .stat-value"' in script
     assert ".lead-figure dd" not in script
+
+
+# --- issue #262: findings of the impeccable critique and audit ---
+
+
+def test_viewer_scrolls_the_selected_row_into_the_list_on_load() -> None:
+    script = _SCRIPT.read_text()
+    assert "function revealSelected()" in script
+    body = script[script.index("function revealSelected()") :]
+    body = body[: body.index("\n  }\n")]
+    assert ".list-pane" in body
+    assert "scrollTop" in body
+    assert "scrollIntoView" not in body
+    # called once at load, right after the first markSelected()
+    assert re.search(r"\n  markSelected\(\);\n  revealSelected\(\);\n", script)
+
+
+def test_announcement_does_not_double_the_period() -> None:
+    script = _SCRIPT.read_text()
+    body = script[script.index("function announceDetail()") :]
+    body = body[: body.index("\n  }\n")]
+    assert 'replace(/\\.$/, "")' in body
+
+
+def test_viewer_takes_the_title_of_a_rows_swap_from_the_response() -> None:
+    # htmx finds the first <title> in a fragment, which in a rows fragment is an svg mark's; the page title is last
+    script = _SCRIPT.read_text()
+    assert "htmx:beforeSwap" in script
+    body = script[script.index('"htmx:beforeSwap"') :]
+    body = body[: body.index("\n  });\n")]
+    assert "serverResponse" in body
+    assert "document.title" in body
+    assert "e.detail.serverResponse =" in body
+    assert "e.detail.shouldSwap" in body

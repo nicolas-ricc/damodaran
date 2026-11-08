@@ -13,7 +13,8 @@ from tests.web_sidecars import make_sidecar, write_sidecar
 _FILTERS = ("all", "undervalued", "fair", "overvalued", "na")
 _SORTS = ("ticker", "mos", "date")
 _DIRS = ("asc", "desc")
-_URL_ATTR = re.compile(r'\b(href|src|hx-get|hx-push-url)="([^"]*)"')
+# same-page fragment links (the skip link) are not site URLs
+_URL_ATTR = re.compile(r'\b(href|src|hx-get|hx-push-url)="(?!#)([^"]*)"')
 
 
 @pytest.fixture
@@ -525,3 +526,92 @@ def test_detail_flags_are_badges(reports: Path, tmp_path: Path) -> None:
             r'<span class="id">[^<]*</span> <span class="reason">',
             item,
         ), item
+
+
+# --- issue #262: findings of the impeccable critique and audit ---
+
+_TITLE = re.compile(r"<title>([^<]*)</title>")
+
+
+def _page_title(path: Path) -> str:
+    match = _TITLE.search(path.read_text())
+    assert match, path
+    return match.group(1)
+
+
+def test_fragments_carry_their_page_title(reports: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    build(reports, out, "/")
+    pairs = [
+        (out / "f" / "AAA.html", out / "c" / "AAA.html"),
+        (out / "f" / "AAA" / "2026-09-01.html", out / "c" / "AAA" / "2026-09-01.html"),
+        (out / "rows" / "fair-mos-desc.html", out / "l" / "fair-mos-desc.html"),
+        (out / "rows" / "all-mos-desc.html", out / "l" / "all-mos-desc.html"),
+    ]
+    for fragment, page in pairs:
+        text = fragment.read_text()
+        title = f"<title>{_page_title(page)}</title>"
+        if fragment.parent.name == "rows":
+            # a leading <title> makes the browser's template parser drop <tbody>/<thead>, so rows end with it
+            assert text.rstrip().endswith(title), fragment
+        else:
+            assert text.lstrip().startswith(title), fragment
+        assert "<html" not in text
+    assert _page_title(out / "c" / "AAA.html").startswith("AAA · ")
+
+
+def test_filter_sort_and_show_all_push_their_list_url(reports: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    build(reports, out, "/")
+    for path in (out / "index.html", out / "rows" / "na-mos-desc.html", out / "rows" / "fair-date-asc.html"):
+        links = re.findall(r'<a [^>]*hx-target="#rows"[^>]*>', path.read_text())
+        assert links, path
+        for link in links:
+            href = re.search(r'\bhref="([^"]*)"', link)
+            push = re.search(r'\bhx-push-url="([^"]*)"', link)
+            assert href and push, link
+            assert push.group(1) == href.group(1), link
+            assert push.group(1).startswith("/l/"), link
+
+
+def test_skip_link_leads_to_the_analysis(reports: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    build(reports, out, "/")
+    skip = '<a class="skip btn btn-sm btn-primary" href="#detail">Skip to analysis</a>'
+    for path in (out / "index.html", out / "c" / "AAA.html"):
+        html = path.read_text()
+        body = html[html.index("<body") :]
+        body = body[body.index("</svg>") + len("</svg>") :].lstrip()
+        assert body.startswith(skip), path
+        section = re.search(r'<section id="detail"[^>]*>', html)
+        assert section, path
+        assert 'tabindex="-1"' in section.group(0)
+        assert 'aria-label="Analysis"' in section.group(0)
+    assert "Skip to analysis" not in (out / "404.html").read_text()
+    empty = (out / "rows" / "fair-mos-desc.html").read_text()
+    section = re.search(r'<section id="detail"[^>]*>', empty)
+    assert section, "fair has no company, so the fragment carries the empty detail"
+    assert 'tabindex="-1"' in section.group(0)
+    assert 'aria-label="Analysis"' in section.group(0)
+
+
+def test_history_cache_is_off(reports: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    build(reports, out, "/")
+    for path in (out / "index.html", out / "c" / "AAA.html", out / "l" / "fair-mos-desc.html"):
+        head = path.read_text().split("</head>")[0]
+        assert """<meta name="htmx-config" content='{"historyCacheSize":0}'>""" in head, path
+        assert head.index("htmx-config") < head.index("htmx.min.js")
+
+
+def test_scenarios_take_the_wide_column(tmp_path: Path) -> None:
+    root = tmp_path / "reports"
+    write_sidecar(root, "2026-10-01", make_sidecar("AAA", mos=1.5))
+    out = tmp_path / "site"
+    build(root, out, "/")
+    html = (out / "c" / "AAA.html").read_text()
+    if 'class="scenarios"' not in html:
+        pytest.skip("fixture sidecar has no scenario grid")
+    grid = re.search(r'<div class="pair-grid([^"]*)">\s*<section class="scenarios">', html)
+    assert grid, "scenarios open their pair grid"
+    assert "wide-first" in grid.group(1)

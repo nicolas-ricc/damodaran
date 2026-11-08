@@ -179,16 +179,16 @@ Each component is the DaisyUI classes that ship in `src/bot/web/templates/` and 
 `navbar` with the brand link in `navbar-start` and the company count in `navbar-end` as `badge badge-ghost`.
 
 ### Filter
-A `join` of `btn btn-sm join-item` links, so the row reads as one segmented control; it wraps to a second row rather than scrolling. Each link is a real `<a>` with `aria-current="page"` on the current one, which also carries `btn-active`. The verdict count inside each link is `badge badge-sm badge-ghost`, set in mono. The current filter reads in `primary`.
+A `join` of `btn btn-sm join-item` links, so the row reads as one segmented control; it wraps to a second row rather than scrolling. Each link is a real `<a>` with `aria-current="page"` on the current one, which also carries `btn-active`. The verdict count inside each link is `badge badge-sm badge-ghost`, set in mono. The current filter reads in `primary`. A filter or sort also pushes its `l/` URL (`hx-push-url` equal to the link's `href`) and the swapped fragment carries a `<title>`, so the address and the tab name follow the reader. The htmx history cache is off (`historyCacheSize: 0`): Back reloads the pushed static page instead of restoring a snapshot, so nothing the reader typed reaches storage.
 
 ### Count
 `badge badge-neutral`, an `<output>` with `aria-live="polite"` that says how many of the total rows show.
 
 ### Search
-`input input-sm` on a `<label>`, hidden until the script that filters the rows is running, so without JavaScript the control never appears.
+`input input-sm` on a `<label>`, hidden until the script that filters the rows is running, so without JavaScript the control never appears. Its border is `base-content` mixed to about half strength so the box reads as a field on the dark ground, and the placeholder sits on `--ink-soft`.
 
 ### Table row
-`table table-sm table-pin-rows`: the column heads stay pinned while the rows scroll. The ticker is a link; figures are right-aligned in mono; the verdict and flag glyphs are titled for screen readers, and a mini value axis follows the MoS. The selected row is `selected bg-base-300`, with a `primary` square before the ticker. Sort links are the column heads themselves, with `aria-sort` on the `<th>` and the current one in `primary`.
+`table table-sm table-pin-rows`: the column heads stay pinned while the rows scroll. The ticker is a link; figures are right-aligned in mono; the verdict and flag glyphs are titled for screen readers, and a decorative mini value axis (hidden from screen readers) follows the MoS. The selected row is `selected bg-base-300`, with a `primary` square before the ticker. Sort links are the column heads themselves, with `aria-sort` on the `<th>` and the current one in `primary`; the arrow is declared with an empty alt text so it is not part of the column's name. Beside the detail (1100px and up) the ledger drops Story and Intrinsic, since the facts strip names both. On a phone the row is one link: the ticker's link stretches over the whole row.
 
 ### Flags
 In the list, `badge badge-xs badge-{tone}` holding a flag glyph; in the detail pane, `badge badge-sm badge-{tone}` holding the severity word. The tone comes from the flag's severity: `badge-success` for a pass, `badge-warning` for a warning, `badge-error` for a fail, and `badge-ghost` for anything else.
@@ -197,13 +197,16 @@ In the list, `badge badge-xs badge-{tone}` holding a flag glyph; in the detail p
 `hero` with `hero-content`. The empty list, the empty filter and the 404 each say what is missing and offer one way forward. The empty list shows the command that fills it (`bot analyze --from-screen`). The empty filter offers `btn btn-link` in the detail hero, and `btn btn-link btn-xs` in the empty row of the list. The 404 page offers `btn btn-primary`.
 
 ### Facts
-`stats stats-vertical lg:stats-horizontal` holding five `stat` blocks (MoS leading, then price, intrinsic, story, date), each with `stat-title` and `stat-value`. The MoS value is `stat-value text-secondary`, the lead figure of the page.
+`stats stats-vertical lg:stats-horizontal` holding five `stat` blocks (MoS leading, then price, intrinsic, story, date), each with `stat-title` and `stat-value`. The MoS value is `stat-value text-secondary`, the lead figure of the page. In a narrow pane the strip is two columns, with MoS spanning both.
+
+### Skip link and analysis region
+The first stop on every page with an analysis is `skip btn btn-sm btn-primary`, "Skip to analysis", parked above the viewport and brought down on focus. It is hidden under 1100px on the list page, where the detail pane is not shown. `#detail` is a labelled region (`aria-label="Analysis"`, `tabindex="-1"`) so the skip link lands inside it; it takes focus without an outline because it is a jump target, not a control. A page opened on a company scrolls the list pane so the selected row is in view.
 
 ### History
 `join` of `btn btn-xs join-item` links, one per analysis date, with `btn-active` and `aria-current="page"` on the date shown.
 
 ### Section heads and tables
-Each section is separated by `divider`, then the title, an optional count line, then one lede sentence saying what the section shows and how to read it. The drivers, scenarios, assumptions and DCF tables are `table table-xs`. The value axis is an SVG that scales with non-scaling strokes; its labels are HTML positioned by percentage so they never shrink.
+Each section is separated by `divider`, then the title, an optional count line, then one lede sentence saying what the section shows and how to read it. The drivers, scenarios, assumptions and DCF tables are `table table-xs`. The scenario grid and the DCF table share one `.scroll` wrapper, so a table wider than the pane scrolls inside its box rather than the page. The value axis is an SVG that scales with non-scaling strokes; its labels are HTML positioned by percentage so they never shrink.
 
 ## 6. Do's and Don'ts
 
