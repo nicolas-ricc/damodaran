@@ -80,7 +80,7 @@
       },
       "tax_rate": {
         "value": 0.21,
-        "source": "sector_default_damodaran"
+        "source": "country_default_damodaran"
       },
       "story_type": "high-growth",
       "notes": null,

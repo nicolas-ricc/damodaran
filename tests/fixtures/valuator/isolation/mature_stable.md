@@ -32,7 +32,7 @@ _Generated 2026-01-01 · currency USD · country United States_
 | Equity weight | 83.3% | sector_default_damodaran |
 | Debt weight | 16.7% | sector_default_damodaran |
 | Terminal growth | 4.0% | rule_based |
-| Tax rate | 21.0% | sector_default_damodaran |
+| Tax rate | 21.0% | country_default_damodaran |
 | Probability of bankruptcy | 0.0% | rule_based |
 
 ## 4. DCF detail
