@@ -36,10 +36,10 @@
   is `uv run ruff check . && uv run mypy src`.
 
   Formatting is not enforced: neither CI nor the lint gate runs `ruff format`,
-  and much of the tree is not formatted. Never run `ruff format` over the whole
-  tree; it rewrites about a hundred files of unrelated code. If you format at all,
-  format only the files you change (`uv run ruff format path/to/file.py`), and
-  keep the diff to the lines you touched.
+  and much of the tree is not formatted. Never run `ruff format` over the
+  whole tree; it rewrites about a hundred files of unrelated code. If you format
+  at all, format only the files you change (`uv run ruff format path/to/file.py`),
+  and keep the diff to the lines you touched.
   ````
 
 - **`uv run pytest` becomes `uv run pytest -q`.** CI and `.factory/config.toml` run `-q`; the brief asks the README to give "the lint command CI actually runs", and aligning the test line is the same fact at no cost.
