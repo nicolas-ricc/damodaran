@@ -133,3 +133,18 @@ def test_other_exceptions_clean_up_and_propagate(
     with pytest.raises(KeyboardInterrupt):
         write_report_set(out_dir, _FILES)
     assert list(out_dir.iterdir()) == []
+
+
+def test_an_unencodable_report_is_a_report_write_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A locale that can't encode the report fails the set like a full disk."""
+    out_dir = tmp_path / "analysis"
+    _fail_write_text(
+        monkeypatch, ".A.md.tmp", UnicodeEncodeError("ascii", "—", 0, 1, "ordinal not in range")
+    )
+    with pytest.raises(ReportWriteError) as info:
+        write_report_set(out_dir, _FILES)
+    assert info.value.path == out_dir / "A.md"
+    assert "ascii" in str(info.value)
+    assert list(out_dir.iterdir()) == []

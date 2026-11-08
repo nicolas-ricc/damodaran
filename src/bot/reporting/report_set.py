@@ -18,9 +18,10 @@ from pathlib import Path
 class ReportWriteError(Exception):
     """A report set could not be written; ``path`` names the report or directory."""
 
-    def __init__(self, path: Path, cause: OSError) -> None:
+    def __init__(self, path: Path, cause: OSError | UnicodeEncodeError) -> None:
         self.path = path
-        super().__init__(f"{path}: {cause.strerror or cause}")
+        reason = cause.strerror if isinstance(cause, OSError) else None
+        super().__init__(f"{path}: {reason or cause}")
 
 
 def write_report_set(out_dir: Path, files: Mapping[str, str]) -> list[Path]:
@@ -43,7 +44,7 @@ def write_report_set(out_dir: Path, files: Mapping[str, str]) -> list[Path]:
         for victim in doomed:
             with contextlib.suppress(OSError):
                 victim.unlink(missing_ok=True)
-        if isinstance(exc, OSError):
+        if isinstance(exc, OSError | UnicodeEncodeError):
             raise ReportWriteError(path, exc) from exc
         raise
     return list(targets.values())

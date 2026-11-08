@@ -415,9 +415,8 @@ def analyze(
     with no external assets.
 
     A per-ticker failure (unknown ticker, missing data, a report that can't be
-    rendered or written) is printed and does not
-    abort the rest of the batch; the command exits with the worst per-ticker
-    code.
+    rendered or written) is printed and does not abort the rest of the batch;
+    the command exits with the worst per-ticker code.
     """
     tickers = tickers or []
     if from_screen and tickers:
@@ -487,8 +486,8 @@ def _analyze_one(
     ``0`` on success, ``2`` for an unknown ticker (``LookupError``), ``1`` when
     the ticker can't be valued or its reports can't be rendered (``ValueError``),
     or written (``ReportWriteError``; the three files are written all-or-none).
-    Errors are printed, not raised,
-    so a batch of tickers keeps going after one fails.
+    Errors are printed, not raised, so a batch of tickers keeps going after one
+    fails.
     """
     ticker = ticker.upper()
 
