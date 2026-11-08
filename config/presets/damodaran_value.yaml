@@ -66,6 +66,8 @@ trap_detection:
     - name: share_count_not_diluting
       params:
         max_annual_growth: 0.05    # share count growth <= 5%/yr without M&A
+        ma_window: 3               # M&A window: last 3 fiscal years
+        ma_materiality: 0.10       # acquisitions ≥ 10% of total assets lift the cap
 
 # --- Ranking score weights (spec §6.5) ------------------------------------- #
 ranking:
