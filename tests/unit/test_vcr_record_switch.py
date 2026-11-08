@@ -91,10 +91,10 @@ def _recorder() -> vcr.VCR:
 
 def test_record_all_writes_scrubbed_cassette(stub_url: str, tmp_path: Path) -> None:
     cassette = tmp_path / "recorded.yaml"
-    recorder = vcr.VCR(**(VCR_CONFIG | {"record_mode": "all"}))
+    key = fmp_test_key("all", {"BOT_FMP_API_KEY": FAKE_KEY})
     with (
-        recorder.use_cassette(str(cassette)),
-        FmpClient(api_key=fmp_test_key("all", {"BOT_FMP_API_KEY": FAKE_KEY}), base_url=stub_url) as client,
+        _recorder().use_cassette(str(cassette)),
+        FmpClient(api_key=key, base_url=stub_url) as client,
     ):
         info = client.lookup_company("AAPL")
     assert info is not None and info.ticker == "AAPL"

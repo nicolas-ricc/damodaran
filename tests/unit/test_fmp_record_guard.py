@@ -15,6 +15,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.vcr_settings import DUMMY_FMP_KEY
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 COPIED = [
     "pyproject.toml",
@@ -67,7 +69,7 @@ def _record_fmp_client(tmp_path: Path, key: str | None) -> tuple[str, dict[str, 
     return result.stdout, before, cassettes
 
 
-@pytest.mark.parametrize("key", [None, "test-fmp-key", "  "], ids=["unset", "dummy", "blank"])
+@pytest.mark.parametrize("key", [None, DUMMY_FMP_KEY, "  "], ids=["unset", "dummy", "blank"])
 def test_record_without_key_aborts_and_keeps_cassettes(tmp_path: Path, key: str | None) -> None:
     stdout, before, cassettes = _record_fmp_client(tmp_path, key)
     assert "BOT_FMP_API_KEY" in stdout
