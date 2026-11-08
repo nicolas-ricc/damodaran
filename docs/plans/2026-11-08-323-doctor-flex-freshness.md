@@ -46,7 +46,7 @@
 - Test: `tests/unit/test_portfolio_freshness.py`
 
 **Interfaces:**
-- Consumes: `bot.storage` `connect(path)` / `apply_schema(conn)` (as used in other unit tests, `connect(":memory:")`).
+- Consumes: `apply_schema(conn)` from `bot.storage.db`; tests open `duckdb.connect(":memory:")` as `tests/unit/test_portfolio_marks.py` does.
 - Produces: `MAX_SNAPSHOT_AGE_BUSINESS_DAYS: int`, `business_days_between(start: date, end: date) -> int`, `latest_snapshot_date(conn: duckdb.DuckDBPyConnection) -> date | None`.
 
 - [ ] **Step 1: Write the failing tests**
