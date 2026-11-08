@@ -39,6 +39,7 @@ from bot.notifier import NotificationError, NotifierConfigError, build_notifier,
 from bot.portfolio.command import run_portfolio
 from bot.portfolio.freshness import (
     MAX_SNAPSHOT_AGE_BUSINESS_DAYS,
+    TOKEN_EXPIRY_WARN_DAYS,
     business_days_between,
     latest_snapshot_date,
 )
@@ -784,6 +785,17 @@ def doctor() -> None:
     flex_configured = token_set and query_set
     typer.echo(f"Flex token:       {'set' if token_set else 'MISSING'}")
     typer.echo(f"Flex query id:    {'set' if query_set else 'MISSING'}")
+    expires = settings.ibkr_flex_token_expires
+    if expires is None:
+        typer.echo("Flex token expiry: not set (BOT_IBKR_FLEX_TOKEN_EXPIRES)")
+    else:
+        days_left = (expires - date.today()).days
+        if days_left < 0:
+            issues.append(f"Flex token expired on {expires.isoformat()} (BOT_IBKR_FLEX_TOKEN_EXPIRES)")
+        elif days_left <= TOKEN_EXPIRY_WARN_DAYS:
+            typer.echo(f"WARN: Flex token expires in {days_left} day(s) ({expires.isoformat()})")
+        else:
+            typer.echo(f"Flex token expiry: {expires.isoformat()} ({days_left} days left)")
     if not flex_configured:
         typer.echo(
             "Portfolio sync:   not configured "

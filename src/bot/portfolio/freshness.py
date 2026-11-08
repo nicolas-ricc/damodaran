@@ -2,6 +2,8 @@
 
 Age is counted in business days (Mon-Fri) so a Friday snapshot is not stale on
 Saturday or Sunday. Holidays are not modelled.
+
+Also holds the Flex token-expiry warning threshold (#324).
 """
 
 from __future__ import annotations
@@ -11,6 +13,7 @@ from datetime import date, timedelta
 import duckdb
 
 MAX_SNAPSHOT_AGE_BUSINESS_DAYS: int = 2
+TOKEN_EXPIRY_WARN_DAYS: int = 14
 
 
 def business_days_between(start: date, end: date) -> int:

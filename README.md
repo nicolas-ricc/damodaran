@@ -200,13 +200,16 @@ warning. Snapshots stored before this change are keyed on the run day; there is 
    If you already have a corporate-actions-only query, add Open Positions, Cash Report
    and Trades to it: a statement missing any of those three fails the run.
 2. **Settings → Reporting → Flex Web Service**: generate a token. It expires at most
-   yearly, so note its expiry.
+   yearly. Put its expiry date in `BOT_IBKR_FLEX_TOKEN_EXPIRES` (ISO, `YYYY-MM-DD`);
+   `bot doctor` prints a warning from 14 days before that date and fails once it has
+   passed.
 3. Put both in `.env` (never commit them):
 
    ```bash
    BOT_IBKR_FLEX_TOKEN=...      # Flex Web Service token
    BOT_IBKR_FLEX_QUERY_ID=...   # the Activity Flex Query id
    BOT_IBKR_FLEX_TZ=America/New_York   # default; the account's reporting time zone
+   BOT_IBKR_FLEX_TOKEN_EXPIRES=2027-03-01   # optional; the token's expiry date, bot doctor warns 14 days before
    ```
 
    `BOT_IBKR_FLEX_TZ` is the time zone of the trade `dateTime` values; the bot converts
