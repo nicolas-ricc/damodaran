@@ -146,11 +146,11 @@ uv run bot show AAPL             # show a US company's fundamentals (M1)
   the push needs an SSH key that works without a passphrase (a deploy key with write access
   is fine). Everything the screen shortlists becomes public once pushed.
 - **DB lock**: `daily.sh`, `weekly.sh` and `price_fill.sh` share the lock `.cache/bot.lock`, so
-  only one of them writes the database at a time. `daily.sh` and `weekly.sh` take it per `bot`
-  command, so it is released between price rounds and during `publish_site.sh`. They wait up to
-  `BOT_DB_LOCK_WAIT` seconds (default 900) for it. After that the run fails with a logged
-  `lock timeout:` line and exit 75. The hourly `price_fill.sh` drip does not wait: it skips that
-  hour's run instead.
+  only one of them opens the database at a time (DuckDB allows one process per file, even
+  read-only). `daily.sh` and `weekly.sh` take it per `bot` command, so it is released between
+  price rounds and during `publish_site.sh`. They wait up to `BOT_DB_LOCK_WAIT` seconds
+  (default 900) for it. After that the run fails with a logged `lock timeout:` line and exit 75.
+  The hourly `price_fill.sh` drip does not wait: it skips that hour's run instead.
 
 Each run appends to `.cache/daily.log` / `.cache/weekly.log` under a `=== <timestamp> run ===`
 header; the job's exit code is the bot's. Running the installer again adds nothing; lines are
