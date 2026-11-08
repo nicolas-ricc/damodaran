@@ -71,7 +71,7 @@
 
 - [ ] **Step 1: Write the four failing tests**
   - `test_price_fill_skips_when_the_db_lock_is_held(repo, recorder_bin, calls)`: hold the lock (see Assumptions), run `price_fill.sh` with `_env(recorder_bin)`. Assert `returncode == 0`, `_calls(calls) == []`, log contains `"skipped: DB busy"` and `".cache/bot.lock"`, `log.count("skipped: DB busy") == 1`, log contains `" run ==="`, `not (repo/".cache"/"price_fill.DONE").exists()`.
-  - `test_price_fill_runs_when_the_db_lock_is_free(repo, recorder_bin, calls)`: `(repo/".cache").mkdir()`, `(repo/".cache"/"bot.lock").touch()`, run. Assert `returncode == 0`, `_calls(calls) == _PRICE_FILL`, `"skipped" not in log`.
+  - `test_price_fill_runs_when_the_db_lock_is_free(repo, recorder_bin, calls)`: `(repo/".cache").mkdir()`, `(repo/".cache"/"bot.lock").touch()`, run. Assert `returncode == 0`, `_calls(calls) == _PRICE_FILL`, `"skipped: DB busy" not in log` (plain `skipped` also matches sync_master's "not a git checkout, skipped").
   - `test_price_fill_holds_the_db_lock_while_uv_runs(repo, tmp_path, calls)`: probe `uv` (see Assumptions), run with `_env(probe_bin)`. Assert `returncode == 0`, `_calls(calls) == ["lock-held run bot refresh --prices --only-missing", "lock-held run python -"]`.
 
   - `test_readme_quickstart_says_the_drip_skips_on_the_shared_lock()`: in `tests/unit/test_price_fill_docs.py`, read `Path(__file__).resolve().parents[2]/"README.md"`, take the text between `price_fill.sh` drip is only for` and `Tiingo Power`, collapse whitespace. Assert it contains `.cache/bot.lock`, `skipped: DB busy`, `Tiingo quota`, `scripts/install_cron.sh`, `(#108)`, and does not contain `do not run both` nor `same DuckDB file`.
