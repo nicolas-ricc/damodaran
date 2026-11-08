@@ -24,7 +24,7 @@ from bot.storage.db import apply_schema
 from bot.valuator.assumptions import AssumptionSource, resolve_assumptions
 from tests.unit.test_valuator_assumptions import _seed_company, _seed_financials
 
-_FIXTURES = Path("tests/fixtures/damodaran")
+_FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "damodaran"
 _WACC_FIXTURE = _FIXTURES / "wacc_sample.xls"
 _CTRY_FIXTURE = _FIXTURES / "ctryprem_sample.xls"
 
@@ -32,12 +32,6 @@ _CTRY_FIXTURE = _FIXTURES / "ctryprem_sample.xls"
 _EXTRA_KEYS = tuple(d.key for d in INDUSTRY_DATASETS if d.key != "wacc")
 
 _EXTRA_FIXTURES = {key: _FIXTURES / f"{key}_sample.xls" for key in _EXTRA_KEYS}
-
-_ALL_FIXTURES_PRESENT = (
-    _WACC_FIXTURE.exists()
-    and _CTRY_FIXTURE.exists()
-    and all(p.exists() for p in _EXTRA_FIXTURES.values())
-)
 
 
 def test_registry_covers_every_column_the_consumers_select() -> None:
@@ -142,7 +136,6 @@ def test_no_dataset_maps_a_column_the_table_does_not_have() -> None:
         assert not stray, f"{dataset.key} maps non-columns: {sorted(stray)}"
 
 
-@pytest.mark.skipif(not _ALL_FIXTURES_PRESENT, reason="dataset fixtures absent")
 def test_real_import_fills_the_columns_the_extra_datasets_publish() -> None:
     """The end of the silent-NULL bug: every mapped column arrives populated."""
     conn = _seeded_conn()
@@ -198,7 +191,6 @@ def _imported_software_company() -> duckdb.DuckDBPyConnection:
     return conn
 
 
-@pytest.mark.skipif(not _ALL_FIXTURES_PRESENT, reason="dataset fixtures absent")
 def test_imported_files_resolve_a_full_dcf_for_a_software_company() -> None:
     """#50's criterion 2 against the imported files, not hand-seeded sector rows."""
     conn = _imported_software_company()
@@ -209,7 +201,6 @@ def test_imported_files_resolve_a_full_dcf_for_a_software_company() -> None:
     conn.close()
 
 
-@pytest.mark.skipif(not _ALL_FIXTURES_PRESENT, reason="dataset fixtures absent")
 def test_a_blanked_sector_margin_leaves_the_dcf_unresolved() -> None:
     """Negative control: the guard above can fail the way #50's bug would make it."""
     conn = _imported_software_company()
@@ -221,7 +212,6 @@ def test_a_blanked_sector_margin_leaves_the_dcf_unresolved() -> None:
     conn.close()
 
 
-@pytest.mark.skipif(not _ALL_FIXTURES_PRESENT, reason="dataset fixtures absent")
 def test_the_cost_of_capital_file_wins_the_columns_it_shares() -> None:
     """psdata.xls also publishes Net Margin; margin.xls comes first and wins."""
     conn = _seeded_conn()
@@ -260,7 +250,6 @@ def test_the_cost_of_capital_file_wins_the_columns_it_shares() -> None:
     conn2.close()
 
 
-@pytest.mark.skipif(not _ALL_FIXTURES_PRESENT, reason="dataset fixtures absent")
 def test_a_dataset_that_fails_to_parse_degrades_to_partial(tmp_path: Path) -> None:
     """§13.2: one broken extra dataset warns and downgrades, never aborts."""
     conn = _seeded_conn()
@@ -291,7 +280,6 @@ def test_a_dataset_that_fails_to_parse_degrades_to_partial(tmp_path: Path) -> No
     conn.close()
 
 
-@pytest.mark.skipif(not _ALL_FIXTURES_PRESENT, reason="dataset fixtures absent")
 def test_download_of_the_full_registry_writes_one_refresh_log_row(tmp_path: Path) -> None:
     """import_damodaran downloads every registry dataset, still logging once."""
     from bot.ingest.damodaran import import_damodaran
@@ -316,7 +304,6 @@ def test_download_of_the_full_registry_writes_one_refresh_log_row(tmp_path: Path
     conn.close()
 
 
-@pytest.mark.skipif(not _ALL_FIXTURES_PRESENT, reason="dataset fixtures absent")
 def test_an_extra_dataset_download_failure_degrades_to_partial(tmp_path: Path) -> None:
     """A 404 on one of the extra files must not lose the rest of the import."""
     from bot.ingest.damodaran import import_damodaran
