@@ -1,6 +1,6 @@
 # bot doctor reports the Flex settings and the portfolio snapshot age — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development (`.agents/skills/subagent-driven-development/SKILL.md`) to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** `bot doctor` prints `BOT_IBKR_FLEX_TOKEN` and `BOT_IBKR_FLEX_QUERY_ID` as `set`/`MISSING` (never their values) and, when both are set, FAILs when the latest `portfolio_snapshots.snapshot_date` is more than 2 business days old or the table is empty.
 
@@ -27,6 +27,10 @@
 - `Latest snapshot:  YYYY-MM-DD (N business day(s) old, OK)` is printed with the literal text `day(s)`, as the issue writes it.
 - The `Portfolio sync:   not configured (...)` line is printed right after the two Flex lines, still before the DB block. The `Latest snapshot:` line is printed inside the DB `try`, after `DB tables:`.
 - The test helper `_business_days_ago(n)` walks back one calendar day at a time from today and counts each Monday–Friday date it leaves behind, stopping after `n`. So `business_days_between(_business_days_ago(n), date.today()) == n` on every day of the week, weekends included. (A naive "n-th previous weekday" gives n-1 on a Saturday or Sunday, and this plan is written on a Sunday.)
+- `_business_days_ago(n)` exact loop: `d = date.today(); left = n; while left > 0: if d.weekday() < 5: left -= 1; d -= timedelta(days=1)` — the counted date is the one being departed. On a Saturday with n=3 it returns Tuesday (age 3). (Grilling Q9.)
+- A test run straddling midnight between the helper's and `doctor()`'s `date.today()` can see an age one higher. Accepted: the issue forbids `--today` and pins "today" to `date.today()`; the 2-day OK test has one day of margin only on the stale side, and the window is milliseconds. Rejected alternative: monkeypatching `bot.cli.date`, which the issue does not ask for and which would also patch every other `date` use in `cli.py`. (Grilling Q10.)
+- Market holidays are not business days in the issue's definition ("number of Monday–Friday dates"), so a holiday can make doctor FAIL one day early. That is the issue's fixed design, not reopened here. (Grilling Q6.)
+- If `latest_snapshot_date` raises, the existing `except Exception as e: issues.append(f"DB error — {e}")` reports it and the connection is not closed, exactly like a failing table count today (`src/bot/cli.py:743-759`). Not changed. (Grilling Q7.)
 - Tests with Flex unset `chdir` into `tmp_path` and `delenv` both Flex variables, so a developer's `.env` or shell cannot leak a token in.
 
 ## Review Focus
@@ -148,3 +152,10 @@ Expected: all pass.
 - [ ] **Step 6: Commit**
 
 `git commit -m "feat(#323): bot doctor reports the Flex settings and fails on a stale portfolio snapshot"`
+
+## Grilling
+
+- Rounds: 1 (the revision added assumptions only; no step added or removed, same seam, so no second round).
+- Questions: 15. Sources: ISSUE 7 (Q4 partly, Q5, Q6, Q11 partly, Q13, Q14, Q10 partly), CODE 10 (Q1, Q2, Q3, Q4, Q7, Q8, Q11, Q12, Q15 partly, Q9), DOC 1 (Q15: AGENTS.md). Several answers cite more than one source.
+- NO SOURCE → technical assumption: Q9 (exact helper loop), Q10 (midnight race accepted), Q7 (DB-error path left as is). Recorded under Assumptions.
+- Spec ambiguities: none. Out-of-scope issues opened: none.
