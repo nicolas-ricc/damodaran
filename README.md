@@ -207,6 +207,10 @@ warning. Snapshots stored before this change are keyed on the run day; there is 
    `BOT_IBKR_FLEX_TZ` is the time zone of the trade `dateTime` values; the bot converts
    them to UTC. `bot portfolio` exits 2 when the token or query id is missing and 1 when
    the Flex service fails; nothing is written in either case.
+
+   `bot doctor` reports both settings as set or MISSING and fails when the latest
+   portfolio snapshot is more than 2 business days old; IBKR's T+1 statement lag
+   leaves one day of slack.
 4. **Validate against the live account.** From the repo root run:
 
    ```bash
