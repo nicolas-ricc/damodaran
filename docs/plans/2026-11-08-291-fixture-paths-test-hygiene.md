@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- No change under `src/`. Only `tests/unit/test_damodaran_datasets.py`, `tests/unit/test_damodaran_derived.py` and `tests/unit/test_valuator_assumptions.py` change.
+- No change under `src/`. Only `tests/unit/test_damodaran_datasets.py`, `tests/unit/test_damodaran_derived.py`, `tests/unit/test_valuator_assumptions.py` and `tests/conftest.py` change (the last added in execution, see Assumptions).
 - Fixture root in both dataset modules: `_FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "damodaran"`; every fixture path derives from it.
 - `_ALL_FIXTURES_PRESENT` and every `skipif` decorator disappear from the two dataset modules (7 in `test_damodaran_datasets.py`, 3 in `test_damodaran_derived.py`).
 - `tests/unit/test_ibkr_flex_capture.py:327-335` keeps its `Path("tests/fixtures/...")` spellings (cwd-relative by design).
@@ -25,6 +25,7 @@
 
 - **Which "26 passed" is meant.** The two modules collect 26 tests today (16 passed + 10 skipped from `tests/`, 26 passed from the root). The rename keeps the count; nothing is added, so 26 stays the target from both directories.
 - **Stage-3 evals live outside the repo.** The issue is test-only: the committed tests *are* the deliverable, and the behaviour they cover already works, so no in-repo test can fail before the change and pass after it without being one of the deliverables. The acceptance criteria (including the two temporary mutations) become an executable script, `.scratch/evals-291.sh`, git-excluded, which fails on the base branch and must pass at the end.
+- **Config defaults anchored in `tests/conftest.py` (found in Task 1 execution).** Without the guards, four tests run from `tests/` and fail with `assumption 'terminal_growth' is unresolved`: `bot.reference.currencies.DEFAULT_CURRENCIES_PATH` and `bot.reference.default_spreads.DEFAULT_SPREADS_PATH` are cwd-relative (`src/bot/reference/currencies.py:25`, `default_spreads.py:27`). Criterion 1 needs 26 passed from `tests/` and the issue forbids `src/` changes, so an autouse fixture in `tests/conftest.py`, beside `_currencies_path` (#109, same purpose for the CLI), monkeypatches both constants to `REPO_ROOT / "config" / ...`. Rejected: anchoring the constants in `src/` (forbidden by the issue; the product runs from the repo root by design), and a per-module fixture duplicated in the two dataset modules.
 - **Who writes the eval script.** Pipeline stage 3, before Task 1, adds `.scratch/` to `.git/info/exclude` and writes the script; it restores both mutated files with a shell `trap ... EXIT` (`git checkout -- <file>`), and Task 3 Step 3's `git diff --stat -- src` would still catch a leftover `PROBE`.
 - **Empty import guard.** The fill-rate test also asserts `total > 0` (rejected: relying on `result.status == "success"` alone, which does not prove rows were written). The issue fixes the per-column assertion; this extra line only closes the vacuous `0 >= 0` case.
 - **Mutation probes are temporary.** The `0.97` threshold and the `PROBE = "probe"` member are applied, observed failing and reverted inside the eval script; neither is ever committed.
