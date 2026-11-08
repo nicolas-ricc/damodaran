@@ -1,9 +1,9 @@
 """Damodaran datasets — parser (Capa A).
 
 Column headers reflect the January 2026 Damodaran release.  If headers drift in
-a future release, update ``WACC_COLUMN_MAP``,
-``INDUSTRY_PARSE_ARTEFACT_COLUMNS`` and ``DEFAULT_COUNTRY_COLUMN_MAP`` to match the new strings; no other code change is
-required.
+a future release, update ``WACC_COLUMN_MAP``, ``INDUSTRY_PARSE_ARTEFACT_COLUMNS``
+and ``DEFAULT_COUNTRY_COLUMN_MAP`` to match the new strings; no other code change
+is required.
 
 ``tax_rate`` is not a column of the ``ERPs by country`` sheet: it comes from the
 ``Country Tax Rates`` sheet of ``ctryprem.xls``. The risk-free rate is not imported;
@@ -29,7 +29,8 @@ from bot.utils.logging import get_logger
 log = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
-# Column maps — db_column_name -> xls_header_string
+# Column maps — db_column_name -> xls_header_string, except the parse
+# artefacts, whose keys are row fields that never reach the DB
 # Inspected from Damodaran Jan-2026 files:
 #   wacc.xls      sheet "Industry Averages"   header row 18
 #   ctryprem.xls  sheet "ERPs by country"     header row 7
