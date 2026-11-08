@@ -3,8 +3,8 @@
 Drives ``refresh_universe`` over a 5-ticker mini-universe with one VCR cassette
 per ticker (US + international), through :class:`FmpProvider`. The cassettes are
 SYNTHETIC (hand-authored, fabricated-but-realistic FMP JSON) so the suite runs
-offline and deterministically. Re-record them against the live API with a real
-BOT_FMP_API_KEY via ``uv run pytest -m integration --vcr-record=all``.
+offline and deterministically. Re-record them against the live API by exporting a real
+BOT_FMP_API_KEY and running ``uv run pytest -m integration --vcr-record=all``.
 
 The incremental-skip path and per-ticker error isolation are covered exhaustively
 in ``tests/unit/test_universe_refresh.py`` against a :class:`FakeProvider`; this
@@ -24,9 +24,8 @@ from bot.ingest.fmp import FmpProvider
 from bot.ingest.provider import CompanyInfo, FundamentalsBundle, FxRate, PriceBar
 from bot.ingest.universe import refresh_universe
 from bot.storage.db import apply_schema, connect
-from tests.vcr_settings import vcr_kwargs
+from tests.vcr_settings import record_option, vcr_kwargs
 
-API_KEY = "test-fmp-key"
 MINI_UNIVERSE = ["AAPL", "MSFT", "NVDA", "NESN.SW", "SAP.DE"]
 
 
@@ -94,13 +93,13 @@ class _CassetteFmpProvider:
 
 @pytest.mark.integration
 def test_bulk_refresh_imports_full_mini_universe(
-    cassette_dir: Path, pytestconfig: pytest.Config
+    cassette_dir: Path, pytestconfig: pytest.Config, fmp_api_key: str
 ) -> None:
-    record = pytestconfig.getoption("--vcr-record")
+    record = record_option(pytestconfig)
     conn = connect(":memory:")
     apply_schema(conn)
 
-    provider = _CassetteFmpProvider(cassette_dir, API_KEY, record=record)
+    provider = _CassetteFmpProvider(cassette_dir, fmp_api_key, record=record)
     result = refresh_universe(
         conn,
         provider=provider,  # type: ignore[arg-type]
@@ -146,9 +145,9 @@ def test_bulk_refresh_imports_full_mini_universe(
 
 @pytest.mark.integration
 def test_second_run_skips_unchanged_tickers(
-    cassette_dir: Path, pytestconfig: pytest.Config
+    cassette_dir: Path, pytestconfig: pytest.Config, fmp_api_key: str
 ) -> None:
-    record = pytestconfig.getoption("--vcr-record")
+    record = record_option(pytestconfig)
     conn = connect(":memory:")
     apply_schema(conn)
 
@@ -156,7 +155,7 @@ def test_second_run_skips_unchanged_tickers(
     # never reached (empty filings_log), so it needs no cassette of its own.
     refresh_universe(
         conn,
-        provider=_CassetteFmpProvider(cassette_dir, API_KEY, record=record),  # type: ignore[arg-type]
+        provider=_CassetteFmpProvider(cassette_dir, fmp_api_key, record=record),  # type: ignore[arg-type]
         tickers=MINI_UNIVERSE,
     )
 
@@ -168,7 +167,7 @@ def test_second_run_skips_unchanged_tickers(
         conn,
         provider=_CassetteFmpProvider(  # type: ignore[arg-type]
             cassette_dir,
-            API_KEY,
+            fmp_api_key,
             filing_probe=lambda _t: date(2000, 1, 1),
             record=record,
         ),
