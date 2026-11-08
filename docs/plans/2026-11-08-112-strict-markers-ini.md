@@ -25,7 +25,7 @@
 - **In-process `runpytest`.** `tests/unit/test_live_marker.py:9,27` already uses in-process `pytester.runpytest` with `pytest_plugins = ["pytester"]`. The new module follows the same pattern. `Pytester.__init__` chdirs into its tmp path (`_pytest/pytester.py:698,748-753`), and with a positional arg the rootdir search starts at that arg. The sandbox `pyproject.toml` is therefore the config file. Observed with a prototype: `rootdir: /tmp/pytest-of-root/.../test_p0`, `configfile: pyproject.toml`. Before the fix the prototype gave `1 passed, 1 warning`. With `addopts = "-v"` + `strict_markers = true` it gave `'bogus' not found in `markers` configuration option` (emitted at `_pytest/mark/structures.py:593`).
 - **Pytest floor raised to `>=9.0`.** `pyproject.toml` declares `"pytest>=8.2"` in `[dependency-groups].dev`. `strict_markers` is a pytest 9 ini key, so under pytest 8 it would be unknown and strictness would silently vanish. The lock already resolves 9.0.3, and `uv lock` after the bump changes only the `requires-dev` specifier line in `uv.lock` (verified). Rejected: keeping both `addopts --strict-markers` and the ini key for pytest 8 compatibility, because AC 3 forbids the dead flag.
 - **Current markers are all registered.** `grep -rhoE "pytest\.mark\.[a-z_]+" tests` finds `integration`, `live` (registered in `pyproject.toml`), `vcr` (registered by `pytest_vcr.py:37-38` through `addinivalue_line('markers', ...)`), and the builtins `parametrize`, `skip`, `skipif`, `usefixtures`. The one `add_marker` call adds `skip`.
-- **`addopts` is checked token by token.** `addopts` is a TOML string today (`pyproject.toml:78`). The test normalises a string with `shlex.split` and a list as is, then asserts that neither `--strict-markers` nor `--strict` is a token. That covers a later list form and does not ban an unrelated `--strict-config`.
+- **`addopts` is checked token by token.** `addopts` is a TOML string today (`pyproject.toml:78`). The test splits it with `shlex.split` and asserts that neither `--strict-markers` nor `--strict` is a token, so an unrelated `--strict-config` is not banned. A later list form makes `shlex.split` raise, so the test fails loudly instead of passing falsely (deslop dropped the list fallback).
 - **No other document needs the change.** `grep -rn "strict.markers\|strict_markers"` over `*.md *.py *.toml *.yml *.cfg *.ini` (outside `.venv`) hits only `pyproject.toml:78`, `tests/unit/test_live_marker.py:25` and three historical plans. CI runs `uv run pytest -q` (`.github/workflows/site.yml:23`).
 - **The floor test reads the specifier, not the string.** It uses `packaging.requirements.Requirement` (`packaging` 26.2 is installed as a pytest dependency). So `pytest>=9`, `pytest>=9.0,<10` and `pytest~=9.0` all pass. Rejected: a literal string match, which breaks on any equivalent spelling.
 - **`uv.lock` must be regenerated.** CI and `.factory/setup.sh` both run `uv sync --frozen` (`.github/workflows/site.yml:20`, `.factory/setup.sh:10`), which installs from the lock without re-resolving. The floor bump is at `pyproject.toml:31`. No other file pins pytest. `uv lock` ran in this environment without error and changed one line. If it fails, Step 7 has not committed yet, and `git checkout pyproject.toml uv.lock` restores the tree.
@@ -93,8 +93,7 @@ def test_strict_markers_ini_key_is_set() -> None:
     assert "strict" not in options
 
 def test_addopts_has_no_strict_marker_flag() -> None:
-    addopts = _ini_options()["addopts"]
-    tokens = shlex.split(addopts) if isinstance(addopts, str) else addopts
+    tokens = shlex.split(_ini_options()["addopts"])
     assert "--strict-markers" not in tokens
     assert "--strict" not in tokens
 

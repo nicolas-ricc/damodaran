@@ -53,8 +53,7 @@ def test_strict_markers_ini_key_is_set() -> None:
 
 
 def test_addopts_has_no_strict_marker_flag() -> None:
-    addopts = _ini_options()["addopts"]
-    tokens = shlex.split(addopts) if isinstance(addopts, str) else addopts
+    tokens = shlex.split(_ini_options()["addopts"])
     assert "--strict-markers" not in tokens
     assert "--strict" not in tokens
 
