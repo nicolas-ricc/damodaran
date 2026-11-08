@@ -137,7 +137,10 @@
   document.addEventListener("htmx:beforeSwap", function (e) {
     if (!e.detail || !e.detail.target || e.detail.target.id !== "rows") return;
     var m = /<title>([^<]*)<\/title>\s*$/.exec(e.detail.serverResponse || "");
-    if (m) document.title = m[1];
+    if (!m) return;
+    document.title = m[1];
+    // htmx removes only the first <title>, an svg mark's here: take ours out so none piles up in the table
+    e.detail.serverResponse = e.detail.serverResponse.slice(0, m.index);
   });
 
   document.addEventListener("htmx:afterSettle", function (e) {

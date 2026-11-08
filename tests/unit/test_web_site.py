@@ -14,7 +14,7 @@ _FILTERS = ("all", "undervalued", "fair", "overvalued", "na")
 _SORTS = ("ticker", "mos", "date")
 _DIRS = ("asc", "desc")
 # same-page fragment links (the skip link) are not site URLs
-_URL_ATTR = re.compile(r'\b(href|src|hx-get|hx-push-url)="([^#"][^"]*)"')
+_URL_ATTR = re.compile(r'\b(href|src|hx-get|hx-push-url)="(?!#)([^"]*)"')
 
 
 @pytest.fixture
