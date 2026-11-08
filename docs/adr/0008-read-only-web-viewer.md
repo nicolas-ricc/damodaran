@@ -50,8 +50,10 @@ excludes an operating dashboard).
   site refreshes every Saturday without a manual commit.
 - Changing the sidecar shape means bumping `SCHEMA_VERSION` and teaching `web/index.py`
   to handle or skip older versions.
-- Visual system: the viewer uses the Rim theme documented in `docs/DESIGN.md` (dark only,
-  Switzer and Geist Mono), not the hand-drawn kraft system of the explanatory pieces. Chart
+- Visual system: Superseded by ADR 0011 (2026-11-07): the viewer is styled with precompiled DaisyUI under the synthwave theme.
+  Original text, kept as history: the viewer uses the Rim theme documented in
+  `docs/DESIGN.md` (dark only, Switzer and Geist Mono), not the hand-drawn kraft system of
+  the explanatory pieces. Chart
   labels are HTML and the drivers and scenario grid are tables, so no text scales with the
   pane; the facts strip and the pairs reflow on the detail pane's own width (container
   queries). Filter and sort swaps keep keyboard focus on the activated control, and the

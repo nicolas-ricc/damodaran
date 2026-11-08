@@ -1,22 +1,27 @@
 ---
 name: Analysis viewer
-description: The read-only web viewer of the bot's company analyses, in the Rim theme.
+description: The read-only web viewer of the bot's company analyses, styled by precompiled DaisyUI under a single custom dark theme, synthwave.
 colors:
-  paper: "oklch(9% 0.008 75)"
-  paper-well: "oklch(12.5% 0.009 75)"
-  paper-deep: "oklch(6.5% 0.007 75)"
-  ink: "oklch(94% 0.010 80)"
-  ink-body: "oklch(84% 0.011 80)"
-  muted: "oklch(68% 0.012 80)"
-  muted-stroke: "oklch(50% 0.010 80)"
-  rule: "oklch(25% 0.010 78)"
-  rule-faint: "oklch(16% 0.009 78)"
-  ember: "oklch(72% 0.17 45)"
-  ember-focus: "oklch(78% 0.15 45)"
-  sky: "oklch(74% 0.12 250)"
-  verdict-under: "oklch(74% 0.15 150)"
-  verdict-fair: "oklch(80% 0.13 85)"
-  verdict-over: "oklch(66% 0.19 22)"
+  base-100: "oklch(15% 0.09 281.288)"
+  base-200: "oklch(20% 0.09 281.288)"
+  base-300: "oklch(25% 0.09 281.288)"
+  base-content: "oklch(78% 0.115 274.713)"
+  primary: "oklch(71% 0.202 349.761)"
+  primary-content: "oklch(28% 0.109 3.907)"
+  secondary: "oklch(82% 0.111 230.318)"
+  secondary-content: "oklch(29% 0.066 243.157)"
+  accent: "oklch(75% 0.183 55.934)"
+  accent-content: "oklch(26% 0.079 36.259)"
+  neutral: "oklch(45% 0.24 277.023)"
+  neutral-content: "oklch(87% 0.065 274.039)"
+  info: "oklch(74% 0.16 232.661)"
+  info-content: "oklch(29% 0.066 243.157)"
+  success: "oklch(77% 0.152 181.912)"
+  success-content: "oklch(27% 0.046 192.524)"
+  warning: "oklch(90% 0.182 98.111)"
+  warning-content: "oklch(42% 0.095 57.708)"
+  error: "oklch(73.7% 0.121 32.639)"
+  error-content: "oklch(23.501% 0.096 290.329)"
 typography:
   display:
     fontFamily: "Switzer, ui-sans-serif, system-ui, sans-serif"
@@ -62,88 +67,72 @@ spacing:
   2xl: "64px"
   3xl: "96px"
 components:
-  filter-chip:
-    backgroundColor: "transparent"
-    textColor: "{colors.ink-body}"
-    typography: "{typography.label}"
-    rounded: "{rounded.none}"
-    padding: "0 12px"
-    height: "36px"
-  filter-chip-current:
-    backgroundColor: "transparent"
-    textColor: "{colors.ink}"
-  filter-chip-hover:
-    backgroundColor: "{colors.paper-deep}"
-    textColor: "{colors.ink}"
-  sort-link:
-    backgroundColor: "transparent"
-    textColor: "{colors.muted}"
-    typography: "{typography.label}"
-    padding: "4px 0"
-  sort-link-current:
-    textColor: "{colors.ink}"
-  instrument:
-    backgroundColor: "{colors.paper-well}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.none}"
-    padding: "24px"
-  ledger-well:
-    backgroundColor: "{colors.paper-well}"
-    textColor: "{colors.ink-body}"
-    padding: "24px"
+  filter:
+    classes: "join btn btn-sm join-item btn-active badge badge-sm badge-ghost"
+  count:
+    classes: "badge badge-neutral"
+  search:
+    classes: "input input-sm"
+  table-row:
+    classes: "table table-sm table-pin-rows selected bg-base-300"
+  flags:
+    classes: "badge badge-xs badge-sm badge-success badge-warning badge-error badge-ghost"
+  empty-state:
+    classes: "hero hero-content btn btn-link btn-primary"
+  facts:
+    classes: "stats stats-vertical lg:stats-horizontal stat stat-title stat-value text-secondary"
+  history:
+    classes: "join btn btn-xs join-item btn-active"
 ---
 
 # Design System: Analysis viewer
 
 ## 1. Overview
 
-**Creative North Star: "The Night Ledger"**
+**Creative North Star: "The Synthwave Instrument"**
 
-The viewer is read at a desk, beside a terminal, late. It lists the companies the bot has analysed and, for each one, shows why it got its verdict. It is an instrument, not a drawing: the hand-drawn kraft system of the explanatory pieces (`docs/plano/DESIGN.md`) stops at its door. What crosses over is the honesty, not the stroke. Every number on the page says where it came from, and the page admits what it does not know.
+The viewer is read at a desk, beside a terminal, late. It lists the companies the bot has analysed and, for each one, shows why it got its verdict. It is an instrument, not a drawing: the hand-drawn system of the explanatory pieces (`docs/plano/DESIGN.md`) stops at its door. Every number on the page says where it came from, and the page admits what it does not know.
 
-The system is dark only, by decision, and warm: near-black paper tinted toward the ember accent, three steps of it for depth, no shadows. One grotesk sans carries every label and sentence; a mono carries every figure, date and identifier so that a number is recognisable as a number before it is read. Colour is notation. Green, amber and red belong to verdicts and to nothing else; sky-blue belongs to the intrinsic value; ember belongs to the interface's own state (current, sorted, focused, selected) and to nothing else.
+The system has one component library, one theme and one rule for colour. The library is DaisyUI, vendored as a precompiled stylesheet (ADR 0011), so every control is a DaisyUI component: `navbar`, `join`, `btn`, `badge`, `input`, `table`, `stats`, `hero`, `divider`. The theme is `synthwave`, a single dark theme defined in `static/theme.css` and selected by `data-theme="synthwave"` on the page; no other theme is selected (DaisyUI's built-in `light` and `dark` ship in the stylesheet but are never applied). `static/app.css` holds only what DaisyUI has no component for (the split layout, typography, the charts) and reads DaisyUI variables rather than literal colours. Colour is notation: each DaisyUI role carries one meaning on every screen (section 2).
 
-The product brief rejects the fintech dashboard (navy and gold, big metric cards, green lines), the SaaS landing page (gradients, identical cards), the Confluence diagram and the editorial-typographic lane. This system is none of those: it is a ledger beside an instrument, ruled with hairlines, with one lead figure and no ornament.
+The system is dark only, by decision. One grotesk sans carries every label and sentence; a mono carries every figure, date and identifier so that a number is recognisable as a number before it is read.
+
+The product brief rejects the fintech dashboard (navy and gold, big metric cards, green lines), the SaaS landing page (gradients, identical cards), the Confluence diagram and the editorial-typographic lane. DaisyUI's stock components are used flat and small (`btn-sm`, `badge-xs`, `table-xs`), with one lead figure and no ornament.
 
 **Key Characteristics:**
-- Dark, warm, flat. Depth from three paper tones and hairline rules, never shadows or blur.
+- Dark, one theme, radius 0. Depth from three base tones and rules.
 - One sans for words, one mono for figures. The mono is a signal, not a style.
-- Colour is semantic: three verdict pigments, one intrinsic blue, one interface ember.
+- Colour is semantic: three verdict roles, one intrinsic-value role, one interface role.
 - Charts that do not shrink their text: HTML labels beside scaled SVG, tables where a chart would hide the numbers.
 - Everything is a real link to a real page; htmx only makes it faster.
 
-## 2. Colors: Night Paper
+## 2. Colors: Synthwave
 
-Warm near-black surfaces, two inks, five notation colours.
+The 20 colour variables of `[data-theme="synthwave"]`, listed in the frontmatter. The roles the viewer uses, and what each means:
 
-### Primary
-- **Ember** (`oklch(72% 0.17 45)`): the interface's own state only: the current filter's inset top line, the sorted column's underline, the selected row's square, the caret. Never on content, never on a verdict.
-- **Ember focus** (`oklch(78% 0.15 45)`): the 2px focus ring on every control.
+| Meaning in the viewer | DaisyUI role | Value |
+|---|---|---|
+| Interface state: current filter, sorted column, selected row marker, focus ring, caret, primary action | `primary` | `oklch(71% 0.202 349.761)` |
+| Intrinsic value: the dot and band on the axis, driver bars, the MoS figure | `secondary` | `oklch(82% 0.111 230.318)` |
+| Undervalued; a passed check | `success` | `oklch(77% 0.152 181.912)` |
+| Fair; a warning flag | `warning` | `oklch(90% 0.182 98.111)` |
+| Overvalued; a failed check | `error` | `oklch(73.7% 0.121 32.639)` |
+| Page | `base-100` | `oklch(15% 0.09 281.288)` |
+| Ledger well (the list pane) | `base-200` | `oklch(20% 0.09 281.288)` |
+| Deep well: the selected row, borders and rules | `base-300` | `oklch(25% 0.09 281.288)` |
+| Headings, figures and text | `base-content` | `oklch(78% 0.115 274.713)` |
+| Body copy and ledes | `--ink-soft`, derived from `base-content` | 80% `base-content` mixed into `base-100` |
+| Row rules | `--rule-faint`, derived from `base-content` | 12% `base-content` over transparent |
+| Count badge | `neutral` | `oklch(45% 0.24 277.023)` |
 
-### Secondary
-- **Sky** (`oklch(74% 0.12 250)`): the intrinsic value wherever it appears: the dot on the value axis, the band of its range, the driver bars, the intrinsic label.
-
-### Tertiary
-- **Verdict green** (`oklch(74% 0.15 150)`): undervalued. The check glyph, the zone past 1.3× on the axis, undervalued grid cells.
-- **Verdict amber** (`oklch(80% 0.13 85)`): fair. The open circle.
-- **Verdict red** (`oklch(66% 0.19 22)`): overvalued. The hatched gate.
-
-### Neutral
-- **Paper** (`oklch(9% 0.008 75)`): the page.
-- **Paper well** (`oklch(12.5% 0.009 75)`): the ledger pane and the verdict instrument. Raised by being lighter.
-- **Paper deep** (`oklch(6.5% 0.007 75)`): the selected row, the pressed chip.
-- **Ink** (`oklch(94% 0.010 80)`): headings, figures, the lead text. 12.7:1 on paper.
-- **Ink body** (`oklch(84% 0.011 80)`): body copy. 7.2:1.
-- **Muted** (`oklch(68% 0.012 80)`): labels, ledes, sources, column heads. 7.2:1 on paper, 7.0:1 on the well. The floor for any text.
-- **Muted stroke** (`oklch(50% 0.010 80)`): hairline strokes and the dashed outline of an unevaluated cell. Never text.
-- **Rule** (`oklch(25% 0.010 78)`) and **Rule faint** (`oklch(16% 0.009 78)`): section rules and row rules.
+`--ink-soft` and `--rule-faint` are the only two tokens `app.css` derives; everything else is a DaisyUI variable. The remaining roles of the theme (`accent`, `info`, and every `*-content` colour) are defined so that DaisyUI components render correctly, and carry no meaning of their own in the viewer. Each `*-content` colour is the text on its role: `neutral-content` `oklch(87% 0.065 274.039)` on the count badge, `primary-content` `oklch(28% 0.109 3.907)` on the primary button, and likewise `secondary-content` `oklch(29% 0.066 243.157)`, `accent-content` `oklch(26% 0.079 36.259)`, `info-content` `oklch(29% 0.066 243.157)`, `success-content` `oklch(27% 0.046 192.524)`, `warning-content` `oklch(42% 0.095 57.708)` and `error-content` `oklch(23.501% 0.096 290.329)`. `accent` is `oklch(75% 0.183 55.934)` and `info` is `oklch(74% 0.16 232.661)`.
 
 ### Named Rules
-**The Notation Rule.** A colour means one thing on every screen. Green, amber and red are verdicts; sky is intrinsic value; ember is the interface. If a new element needs colour and none of those meanings fit, it is drawn in ink or muted.
+**The Notation Rule.** A colour means one thing on every screen. Success, warning and error are verdicts; secondary is intrinsic value; primary is the interface. If a new element needs colour and none of those meanings fit, it is drawn in `base-content` or `--ink-soft`.
 
-**The Shape-First Rule.** No verdict is told by colour alone. The check, the open circle, the hatched gate and the dash carry the verdict in greyscale; the pigment confirms it.
+**The Shape-First Rule.** No verdict is told by colour alone. The check, the open circle, the hatched gate and the dash carry the verdict in greyscale; the pigment confirms it. The hatch pattern of the overvalued glyph strokes with `var(--color-error)`.
 
-**The Muted Floor Rule.** `muted` is the lightest colour text may use. `muted-stroke` is for lines. A label that needs to recede goes smaller or lighter in weight, not greyer.
+**The Contrast Floor Rule.** Text is `base-content` or `--ink-soft`, never lighter than 4.5:1 against its surface. A label that needs to recede goes smaller or lighter in weight, not greyer.
 
 ## 3. Typography
 
@@ -151,14 +140,14 @@ Warm near-black surfaces, two inks, five notation colours.
 **Body Font:** Switzer (with ui-sans-serif, system-ui)
 **Label/Mono Font:** Geist Mono (with ui-monospace)
 
-**Character:** One grotesk with two weights carries the whole tool; the mono appears only where the content is a figure, a date or a code identifier. The contrast between them is the hierarchy: a line set in mono is data, a line set in sans is the sentence about it.
+**Character:** One grotesk with two weights carries the whole tool; the mono appears only where the content is a figure, a date or a code identifier. The contrast between them is the hierarchy: a line set in mono is data, a line set in sans is the sentence about it. DaisyUI does not fix typography, so `app.css` sets the families on `body` and on figures.
 
 ### Hierarchy
 - **Display** (500, 2.074rem, 1.05): the ticker in the detail head. The only display-size text on the page.
 - **Headline** (500, 1.728rem, 1.05): the lead figure (MoS) in the facts strip, set in mono.
 - **Title** (500, 1.2rem, 1.05, -0.03em): section headings, the company name beside the ticker, the DCF summary.
 - **Body** (400, 1rem, 1.55): the verdict note, the ledes, flag reasons. Capped at 60ch.
-- **Label** (500, 0.875rem): column heads, facts labels, filter chips. Sentence case, never tracked, never uppercase.
+- **Label** (500, 0.875rem): column heads, facts labels, filter buttons. Sentence case, never tracked, never uppercase.
 - **Figure** (400, mono, tabular lining numerals): every number, date, ratio and identifier.
 
 ### Named Rules
@@ -166,48 +155,64 @@ Warm near-black surfaces, two inks, five notation colours.
 
 **The Fixed Scale Rule.** Sizes come from the rem scale (0.875, 1, 1.2, 1.44, 1.728, 2.074). No `clamp()`; the layout reflows structurally instead.
 
-## 4. Elevation
+## 4. Elevation and shape
 
-No shadows anywhere. Depth is tonal: the page is paper, the ledger pane and the verdict instrument sit on the lighter well, the selected row and a pressed chip drop to the deeper paper. Hairline rules (1px, `rule` and `rule-faint`) separate sections and rows. Nothing blurs, nothing glows.
+The theme sets these shape variables, and DaisyUI components read them:
+
+- **Radius 0.** `--radius-selector`, `--radius-field` and `--radius-box` are all `0rem`: buttons, badges, inputs and boxes are square.
+- **`--border: 1px`.** The border width of buttons, inputs and badges, and of the dashed separators between stacked stats. The viewer's own rules use `--rule-hair` in `app.css`, also 1px.
+- **`--depth: 1`.** Scales DaisyUI's relief on buttons (an inset highlight, a text shadow and a small drop shadow) and on inputs (inset shadows). Badges ignore it. It is the only elevation the theme adds.
+- **`--noise: 1`.** Turns on DaisyUI's fine grain texture on buttons and badges.
+
+`--size-selector` and `--size-field` are `0.25rem`, the base unit DaisyUI scales its control sizes (`-xs`, `-sm`) from.
+
+Beyond that, depth is tonal: the page is `base-100`, the list pane sits on the lighter `base-200`, and the selected row is set on `base-300`, the lightest of the three. 1px rules separate rows, and DaisyUI's `divider` separates the detail sections. The viewer's own CSS adds no shadow, blur or glow; the only shadows are the depth-scaled ones DaisyUI puts on buttons and inputs.
 
 ### Named Rules
-**The Flat Night Rule.** If an element needs to come forward, it gets a lighter surface or a rule above it, never a shadow. If it needs to recede, it gets the deeper paper.
+**The Flat Well Rule.** If an element needs to come forward, it gets a lighter surface (`base-200`, then `base-300` for the selected row) or a rule above it, never a shadow of its own.
 
 ## 5. Components
 
-### Filter chips
-- **Shape:** square, hairline border that collapses between neighbours so the row reads as one segmented control; wraps to a second row rather than scrolling.
-- **Default:** transparent, ink-body text at label size, a decorative verdict glyph before the word, the count in mono muted.
-- **Hover:** paper-deep background, ink text. **Current:** ink text and a 2px ember inset line along the top. **Focus:** the 2px ember ring outside the box. Minimum height 36px; 44px on coarse pointers.
+Each component is the DaisyUI classes that ship in `src/bot/web/templates/` and `src/bot/web/svg.py`. The flag tones `badge-success`, `badge-warning`, `badge-error` and `badge-ghost` are composed as `badge-{{ f.tone }}` from `FlagView.tone` in `src/bot/web/views.py`.
 
-### Sort links
-- **Style:** the column head itself, muted, with a 2px transparent underline. **Current:** ink text, ember underline, an arrow glyph in mono after the word.
+### Header bar
+`navbar` with the brand link in `navbar-start` and the company count in `navbar-end` as `badge badge-ghost`.
 
-### Ledger rows
-- **Style:** hairline-ruled rows at label size; ticker in ink at 500 weight, figures right-aligned in mono, the verdict and flag glyphs titled for screen readers, a mini value axis after the MoS.
-- **Hover:** a faint deep-paper wash. **Selected:** deep paper and a 6px ember square before the ticker.
-- **Reflow:** under 700px each row becomes a labelled block; between 1100 and 1599px the name shortens and the story column leaves.
+### Filter
+A `join` of `btn btn-sm join-item` links, so the row reads as one segmented control; it wraps to a second row rather than scrolling. Each link is a real `<a>` with `aria-current="page"` on the current one, which also carries `btn-active`. The verdict count inside each link is `badge badge-sm badge-ghost`, set in mono. The current filter reads in `primary`.
 
-### The instrument (signature)
-The verdict block: the glyph and the verdict text, one sentence turning the margin of safety into that verdict, the facts strip (MoS leading, then price, intrinsic, story, date) that reflows five, three, two across on the pane's own width, the story note, and the value axis. The axis is an SVG that scales with non-scaling strokes; its four labels are HTML positioned by percentage so they never shrink.
+### Count
+`badge badge-neutral`, an `<output>` with `aria-live="polite"` that says how many of the total rows show.
 
-### Tables as charts
-- **Drivers:** a table with the input as a row header, low and high as text cells, and the bar as an SVG track in the middle column; the price line crosses every row.
-- **Scenarios:** a table with both axes as real headers and a tinted cell with the verdict glyph in each position.
-- **DCF:** the projection table behind a `<details>`, then the totals laid out as a sum from discounted cash flows to one share.
+### Search
+`input input-sm` on a `<label>`, hidden until the script that filters the rows is running, so without JavaScript the control never appears.
 
-### Section heads
-A hairline rule above, the title, an optional count line in muted with its figures in ink-body, then one lede sentence at body size in muted saying what the section shows and how to read it.
+### Table row
+`table table-sm table-pin-rows`: the column heads stay pinned while the rows scroll. The ticker is a link; figures are right-aligned in mono; the verdict and flag glyphs are titled for screen readers, and a mini value axis follows the MoS. The selected row is `selected bg-base-300`, with a `primary` square before the ticker. Sort links are the column heads themselves, with `aria-sort` on the `<th>` and the current one in `primary`.
 
-### Links and empty states
-Links in content are ember and underlined. The empty ledger, the empty filter and the 404 each say what is missing and offer one way forward.
+### Flags
+In the list, `badge badge-xs badge-{tone}` holding a flag glyph; in the detail pane, `badge badge-sm badge-{tone}` holding the severity word. The tone comes from the flag's severity: `badge-success` for a pass, `badge-warning` for a warning, `badge-error` for a fail, and `badge-ghost` for anything else.
+
+### Empty states and 404
+`hero` with `hero-content`. The empty list, the empty filter and the 404 each say what is missing and offer one way forward. The empty list shows the command that fills it (`bot analyze --from-screen`). The empty filter offers `btn btn-link` in the detail hero, and `btn btn-link btn-xs` in the empty row of the list. The 404 page offers `btn btn-primary`.
+
+### Facts
+`stats stats-vertical lg:stats-horizontal` holding five `stat` blocks (MoS leading, then price, intrinsic, story, date), each with `stat-title` and `stat-value`. The MoS value is `stat-value text-secondary`, the lead figure of the page.
+
+### History
+`join` of `btn btn-xs join-item` links, one per analysis date, with `btn-active` and `aria-current="page"` on the date shown.
+
+### Section heads and tables
+Each section is separated by `divider`, then the title, an optional count line, then one lede sentence saying what the section shows and how to read it. The drivers, scenarios, assumptions and DCF tables are `table table-xs`. The value axis is an SVG that scales with non-scaling strokes; its labels are HTML positioned by percentage so they never shrink.
 
 ## 6. Do's and Don'ts
 
 ### Do:
+- **Do** build a new control from a DaisyUI component before writing CSS; add to `app.css` only what DaisyUI has no component for.
+- **Do** read colours from DaisyUI variables (`var(--color-primary)`), never from a literal.
 - **Do** keep every control reachable by keyboard and keep focus on the control that was activated after a swap.
 - **Do** set figures, dates and identifiers in Geist Mono with tabular numerals, right-aligned in tables.
-- **Do** explain a chart in one sentence under its heading, and name the thresholds the verdict depends on (1.0×, 1.3×).
+- **Do** explain a chart in one sentence under its heading, and name the thresholds the verdict depends on (1.0x, 1.3x).
 - **Do** give every verdict a shape and a title as well as a colour.
 - **Do** reflow on the detail pane's own width (container queries), not the window's.
 - **Do** keep text out of scaled SVG; label with HTML or use a table.
@@ -217,9 +222,10 @@ Links in content are ember and underlined. The empty ledger, the empty filter an
 - **Don't** build the SaaS landing page: no gradients, no isometric illustration, no grid of identical cards.
 - **Don't** build the Confluence diagram: grey boxes, straight arrows, system type, no hierarchy.
 - **Don't** take the editorial-typographic lane: italic serif display, mono labels, rules and monochrome.
-- **Don't** use a cream, sand or near-white paper; the viewer is dark only.
-- **Don't** use ember on content or on a verdict; it belongs to the interface's state.
+- **Don't** load a second theme or add a light mode; the viewer is dark only.
+- **Don't** use `primary` on content or on a verdict; it belongs to the interface's state.
+- **Don't** use `table-zebra`; it fights the selected-row highlight.
 - **Don't** use `border-left` or `border-right` wider than 1px as a coloured stripe.
-- **Don't** use gradient text, glass, blur, shadows, bounce or elastic easing.
+- **Don't** use gradient text, glass, blur, drop shadows, bounce or elastic easing.
 - **Don't** gate any content on an animation; motion is 120 to 220ms, opacity and a 4px rise, and disappears under reduced motion.
 - **Don't** ship session notes, provenance comments or unused tokens in the stylesheet.
