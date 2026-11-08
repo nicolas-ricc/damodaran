@@ -723,6 +723,58 @@ _OVERRIDE_KEYS: frozenset[str] = frozenset(
 #: Override keys that take a number or a per-year list of numbers.
 _OVERRIDE_PATH_KEYS: frozenset[str] = frozenset({"revenue_growth", "operating_margin"})
 
+@dataclass(frozen=True)
+class _Range:
+    """An interval a numeric override value must lie in; ``None`` leaves a side open."""
+
+    low: float | None = None
+    high: float | None = None
+    low_inclusive: bool = True
+    high_inclusive: bool = True
+
+    def contains(self, x: float) -> bool:
+        if self.low is not None and (x < self.low or (x == self.low and not self.low_inclusive)):
+            return False
+        return not (
+            self.high is not None
+            and (x > self.high or (x == self.high and not self.high_inclusive))
+        )
+
+    def phrase(self) -> str:
+        """The range in words, for the refusal message."""
+        if (
+            self.low is not None
+            and self.high is not None
+            and self.low_inclusive
+            and self.high_inclusive
+        ):
+            return f"between {self.low:g} and {self.high:g}"
+        parts = []
+        if self.low is not None:
+            parts.append(f"{'at least' if self.low_inclusive else 'greater than'} {self.low:g}")
+        if self.high is not None:
+            parts.append(f"{'at most' if self.high_inclusive else 'less than'} {self.high:g}")
+        return " and ".join(parts)
+
+
+#: The interval each numeric override key must lie in (every element, for the path
+#: keys). Bounds are the ones the model breaks outside of: a rate above 100%, a
+#: growth of -100% or less, a discount rate of 0 or below. ``tax_rate: 25`` (percent
+#: typed as a whole number) is the mistake this catches.
+_OVERRIDE_RANGES: dict[str, _Range] = {
+    "tax_rate": _Range(0, 1),
+    "probability_of_bankruptcy": _Range(0, 1),
+    "equity_weight": _Range(0, 1),
+    "debt_weight": _Range(0, 1),
+    "cost_of_equity": _Range(0, 1, low_inclusive=False, high_inclusive=False),
+    "pretax_cost_of_debt": _Range(0, 1, low_inclusive=False, high_inclusive=False),
+    "terminal_growth": _Range(-1, 1, low_inclusive=False, high_inclusive=False),
+    "sales_to_capital": _Range(low=0, low_inclusive=False),
+    "distress_value_per_share": _Range(low=0),
+    "operating_margin": _Range(high=1, high_inclusive=False),
+    "revenue_growth": _Range(low=-1, low_inclusive=False),
+}
+
 #: Override keys that carry text, not a number.
 _OVERRIDE_TEXT_KEYS: frozenset[str] = frozenset({"story_type", "notes"})
 
@@ -751,7 +803,7 @@ def load_override(override_path: Path | None) -> dict[str, Any]:
     """Load and validate ``config/assumptions/<TICKER>.yaml``; return the raw mapping.
 
     Returns ``{}`` for no path, a missing file or an empty file. Refuses unknown
-    keys, non-numeric values, a bad ``founded_year``, and an inconsistent story
+    keys, non-numeric or out-of-range values, a bad ``founded_year``, and an inconsistent story
     file (``story`` / ``scenarios`` / ``story_type: hypergrowth``), all as
     ``ValueError`` whose message starts with the path. The story section is parsed
     here only to validate it; the mapping is returned unchanged.
@@ -808,7 +860,7 @@ def _check_story_file(override_path: Path, loaded: dict[str, Any]) -> None:
 
 
 def _check_override_values(override_path: Path, override: dict[str, Any]) -> None:
-    """Refuse a numeric override value that is not a finite number.
+    """Refuse a numeric override value that is not a finite number or is outside its range.
 
     Raised here as ``ValueError`` so a malformed file fails its own ticker
     instead of surfacing later as a ``TypeError`` or a NaN in the valuation.
@@ -827,6 +879,13 @@ def _check_override_values(override_path: Path, override: dict[str, Any]) -> Non
             expected = "a finite number"
         if not ok:
             raise ValueError(f"{override_path}: {key} must be {expected}, got {value!r}")
+        numbers = value if isinstance(value, list) else [value]
+        bounds = _OVERRIDE_RANGES[key]
+        if not all(bounds.contains(float(x)) for x in numbers):
+            every = " (every element)" if key in _OVERRIDE_PATH_KEYS else ""
+            raise ValueError(
+                f"{override_path}: {key} must be {bounds.phrase()}{every}, got {value!r}"
+            )
 
 
 def _override_scalar(override: dict[str, Any], key: str) -> Sourced[float | None] | None:
