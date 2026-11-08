@@ -1,5 +1,6 @@
 """Application settings, loaded from environment / .env."""
 
+from datetime import date
 from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -69,6 +70,13 @@ class Settings(BaseSettings):
         description=(
             "IANA time zone of the Flex Query's trade dateTime values (the account's "
             "reporting time zone in Account Management)."
+        ),
+    )
+    ibkr_flex_token_expires: date | None = Field(
+        default=None,
+        description=(
+            "Expiry date (ISO, YYYY-MM-DD) of the Flex token. `bot doctor` warns from 14 days "
+            "before it and fails once it has passed. Unset or blank: no check."
         ),
     )
     reports_dir: Path = Field(default=Path("./reports"))
@@ -152,6 +160,14 @@ class Settings(BaseSettings):
         Without this, an empty or whitespace env var coerces to ``Path(".")``,
         which exists, so path resolution hands the CSV loader a *directory*.
         """
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
+
+    @field_validator("ibkr_flex_token_expires", mode="before")
+    @classmethod
+    def _blank_expiry_is_unset(cls, value: object) -> object:
+        """Treat ``BOT_IBKR_FLEX_TOKEN_EXPIRES=`` as "not set"."""
         if isinstance(value, str) and not value.strip():
             return None
         return value
