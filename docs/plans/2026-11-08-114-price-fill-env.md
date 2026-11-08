@@ -14,7 +14,7 @@
 
 - Behaviour stays the same: the `.cache/price_fill.DONE` short-circuit (checked before the sync), the `sync_master.sh` re-exec guarded by `BOT_SYNCED`, `uv run bot refresh --prices --only-missing`, the `missing=<n>` log line (`missing=?` when the query prints nothing), and `touch DONE` plus the `FILLED` line when the count is exactly `0`.
 - Root: `SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd -P)"`, the same line as `scripts/daily.sh:18`.
-- PATH: `export PATH="$PATH:$HOME/.local/bin:/usr/local/bin:/usr/bin"`, with the same two-line comment as `scripts/daily.sh:22-24`. The `UV=` variable goes away, and every `"$UV" run` becomes `uv run`.
+- PATH: `export PATH="$PATH:$HOME/.local/bin:/usr/local/bin:/usr/bin"`, with the two-line comment at `scripts/daily.sh:22-23` copied verbatim (the export itself is `daily.sh:24`). The `UV=` variable goes away, and every `"$UV" run` becomes `uv run`.
 - Out of scope (brief): locking (#108), adding `price_fill.sh` to `install_cron.sh`, changing what the script refreshes or the SQL.
 - `uv run ruff check . && uv run mypy src && uv run pytest -q` green.
 
@@ -26,6 +26,15 @@
 - **The test copy is not a git checkout**, so `sync_master.sh` logs "not a git checkout, skipped" and the script re-execs once. The re-exec against a real origin is pinned with the existing `behind_origin` fixture.
 - **Plan location `docs/plans/`** follows recent issue plans such as `docs/plans/2026-11-08-78-readme-ruff-format.md`.
 - **README/docs.** `README.md:48-53,131,150` describe the drip and sync. They do not change, because they say nothing about PATH or the root. The pipeline boards cite `scripts/price_fill.sh` by file only.
+
+## Acceptance criteria → tests
+
+- "`price_fill.sh` is in the executable and shellcheck-clean test set": `"price_fill.sh"` in `SCRIPTS` (`test_script_is_executable_and_shellcheck_clean`, `tests/integration/test_scripts.py:132-142`, the only test parametrised over `SCRIPTS`).
+- "A test shows that a fake `uv` placed first on `PATH` is the one the script uses": `test_price_fill_uses_the_first_uv_on_path`.
+- "Run through a symlink or from another directory, the script logs into the real checkout's `.cache/`": `test_price_fill_through_a_symlink_logs_in_the_real_checkout`, `test_price_fill_run_from_another_directory_logs_in_the_checkout`.
+- "A test shows the script exits 0 without invoking `uv` when DONE exists": `test_price_fill_with_done_exits_0_without_uv`.
+- "A test shows the script writes DONE when the missing count is 0": `test_price_fill_writes_done_when_nothing_is_missing`.
+- "Its existing behaviour is unchanged" (Desired behavior, 3rd bullet): `..._with_tickers_missing_keeps_going`, `..._with_no_count_logs_a_question_mark`, `..._pulls_origin_master_before_running`.
 
 ## Review Focus
 
@@ -57,12 +66,13 @@
     - `test_price_fill_with_done_exits_0_without_uv`: create `repo/.cache/price_fill.DONE` first. Assert `returncode == 0`, `_calls(calls) == []`, and that the log does not exist (the short-circuit runs before the sync).
     - `test_price_fill_writes_done_when_nothing_is_missing`: `FAKE_MISSING="0"`. Assert `returncode == 0`, `_calls(calls) == _PRICE_FILL`, that DONE exists, and that the log holds `"missing=0\n"` and `"FILLED"`.
     - `test_price_fill_with_tickers_missing_keeps_going`: `FAKE_MISSING="12"`. Assert that DONE does not exist, the log holds `"missing=12\n"`, and the log does not hold `"FILLED"`.
-    - `test_price_fill_pulls_origin_master_before_running(behind_origin, recorder_bin, calls)`: run with `_env(recorder_bin, **_GIT_ENV)`. Assert `returncode == 0`, `(repo/"NEW").read_text() == "from origin\n"`, `_calls(calls) == _PRICE_FILL`, that `" sync ==="` comes before `" run ==="` in the log, and that the log holds `"sync_master: master "`.
+    - `test_price_fill_with_no_count_logs_a_question_mark`: `FAKE_MISSING=""` (the query printed nothing, which is also what a failing query gives, because the script runs without `set -e`; see `price_fill.sh:21,48,61`). Assert `returncode == 0`, that the log holds `"missing=?\n"`, and that DONE does not exist.
+    - `test_price_fill_pulls_origin_master_before_running(behind_origin, recorder_bin, calls)`: run with `_env(recorder_bin, **_GIT_ENV)`. Assert `returncode == 0`, `(repo/"NEW").read_text() == "from origin\n"`, `_calls(calls) == _PRICE_FILL`, that `" sync ==="` comes before `" run ==="` in the log, that the log holds `"sync_master: master "`, and that `log.count(" sync ===") == 1` (the re-exec does not sync again).
 
 - [ ] **Step 2: Run them, see the expected failures**
 
   Run: `uv run pytest -q tests/integration/test_scripts.py -k price_fill`
-  Expected: the tests that call `uv` fail. The decoy or the machine's real `uv` runs instead of the recorder, so `_calls(calls)` is empty or the decoy marker exists. The DONE and shellcheck tests may already pass, because they pin behaviour that is kept.
+  Expected red on today's script: every test that asserts `_calls(calls)` or the `missing=` lines. Line 29 prepends `$HOME/.local/bin`, and line 30 resolves `UV` with `command -v uv` after that, so the decoy (or this machine's `/usr/local/bin/uv`) runs instead of the recorder. Expected green already: shellcheck/executable (checked: `.venv/bin/shellcheck scripts/price_fill.sh` exits 0, and git mode is 100755), the DONE test, and the symlink and other-directory tests. These assert only where the log lands and `returncode == 0`, and `readlink -f` plus `$REPO`-anchored paths (lines 24-34) already get those right. They pin kept behaviour.
 
 - [ ] **Step 3: Edit `scripts/price_fill.sh`**
 
@@ -79,3 +89,16 @@
   git add scripts/price_fill.sh tests/integration/test_scripts.py
   git commit -m "fix(#114): price_fill.sh resolves its root and PATH like the cron wrappers"
   ```
+
+## Grilling
+
+- Rounds: 1. Griller model: fable. Questions: 16.
+- Sources: CODE 13 (`scripts/price_fill.sh:21-66`, `scripts/daily.sh:18-24`, `scripts/sync_master.sh:21-24`, `tests/integration/test_scripts.py:105-110,132-142,209-217,887-897,899-912`), ISSUE 3 (the Agent Brief's acceptance criteria and desired behaviour), DOC 0, NO SOURCE 1.
+- Plan changes:
+  - Added the AC → test map.
+  - Added the `missing=?` test.
+  - Added a single-sync assertion on the re-exec.
+  - Fixed the `daily.sh` comment citation (lines 22-23).
+  - Made the red/green expectations of Step 2 exact.
+- Technical assumption (NO SOURCE, Q15): no repo rule governs symlinks in `tmp_path` or overriding `HOME` in tests. Precedent: `test_install_cron_through_a_symlink_uses_the_real_checkout` (`test_scripts.py:209`) already symlinks in `tmp_path`. Rejected alternative: avoid symlinks and test only the other-directory case, which would leave half of AC 3 unchecked.
+- Spec ambiguities: none. Follow-up issues opened: none.
