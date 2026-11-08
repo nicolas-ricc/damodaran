@@ -134,7 +134,8 @@ def test_detail_facts_rules() -> None:
         assert rule in css, rule
     narrow = css[css.index("@container (max-width: 44rem) {") :]
     narrow = narrow[: narrow.index("\n}")]
-    assert ".facts.stats { grid-auto-flow: row; }" in narrow
+    assert ".facts.stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }" in narrow
+    assert ".facts .lead-figure { grid-column: 1 / -1; }" in narrow
     assert (
         ".facts.stats .stat:not(:last-child) { border-inline-end: none; "
         "border-block-end: var(--border) dashed var(--rule-faint); }"
