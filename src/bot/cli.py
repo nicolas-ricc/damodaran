@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import sys
 from contextlib import closing
 from datetime import date
 from pathlib import Path
@@ -35,6 +37,12 @@ from bot.ingest.universe import (
 )
 from bot.notifier import NotificationError, NotifierConfigError, build_notifier, notify_alerts
 from bot.portfolio.command import run_portfolio
+from bot.portfolio.freshness import (
+    MAX_SNAPSHOT_AGE_BUSINESS_DAYS,
+    TOKEN_EXPIRY_WARN_DAYS,
+    business_days_between,
+    latest_snapshot_date,
+)
 from bot.reference.currencies import CurrencyTable, load_currency_table
 from bot.reference.default_spreads import DefaultSpreadTable, load_default_spreads
 from bot.reporting.analysis_json import render_analysis_json
@@ -674,6 +682,38 @@ def portfolio(
         typer.echo(f"Sent alerts via {settings.notifier}")
 
 
+@app.command()
+def notify() -> None:
+    """Send the text on stdin through the configured notifier.
+
+    Exit codes: 0 sent, or no notifier configured (nothing sent); 1 the send
+    failed; 2 the notifier is misconfigured or stdin is empty. Never opens the
+    database.
+    """
+    settings = load_settings()
+    try:
+        notifier = build_notifier(settings)
+    except NotifierConfigError as exc:
+        typer.echo(f"Notifier misconfigured (BOT_NOTIFIER={settings.notifier}): {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    if notifier is None:
+        typer.echo("No notifier configured (BOT_NOTIFIER=none), nothing sent")
+        return
+    if isinstance(sys.stdin, io.TextIOWrapper):
+        # A log tail cut mid-character must not stop the failure report.
+        sys.stdin.reconfigure(errors="replace")
+    text = sys.stdin.read()
+    if not text.strip():
+        typer.echo("Nothing to send: the message on stdin is empty", err=True)
+        raise typer.Exit(code=2)
+    try:
+        notifier.send(text)
+    except NotificationError as exc:
+        typer.echo(f"Message not sent: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Sent via {settings.notifier}")
+
+
 @app.command(name="flex-capture", hidden=True)
 def flex_capture() -> None:
     """Record a real Flex statement as a redacted cassette, XML and summary.
@@ -740,6 +780,35 @@ def doctor() -> None:
                 "scripts/stooq_browser_fetch.mjs first, or unset it."
             )
 
+    token_set = bool(settings.ibkr_flex_token.strip())
+    query_set = bool(settings.ibkr_flex_query_id.strip())
+    flex_configured = token_set and query_set
+    typer.echo(f"Flex token:       {'set' if token_set else 'MISSING'}")
+    typer.echo(f"Flex query id:    {'set' if query_set else 'MISSING'}")
+    expires = settings.ibkr_flex_token_expires
+    if expires is None:
+        typer.echo("Flex token expiry: not set (BOT_IBKR_FLEX_TOKEN_EXPIRES)")
+    else:
+        days_left = (expires - date.today()).days
+        if days_left < 0:
+            issues.append(
+                f"Flex token expired on {expires.isoformat()} (BOT_IBKR_FLEX_TOKEN_EXPIRES) — "
+                "generate a new one in Client Portal → Settings → Reporting → "
+                "Flex Web Service and update .env"
+            )
+        elif days_left <= TOKEN_EXPIRY_WARN_DAYS:
+            typer.echo(
+                f"WARN: Flex token expires in {days_left} day(s) ({expires.isoformat()}) — "
+                "renew it in Client Portal → Settings → Reporting → Flex Web Service"
+            )
+        else:
+            typer.echo(f"Flex token expiry: {expires.isoformat()} ({days_left} days left)")
+    if not flex_configured:
+        typer.echo(
+            "Portfolio sync:   not configured "
+            "(needs BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID)"
+        )
+
     try:
         conn = connect(settings.db_path)
         apply_schema(conn)
@@ -754,6 +823,26 @@ def doctor() -> None:
             )
         else:
             typer.echo(f"DB tables:        {tables} (OK)")
+        if flex_configured:
+            latest = latest_snapshot_date(conn)
+            if latest is None:
+                issues.append(
+                    "Flex is configured but portfolio_snapshots is empty — "
+                    "run bot portfolio, or check .cache/daily.log"
+                )
+            else:
+                age = business_days_between(latest, date.today())
+                if age <= MAX_SNAPSHOT_AGE_BUSINESS_DAYS:
+                    typer.echo(
+                        f"Latest snapshot:  {latest.isoformat()} "
+                        f"({age} business day(s) old, OK)"
+                    )
+                else:
+                    issues.append(
+                        f"Latest portfolio snapshot {latest.isoformat()} is {age} "
+                        f"business days old (limit {MAX_SNAPSHOT_AGE_BUSINESS_DAYS}) — "
+                        "the daily sync has stopped; check .cache/daily.log and the Flex token"
+                    )
         conn.close()
     except Exception as e:
         issues.append(f"DB error — {e}")

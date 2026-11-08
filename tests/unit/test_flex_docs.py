@@ -119,3 +119,14 @@ def test_readme_lists_every_attribute_the_parser_reads(section: str, attrs: list
         if attr == "levelOfDetail" and section == "Open Positions":
             continue  # chosen through the "level Summary" option, absent counts as summary
         assert attr in bullet, (section, attr)
+
+
+def test_readme_documents_the_flex_token_expiry() -> None:
+    section = _flex_section((ROOT / "README.md").read_text(encoding="utf-8"))
+    step2 = " ".join(section[section.index("\n2. ") : section.index("\n3. ")].split())
+    assert "BOT_IBKR_FLEX_TOKEN_EXPIRES" in step2
+    assert "14 days" in step2 and "bot doctor" in step2 and "fails" in step2
+    env_block = section[section.index("```bash", section.index("\n3. ")) :]
+    env_block = env_block[: env_block.index("```", len("```bash"))]
+    (line,) = [entry for entry in env_block.splitlines() if "BOT_IBKR_FLEX_TOKEN_EXPIRES" in entry]
+    assert "#" in line

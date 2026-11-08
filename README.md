@@ -137,6 +137,11 @@ uv run bot show AAPL             # show a US company's fundamentals (M1)
   quarterly and are not refreshed daily. `bot portfolio` fails (exit 1) when the Flex
   service does, and exits 2 while the Flex token or query id is unset; that is logged,
   not a bug.
+- **Failure message**: when any `daily.sh` step fails, the run pipes one message into
+  `bot notify`. The subject is `# daily.sh failed: <step> (exit N), ...`, followed by the time,
+  the host, the run's exit code and the last 20 lines of `.cache/daily.log`. The notify result
+  is logged and never changes the job's exit code; with `BOT_NOTIFIER=none` it only logs the
+  "nothing sent" line. A successful run sends nothing.
 - **Weekly** (Saturday 10:00): `bot refresh --all && bot screen --preset damodaran_value &&
   bot analyze --from-screen && scripts/publish_site.sh`. The last step commits only the
   `reports/*/analysis/*.json` sidecars and pushes them to `master`, which redeploys the
@@ -195,18 +200,25 @@ warning. Snapshots stored before this change are keyed on the run day; there is 
    If you already have a corporate-actions-only query, add Open Positions, Cash Report
    and Trades to it: a statement missing any of those three fails the run.
 2. **Settings → Reporting → Flex Web Service**: generate a token. It expires at most
-   yearly, so note its expiry.
+   yearly. Put its expiry date in `BOT_IBKR_FLEX_TOKEN_EXPIRES` (ISO, `YYYY-MM-DD`);
+   `bot doctor` prints a warning from 14 days before that date and fails once it has
+   passed.
 3. Put both in `.env` (never commit them):
 
    ```bash
    BOT_IBKR_FLEX_TOKEN=...      # Flex Web Service token
    BOT_IBKR_FLEX_QUERY_ID=...   # the Activity Flex Query id
    BOT_IBKR_FLEX_TZ=America/New_York   # default; the account's reporting time zone
+   BOT_IBKR_FLEX_TOKEN_EXPIRES=2027-03-01   # optional; the token's expiry date, bot doctor warns 14 days before
    ```
 
    `BOT_IBKR_FLEX_TZ` is the time zone of the trade `dateTime` values; the bot converts
    them to UTC. `bot portfolio` exits 2 when the token or query id is missing and 1 when
    the Flex service fails; nothing is written in either case.
+
+   `bot doctor` reports both settings as set or MISSING and fails when the latest
+   portfolio snapshot is more than 2 business days old; IBKR's T+1 statement lag
+   leaves one day of slack.
 4. **Validate against the live account.** From the repo root run:
 
    ```bash
@@ -284,6 +296,19 @@ Failure modes:
 
 There is no automatic retry. Re-running `bot portfolio` the same day re-renders
 and re-sends that day's alerts.
+
+`bot notify` sends any text through the same configured notifier. It reads the
+message from stdin and sends it verbatim; for email, the first non-empty line,
+with leading `#` stripped, becomes the subject. It never opens the database, so
+it works when a pipeline step has failed. `scripts/daily.sh` pipes a failure
+summary into it when a step fails. On success it prints `Sent via <channel>`
+and exits 0; with `BOT_NOTIFIER=none` it prints that nothing was sent and also
+exits 0. Misconfigured notifier settings or an empty message on stdin give exit
+code 2; a send failure (`Message not sent: ...`) gives exit code 1.
+
+```bash
+echo "# hello" | uv run bot notify
+```
 
 ## Development
 

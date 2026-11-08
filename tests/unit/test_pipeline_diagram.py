@@ -2352,7 +2352,7 @@ def test_portfolio_flow_edges(src: str, dst: str) -> None:
 
 def test_portfolio_daily_runs_after_prices_and_fx() -> None:
     script = (_ROOT / "scripts" / "daily.sh").read_text(encoding="utf-8")
-    assert script.index('((worst == 0)) || exit "$worst"') < script.index("uv run bot portfolio")
+    assert script.index('((worst == 0)) || return "$worst"') < script.index("uv run bot portfolio")
 
 
 def test_pipeline_links_the_portfolio_board() -> None:
