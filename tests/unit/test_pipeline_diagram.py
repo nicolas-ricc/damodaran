@@ -1578,7 +1578,6 @@ _ANALYZE_NODES: list[tuple[str, str]] = (
         )
     ]
     + [
-        ("assumptions.growth.consensus", "gap"),
         ("assumptions.sales_to_capital.story", "gap"),
         ("assumptions.weights.company", "gap"),
         ("assumptions.bankruptcy.altman", "gap"),
@@ -1978,7 +1977,6 @@ _ANALYZE_GAPS: dict[str, list[str]] = {
     "story_type.distressed.altman": ["Altman Z", "computed nowhere"],
     "assumptions.bankruptcy.altman": ["Altman Z", "computed nowhere", "interest coverage alone"],
     "narrative_flags.country_exposure.always_unknown": ["always unknown"],
-    "assumptions.growth.consensus": ["analyst consensus", "analyst_consensus"],
     "assumptions.sales_to_capital.story": ["sales-to-capital and terminal growth"],
     "dcf.equity.adjustments": ["minority interests", "cross-holdings", "no input path"],
     "inputs.derived.age": ["ipo_date", "Verified", "parse_submissions_info"],
@@ -1992,6 +1990,12 @@ def test_analyze_gap_notes(key: str) -> None:
     assert "Gap:" in block
     missing = [w for w in _ANALYZE_GAPS[key] if w not in block]
     assert missing == []
+
+
+def test_analyze_growth_has_no_consensus_gap() -> None:
+    # #320: analyst consensus was dropped by decision (#63), it is not a gap.
+    assert _node_class(_analyze(), "assumptions.growth.consensus") is None
+    assert "consensus" not in _analyze_block("assumptions.growth").lower()
 
 
 def test_analyze_ipo_date_gap_is_current() -> None:

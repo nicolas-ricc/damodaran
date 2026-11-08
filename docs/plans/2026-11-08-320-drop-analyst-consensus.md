@@ -101,6 +101,7 @@ Expected: the new spec tests, the docstring test and the sweep FAIL (sweep lists
 - [ ] **Step 3: Edit the spec and the docstrings**
 
 - Spec l.284: delete the paragraph. §7.3 keeps only the enum bullets and the table.
+- Spec §7.3 bullets: `master` is red on `test_source_list_is_the_enum` (found at stage 3: #319 added `COUNTRY_DEFAULT_DAMODARAN` after #318 wrote the list). The acceptance criterion needs the suite green, so: `sector_default_damodaran` bullet drops ", o el dato de país de `damodaran_country`"; new bullet after it, exact copy: ``- `country_default_damodaran`: el dato de país de `damodaran_country` (solo la tasa impositiva), cuando la fila sectorial no trae tasa.``
 - Spec risk 4, exact copy: `4. **DCF garbage-in/garbage-out**: el valor del bot depende críticamente de la calidad de los supuestos. La sensitivity analysis y los narrative flags mitigan, pero no eliminan, el riesgo de confiar en un intrinsic value derivado de un CAGR histórico de ingresos que no representa el futuro de la empresa: proyecta hacia adelante lo que ya pasó.`
 - Wrap docstrings so every line naming analyst consensus also carries `(#63)` (the docstring tests check line by line); keep lines ≤ 100 columns (ruff line length).
 - Module docstring: drop item 2; renumber (`1. Manual override`, `2. Sector default`, `3. Rule-based`), and put the growth fact under the list: revenue growth starts at the company's own history (historical revenue CAGR) and fades to terminal growth over ten years; analyst consensus is not a source, by decision (#63).
