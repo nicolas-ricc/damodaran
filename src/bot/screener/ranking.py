@@ -46,11 +46,13 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-#: Neutral margin-of-safety sub-score for a shortlisted candidate the DCF cannot
-#: value (the valuator returns ``None`` in :func:`bot.screener.engine.run_screen`'s
-#: second pass), and the default when a caller passes no margin. Mid-scale, so it
-#: neither rewards nor penalises the candidate. A DCF failure is not an ADR 0006
-#: coverage-gate reason, so the candidate stays in the shortlist and rankable.
+#: Neutral margin-of-safety sub-score. It is the default when a caller passes no
+#: margin, so every survivor carries it through the first ranking pass of
+#: :func:`bot.screener.engine.run_screen`. After the second pass, only a shortlisted
+#: candidate the DCF cannot value keeps it (the valuator returns ``None``, or no
+#: valuator was given). Mid-scale, so it neither rewards nor penalises the candidate.
+#: A DCF failure is not an ADR 0006 coverage-gate reason, so the candidate stays in
+#: the shortlist and rankable.
 PLACEHOLDER_MARGIN_OF_SAFETY = 0.5
 
 

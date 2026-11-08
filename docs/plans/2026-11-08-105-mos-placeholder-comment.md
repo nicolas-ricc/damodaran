@@ -29,6 +29,8 @@
   #: coverage-gate reason, so the candidate stays in the shortlist and rankable.
   ```
 
+  Code review (finding M1) extended it to name the first-pass role too: every survivor carries the default until the second pass. The final text is in `ranking.py`.
+
   It matches the module docstring (`ranking.py:27-33`: "only when no DCF value is available (the valuator could not value the company, or a caller passes no value)") and the engine docstrings (`engine.py:93-98`, `engine.py:133-135`).
 - **How ADR 0006 is cited.** The brief says the fallback keeps such companies rankable "per ADR 0006". ADR 0006 does not mention the DCF: it removes companies without sector benchmarks via the coverage gate, whose reasons are `industry_unmapped`, `benchmark_missing`, `currency_uncovered`. A DCF failure is none of those, so the candidate stays. The comment says exactly that rather than claiming ADR 0006 prescribes a neutral margin, which it does not (it says "no metric ever defaults to a neutral zero" about percentile inputs).
 - **"No test changes" allows a new test module.** The acceptance criterion "No code, value or test changes" is read as: no existing code, value or test changes. The pipeline running this issue requires executable evals, and repo precedent pins doc text in new test modules (`tests/unit/test_readme_dev_docs.py` for #78, `tests/unit/test_governance_docs.py` for #277). Rejected: no test at all, which leaves AC 1 and 2 unchecked.

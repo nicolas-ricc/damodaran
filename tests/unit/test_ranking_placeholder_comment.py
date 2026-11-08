@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from bot.screener import ranking
@@ -29,7 +30,7 @@ def _placeholder_comment() -> str:
 def test_comment_does_not_say_m47_is_pending() -> None:
     comment = _placeholder_comment()
     assert "M4.7" not in comment
-    assert "until" not in comment.lower()
+    assert re.search(r"\buntil\b", comment, re.IGNORECASE) is None
     assert "cannot yet" not in comment.lower()
 
 
