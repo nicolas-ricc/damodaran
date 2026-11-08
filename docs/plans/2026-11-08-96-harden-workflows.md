@@ -129,7 +129,7 @@ git commit -m "feat(#96): site.yml grants pages and id-token write only to the d
 `test_dependabot_updates_github_actions_weekly`:
 - `yaml.safe_load` the file `_ROOT / ".github" / "dependabot.yml"`.
 - `data["version"] == 2` and `len(data["updates"]) == 1`.
-- The update has `package-ecosystem == "github-actions"`, `directory == "/"` and `schedule == {"interval": "weekly"}`.
+- The update has `package-ecosystem == "github-actions"`, `directory == "/"`, `schedule == {"interval": "weekly"}` and `groups == {"github-actions": {"patterns": ["*"]}}`.
 
 In `test_pipeline_build.py`, change the six `s.get("uses") == "actions/<name>@v4"` lambdas to `s.get("uses", "").startswith("actions/<name>@")`. Nothing else changes.
 
@@ -158,7 +158,7 @@ Expected: PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add .github/ docs/superpowers/specs/2026-10-04-web-viewer-design.md
+git add .github/workflows/site.yml .github/workflows/pipeline-diagram.yml .github/dependabot.yml docs/superpowers/specs/2026-10-04-web-viewer-design.md
 git commit -m "feat(#96): pin every action to a commit SHA and add Dependabot for github-actions"
 ```
 
@@ -168,3 +168,16 @@ git commit -m "feat(#96): pin every action to a commit SHA and add Dependabot fo
 
 - `uv run ruff check . && uv run mypy src && uv run pytest -q`: green.
 - After the push: `gh run list --workflow pipeline-diagram --branch agent/96-harden-workflows --limit 1` is green. This is the pre-merge proof that the pinned SHAs resolve. `site.yml` only runs on `master` after the merge.
+
+## Assumptions
+
+- **The Dependabot test also asserts `groups`.** The planner's test list (decision 6) checks only version, ecosystem, directory and schedule. The acceptance criterion, however, requires "the content of decision 4", which includes the group. Rejected alternative: leave `groups` unpinned by any test.
+- **The pin regex accepts only `owner/repo@sha`.** Subpath actions, local `./` actions and `docker://` refs fail it. Neither workflow uses any of those forms today (`grep -n uses: -r .github`). Whoever adds one later amends the regex in the same change. Rejected alternative: a broader regex that nothing exercises today.
+- **Staging uses explicit file paths** rather than `git add .github/`. Today `.github/` holds only the two workflows. Rejected alternative: stage the whole directory.
+- **The spec's item 6 is appended after item 5**, so Task 1's edit to item 4 does not move it. Rejected alternative: none.
+
+## Grilling
+
+- Rounds: 1, with 18 questions. The plan changed only locally (one more assertion and explicit `git add` paths), so no second round ran.
+- Sources: 14 answered from CODE, 2 from ISSUE, and 2 had no source. The two unsourced ones are technical assumptions (the regex scope and the groups assertion). There were 0 spec ambiguities and 0 out-of-scope items.
+- Follow-up issues opened: none.
