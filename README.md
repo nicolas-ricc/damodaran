@@ -106,9 +106,11 @@ Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
 The paid Financial Modeling Prep adapter is still available for the eventual non-US reopening —
 set `BOT_DATA_PROVIDER=fmp` and `BOT_FMP_API_KEY` (see `.env.example`).
 Its test cassettes under `tests/fixtures/cassettes/{fmp,universe}/` are synthetic (listed in
-`tests/fixtures/cassettes/SYNTHETIC.txt`); the suite only replays them. Re-record against the live
-API with a real key via `uv run pytest -m integration --vcr-record=all` (recording rewrites each
-file, dropping its `# SYNTHETIC` header), then remove its entry from `SYNTHETIC.txt`.
+`tests/fixtures/cassettes/SYNTHETIC.txt`); the suite only replays them, with a dummy key. To
+re-record, export a real key and run `BOT_FMP_API_KEY=<key> uv run pytest -m integration --vcr-record=all`:
+with a record mode set the FMP tests use that key and fail before any request if it is missing, and a
+non-2xx response is never written to a cassette (the key is scrubbed as `apikey=SCRUBBED`). Recording
+rewrites each file, dropping its `# SYNTHETIC` header; then remove its entry from `SYNTHETIC.txt`.
 
 Other useful commands:
 

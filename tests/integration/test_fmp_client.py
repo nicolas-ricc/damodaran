@@ -3,7 +3,7 @@
 Network is replayed from VCR cassettes in
 ``tests/fixtures/cassettes/fmp/``. The cassettes are SYNTHETIC (hand-authored,
 fabricated-but-realistic FMP JSON) so the suite runs deterministically offline.
-Re-record them against the live API with a real BOT_FMP_API_KEY via
+Re-record them against the live API by exporting a real BOT_FMP_API_KEY and running
 ``uv run pytest -m integration --vcr-record=all``.
 """
 
@@ -15,13 +15,11 @@ import pytest
 
 from bot.ingest.fmp import CompanyInfo, FmpClient
 
-API_KEY = "test-fmp-key"
-
 
 @pytest.mark.integration
 @pytest.mark.vcr
-def test_lookup_company_us() -> None:
-    with FmpClient(api_key=API_KEY) as client:
+def test_lookup_company_us(fmp_api_key: str) -> None:
+    with FmpClient(api_key=fmp_api_key) as client:
         info = client.lookup_company("AAPL")
     assert info == CompanyInfo(
         ticker="AAPL",
@@ -39,8 +37,8 @@ def test_lookup_company_us() -> None:
 
 @pytest.mark.integration
 @pytest.mark.vcr
-def test_lookup_company_switzerland() -> None:
-    with FmpClient(api_key=API_KEY) as client:
+def test_lookup_company_switzerland(fmp_api_key: str) -> None:
+    with FmpClient(api_key=fmp_api_key) as client:
         info = client.lookup_company("NESN.SW")
     assert info is not None
     assert info.ticker == "NESN.SW"
@@ -52,8 +50,8 @@ def test_lookup_company_switzerland() -> None:
 
 @pytest.mark.integration
 @pytest.mark.vcr
-def test_lookup_company_japan() -> None:
-    with FmpClient(api_key=API_KEY) as client:
+def test_lookup_company_japan(fmp_api_key: str) -> None:
+    with FmpClient(api_key=fmp_api_key) as client:
         info = client.lookup_company("7203.T")
     assert info is not None
     assert info.ticker == "7203.T"
@@ -65,16 +63,16 @@ def test_lookup_company_japan() -> None:
 
 @pytest.mark.integration
 @pytest.mark.vcr
-def test_lookup_company_unknown_returns_none() -> None:
-    with FmpClient(api_key=API_KEY) as client:
+def test_lookup_company_unknown_returns_none(fmp_api_key: str) -> None:
+    with FmpClient(api_key=fmp_api_key) as client:
         info = client.lookup_company("ZZZNOTREAL")
     assert info is None
 
 
 @pytest.mark.integration
 @pytest.mark.vcr
-def test_available_exchanges() -> None:
-    with FmpClient(api_key=API_KEY) as client:
+def test_available_exchanges(fmp_api_key: str) -> None:
+    with FmpClient(api_key=fmp_api_key) as client:
         exchanges = client.available_exchanges()
     short_names = {e["shortName"] for e in exchanges}
     assert "NASDAQ" in short_names

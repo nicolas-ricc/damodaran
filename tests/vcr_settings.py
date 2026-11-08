@@ -2,7 +2,8 @@
 
 Replay only: a missing cassette raises instead of reaching the network. To
 re-record against the live APIs, run
-``uv run pytest -m integration --vcr-record=all``.
+``uv run pytest -m integration --vcr-record=all``. Recording uses the exported
+real key, and non-2xx responses are dropped, never written.
 """
 
 from __future__ import annotations

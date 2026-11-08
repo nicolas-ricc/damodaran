@@ -3,7 +3,7 @@
 Network is replayed from VCR cassettes in ``tests/fixtures/cassettes/fmp/``.
 The price cassette is SYNTHETIC (hand-authored, fabricated-but-realistic FMP
 historical-price JSON) so the suite runs deterministically offline.
-Re-record it against the live API with a real BOT_FMP_API_KEY via
+Re-record it against the live API by exporting a real BOT_FMP_API_KEY and running
 ``uv run pytest -m integration --vcr-record=all``.
 """
 
@@ -17,15 +17,13 @@ from bot.ingest.fmp import FmpClient, FmpProvider
 from bot.ingest.universe import refresh_prices
 from bot.storage.db import apply_schema, connect
 
-API_KEY = "test-fmp-key"
-
 
 @pytest.mark.integration
 @pytest.mark.vcr
-def test_fetch_historical_prices_returns_rows() -> None:
+def test_fetch_historical_prices_returns_rows(fmp_api_key: str) -> None:
     # Exercises the low-level FmpClient directly (unrelated to the provider-port
     # rename) — start/end bound the fetch window, matching the recorded cassette.
-    with FmpClient(api_key=API_KEY) as client:
+    with FmpClient(api_key=fmp_api_key) as client:
         rows = client.historical_prices(
             "AAPL", start=date(2023, 12, 27), end=date(2023, 12, 29)
         )
@@ -39,7 +37,7 @@ def test_fetch_historical_prices_returns_rows() -> None:
 
 @pytest.mark.integration
 @pytest.mark.vcr
-def test_import_prices_populates_table() -> None:
+def test_import_prices_populates_table(fmp_api_key: str) -> None:
     conn = connect(":memory:")
     apply_schema(conn)
     try:
@@ -47,7 +45,7 @@ def test_import_prices_populates_table() -> None:
             "INSERT INTO companies (ticker, name, currency, source) "
             "VALUES ('AAPL', 'Apple Inc.', 'USD', 'fmp')"
         )
-        with FmpProvider(api_key=API_KEY) as provider:
+        with FmpProvider(api_key=fmp_api_key) as provider:
             result = refresh_prices(
                 conn, provider=provider, tickers=["AAPL"], since_date=date(2023, 12, 27)
             )
@@ -72,7 +70,7 @@ def test_import_prices_populates_table() -> None:
 
 @pytest.mark.integration
 @pytest.mark.vcr
-def test_second_run_is_incremental_zero_inserts() -> None:
+def test_second_run_is_incremental_zero_inserts(fmp_api_key: str) -> None:
     """A second import with already-current data performs zero new INSERTs.
 
     Incremental semantics: the fetch window starts the day *after* the newest
@@ -86,7 +84,7 @@ def test_second_run_is_incremental_zero_inserts() -> None:
             "INSERT INTO companies (ticker, name, currency, source) "
             "VALUES ('AAPL', 'Apple Inc.', 'USD', 'fmp')"
         )
-        with FmpProvider(api_key=API_KEY) as provider:
+        with FmpProvider(api_key=fmp_api_key) as provider:
             first = refresh_prices(
                 conn, provider=provider, tickers=["AAPL"], since_date=date(2023, 12, 27)
             )
@@ -101,7 +99,7 @@ def test_second_run_is_incremental_zero_inserts() -> None:
 
         # Second run: incremental window starts at max(date)+1 (2023-12-30),
         # for which the cassette returns an empty history -> no new INSERTs.
-        with FmpProvider(api_key=API_KEY) as provider:
+        with FmpProvider(api_key=fmp_api_key) as provider:
             second = refresh_prices(conn, provider=provider, tickers=["AAPL"])
         assert second.status == "success"
         assert second.outcomes[0].rows_affected == 0
