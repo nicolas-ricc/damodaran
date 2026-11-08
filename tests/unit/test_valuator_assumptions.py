@@ -592,10 +592,11 @@ def test_example_file_with_every_numeric_line_uncommented_loads(tmp_path: Path) 
     lines = []
     comments = {}
     for line in example.splitlines():
-        key = line.removeprefix("# ").split(":", 1)[0]
-        if line.startswith("# ") and key in _EXAMPLE_RANGE_COMMENTS:
-            line = line.removeprefix("# ")
-            comments[key] = line.split("#", 1)[1]
+        if line.startswith("# "):
+            key = line.removeprefix("# ").split(":", 1)[0]
+            if key in _EXAMPLE_RANGE_COMMENTS:
+                line = line.removeprefix("# ")
+                comments[key] = line.split("#", 1)[1]
         lines.append(line)
     assert set(comments) == set(_EXAMPLE_RANGE_COMMENTS)
     for key, expected in _EXAMPLE_RANGE_COMMENTS.items():

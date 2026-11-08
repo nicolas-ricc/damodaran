@@ -723,6 +723,7 @@ _OVERRIDE_KEYS: frozenset[str] = frozenset(
 #: Override keys that take a number or a per-year list of numbers.
 _OVERRIDE_PATH_KEYS: frozenset[str] = frozenset({"revenue_growth", "operating_margin"})
 
+
 @dataclass(frozen=True)
 class _Range:
     """An interval a numeric override value must lie in; ``None`` leaves a side open."""
@@ -803,10 +804,10 @@ def load_override(override_path: Path | None) -> dict[str, Any]:
     """Load and validate ``config/assumptions/<TICKER>.yaml``; return the raw mapping.
 
     Returns ``{}`` for no path, a missing file or an empty file. Refuses unknown
-    keys, non-numeric or out-of-range values, a bad ``founded_year``, and an inconsistent story
-    file (``story`` / ``scenarios`` / ``story_type: hypergrowth``), all as
-    ``ValueError`` whose message starts with the path. The story section is parsed
-    here only to validate it; the mapping is returned unchanged.
+    keys, non-numeric or out-of-range values, a bad ``founded_year``, and an
+    inconsistent story file (``story`` / ``scenarios`` / ``story_type: hypergrowth``),
+    all as ``ValueError`` whose message starts with the path. The story section is
+    parsed here only to validate it; the mapping is returned unchanged.
     """
     if override_path is None or not override_path.exists():
         return {}
