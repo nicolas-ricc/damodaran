@@ -69,6 +69,10 @@ def _config_defaults_on_repo_root(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def _no_flex_settings(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Blank the IBKR Flex settings so `bot portfolio` tests never reach IBKR."""
+    """Blank the IBKR Flex settings so `bot portfolio` tests never reach IBKR.
+
+    The token expiry is blanked too: a past date in a developer's `.env` would fail `bot doctor`.
+    """
     monkeypatch.setenv("BOT_IBKR_FLEX_TOKEN", "")
     monkeypatch.setenv("BOT_IBKR_FLEX_QUERY_ID", "")
+    monkeypatch.setenv("BOT_IBKR_FLEX_TOKEN_EXPIRES", "")
