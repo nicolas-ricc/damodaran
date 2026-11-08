@@ -142,7 +142,7 @@ def test_detail_facts_rules() -> None:
         ".facts.stats .stat:not(:nth-last-child(-n+2)) { border-inline-end: none; "
         "border-block-end: var(--border) dashed var(--rule-faint); }"
     ) in narrow
-    assert ".facts.stats .stat:nth-last-child(2) { border-inline-end: none; }" in narrow
+    assert ".facts.stats .stat:nth-last-child(2) { border-inline-end: none; border-block-end: none; }" in narrow
     for gone in (
         ".facts dd",
         ".facts dt",
