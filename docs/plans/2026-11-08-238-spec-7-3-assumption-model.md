@@ -4,7 +4,7 @@
 
 **Goal:** Spec §7.3 stops saying revenue growth converges to nominal GDP by year 10 and stops listing an unimplemented `analyst_consensus` source: the growth row names terminal growth as the year-10 target over a 10-year horizon, and the source list is exactly the `AssumptionSource` enum, with `analyst_consensus` marked planned (#63).
 
-**Architecture:** Docs only. Two edits to §7.3 of `docs/superpowers/specs/2026-05-25-investment-bot-design.md` (the source sentence at line 273 and the growth row at line 277), plus one stale docstring sentence in `_resolve_revenue_growth` that paraphrases the old spec. A new test module pins §7.3 against `AssumptionSource`, following the pattern of `tests/unit/test_hypergrowth_docs.py` (read the spec, slice the section, assert).
+**Architecture:** Docs only. Two edits to §7.3 of `docs/superpowers/specs/2026-05-25-investment-bot-design.md` (the `Cada supuesto tiene \`source ∈ {...}\`` sentence, line 273 on master, and the `| Revenue growth path (años 1-5) |` row, line 277 on master; locate both by content, since Task 1 shifts line numbers), plus one stale docstring sentence in `_resolve_revenue_growth` that paraphrases the old spec. A new test module pins §7.3 against `AssumptionSource`, following the pattern of `tests/unit/test_hypergrowth_docs.py` (read the spec, slice the section, assert).
 
 **Tech Stack:** Python 3.12, pytest, ruff, mypy --strict.
 
@@ -50,12 +50,16 @@
 - **Exact growth row.** Line 277 becomes:
 
   ```markdown
-  | Revenue growth path (10 años) | Arranca en el growth propio de la empresa: el CAGR histórico de ingresos (`story_pattern` en `high-growth`, `historical_average` en los demás), o el GDP nominal de la moneda sin historia (`rule_based`). Converge linealmente al terminal growth (g, ver abajo, o el `terminal_growth` manual) en y10. `hypergrowth` sigue su story (§7.6) y también termina en g en y10. Sin g, `unresolved` | Manual (escalar o lista de 10 años) |
+  | Revenue growth path (10 años) | Arranca en el growth propio de la empresa: el CAGR histórico de ingresos (`story_pattern` en `high-growth`, `historical_average` en los demás), o el GDP nominal de la moneda sin historia (`rule_based`). Converge linealmente al terminal growth (g, ver abajo, o el `terminal_growth` manual) en y10. `hypergrowth` sigue su story (§7.6) y también termina en g en y10. Sin g, el default queda `unresolved` | Manual (escalar o lista de 10 años) cuando el CAGR histórico no representa el futuro |
   ```
 
-  The old "Manual cuando consensus está sesgado" goes: there is no consensus to be biased.
+  The old "Manual cuando consensus está sesgado" is rewritten to the trigger that exists today, a historical CAGR that does not represent the future (rejected: dropping the trigger altogether). "Sin g" applies to the default column only: a manual `revenue_growth` wins before the terminal-growth check (`assumptions.py:1133-1137`).
 - **Docstring.** `_resolve_revenue_growth`'s first paragraph ("Spec §7.3 wants analyst consensus for years 1-5 with convergence to nominal GDP by year 10. ...") would contradict the new spec. It becomes: "Spec §7.3 describes this path. Analyst consensus as the years 1-5 start is planned (#63) but not implemented (FMP's analyst-estimates endpoint is not wired, so there is no ANALYST_CONSENSUS source). Every path starts at the company's own growth and fades linearly to the terminal growth rate, so the last explicit year already grows at the rate the terminal value assumes." The remaining paragraphs stay.
-- **How "listed as implemented" is tested.** The implemented list is the bullet list between the `source` sentence and the `Planificado` line. Its bullet keys must equal the enum values as a set. Every line of §7.3 that mentions `analyst_consensus` must contain `no implementado` and `#63`.
+- **How "listed as implemented" is tested.** The implemented sources are the keys of every line in §7.3 matching `re.compile(r"^- `([a-z_]+)`:", re.M)`. There is no positional cutoff, so the `Planificado` paragraph is excluded only because it is not a bullet, and reordering it cannot break the test. Bullets are single-line. The keys must equal the enum values as a set (rejected: a cutoff at the `Planificado` line, which is brittle to reordering). Every line of §7.3 that mentions `analyst_consensus` must contain the literal `no implementado` and `#63`.
+- **§7.3 slice.** `_section_7_3()` returns `text[text.index("### 7.3 "):text.index("### 7.4 ")]`. The headings are `### 7.3 Seis supuestos críticos…` (spec line 271) and `### 7.4 Sensitivity analysis` (spec line 283). A missing heading raises `ValueError` and the test errors. The spec is read with `encoding="utf-8"`, as `tests/unit/test_hypergrowth_docs.py:34` does, and the root is `Path(__file__).resolve().parents[2]` (`test_hypergrowth_docs.py:18`).
+- **Convergence claim.** Beyond the literal `converge a GDP nominal` being absent, every `onverge` in §7.3 must be followed within the same sentence by `al terminal growth`. This catches a reworded GDP target.
+- **Docstring pin.** A test asserts `_resolve_revenue_growth.__doc__` no longer contains `convergence to nominal GDP`, so the docstring edit is checked rather than trusted. The edit is not asked for by an acceptance criterion. It is declared because the docstring cites spec §7.3, and CONTEXT.md makes the spec the source of truth; a docstring contradicting it is a smell inside this diff. The "FMP's analyst-estimates endpoint is not wired" clause is existing text kept verbatim (`assumptions.py:1119`), and `grep -rni analyst.estimates src` finds no client.
+- **Red commits.** Stage 3 of the pipeline commits all tests failing (`test(#238): evals`). Each task then ends with its own tests green, so the marker test belongs to Task 2, the task that removes the last unmarked mention (the table row).
 
 ## Review Focus
 
@@ -90,16 +94,11 @@ def _implemented_sources() -> set[str]:
 def test_source_list_is_the_enum() -> None:
     assert _implemented_sources() == {s.value for s in AssumptionSource}
 
-def test_analyst_consensus_only_as_not_implemented() -> None:
-    lines = [l for l in _section_7_3().splitlines() if "analyst_consensus" in l]
-    assert lines
-    for line in lines:
-        assert "no implementado" in line and "#63" in line
 ```
 
-- [ ] **Step 2: Run** `uv run pytest tests/unit/test_spec_assumption_sources.py -q`. Expected: FAIL (no bullets; `analyst_consensus` unmarked).
-- [ ] **Step 3: Replace line 273 with the declared source text.**
-- [ ] **Step 4: Run the tests.** `test_source_list_is_the_enum` passes. `test_analyst_consensus_only_as_not_implemented` still fails because of the table row; Task 2 fixes that.
+- [ ] **Step 2: Run** `uv run pytest tests/unit/test_spec_assumption_sources.py::test_source_list_is_the_enum -q`. Expected: FAIL (there are no bullets).
+- [ ] **Step 3: Replace the `Cada supuesto tiene` sentence with the declared source text.**
+- [ ] **Step 4: Run the test.** `test_source_list_is_the_enum` passes.
 - [ ] **Step 5: Commit** `docs(#238): §7.3 source list matches AssumptionSource`.
 
 ### Task 2: §7.3 growth row fades to terminal growth
@@ -121,7 +120,19 @@ def _growth_row() -> str:
     return rows[0]
 
 def test_growth_does_not_converge_to_gdp() -> None:
-    assert "converge a GDP nominal" not in _section_7_3()
+    section = _section_7_3()
+    assert "converge a GDP nominal" not in section
+    for m in re.finditer(r"onverge([^.|]*)", section):
+        assert "al terminal growth" in m.group(1)
+
+def test_analyst_consensus_only_as_not_implemented() -> None:
+    lines = [l for l in _section_7_3().splitlines() if "analyst_consensus" in l]
+    assert lines
+    for line in lines:
+        assert "no implementado" in line and "#63" in line
+
+def test_growth_docstring_drops_gdp_convergence() -> None:
+    assert "convergence to nominal GDP" not in (_resolve_revenue_growth.__doc__ or "")
 
 def test_growth_row_targets_terminal_growth_over_ten_years() -> None:
     row = _growth_row()
@@ -130,6 +141,13 @@ def test_growth_row_targets_terminal_growth_over_ten_years() -> None:
 ```
 
 - [ ] **Step 2: Run.** Expected: FAIL.
-- [ ] **Step 3: Replace line 277 with the declared growth row. Rewrite the docstring paragraph as declared.**
+- [ ] **Step 3: Replace the `| Revenue growth path (años 1-5) |` row with the declared growth row. Rewrite the docstring paragraph as declared.**
 - [ ] **Step 4: Run** the module (all pass), then `python3 docs/leccion/check.py && python3 docs/pipeline/check.py`, then `uv run ruff check . && uv run mypy src && uv run pytest -q`.
 - [ ] **Step 5: Commit** `docs(#238): §7.3 growth fades to terminal growth by y10`.
+
+## Grilling
+
+- **Rounds:** 1 (the revisions are local: the test regex is pinned, one test moved between tasks, one test added; no seam changed, so no second round).
+- **Questions:** 18. Sources: CODE 9 (Q2, Q5, Q7, Q8, Q11, Q13, Q14, Q16, Q17); DOC/spec 3 (Q4, Q6, Q18); ISSUE 1 (Q1); NO SOURCE → technical assumption 5 (Q3, Q9, Q10, Q12, Q15).
+- **Assumptions added or changed:** the bullet regex with no positional cutoff; the §7.3 slice and UTF-8 read; the convergence check; the docstring pin and why the docstring is touched; red commits only at stage 3; the override cell's trigger rewritten rather than dropped; "Sin g" scoped to the default column.
+- **Spec ambiguities:** none. **Follow-up issues opened:** none.
