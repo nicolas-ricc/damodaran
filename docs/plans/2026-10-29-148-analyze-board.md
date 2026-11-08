@@ -1,5 +1,7 @@
 # Analyze board (#148) Implementation Plan
 
+> **Superseded (#320):** analyst consensus is not a source, by decision (#63); mentions of it below are historical.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Draw `docs/pipeline/analyze.d2`, the board that shows how `bot analyze` values one company (Capa C): inputs, story-type classification, each assumption's resolution chain with its source label, the two-stage discounted cash flow (DCF), sensitivity, the five narrative flags, margin of safety and verdict, sanity check, and the three report files. CI renders it to `analyze.svg`; `pipeline.d2` links it.
@@ -206,7 +208,7 @@ Source order (the acronym test reads top to bottom): `cli`, `tickers`, `override
 
 - AC1 (SVG rendered with d2 v0.9.0 + TALA, workflow green, link, hash): Task 4 link + `test_pipeline_links_the_analyze_board`; Task 5.
 - AC2 (story chain, resolution chains with source labels, DCF formulas, sensitivity parameters, five flags with thresholds and colours, verdict thresholds, sanity ratios as plain math): `_ANALYZE_TEXT`, `test_analyze_directions_match_code`, `test_analyze_story_type_order`, `test_analyze_assumption_sources`, the `@enum` directives.
-- AC3 (seven gap notes, `ipo_date` verified): `test_analyze_gap_notes`, `test_analyze_ipo_date_gap_is_current` (an eighth gap, `weights.company`, is extra).
+- AC3 (seven gap notes, `ipo_date` verified): `test_analyze_gap_notes`, `test_analyze_ipo_date_gap_is_current` (`weights.company` is extra; `growth.consensus` was dropped by #320).
 - AC4 (citations, `_REQUIRED_*["analyze"]`, check.py 0, diagram tests green): `test_required_citations_present`, `test_every_directive_is_valid`, `test_check_py_exits_zero`.
 - AC5 (acronyms incl. EBIT, NOPAT, FCFF, EPS, EV, ERP, CAGR, GDP, P/E, D/E on this board; EBITDA, ROIC, ROE, P/BV already listed and used on the screen board; quality bar): `test_acronyms_are_expanded` with the slash-acronym regex; Task 5 last step.
 

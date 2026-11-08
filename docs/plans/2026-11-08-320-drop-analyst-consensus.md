@@ -1,5 +1,7 @@
 # Drop analyst consensus from the docs (#320) Implementation Plan
 
+> **Superseded (#320):** analyst consensus is not a source, by decision (#63); mentions of it below are historical.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Analyst consensus is no longer described anywhere under `docs/` as specified, planned or missing: #63 closed it as wontfix, so the revenue growth path (historical revenue CAGR fading to terminal growth by year 10, manual override unchanged) is the decided design, not a stopgap.
