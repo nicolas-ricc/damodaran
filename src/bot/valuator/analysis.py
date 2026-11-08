@@ -23,6 +23,7 @@ from typing import Any
 
 import duckdb
 
+from bot.reference.countries import damodaran_country_name
 from bot.reference.currencies import CurrencyTable, normalize_currency
 from bot.reference.default_spreads import DefaultSpreadTable
 from bot.reference.regions import dataset_region
@@ -389,11 +390,12 @@ def _load_sector_multiples(
     conn: duckdb.DuckDBPyConnection, company: _CompanyRow
 ) -> _SectorMultiples:
     geographic_region: str | None = None
-    if company.country is not None:
+    name = damodaran_country_name(company.country)
+    if name is not None:
         row = conn.execute(
             "SELECT region FROM damodaran_country WHERE country = ? "
             "ORDER BY year DESC LIMIT 1",
-            [company.country],
+            [name],
         ).fetchone()
         geographic_region = row[0] if row is not None else None
     region = dataset_region(company.country, geographic_region)
@@ -567,7 +569,13 @@ def bulk_load_valuation_inputs(
             closes_params,
         ).fetchall()
     }
-    countries = sorted({c.country for t in kept if (c := companies[t]).country is not None})
+    # companies.country is ISO alpha-2; damodaran_country is keyed by Damodaran name.
+    names = {
+        c.country: damodaran_country_name(c.country)
+        for t in kept
+        if (c := companies[t]).country is not None
+    }
+    countries = sorted({n for n in names.values() if n is not None})
     country_rows: dict[str, str] = {
         r[0]: r[1]
         for r in conn.execute(
@@ -580,9 +588,8 @@ def bulk_load_valuation_inputs(
     regions: dict[str, str] = {}
     for t in kept:
         company = companies[t]
-        geographic_region = (
-            country_rows.get(company.country) if company.country is not None else None
-        )
+        name = names.get(company.country) if company.country is not None else None
+        geographic_region = country_rows.get(name) if name is not None else None
         regions[t] = dataset_region(company.country, geographic_region)
     industries = sorted({
         i for t in kept if (i := companies[t].industry_damodaran) is not None
@@ -637,9 +644,8 @@ def bulk_load_valuation_inputs(
         )
         industry, region = company.industry_damodaran, regions[t]
         sector_row = sector_rows.get((industry, region)) if industry is not None else None
-        geographic_region = (
-            country_rows.get(company.country) if company.country is not None else None
-        )
+        name = names.get(company.country) if company.country is not None else None
+        geographic_region = country_rows.get(name) if name is not None else None
         revenue_history, income_history, ebit_history = _histories_from_rows(
             (r[0], r[2], r[1]) for r in financials[t]
         )
