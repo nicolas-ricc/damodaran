@@ -94,7 +94,7 @@ def test_boards_cite_ma_params(stem: str) -> None:
         assert "@symbol bot.screener.rules._avg_growth_rate" in line
     label = line.split('"')[1]
     assert "acquisitions" in label
-    assert "3 fiscal years" in label
+    assert "3 reported fiscal years" in label
     assert "10%" in label
 
 
@@ -128,8 +128,10 @@ def test_estado_traps_entry_describes_ma_exception() -> None:
     assert "no implementa la excepción" not in note
     lines = _RULES.read_text(encoding="utf-8").splitlines()
     assert lines[527].startswith("class RevenueNotDeclining(")
-    tail = lines[760:]
-    assert re.match(r"\S", next((ln for ln in tail if ln.strip()), "end")), (
+    assert not [ln for ln in lines[760:] if re.match(r"class \w+\(Rule\)", ln)], (
+        "a trap rule after line 760 falls outside the estado range"
+    )
+    assert re.match(r"\S", next((ln for ln in lines[760:] if ln.strip()), "end")), (
         "line 760 must close ShareCountNotDiluting, the last trap rule"
     )
     body = "\n".join(lines[527:760])
