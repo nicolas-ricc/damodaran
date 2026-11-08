@@ -131,7 +131,7 @@ The task review (stage 4) and the code review (stage 5) refined the shipped READ
 
 - **Rounds:** 1, with the `fable` griller. The plan was not changed substantially (no step added or removed, same seam), so there was no second round.
 - **Questions:** 16. They are answered by source type as follows:
-  - ISSUE: 4 (Q1, Q12, Q15, plus Q1's criterion quote).
+  - ISSUE: 3 (Q1, Q12, Q15).
   - CODE: 11.
     - Q2: `hypergrowth.py:53-71` (`StoryInputs` keys). The DCF names in the constraints are the bundle's.
     - Q3: `hypergrowth.py:222,248-264`. The growth rate is solved by bisection. The drag reaches every year of the margin path, because each year converges linearly on `target_margin - regulatory_drag`.
