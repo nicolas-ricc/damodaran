@@ -105,7 +105,7 @@ def test_valuator_country_row_for_iso_us(conn: duckdb.DuckDBPyConnection) -> Non
 def test_valuator_tax_falls_back_to_iso_country(conn: duckdb.DuckDBPyConnection) -> None:
     tax = resolve_assumptions("USCO", conn).tax_rate
     assert tax.value == pytest.approx(0.25)
-    assert tax.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
+    assert tax.source is AssumptionSource.COUNTRY_DEFAULT_DAMODARAN
 
 
 def test_single_and_bulk_assumption_country_rows_match(

@@ -228,5 +228,5 @@ def test_valuator_falls_back_to_the_imported_country_tax_rate() -> None:
     tax = resolve_assumptions("ACME", conn).tax_rate
 
     assert tax.value == pytest.approx(0.25)
-    assert tax.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN
+    assert tax.source is AssumptionSource.COUNTRY_DEFAULT_DAMODARAN
     conn.close()

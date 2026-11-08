@@ -426,6 +426,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "story_pattern",
         "historical_average",
         "sector_default_damodaran_cross_region",
+        "country tax_rate \u2192 country_default_damodaran",
         "min(risk-free rate, nominal GDP growth)",
         "debt weight = D/E \u00f7 (1 + D/E)",
         "config/currencies.yaml",

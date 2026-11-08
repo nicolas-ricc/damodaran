@@ -17,7 +17,7 @@ from bot.reporting import analysis_report
 from bot.reporting.analysis_report import render_analysis
 from bot.storage.db import apply_schema, connect
 from bot.valuator.analysis import Analysis, analyze
-from bot.valuator.assumptions import BankruptcyDerivation
+from bot.valuator.assumptions import AssumptionSource, BankruptcyDerivation
 
 # Fixture money and share counts are written in millions; the valuator refuses
 # share counts below 1,000,000, so seeds are scaled up by this factor.
@@ -135,6 +135,14 @@ def test_render_shows_assumption_sources(analysis: Analysis) -> None:
     # Each assumption row labels its provenance.
     assert "sector_default_damodaran" in md
     assert "historical_average" in md
+
+
+def test_render_shows_a_country_sourced_tax_rate(analysis: Analysis) -> None:
+    # The seed's sector row has no tax rate, so the country row supplies it.
+    assert analysis.assumptions.tax_rate.source is AssumptionSource.COUNTRY_DEFAULT_DAMODARAN
+    md = render_analysis(analysis)
+    tax_row = next(line for line in md.splitlines() if line.startswith("| Tax rate |"))
+    assert tax_row.endswith("| country_default_damodaran |")
 
 
 def test_render_shows_year_by_year_and_terminal(analysis: Analysis) -> None:

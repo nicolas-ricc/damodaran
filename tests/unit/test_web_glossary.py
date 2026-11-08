@@ -54,7 +54,13 @@ def test_every_narrative_flag_has_a_worded_term() -> None:
 
 
 def test_every_source_has_a_worded_term() -> None:
-    for source in ("sector_default_damodaran", "historical_average", "rule_based", "override"):
+    for source in (
+        "sector_default_damodaran",
+        "country_default_damodaran",
+        "historical_average",
+        "rule_based",
+        "override",
+    ):
         _is_worded(source_term(source))
 
 

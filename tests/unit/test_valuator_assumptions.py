@@ -927,6 +927,47 @@ def test_tax_rate_rule_based_default_when_no_data(conn: duckdb.DuckDBPyConnectio
     assert result.tax_rate.source is AssumptionSource.RULE_BASED
 
 
+def test_tax_rate_falls_back_to_the_country_source(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_company(conn)
+    _seed_industry(conn, tax_rate=None)
+    _seed_country(conn, tax_rate=0.30)
+    tax = resolve_assumptions("ACME", conn).tax_rate
+    assert tax.value == pytest.approx(0.30)
+    assert tax.source is AssumptionSource.COUNTRY_DEFAULT_DAMODARAN
+
+
+def test_tax_rate_zero_country_rate_is_still_the_country_source(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_company(conn)
+    _seed_industry(conn, tax_rate=None)
+    _seed_country(conn, tax_rate=0.0)
+    tax = resolve_assumptions("ACME", conn).tax_rate
+    assert tax.value == 0.0
+    assert tax.source is AssumptionSource.COUNTRY_DEFAULT_DAMODARAN
+
+
+def test_tax_rate_null_country_rate_is_rule_based(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_company(conn)
+    _seed_industry(conn, tax_rate=None)
+    _seed_country(conn, tax_rate=None)
+    tax = resolve_assumptions("ACME", conn).tax_rate
+    assert tax.value == pytest.approx(0.25)
+    assert tax.source is AssumptionSource.RULE_BASED
+
+
+def test_cross_region_sector_without_tax_falls_to_the_country_source(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_company(conn, ticker="DEU", country="Germany")
+    _seed_industry(conn, region="US", tax_rate=None)
+    _seed_country(conn, country="Germany", region="Western Europe", tax_rate=0.30)
+    result = resolve_assumptions("DEU", conn)
+    assert result.operating_margin.source is AssumptionSource.SECTOR_DEFAULT_DAMODARAN_CROSS_REGION
+    assert result.tax_rate.value == pytest.approx(0.30)
+    assert result.tax_rate.source is AssumptionSource.COUNTRY_DEFAULT_DAMODARAN
+
+
 # --------------------------------------------------------------------------- #
 # Dataset-region resolution (spec §5.1)                                        #
 # --------------------------------------------------------------------------- #
@@ -1172,6 +1213,7 @@ def test_assumption_source_has_no_unreachable_member() -> None:
         "manual",
         "sector_default_damodaran",
         "sector_default_damodaran_cross_region",
+        "country_default_damodaran",
         "rule_based",
         "historical_average",
         "story_pattern",
