@@ -57,7 +57,10 @@ def test_socket_to_hostname_is_blocked() -> None:
     sock = socket.socket()
     sock.settimeout(0.5)
     try:
-        with pytest.warns(UserWarning), pytest.raises(RuntimeError, match=re.escape("example.invalid")):
+        with (
+            pytest.warns(UserWarning),
+            pytest.raises(RuntimeError, match=re.escape("example.invalid")),
+        ):
             sock.connect(("example.invalid", 80))
     finally:
         sock.close()
@@ -104,10 +107,11 @@ def test_connect():
 def _run(pytester: pytest.Pytester, source: str, *args: str) -> pytest.RunResult:
     pytester.makeconftest(_ROOT_CONFTEST.read_text())
     pytester.makeini(
-        f"[pytest]\naddopts = {GUARD_ADDOPTS}\nstrict_markers = true\nmarkers =\n    live: x\n"
+        f"[pytest]\naddopts = {GUARD_ADDOPTS}\nstrict_markers = true\n"
+        f"pythonpath = {_ROOT_CONFTEST.parent.parent}\nmarkers =\n    live: x\n"
     )
     pytester.makepyfile(source)
-    return pytester.runpytest("-q", *args)
+    return pytester.runpytest_subprocess("-q", *args)
 
 
 def _plain(template: str) -> str:
