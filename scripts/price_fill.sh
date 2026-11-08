@@ -17,6 +17,11 @@
 # Watch:   tail -f .cache/price_fill.log
 # Remove:  crontab -l | grep -v 'bot-price-fill' | crontab -
 #
+# The DB section (the refresh and the MISSING query) runs under the shared
+# .cache/bot.lock that daily.sh and weekly.sh also take. When another bot run
+# holds it, this run logs "skipped: DB busy" and exits 0: skipped, not failed.
+# The next hourly run catches up (#108).
+#
 # Requires BOT_TIINGO_API_KEY and BOT_SEC_USER_AGENT in the checkout's .env.
 set -uo pipefail
 
@@ -42,6 +47,14 @@ if [ -z "${BOT_SYNCED:-}" ]; then
 fi
 
 echo "=== $(date -Is) run ===" >> "$LOG"
+
+LOCK="$REPO/.cache/bot.lock"
+exec 9>>"$LOCK"
+if ! flock -n 9; then
+  echo "skipped: DB busy ($LOCK is held by another bot run); the next hourly run catches up" >> "$LOG"
+  exit 0
+fi
+
 uv run bot refresh --prices --only-missing >> "$LOG" 2>&1
 
 # Fundamentals-covered tickers still lacking any price row.

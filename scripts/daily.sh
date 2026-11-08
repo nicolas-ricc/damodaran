@@ -8,10 +8,13 @@
 # defers the rest. The loop below re-runs it, one separate process per round so
 # the DuckDB lock is released between rounds (#108), until nothing is deferred
 # or BOT_PRICE_ROUNDS is reached; BOT_PRICE_RETRY_PAUSE seconds between rounds.
+# Each bot command runs under the shared .cache/bot.lock, waiting up to
+# BOT_DB_LOCK_WAIT seconds (default 900) for it; on timeout it fails with a
+# logged "lock timeout:" line and exit 75.
 #
-# Output appends to .cache/daily.log; the exit code is the bot's. `bot
-# portfolio` reads the previous business day's Flex statement; it needs
-# BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID and no TWS.
+# Output appends to .cache/daily.log; the exit code is the bot's, or 75 after a
+# lock timeout. `bot portfolio` reads the previous business day's Flex
+# statement; it needs BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID and no TWS.
 set -uo pipefail
 
 # Repo root = parent of this script's directory (resolve symlinks for cron).
@@ -33,6 +36,21 @@ if [ -z "${BOT_SYNCED:-}" ]; then
   BOT_SYNCED=1 exec "$SCRIPT_DIR/daily.sh" "$@"
 fi
 
+LOCK="$REPO/.cache/bot.lock"
+LOCK_WAIT="${BOT_DB_LOCK_WAIT:-900}"
+# A non-numeric wait would make flock fail before it even tries.
+[[ "$LOCK_WAIT" =~ ^[0-9]+$ ]] || LOCK_WAIT=900
+LOCK_BUSY=75  # EX_TEMPFAIL; bot itself exits 0, 1 or 2
+
+# Run one bot command holding the shared DB lock (#108), waiting up to
+# LOCK_WAIT seconds for it. Exits LOCK_BUSY, with a log line, on timeout.
+locked() {
+  flock -w "$LOCK_WAIT" -E "$LOCK_BUSY" "$LOCK" "$@"
+  local status=$?
+  ((status != LOCK_BUSY)) || echo "lock timeout: $LOCK still held after ${LOCK_WAIT}s, skipped: $*"
+  return "$status"
+}
+
 ROUNDS="${BOT_PRICE_ROUNDS:-10}"
 # At least one round, whatever the value: non-numeric or < 1 means one.
 [[ "$ROUNDS" =~ ^[0-9]+$ ]] && ROUNDS=$((10#$ROUNDS)) || ROUNDS=1
@@ -46,7 +64,7 @@ refresh_prices() {
   local round out status
   for ((round = 1; ; round++)); do
     echo "--- prices round $round/$ROUNDS $(date -Is)"
-    out="$(uv run bot refresh --prices 2>&1)"
+    out="$(locked uv run bot refresh --prices 2>&1)"
     status=$?
     echo "$out"
     ((status == 0)) || return "$status"
@@ -63,9 +81,9 @@ refresh_prices() {
   echo "=== $(date -Is) run ==="
   refresh_prices
   prices=$?
-  uv run bot refresh --fx
+  locked uv run bot refresh --fx
   fx=$?
   worst=$((prices > fx ? prices : fx))
   ((worst == 0)) || exit "$worst"
-  uv run bot portfolio
+  locked uv run bot portfolio
 } >> "$LOG" 2>&1
