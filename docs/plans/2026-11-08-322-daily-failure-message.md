@@ -41,9 +41,12 @@
 
 ## Assumptions
 
-- **Host name is bash's `$HOSTNAME`**, not the `hostname` binary, which minimal images (Fedora, Debian slim containers) do not ship. Rejected: `$(hostname)`, which would print `command not found` into the message.
+- **Host name is bash's `${HOSTNAME:-unknown}`**, not the `hostname` binary, which minimal images (Fedora, Debian slim containers) do not ship. The `:-unknown` fallback keeps `on <host>,` well-formed if bash could not resolve a name. Rejected: `$(hostname)`, which would print `command not found` into the message.
 - **The message is built into a variable, then piped.** That makes "tail read before notify output is appended" hold by construction. Rejected: `{ ...; tail; } | uv run bot notify >> "$LOG"`, where `tail` races with notify's own output.
 - **The tail is of the whole `$LOG` file**, so it can include lines of a previous run when this run wrote fewer than 20. The issue specifies `tail -n 20 of $LOG`.
+- **Join of `FAILED`**: `printf '%s, ' "${FAILED[@]}"` captured, then `${steps%, }`. Exercised with one step (portfolio test) and two (prices+FX test). Rejected: `IFS`, which only joins on one character.
+- **Trailing blank lines of the log tail are dropped** by `$(tail ...)`. Every step writes a non-blank last line (`fake uv: ...`, bot output, `lock timeout: ...`), so the 20-line comparison test splits the message after line 5 with `splitlines()` and compares to the log's last 20 lines. Rejected: preserving trailing newlines with a sentinel, which nobody reads in a notification.
+- **Tests come first, in pipeline stage 3** (`test(#322): evals`, after this plan's review); each task's Step 1 refers to them. Rejected: implementers writing their own tests from scratch.
 - **`sync_master.sh` output is not a step.** It is logged before the re-exec, and its failure is already non-fatal by design.
 
 ---
@@ -58,7 +61,7 @@
 - Consumes: `uv run bot notify` (stdin = message; exit 0/1/2; #321).
 - Produces: nothing other code calls. Test helper `_notify_message(calls: Path) -> str` reads `f"{calls}.notify"`.
 
-- [ ] **Step 1: Tests (already committed as the stage-3 evals, `test(#322): evals`)**
+- [ ] **Step 1: Tests (written and committed before implementation as the stage-3 evals, `test(#322): evals`)**
 
 Recorder: right after `echo "fake uv: $*"`, add `if [ "$3" = notify ]; then cat > "{calls}.notify"; fi`. Constant `_NOTIFY = "run bot notify"`.
 
@@ -80,7 +83,7 @@ Expected: the new and updated `daily.sh` tests FAIL (no `run bot notify` call / 
 - [ ] **Step 3: Implement in `scripts/daily.sh`**
 
 - `FAILED=()` and a function `run_steps` holding today's sequence (header echo, `refresh_prices`, `locked uv run bot refresh --fx`, worst-of, `locked uv run bot portfolio`). After each step, a non-zero status appends `"bot refresh --prices (exit $prices)"` / `"bot refresh --fx (exit $fx)"` / `"bot portfolio (exit $status)"` to `FAILED`. It returns the worst of prices/FX when non-zero, else portfolio's status (replaces today's `exit "$worst"`).
-- A function `notify_failure <status>` that joins `FAILED` with `", "`, builds the message with `printf '%s\n'` (never the log text as a format string) into a local variable, using `$(date -Is)`, `$HOSTNAME` and `$(tail -n 20 "$LOG")`, then `printf '%s\n' "$message" | uv run bot notify`.
+- A function `notify_failure <status>` that joins `FAILED` with `", "`, builds the message with `printf '%s\n'` (never the log text as a format string) into a local variable, using `$(date -Is)`, `${HOSTNAME:-unknown}` and `$(tail -n 20 "$LOG")`, then `printf '%s\n' "$message" | uv run bot notify`.
 - Main: `run_steps >> "$LOG" 2>&1` (a function, not a subshell, so `FAILED` survives), `status=$?`, `((status == 0)) || notify_failure "$status" >> "$LOG" 2>&1`, `exit "$status"`.
 - Header comment: the paragraph on output/exit code gains one sentence: a failed run sends one message (failed steps, exit codes, last 20 log lines) through `bot notify`, which never changes the exit code.
 
@@ -101,8 +104,15 @@ Expected: all pass, including `test_script_is_executable_and_shellcheck_clean[da
 - Consumes: Task 1's message format.
 - Produces: nothing.
 
-- [ ] **Step 1: Test (already committed)**: the whitespace-collapsed `## Scheduling` section (same slicing as `test_readme_scheduling_documents_the_shared_db_lock`) contains `daily.sh failed:`, `bot notify`, `20 lines`, `BOT_NOTIFIER=none` and `exit code`.
+- [ ] **Step 1: Test (committed with the stage-3 evals)**: the whitespace-collapsed `## Scheduling` section (same slicing as `test_readme_scheduling_documents_the_shared_db_lock`) contains `daily.sh failed:`, `bot notify`, `20 lines`, `BOT_NOTIFIER=none` and `exit code`.
 - [ ] **Step 2: Run it, verify it fails**: `uv run pytest -q tests/integration/test_scripts.py -k readme` → FAIL on `daily.sh failed:`.
 - [ ] **Step 3: Write the bullet** `**Failure message**`: when any `daily.sh` step fails, the run pipes one message into `bot notify`: subject `# daily.sh failed: <step> (exit N), ...`, then time, host, the run's exit code and the last 20 lines of `.cache/daily.log`. The notify result is logged and never changes the job's exit code; with `BOT_NOTIFIER=none` it only logs the "nothing sent" line. A successful run sends nothing.
 - [ ] **Step 4: Verify**: `uv run pytest -q tests/integration/test_scripts.py -k readme` → PASS.
 - [ ] **Step 5: Commit** `docs(#322): README Scheduling describes the daily failure message`
+
+## Grilling
+
+- Rounds: 1 (revisions were wording and assumptions only, no new step or seam, so no second round). Griller model: fable.
+- Questions: 15. Sources: ISSUE 5 (Q4, Q5, Q6, Q11, Q15), CODE 7 (Q1 `scripts/daily.sh:47-51,70,87`, Q3 `scripts/daily.sh:47` vs `scripts/weekly.sh:41` with no sourcing, Q7 `scripts/daily.sh:29-30,35,88`, Q9 `_UV_RECORDER`, Q13 `scripts/daily.sh:86`, Q14 `scripts/daily.sh:33-36` `exec`, Q5 `src/bot/notifier/email.py:67-71`, `src/bot/cli.py:680-708`), NO SOURCE 4, all technical assumptions (Q2, Q8, Q10, Q12).
+- Assumptions added: the `${HOSTNAME:-unknown}` fallback, the join construct, trailing blank lines of the tail being dropped, the tests coming from stage 3.
+- Spec ambiguities: none. Out-of-scope issues opened: none.
