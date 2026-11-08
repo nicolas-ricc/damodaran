@@ -225,6 +225,12 @@ ANNUAL_CONCEPT_MAP: dict[str, list[str]] = {
     "total_equity": ["StockholdersEquity"],
     "goodwill": ["Goodwill"],
     "capex": ["PaymentsToAcquirePropertyPlantAndEquipment"],
+    # Duration cash-flow facts, already positive as outflows.
+    "acquisitions": [
+        "PaymentsToAcquireBusinessesNetOfCashAcquired",
+        "PaymentsToAcquireBusinessesGross",
+        "PaymentsToAcquireBusinessesAndInterestInAffiliates",
+    ],
     "depreciation": ["DepreciationDepletionAndAmortization", "Depreciation"],
     "operating_cashflow": ["NetCashProvidedByUsedInOperatingActivities"],
     "dividends_paid": ["PaymentsOfDividends"],

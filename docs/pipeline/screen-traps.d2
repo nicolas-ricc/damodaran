@@ -41,7 +41,7 @@ roic_above_sector_wacc: "roic_above_sector_wacc\nreturn on invested capital (ROI
 sloan_accruals_below: "sloan_accruals_below\nSloan ratio = (net income − operating cash flow)\n÷ total assets < 0.1\nmissing figure or total assets ≤ 0: fails" {  # @rule sloan_accruals_below @param sloan_accruals_below.maximum
   class: decision
 }
-share_count_not_diluting: "share_count_not_diluting\naverage diluted share count growth ≤ 5% a year\nfewer than two counts, or a base ≤ 0\n(growth undefined): fails" {  # @rule share_count_not_diluting @param share_count_not_diluting.max_annual_growth @symbol bot.screener.rules._avg_growth_rate
+share_count_not_diluting: "share_count_not_diluting\naverage diluted share count growth ≤ 5% a year\nunless cash paid for acquisitions over the last 3 reported fiscal years\n≥ 10% of the latest total assets\nfewer than two counts, or a base ≤ 0\n(growth undefined): fails" {  # @rule share_count_not_diluting @param share_count_not_diluting.max_annual_growth @param share_count_not_diluting.ma_window @param share_count_not_diluting.ma_materiality @symbol bot.screener.rules._avg_growth_rate
   class: decision
 }
 

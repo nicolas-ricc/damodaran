@@ -172,10 +172,10 @@ zigurat:{role:"selecciona",titulo:"Capa B · el screener mecánico",lead:"Cuatro
  code:{where:[["regla","roic_above_sector_wacc"],["insumo","damodaran_industry.wacc"],["parámetros","ninguno"]],
   notes:["Es la única regla de trap detection sin parámetros configurables: la comparación es contra el sector y no hay umbral que elegir."]}},
 
-"t-dilution":{role:"elimina",titulo:"Dilución",lead:"Las acciones no crecen más de 5% anual.",
+"t-dilution":{role:"elimina",titulo:"Dilución",lead:"Las acciones no crecen más de 5% anual, salvo que una adquisición material lo explique.",
  idea:["Todas las métricas por acción se pueden arruinar sin que el negocio cambie: basta emitir acciones. Si la cantidad crece 6% por año, la empresa tiene que crecer 6% solo para que tu parte no se achique.",
-  "La emisión por una adquisición justificada es otra cosa. La que preocupa es la crónica, sin contrapartida, típica de compensación en acciones sin recompra que la compense."],
- code:{where:[["regla","share_count_not_diluting"],["parámetro","max_annual_growth: 0.05"]],notes:[]}},
+  "La emisión por una adquisición justificada es otra cosa. La que preocupa es la crónica, sin contrapartida, típica de compensación en acciones sin recompra que la compense. La excepción se implementa comparando la caja pagada por adquisiciones en los últimos tres ejercicios con los activos totales."],
+ code:{where:[["regla","share_count_not_diluting"],["parámetro","max_annual_growth: 0.05"],["parámetro","ma_window: 3"],["parámetro","ma_materiality: 0.10"]],notes:[]}},
 
 // ═══════════════ CAPA C ═══════════════
 story:{role:"valua",titulo:"Story type",lead:"Qué clase de historia es esta empresa.",

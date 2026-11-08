@@ -1291,7 +1291,6 @@ _SCREEN_NODES: list[tuple[str, str]] = (
         ("value_indicators.score", "step"),
         ("value_indicators.at_least_one", "decision"),
         ("trap_detection.growth_rate", "step"),
-        ("trap_detection.share_count_not_diluting.mergers", "gap"),
         ("trap_detection.all_pass", "decision"),
         ("trap_detection.auditor", "gap"),
         ("ranking.metrics", "step"),
@@ -1500,9 +1499,6 @@ def test_screen_rule_directions_match_code(
 def test_screen_gap_notes() -> None:
     assert "21%" in _screen_block("snapshot.tax.fallback")
     assert "auditor" in _screen_block("trap_detection.auditor")
-    assert "mergers and acquisitions" in _screen_block(
-        "trap_detection.share_count_not_diluting.mergers"
-    )
     spec_scores = _screen_block("ranking.metrics.spec_scores")
     assert "margin stability" in spec_scores and "free cash flow growth" in spec_scores
 

@@ -73,7 +73,7 @@ snapshot: "1. snapshot per company" {
         a missing term counts as 0; both missing: empty
       - free cash flow yield = free cash flow ÷ market cap
       - operating margin = EBIT ÷ revenue, per year
-      - Histories (revenue, operating cash flow, diluted shares, operating margin)
+      - Histories (revenue, operating cash flow, diluted shares, operating margin, acquisitions)
         drop empty years.
       - Otherwise a missing input leaves the ratio empty.
       | {class: note}
@@ -169,9 +169,8 @@ trap_detection: "5. trap detection: every detector must pass" {
   sloan_accruals_below: "Sloan ratio\n= (net income − operating cash flow) ÷ total assets < 0.1\nmissing or total assets ≤ 0: fails" {  # @rule sloan_accruals_below @param sloan_accruals_below.maximum
     class: decision
   }
-  share_count_not_diluting: "average diluted share count growth ≤ 5% a year\nover the whole share history\nfewer than 2 counts or undefined growth: fails" {  # @rule share_count_not_diluting @param share_count_not_diluting.max_annual_growth
+  share_count_not_diluting: "average diluted share count growth ≤ 5% a year\nover the whole share history\nunless cash paid for acquisitions over the last 3 reported fiscal years\n≥ 10% of the latest total assets\nfewer than 2 counts or undefined growth: fails" {  # @rule share_count_not_diluting @param share_count_not_diluting.max_annual_growth @param share_count_not_diluting.ma_window @param share_count_not_diluting.ma_materiality
     class: decision
-    mergers: |md Gap: spec §6.4 exempts dilution from justified mergers and acquisitions; the code caps growth unconditionally. | {class: gap}
   }
   all_pass: "every trap detector passed?\na skipped detector is eliminatory, ADR 0006 (Implemented)\nno: rejected" {  # @symbol bot.screener.engine.evaluate_company
     class: decision

@@ -11,6 +11,7 @@ and SYNTHETIC. No live calls; values are fabricated, not real filings.
 
 from __future__ import annotations
 
+import math
 from datetime import date
 from typing import Any
 
@@ -706,3 +707,35 @@ def test_parse_still_maps_legacy_v3_dividends_paid() -> None:
     result = parse_fmp_fundamentals("AAPL", [], [], cashflow)
     by_year = {r["fiscal_year"]: r for r in result.annual}
     assert by_year[2023]["dividends_paid"] == -4321
+
+
+def _fy2023_cashflow(**fields: object) -> list[dict[str, Any]]:
+    return [{"date": "2023-12-31", "calendarYear": "2023", "period": "FY", **fields}]
+
+
+def test_parse_stores_acquisitions_net_as_a_positive_outflow() -> None:
+    result = parse_fmp_fundamentals("AAPL", [], [], _fy2023_cashflow(acquisitionsNet=-500))
+    by_year = {r["fiscal_year"]: r for r in result.annual}
+    assert by_year[2023]["acquisitions"] == 500
+
+
+def test_parse_stores_a_net_divestiture_as_negative_acquisitions() -> None:
+    result = parse_fmp_fundamentals("AAPL", [], [], _fy2023_cashflow(acquisitionsNet=200))
+    by_year = {r["fiscal_year"]: r for r in result.annual}
+    assert by_year[2023]["acquisitions"] == -200
+
+
+@pytest.mark.parametrize("fields", [{}, {"acquisitionsNet": None}])
+def test_parse_without_acquisitions_net_yields_no_acquisitions(fields: dict[str, object]) -> None:
+    result = parse_fmp_fundamentals(
+        "AAPL", [], [], _fy2023_cashflow(operatingCashFlow=1000, **fields)
+    )
+    by_year = {r["fiscal_year"]: r for r in result.annual}
+    assert by_year[2023].get("acquisitions") is None
+
+
+def test_parse_stores_zero_acquisitions_net_as_positive_zero() -> None:
+    result = parse_fmp_fundamentals("AAPL", [], [], _fy2023_cashflow(acquisitionsNet=0))
+    value = {r["fiscal_year"]: r for r in result.annual}[2023]["acquisitions"]
+    assert value == 0.0
+    assert math.copysign(1.0, value) == 1.0
