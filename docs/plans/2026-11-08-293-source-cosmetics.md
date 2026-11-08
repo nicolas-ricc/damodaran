@@ -26,7 +26,21 @@
 
 - **Criterion 1's grep is a word match.** `grep -n "erp" src/bot/valuator/analysis.py` also matches `enterprise_value` (`ent-erp-rise`, lines 86, 785, 800, 1043) and the comment `erp_weighted / erp_listing` (line 1004), which the issue does not ask to touch: its parenthetical fixes the meaning as "no field, no column in either `damodaran_country` query, no parameter". The executable check is `grep -nw erp src/bot/valuator/analysis.py` printing nothing. `enterprise_value` and the `erp_weighted` comment stay.
 - **The region test sits beside the sanity-check tests** in `tests/unit/test_valuator_analysis.py` and imports `_CompanyRow` and `_sector_multiples_from` from `bot.valuator.analysis`, like `_SectorMultiples` today.
+- **Commit prefixes** follow the repo's `type(#N): ...` history (`git log`) rather than the issue's suggested `refactor(valuator)` scopes; the issue allows either one or three commits. Each task is its own commit, so a failed task is reverted alone (`git revert <sha>`); the three tasks share no code.
+- **Alphabetical insertion** in `CYCLICAL_INDUSTRIES` follows the set's current order (`sectors.py:44-70`); nothing enforces it.
 - **`test_valuation_bulk_load.py` has no tuple-shape expectation** (it inserts `damodaran_country` rows and compares bulk against per-ticker loads), so it is run, not edited.
+
+## Criteria → tasks
+
+| Issue criterion | Where |
+|---|---|
+| 1. no `erp` field / query column / parameter in `analysis.py` | Task 1 Step 4 (`grep -nw`) |
+| 2. `_sector_multiples_from` region cases; bulk-load test passes | Task 1 Steps 1 and 4 (the `bulk_load_valuation_inputs` query rewrite is Decision 1 of the issue) |
+| 3. `is_cyclical("Transportation (Railroads)")`; taxonomy subset test | Task 2 |
+| 4. `fmt_per_share` values; rendered `1,500.00`, no `1.50K` | Task 3 |
+| 5. replay test and isolation goldens unchanged | Task 3 Step 4, Final verification |
+| 6. `docs/pipeline/check.py`, `docs/leccion/check.py` | Final verification |
+| 7. ruff, mypy, pytest | Final verification |
 
 ## Review Focus
 
@@ -59,7 +73,7 @@ def test_sector_multiples_take_the_geographic_region_only() -> None:
 
 Remove `erp=None` from the `_SectorMultiples(...)` in `_check` (line 393), and change `test_pipeline_diagram.py:1913` to `analysis._SectorMultiples("US", None, None, None, None)`.
 
-- [ ] **Step 2: Run, expect FAIL**: `uv run pytest tests/unit/test_valuator_analysis.py tests/unit/test_pipeline_diagram.py -q`. Expected: the new test fails (a string is not subscriptable as a tuple / wrong region) and the constructors fail with a missing `erp` argument.
+- [ ] **Step 2: Run, expect FAIL**: `uv run pytest tests/unit/test_valuator_analysis.py tests/unit/test_pipeline_diagram.py -q`. Expected: the new test fails on a wrong value, not an exception: today `country_row[0]` on `"Western Europe"` is `"W"`, which `dataset_region` maps to the `"US"` default, so `'US' == 'Europe'` fails (the `None` case already passes). The two adapted constructors fail with `TypeError: ... missing 1 required positional argument: 'erp'`.
 - [ ] **Step 3: Implement.** Delete the field, take `geographic_region: str | None`, drop `erp` from both queries, store `country_rows = {r[0]: r[1] ...}`, pass the region string at both call sites. Docstring: `geographic_region` is `damodaran_country.region` for the company's country (or `None`); `sector_row` unchanged.
 - [ ] **Step 4: Run, expect PASS**: `uv run pytest tests/unit/test_valuator_analysis.py tests/unit/test_valuation_bulk_load.py tests/unit/test_pipeline_diagram.py tests/unit/test_analyze_model_replay.py -q` and `grep -nw erp src/bot/valuator/analysis.py` prints nothing.
 - [ ] **Step 5: Commit** `refactor(#293): drop the dead _SectorMultiples.erp field`.
@@ -92,3 +106,7 @@ Remove `erp=None` from the `_SectorMultiples(...)` in `_check` (line 393), and c
 
 - `python3 docs/pipeline/check.py && python3 docs/leccion/check.py`
 - `uv run ruff check . && uv run mypy src && uv run pytest -q`
+
+## Grilling
+
+One round (griller model: fable), 18 questions. Answers by source: CODE 13, ISSUE 2, NO SOURCE resolved as technical assumptions 3 (commit prefixes and rollback, alphabetical order, the `-w` reading of criterion 1's grep, which is backed by the issue's own parenthetical). There were no spec ambiguities and no out-of-scope findings, and no follow-up issues were opened. Plan changes: corrected the expected failure in Task 1 Step 2 (wrong value, not an exception) and added the criteria-to-tasks table. These changes are minor, so no second round.
