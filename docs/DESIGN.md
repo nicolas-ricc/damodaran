@@ -161,15 +161,15 @@ The theme sets these shape variables, and DaisyUI components read them:
 
 - **Radius 0.** `--radius-selector`, `--radius-field` and `--radius-box` are all `0rem`: buttons, badges, inputs and boxes are square.
 - **`--border: 1px`.** The border width of buttons, inputs and badges, and the weight of every rule.
-- **`--depth: 1`.** Turns on DaisyUI's small relief on buttons and badges (a faint highlight and bottom edge). It is the only elevation the theme adds.
+- **`--depth: 1`.** Scales DaisyUI's relief on buttons (an inset highlight, a text shadow and a small drop shadow) and on inputs (inset shadows). Badges ignore it. It is the only elevation the theme adds.
 - **`--noise: 1`.** Turns on DaisyUI's fine grain texture on buttons and badges.
 
 `--size-selector` and `--size-field` are `0.25rem`, the base unit DaisyUI scales its control sizes (`-xs`, `-sm`) from.
 
-Beyond that, depth is tonal: the page is `base-100`, the list pane sits on the lighter `base-200`, and the selected row drops to `base-300`. 1px rules separate sections and rows. No component gets a drop shadow, a blur or a glow.
+Beyond that, depth is tonal: the page is `base-100`, the list pane sits on the lighter `base-200`, and the selected row drops to `base-300`. 1px rules separate sections and rows. The viewer's own CSS adds no shadow, blur or glow; the only shadows are the depth-scaled ones DaisyUI puts on buttons and inputs.
 
 ### Named Rules
-**The Flat Well Rule.** If an element needs to come forward, it gets a lighter surface or a rule above it, never a shadow. If it needs to recede, it gets `base-300`.
+**The Flat Well Rule.** If an element needs to come forward, it gets a lighter surface or a rule above it, never a shadow of its own. If it needs to recede, it gets `base-300`.
 
 ## 5. Components
 
