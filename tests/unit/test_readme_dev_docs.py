@@ -7,7 +7,7 @@ import tomllib
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
-_WHOLE_TREE = re.compile(r"ruff format(\s+-\S+)*\s+\.(?=[\s`]|$)", re.MULTILINE)
+_WHOLE_TREE = re.compile(r"ruff format(\s+-\S+)*\s+\./?(?=[\s`]|$)", re.MULTILINE)
 _CI_COMMAND = re.compile(r"^\s*- run: (uv run (?:ruff|mypy|pytest)\b.*)$", re.MULTILINE)
 
 
@@ -21,7 +21,8 @@ def _development_section() -> str:
     assert heading in readme
     start = readme.index(heading)
     end = readme.find("\n## ", start + len(heading))
-    return readme[start:] if end == -1 else readme[start:end]
+    section = readme[start:] if end == -1 else readme[start:end]
+    return " ".join(section.split())
 
 
 def test_readme_has_no_whole_tree_format() -> None:
@@ -30,7 +31,7 @@ def test_readme_has_no_whole_tree_format() -> None:
     assert _WHOLE_TREE.search(readme) is None
     for args in re.findall(r"uv run ruff format([^`\n#]*)", readme):
         paths = [a for a in args.split() if not a.startswith("-")]
-        assert paths and "." not in paths, args
+        assert paths and not {".", "./"} & set(paths), args
 
 
 def test_readme_lists_ci_commands() -> None:
