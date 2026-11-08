@@ -24,6 +24,10 @@
 
 - **Removal, not an alias.** The issue asks to split the two maps out *of* `DEFAULT_INDUSTRY_COLUMN_MAP`. Keeping the old name as their union would leave a "DB column → header" map that still lies, which is the smell the issue exists to remove. The module docstring's "update `DEFAULT_INDUSTRY_COLUMN_MAP`" sentence is rewritten to name the two new constants.
 - **The artefacts travel with the dataset.** A `parse_artefacts` field on `IndustryDataset` puts the artefact next to the file that publishes it, so a future artefact in another file needs no new code path. The default is an empty dict (`field(default_factory=dict)`, because the dataclass is frozen and takes no mutable default).
+- **Registry field + property over an import-time union** (rejected: building `{**WACC_COLUMN_MAP, **INDUSTRY_PARSE_ARTEFACT_COLUMNS}` inside `_import_files_into_run`). The issue asks for the artefact to be "structurally separate rather than exempted by name"; the registry is what the invariant test iterates, so the separation has to be visible there.
+- **Disjointness enforced by a test, not `__post_init__`** (rejected: a raising `__post_init__`). The registry's other structural rule, `industry` first, is also enforced by a test (`test_every_registry_column_map_starts_with_the_industry_key`, `tests/unit/test_damodaran_datasets.py:63-66`), and the registry is a module constant, so a test fails on every run that would otherwise build a bad entry.
+- **`parse_industry_xls(column_map=...)` keeps its name** (rejected: renaming the parameter, which the issue does not ask for and which every caller and test would follow). Its docstring (`damodaran.py:558`) changes from "Mapping ``db_column_name -> xls_header_string``" to a row field → header mapping that may include parse artefacts, so the two meanings are written down.
+- **A collection-time `ImportError` is an acceptable red** for Task 1: it fails for the reason the task fixes (the names do not exist yet).
 - **The parser test is edited deliberately.** `test_parse_industry_xls_returns_rows` passes `{**WACC_COLUMN_MAP, **INDUSTRY_PARSE_ARTEFACT_COLUMNS}` and keeps its `debt_weight_raw` assertion. The issue names this edit as expected.
 
 ## Review Focus
@@ -49,7 +53,7 @@
 
 In `tests/unit/test_damodaran_parser.py`, import `WACC_COLUMN_MAP` and `INDUSTRY_PARSE_ARTEFACT_COLUMNS` instead of `DEFAULT_INDUSTRY_COLUMN_MAP`. Pass `column_map={**WACC_COLUMN_MAP, **INDUSTRY_PARSE_ARTEFACT_COLUMNS}` in `test_parse_industry_xls_returns_rows`, and keep its assertions.
 
-In `tests/unit/test_damodaran_datasets.py`:
+In `tests/unit/test_damodaran_datasets.py`, extend `test_every_registry_column_map_starts_with_the_industry_key` so it also asserts `next(iter(dataset.header_map)) == "industry"` for every dataset, and add:
 
 ```python
 def test_wacc_column_map_carries_no_parse_artefact() -> None:
@@ -86,7 +90,7 @@ Expected: collection ERROR, `ImportError: cannot import name 'WACC_COLUMN_MAP'`.
 
 - [ ] **Step 3: Implement in `src/bot/ingest/damodaran.py`**
 
-Replace `DEFAULT_INDUSTRY_COLUMN_MAP` with `WACC_COLUMN_MAP` (the six DB columns) and `INDUSTRY_PARSE_ARTEFACT_COLUMNS`. The latter carries the comment that today sits above `debt_weight_raw`: the key is a row field `derive_industry_columns` consumes and pops, not a DB column. Add `parse_artefacts` and `header_map` to `IndustryDataset`, documented in its `Attributes:` docstring. `column_map` stays "DB column → header" and is now true. Point the wacc registry entry at the two constants. In `_import_files_into_run`, pass `column_map=_WACC_DATASET.header_map` and `column_map=dataset.header_map`. Rewrite the module docstring sentence to name `WACC_COLUMN_MAP`, `INDUSTRY_PARSE_ARTEFACT_COLUMNS` and `DEFAULT_COUNTRY_COLUMN_MAP`.
+Replace `DEFAULT_INDUSTRY_COLUMN_MAP` with `WACC_COLUMN_MAP` (the six DB columns) and `INDUSTRY_PARSE_ARTEFACT_COLUMNS`. The latter carries the comment that today sits above `debt_weight_raw`: the key is a row field `derive_industry_columns` consumes and pops, not a DB column. Add `parse_artefacts` and `header_map` to `IndustryDataset`, documented in its `Attributes:` docstring. `column_map` stays "DB column → header" and is now true. Point the wacc registry entry at the two constants. Update the `parse_industry_xls` docstring for `column_map` as declared in Assumptions. In `_import_files_into_run`, pass `column_map=_WACC_DATASET.header_map` and `column_map=dataset.header_map`. Rewrite the module docstring sentence to name `WACC_COLUMN_MAP`, `INDUSTRY_PARSE_ARTEFACT_COLUMNS` and `DEFAULT_COUNTRY_COLUMN_MAP`.
 
 - [ ] **Step 4: Run to verify they pass**
 
@@ -123,7 +127,7 @@ def test_parse_artefacts_are_not_columns_and_never_reach_the_upsert() -> None:
 - [ ] **Step 2: Run**
 
 Run: `uv run pytest tests/unit/test_damodaran_datasets.py -q`
-Expected: PASS. This task changes tests only, on top of Task 1. To show the guard bites, temporarily add `"debt_weight_raw": "D/(D+E)"` back to `WACC_COLUMN_MAP` and watch the invariant fail with `wacc maps non-columns: ['debt_weight_raw']`, then revert.
+Expected: PASS. This task changes tests only, on top of Task 1. To show the guard bites, temporarily add `"debt_weight_raw": "D/(D+E)"` back to `WACC_COLUMN_MAP` and watch the invariant fail with `wacc maps non-columns: ['debt_weight_raw']`, then revert. Run `git diff --quiet src && echo clean`: it must print `clean` before the commit.
 
 - [ ] **Step 3: Commit**
 
@@ -133,4 +137,12 @@ Expected: PASS. This task changes tests only, on top of Task 1. To show the guar
 
 - `uv run ruff check . && uv run mypy src && uv run pytest -q`
 - `python3 docs/pipeline/check.py && python3 docs/leccion/check.py`
-- `grep -rn DEFAULT_INDUSTRY_COLUMN_MAP src tests` prints nothing.
+- `git grep -n DEFAULT_INDUSTRY_COLUMN_MAP -- . ':!docs/superpowers' ':!docs/plans'` prints nothing (covers README, docs/, ADRs, `.github`, scripts).
+
+## Grilling
+
+- Rounds: 1 (revisions were local: one docstring, one extended assertion, two verification commands; no step added or removed, same seam).
+- Questions: 15. Sources: ISSUE 2 (Q1, Q2 partly), CODE 10 (Q3-Q7, Q10-Q12; Q8's checker semantics from `docs/pipeline/check.py` and `docs/leccion/check.py` docstrings), DOC 1 (Q14: AGENTS.md skill list), NO SOURCE 5 → all technical assumptions (Q1 field/property, Q2 removal, Q9 test vs `__post_init__`, Q13 parameter name, Q14 red at collection). Q7, Q8 and Q15 also led to plan fixes.
+- Assumptions: see `## Assumptions (declared)`.
+- Spec ambiguities: none. Follow-up issues opened: none.
+- Facts checked: `parse_industry_xls` has a single caller in `src/` (`_import_files_into_run`, `damodaran.py:766-786`), with none in `scripts/`, `docs/pipeline` or `.github`. `derive_industry_columns` pops `debt_weight_raw` first and reads the other inputs with `.get` (`damodaran.py:491-509`), so `{field: 0.2}` does not raise. `wacc_sample.xls` parses to 96 rows, all 96 with a float `D/(D+E)` in `[0, 1)`. `_seeded_conn`, `_WACC_FIXTURE` and `_CTRY_FIXTURE` exist (`test_damodaran_datasets.py:27-28, 111-114`), and `import_damodaran_from_files` is keyword-only (`damodaran.py:864-870`). `_null_non_numeric_industry_cells` receives `parse_industry_xls`'s `column_map` parameter (`damodaran.py:571`). The invariant's message is `f"{dataset.key} maps non-columns: {sorted(stray)}"` (`test_damodaran_datasets.py:136`). The existing real-import test checks only margins and multiples (`:156-166`), and `test_damodaran_derived.py` tests the function, not an import.
