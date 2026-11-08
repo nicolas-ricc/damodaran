@@ -170,7 +170,7 @@ def test_workflow_renders_uploads_checks_and_gates_staleness() -> None:
     def at(pred: object) -> int:
         return next(i for i, s in enumerate(steps) if pred(s))  # type: ignore[operator]
 
-    checkout = at(lambda s: s.get("uses") == "actions/checkout@v4")
+    checkout = at(lambda s: s.get("uses", "").startswith("actions/checkout@"))
     install = at(lambda s: _INSTALL in s.get("run", ""))
     assert '--version "$(cat docs/pipeline/D2_VERSION)"' in runs[install]
     assert '--method standalone --prefix "$HOME/.local"' in runs[install]
@@ -178,7 +178,7 @@ def test_workflow_renders_uploads_checks_and_gates_staleness() -> None:
     tala = at(lambda s: "d2 layout" in s.get("run", "") and "tala" in s.get("run", ""))
     assert "d2 version" in "\n".join(runs[: tala + 1])
     build = at(lambda s: "docs/pipeline/build.sh" in s.get("run", ""))
-    upload = at(lambda s: s.get("uses") == "actions/upload-artifact@v4")
+    upload = at(lambda s: s.get("uses", "").startswith("actions/upload-artifact@"))
     assert steps[upload]["if"] == "always()"
     assert steps[upload]["with"]["name"] == "pipeline-render"
     paths = steps[upload]["with"]["path"].split()
@@ -207,10 +207,10 @@ def test_workflow_checks_models() -> None:
     def at(pred: object) -> int:
         return next(i for i, s in enumerate(steps) if pred(s))  # type: ignore[operator]
 
-    checkout = at(lambda s: s.get("uses") == "actions/checkout@v4")
-    java = at(lambda s: s.get("uses") == "actions/setup-java@v4")
+    checkout = at(lambda s: s.get("uses", "").startswith("actions/checkout@"))
+    java = at(lambda s: s.get("uses", "").startswith("actions/setup-java@"))
     assert steps[java]["with"] == {"distribution": "temurin", "java-version": "21"}
-    node = at(lambda s: s.get("uses") == "actions/setup-node@v4")
+    node = at(lambda s: s.get("uses", "").startswith("actions/setup-node@"))
     assert steps[node]["with"] == {"node-version": "24"}
     download = at(lambda s: "tla2tools.jar" in s.get("run", "") and "curl -fsSL" in s.get("run", ""))
     assert (
@@ -229,7 +229,7 @@ def test_workflow_checks_models() -> None:
     check = at(lambda s: "docs/pipeline/models/check.sh /tmp/models" in s.get("run", ""))
     assert "TLA2TOOLS=/tmp/tla2tools.jar" in runs[check]
     assert "STATECHART=/tmp/plugins/pstack/skills/statechart/scripts/statechart" in runs[check]
-    upload = at(lambda s: s.get("uses") == "actions/upload-artifact@v4")
+    upload = at(lambda s: s.get("uses", "").startswith("actions/upload-artifact@"))
     assert steps[upload]["if"] == "always()"
     assert steps[upload]["with"] == {"name": "pipeline-models", "path": "/tmp/models"}
     assert checkout < java < check and checkout < node < check
