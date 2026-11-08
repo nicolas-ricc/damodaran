@@ -21,13 +21,13 @@
 set -uo pipefail
 
 # Repo root = parent of this script's directory (resolve symlinks for cron).
-SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd -P)"
 REPO="$(dirname "$SCRIPT_DIR")"
 cd "$REPO" || exit 1
 
-# cron's PATH is minimal — make sure uv is findable.
-export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:$PATH"
-UV="$(command -v uv || echo "$HOME/.local/bin/uv")"
+# cron's PATH is minimal — make sure uv is findable. Appended, so a uv
+# already on PATH wins.
+export PATH="$PATH:$HOME/.local/bin:/usr/local/bin:/usr/bin"
 
 mkdir -p "$REPO/.cache"
 LOG="$REPO/.cache/price_fill.log"
@@ -42,10 +42,10 @@ if [ -z "${BOT_SYNCED:-}" ]; then
 fi
 
 echo "=== $(date -Is) run ===" >> "$LOG"
-"$UV" run bot refresh --prices --only-missing >> "$LOG" 2>&1
+uv run bot refresh --prices --only-missing >> "$LOG" 2>&1
 
 # Fundamentals-covered tickers still lacking any price row.
-MISSING=$("$UV" run python - <<'PY' 2>>"$LOG"
+MISSING=$(uv run python - <<'PY' 2>>"$LOG"
 import duckdb
 from bot.config import load_settings
 

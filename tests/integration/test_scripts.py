@@ -25,6 +25,7 @@ SCRIPTS = [
     "weekly.sh",
     "publish_site.sh",
     "sync_master.sh",
+    "price_fill.sh",
 ]
 
 # `uv run <cmd> ...` -> `<test venv>/bin/<cmd> ...`: real `bot`, no new venv.
@@ -38,9 +39,15 @@ exec "{VENV_BIN}/$1" "${{@:2}}"
 # where SUBCOMMAND is the bot subcommand: `uv run bot refresh ...` -> REFRESH.
 # The first FAKE_DEFERRED_ROUNDS `refresh --prices` calls also print the bot's
 # deferred NOTE, as a rate-limited price refresh does; FAKE_PRICES_EXIT, when
-# set, is the exit code of `refresh --prices` alone.
+# set, is the exit code of `refresh --prices` alone. `uv run python -` (the
+# price_fill.sh missing-count query) prints FAKE_MISSING (default 0) and nothing else.
 _UV_RECORDER = """#!/usr/bin/env bash
 echo "$*" >> "{calls}"
+if [ "$2" = python ]; then
+  cat > /dev/null
+  echo "${{FAKE_MISSING-0}}"
+  exit 0
+fi
 echo "fake uv: $*"
 if [ "$3 $4" = "refresh --prices" ]; then
   n=$(( $(cat "{calls}.rounds" 2>/dev/null || echo 0) + 1 ))
@@ -111,11 +118,16 @@ def _env(bin_dir: Path, **extra: str) -> dict[str, str]:
 
 
 def _run(
-    script: Path, *args: str, env: dict[str, str], stdin: str | None = None
+    script: Path,
+    *args: str,
+    env: dict[str, str],
+    stdin: str | None = None,
+    cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [str(script), *args],
         env=env,
+        cwd=cwd,
         input=stdin,
         stdin=None if stdin is not None else subprocess.DEVNULL,
         capture_output=True,
@@ -458,6 +470,105 @@ def test_wrapper_run_from_another_directory_logs_in_the_checkout(
     )
     assert (repo / ".cache" / "daily.log").exists()
     assert not (tmp_path / ".cache").exists()
+
+
+# --- price_fill.sh: the hourly Tiingo drip ---------------------------------------------
+
+_PRICE_FILL = ["run bot refresh --prices --only-missing", "run python -"]
+
+
+def _price_fill_log(repo: Path) -> str:
+    return (repo / ".cache" / "price_fill.log").read_text()
+
+
+def test_price_fill_uses_the_first_uv_on_path(
+    repo: Path, tmp_path: Path, recorder_bin: Path, calls: Path
+) -> None:
+    home = tmp_path / "home"
+    marker = tmp_path / "decoy-ran"
+    _write_exe(home / ".local" / "bin" / "uv", f'#!/usr/bin/env bash\ntouch "{marker}"\nexit 97\n')
+
+    result = _run(repo / "scripts" / "price_fill.sh", env=_env(recorder_bin, HOME=str(home)))
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls) == _PRICE_FILL
+    assert not marker.exists()
+
+
+def test_price_fill_through_a_symlink_logs_in_the_real_checkout(
+    repo: Path, tmp_path: Path, recorder_bin: Path
+) -> None:
+    link = tmp_path / "elsewhere" / "price_fill.sh"
+    link.parent.mkdir()
+    link.symlink_to(repo / "scripts" / "price_fill.sh")
+
+    result = _run(link, env=_env(recorder_bin), cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert " run ===" in _price_fill_log(repo)
+    assert not (tmp_path / ".cache").exists()
+    assert not (link.parent / ".cache").exists()
+
+
+def test_price_fill_run_from_another_directory_logs_in_the_checkout(
+    repo: Path, tmp_path: Path, recorder_bin: Path
+) -> None:
+    result = _run(repo / "scripts" / "price_fill.sh", env=_env(recorder_bin), cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert " run ===" in _price_fill_log(repo)
+    assert not (tmp_path / ".cache").exists()
+
+
+def test_price_fill_with_done_exits_0_without_uv(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    (repo / ".cache").mkdir()
+    (repo / ".cache" / "price_fill.DONE").touch()
+
+    result = _run(repo / "scripts" / "price_fill.sh", env=_env(recorder_bin))
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls) == []
+    assert not (repo / ".cache" / "price_fill.log").exists()
+
+
+def test_price_fill_writes_done_when_nothing_is_missing(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    env = _env(recorder_bin, FAKE_MISSING="0")
+
+    result = _run(repo / "scripts" / "price_fill.sh", env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls) == _PRICE_FILL
+    assert (repo / ".cache" / "price_fill.DONE").exists()
+    log = _price_fill_log(repo)
+    assert "missing=0\n" in log
+    assert "FILLED" in log
+
+
+def test_price_fill_with_tickers_missing_keeps_going(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    env = _env(recorder_bin, FAKE_MISSING="12")
+
+    result = _run(repo / "scripts" / "price_fill.sh", env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls) == _PRICE_FILL
+    assert not (repo / ".cache" / "price_fill.DONE").exists()
+    log = _price_fill_log(repo)
+    assert "missing=12\n" in log
+    assert "FILLED" not in log
+
+
+def test_price_fill_with_no_count_logs_a_question_mark(repo: Path, recorder_bin: Path) -> None:
+    result = _run(repo / "scripts" / "price_fill.sh", env=_env(recorder_bin, FAKE_MISSING=""))
+
+    assert result.returncode == 0, result.stderr
+    assert "missing=?\n" in _price_fill_log(repo)
+    assert not (repo / ".cache" / "price_fill.DONE").exists()
 
 
 _UA = "Jane Doe jane@example.com"
@@ -937,3 +1048,19 @@ def test_wrapper_with_a_failing_pull_logs_it_and_still_runs(
     assert result.returncode == 0, result.stderr
     assert _calls(calls) == _WRAPPERS["daily.sh"]
     assert "sync_master: pull failed" in (repo / ".cache" / "daily.log").read_text()
+
+
+def test_price_fill_pulls_origin_master_before_running(
+    behind_origin: Path, recorder_bin: Path, calls: Path
+) -> None:
+    repo = behind_origin
+
+    result = _run(repo / "scripts" / "price_fill.sh", env=_env(recorder_bin, **_GIT_ENV))
+
+    assert result.returncode == 0, result.stderr
+    assert (repo / "NEW").read_text() == "from origin\n"
+    assert _calls(calls) == _PRICE_FILL
+    log = _price_fill_log(repo)
+    assert log.index(" sync ===") < log.index(" run ===")
+    assert "sync_master: master " in log
+    assert log.count(" sync ===") == 1
