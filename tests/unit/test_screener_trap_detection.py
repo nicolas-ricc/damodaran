@@ -10,9 +10,12 @@ an explicit hand-computed expected-value test.
 
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from bot.screener.rules import (
+    AuditorChangesAndLateFilings,
     OperatingMarginNotContracting,
     RevenueNotDeclining,
     ROICAboveSectorWACC,
@@ -420,3 +423,114 @@ def test_share_count_within_cap_ignores_acquisitions() -> None:
     )
     assert result.passed is True
     assert result.reason == "avg share-count growth 0.030 <= maximum 0.050"
+# --------------------------------------------------------------------------- #
+# AuditorChangesAndLateFilings
+# --------------------------------------------------------------------------- #
+_AS_OF = date(2026, 5, 29)
+
+
+def _governance(
+    auditor: tuple[date, ...] | None = (),
+    late: tuple[date, ...] | None = (),
+    as_of: date | None = _AS_OF,
+) -> CompanyData:
+    return _company(as_of=as_of, auditor_change_dates=auditor, late_filing_dates=late)
+
+
+def test_auditor_rule_registered() -> None:
+    assert get_rule("auditor_changes_and_late_filings") is AuditorChangesAndLateFilings
+
+
+def test_auditor_rule_skips_without_filing_history() -> None:
+    result = AuditorChangesAndLateFilings().evaluate(
+        _governance(auditor=None, late=None), _benchmarks()
+    )
+    assert result.skipped is True
+    assert result.passed is False
+    assert result.reason == (
+        "no SEC filing history: auditor changes and late filings are unknown outside the US"
+    )
+
+
+def test_auditor_rule_fails_on_recent_auditor_change() -> None:
+    result = AuditorChangesAndLateFilings().evaluate(
+        _governance(auditor=(date(2025, 5, 29),)), _benchmarks()
+    )
+    assert result.passed is False
+    assert result.skipped is False
+    assert "auditor change" in result.reason
+    assert "2025-05-29" in result.reason
+
+
+def test_auditor_rule_passes_on_old_auditor_change() -> None:
+    result = AuditorChangesAndLateFilings().evaluate(
+        _governance(auditor=(date(2023, 5, 29),)), _benchmarks()
+    )
+    assert result.passed is True
+
+
+def test_auditor_rule_fails_on_recent_late_filing() -> None:
+    result = AuditorChangesAndLateFilings().evaluate(
+        _governance(late=(date(2025, 5, 29),)), _benchmarks()
+    )
+    assert result.passed is False
+    assert result.skipped is False
+    assert "late-filing" in result.reason
+
+
+def test_auditor_rule_passes_with_empty_history() -> None:
+    result = AuditorChangesAndLateFilings().evaluate(_governance(), _benchmarks())
+    assert result.passed is True
+    assert result.reason == (
+        "no auditor change or late-filing notice in the last 2 years of SEC filings"
+    )
+
+
+def test_auditor_rule_without_as_of_counts_any_filing() -> None:
+    # No snapshot date, no window: a known adverse filing counts.
+    result = AuditorChangesAndLateFilings().evaluate(
+        _governance(auditor=(date(2010, 1, 1),), as_of=None), _benchmarks()
+    )
+    assert result.passed is False
+
+
+def test_auditor_rule_wider_window_catches_old_change() -> None:
+    result = AuditorChangesAndLateFilings(window_years=5).evaluate(
+        _governance(auditor=(date(2023, 5, 29),)), _benchmarks()
+    )
+    assert result.passed is False
+
+
+def test_auditor_rule_one_field_none_other_recent_fails() -> None:
+    result = AuditorChangesAndLateFilings().evaluate(
+        _governance(auditor=None, late=(date(2025, 5, 29),)), _benchmarks()
+    )
+    assert result.passed is False
+    assert result.skipped is False
+
+
+def test_auditor_rule_future_filing_counts_as_recent() -> None:
+    # Filings fetched after the newest price: still a current signal.
+    result = AuditorChangesAndLateFilings().evaluate(
+        _governance(late=(date(2026, 6, 15),)), _benchmarks()
+    )
+    assert result.passed is False
+
+
+def test_auditor_rule_window_bound_is_inclusive() -> None:
+    # Exactly 2 x 365 days before as_of is still inside the window.
+    result = AuditorChangesAndLateFilings().evaluate(
+        _governance(auditor=(date(2024, 5, 29),)), _benchmarks()
+    )
+    assert (_AS_OF - date(2024, 5, 29)).days == 730
+    assert result.passed is False
+
+
+def test_auditor_rule_reason_names_newest_date() -> None:
+    result = AuditorChangesAndLateFilings().evaluate(
+        _governance(auditor=(date(2019, 1, 1), date(2025, 1, 10), date(2025, 11, 3))),
+        _benchmarks(),
+    )
+    assert result.reason == (
+        "auditor change reported on 2025-11-03 (8-K item 4.01), within the last 2 years"
+    )

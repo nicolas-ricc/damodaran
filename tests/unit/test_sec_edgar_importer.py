@@ -12,6 +12,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import duckdb
+import pytest
 
 from bot.ingest.base import IngestResult
 from bot.ingest.provider import CompanyInfo
@@ -108,3 +109,36 @@ def test_upsert_filings_preserves_fetched_at() -> None:
 
     rows = conn.execute("SELECT accession_number, fetched_at FROM filings_log").fetchall()
     assert rows == [("0002", first_seen)]
+
+
+# ---------------------------------------------------------------------------
+# #275 — upsert_filings keeps the 8-K items whichever row arrives second
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("items_first", [False, True])
+def test_upsert_filings_keeps_items_whichever_row_arrives_second(items_first: bool) -> None:
+    from datetime import date, datetime
+
+    from bot.ingest.sec_edgar import upsert_filings
+
+    conn = duckdb.connect(":memory:")
+    apply_schema(conn)
+    bare = {
+        "ticker": "AAPL",
+        "filing_type": "8-K",
+        "filing_date": date(2026, 5, 20),
+        "accession_number": "0000320193-26-000050",
+        "source": "edgar_tiingo",
+    }
+    with_items = {**bare, "items": "4.01,9.01"}
+    first, second = (with_items, bare) if items_first else (bare, with_items)
+
+    upsert_filings(conn, [first])
+    first_seen = datetime(2026, 5, 21, 9, 0)
+    conn.execute("UPDATE filings_log SET fetched_at = ?", [first_seen])
+    upsert_filings(conn, [second])
+
+    assert conn.execute("SELECT items, fetched_at FROM filings_log").fetchall() == [
+        ("4.01,9.01", first_seen)
+    ]

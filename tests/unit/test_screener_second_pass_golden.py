@@ -29,6 +29,8 @@ Re-run for #213 (mature-decline keeps its own margin): unchanged, no seeded comp
 declines.
 
 Re-run for #213 (distressed p from coverage): unchanged — no seeded company is distressed.
+
+Re-run for #276 (governance trap rule): only 'auditor_changes_and_late_filings' appended to each passed_gates; no score changes.
 """
 
 from __future__ import annotations

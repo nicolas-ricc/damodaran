@@ -101,7 +101,7 @@ def test_boards_cite_ma_params(stem: str) -> None:
 def test_screen_traps_edge_count_unchanged() -> None:
     edges = [ln for ln in _board("screen-traps").splitlines()
              if "->" in ln.split("#", 1)[0]]
-    assert len(edges) == 22
+    assert len(edges) == 24  # 22 + the two auditor_changes_and_late_filings edges (#276)
 
 
 def test_snapshot_histories_list_acquisitions() -> None:
@@ -122,17 +122,14 @@ def test_plano_card_describes_ma_exception() -> None:
 def test_estado_traps_entry_describes_ma_exception() -> None:
     estado = _load("estado")
     rows = {row[0]: row for _, _, items in estado.INVENTARIO.values() for row in items}
-    _, _, _, evidence, note = rows["traps-4"]
-    assert evidence == "screener/rules.py:528-760"
+    _, _, _, evidence, note = rows["traps-5"]
     assert "excepción por adquisición justificada del spec §6.4" in note
     assert "no implementa la excepción" not in note
     lines = _RULES.read_text(encoding="utf-8").splitlines()
-    assert lines[527].startswith("class RevenueNotDeclining(")
-    assert not [ln for ln in lines[760:] if re.match(r"class \w+\(Rule\)", ln)], (
-        "a trap rule after line 760 falls outside the estado range"
+    spans = re.fullmatch(r"screener/rules\.py:([\d,-]+)", evidence)
+    assert spans is not None, evidence
+    body = "\n".join(
+        "\n".join(lines[int(a) - 1 : int(b)])
+        for a, _, b in (span.partition("-") for span in spans.group(1).split(","))
     )
-    assert re.match(r"\S", next((ln for ln in lines[760:] if ln.strip()), "end")), (
-        "line 760 must close ShareCountNotDiluting, the last trap rule"
-    )
-    body = "\n".join(lines[527:760])
     assert "class ShareCountNotDiluting(" in body

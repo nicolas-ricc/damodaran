@@ -29,6 +29,7 @@ duckdb: "DuckDB (bot.duckdb)" {
   currencies: {class: store}  # @table currencies
   damodaran_industry: {class: store}  # @table damodaran_industry
   damodaran_country: {class: store}  # @table damodaran_country
+  filings_log: {class: store}  # @table filings_log
   screener_candidates: {class: store}  # @table screener_candidates
 }
 
@@ -172,10 +173,12 @@ trap_detection: "5. trap detection: every detector must pass" {
   share_count_not_diluting: "average diluted share count growth ≤ 5% a year\nover the whole share history\nunless cash paid for acquisitions over the last 3 reported fiscal years\n≥ 10% of the latest total assets\nfewer than 2 counts or undefined growth: fails" {  # @rule share_count_not_diluting @param share_count_not_diluting.max_annual_growth @param share_count_not_diluting.ma_window @param share_count_not_diluting.ma_materiality
     class: decision
   }
+  auditor_changes_and_late_filings: "no auditor change (8-K item 4.01) and\nno notification of late filing (NT 10-K, NT 10-Q)\nin the last 2 years of Securities and Exchange Commission (SEC) filings,\nread from filings_log\noutside the US dataset region: skipped" {  # @rule auditor_changes_and_late_filings @param auditor_changes_and_late_filings.window_years @const bot.ingest.sec_edgar.AUDITOR_CHANGE_ITEM @table filings_log
+    class: decision
+  }
   all_pass: "every trap detector passed?\na skipped detector is eliminatory, ADR 0006 (Implemented)\nno: rejected" {  # @symbol bot.screener.engine.evaluate_company
     class: decision
   }
-  auditor: |md Gap: spec §6.4 also lists auditor changes and late filings; not implemented. | {class: gap}
 }
 
 # Layer 6: ranking
@@ -276,6 +279,8 @@ trap_detection.operating_margin_not_contracting -> trap_detection.all_pass: "pas
 trap_detection.roic_above_sector_wacc -> trap_detection.all_pass: "pass, fail or skipped"
 trap_detection.sloan_accruals_below -> trap_detection.all_pass: "pass or fail"
 trap_detection.share_count_not_diluting -> trap_detection.all_pass: "pass or fail"
+trap_detection.auditor_changes_and_late_filings -> trap_detection.all_pass: "pass, fail or skipped"
+duckdb.filings_log -> trap_detection.auditor_changes_and_late_filings: "auditor-change and late-filing dates"
 
 # Edges: verdicts, ranking and the DCF seam
 quality_gates.all_pass -> persist_and_report.persist: "no: one rejected row per company,\nfailed rules of every layer"

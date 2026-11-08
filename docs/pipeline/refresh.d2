@@ -111,7 +111,7 @@ fundamentals: "2. fundamentals" {
   mapping_valid: "every target on the Damodaran industry list,\nno duplicate (provider, label) row?\nno: the load fails and no ticker is imported" {  # @symbol bot.reference.industries
     class: decision
   }
-  skip: "latest filing already stored?\nprovider's newest 10-K, 10-Q or 20-F filing date (amendments too)\nis not after the newest filings_log date of this provider:\nyes: skipped, no import\n--force bypasses the check; a probe error imports anyway" {  # @symbol bot.ingest.universe._should_skip
+  skip: "latest filing already stored?\nprovider's newest 10-K, 10-Q or 20-F filing date (amendments too), a notification of late filing (NT 10-K, NT 10-Q)\nor an 8-K reporting an auditor change (item 4.01)\nis not after the newest filings_log date of this provider:\nyes: skipped, no import\n--force bypasses the check; a probe error imports anyway" {  # @symbol bot.ingest.universe._should_skip @const bot.ingest.sec_edgar.AUDITOR_CHANGE_ITEM
     class: decision
   }
   import: "import one ticker\nfetch company facts and submissions, parse them,\nthen write in one transaction:\ncompanies, financials_annual, financials_quarterly, filings_log" {  # @symbol bot.ingest.universe.refresh_universe @symbol bot.ingest.universe.import_company
@@ -255,7 +255,7 @@ fundamentals.rate_limit -> fundamentals.status: "no: imported or failed; yes: th
 fundamentals.import -> duckdb.companies: "company row with industry_damodaran"
 fundamentals.fiscal -> duckdb.financials_quarterly: "quarterly rows"
 fundamentals.shares -> duckdb.financials_annual: "annual rows, share counts corrected"
-fundamentals.import -> duckdb.filings_log: "one row per form and filing date"
+fundamentals.import -> duckdb.filings_log: "one row per form and filing date; 8-K rows carry their item numbers"
 fundamentals.import -> duckdb.refresh_log: "one row per ticker, source = provider name"
 fundamentals.status -> duckdb.refresh_log: "one summary row, source = provider name + _universe"
 

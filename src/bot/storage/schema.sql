@@ -160,10 +160,15 @@ CREATE TABLE IF NOT EXISTS filings_log (
     filing_type     VARCHAR NOT NULL,
     filing_date     DATE NOT NULL,
     accession_number VARCHAR,
+    items           VARCHAR,
     source          VARCHAR NOT NULL,
     fetched_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (ticker, filing_type, filing_date, source)
 );
+
+-- Adds the #275 8-K item numbers (e.g. `4.01,9.01`) to existing DBs; NULL for
+-- every other row. Idempotent. Rollback: DROP COLUMN items.
+ALTER TABLE filings_log ADD COLUMN IF NOT EXISTS items VARCHAR;
 
 CREATE TABLE IF NOT EXISTS refresh_log (
     source          VARCHAR NOT NULL,

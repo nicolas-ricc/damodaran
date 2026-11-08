@@ -389,6 +389,7 @@ _REQUIRED_TABLES: dict[str, set[str]] = {
         "damodaran_industry",
         "damodaran_country",
         "screener_candidates",
+        "filings_log",
     },
     "analyze": {
         "screener_candidates",
@@ -720,6 +721,7 @@ _REQUIRED: dict[str, dict[str, set[str]]] = {
 # its line with, the expansion. Any all-caps token not listed here or in
 # _ACRONYMS_EXEMPT fails the suite, so a new acronym cannot slip in unexplained.
 _ACRONYMS: dict[str, str] = {
+    "NT": "notification of late filing",
     "SEC": "Securities and Exchange Commission",
     "EDGAR": "Electronic Data Gathering, Analysis, and Retrieval",
     "EOD": "end of day",
@@ -1292,7 +1294,7 @@ _SCREEN_NODES: list[tuple[str, str]] = (
         ("value_indicators.at_least_one", "decision"),
         ("trap_detection.growth_rate", "step"),
         ("trap_detection.all_pass", "decision"),
-        ("trap_detection.auditor", "gap"),
+        ("trap_detection.auditor_changes_and_late_filings", "decision"),
         ("ranking.metrics", "step"),
         ("ranking.metrics.spec_scores", "gap"),
         ("ranking.percentiles", "step"),
@@ -1498,7 +1500,6 @@ def test_screen_rule_directions_match_code(
 
 def test_screen_gap_notes() -> None:
     assert "21%" in _screen_block("snapshot.tax.fallback")
-    assert "auditor" in _screen_block("trap_detection.auditor")
     spec_scores = _screen_block("ranking.metrics.spec_scores")
     assert "margin stability" in spec_scores and "free cash flow growth" in spec_scores
 
@@ -2627,6 +2628,11 @@ def _cited_values(board: str) -> dict[int, list[float]]:
     def flat(v: Any) -> list[float]:
         if isinstance(v, (list, tuple)):
             return [x for y in v for x in flat(y)]
+        if isinstance(v, str):  # a numeric string constant, e.g. an 8-K item number
+            try:
+                return [float(v)]
+            except ValueError:
+                return []
         ok = isinstance(v, (int, float)) and not isinstance(v, bool)
         return [float(v)] if ok else []
 

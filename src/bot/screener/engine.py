@@ -28,6 +28,12 @@ from pathlib import Path
 import duckdb
 import structlog
 
+from bot.ingest.sec_edgar import (
+    AUDITOR_CHANGE_FORMS,
+    LATE_FILING_FORMS,
+    is_auditor_change,
+    is_late_filing,
+)
 from bot.reference.currencies import CurrencyTable, load_currency_table, normalize_currency
 from bot.reference.default_spreads import DefaultSpreadTable
 from bot.reference.regions import dataset_region
@@ -381,6 +387,45 @@ def _load_latest_prices(
     return out
 
 
+@dataclass(frozen=True)
+class _GovernanceFilings:
+    """One ticker's auditor-change and late-filing dates (distinct, ascending)."""
+
+    auditor_changes: tuple[date, ...]
+    late_filings: tuple[date, ...]
+
+
+def _load_governance_filings(
+    conn: duckdb.DuckDBPyConnection,
+) -> dict[str, _GovernanceFilings]:
+    """Auditor-change and late-filing dates per ticker, from ``filings_log``.
+
+    One ``IN (...)`` scan over the union of both form sets, rows from any source;
+    each row is classified in Python. Tickers with no such row are absent.
+    """
+    forms = sorted(AUDITOR_CHANGE_FORMS | LATE_FILING_FORMS)
+    placeholders = ", ".join("?" for _ in forms)
+    rows = conn.execute(
+        "SELECT ticker, filing_type, filing_date, items FROM filings_log "
+        f"WHERE filing_type IN ({placeholders})",
+        forms,
+    ).fetchall()
+    auditor: dict[str, set[date]] = defaultdict(set)
+    late: dict[str, set[date]] = defaultdict(set)
+    for ticker, form, filing_date, items in rows:
+        if is_auditor_change(form, items):
+            auditor[ticker].add(filing_date)
+        if is_late_filing(form):
+            late[ticker].add(filing_date)
+    return {
+        ticker: _GovernanceFilings(
+            auditor_changes=tuple(sorted(auditor.get(ticker, ()))),
+            late_filings=tuple(sorted(late.get(ticker, ()))),
+        )
+        for ticker in auditor.keys() | late.keys()
+    }
+
+
 def _resolve_region(conn: duckdb.DuckDBPyConnection, country: str | None) -> str:
     """The Damodaran *dataset* region for a company's country (spec §5.1).
 
@@ -480,6 +525,7 @@ def build_company_data(
     close: float | None,
     currency: str | None = None,
     as_of: date | None = None,
+    governance: _GovernanceFilings | None = None,
 ) -> CompanyData:
     """Assemble a pure :class:`CompanyData` snapshot for one company (spec §5/§6).
 
@@ -492,7 +538,12 @@ def build_company_data(
     ratios (EV/EBITDA, FCF yield) are computed from it directly, but the stored
     :attr:`CompanyData.market_cap` is converted to USD (via ``currency`` /
     ``as_of``) so the absolute MinMarketCap gate compares like with like.
+
+    ``governance`` carries the company's auditor-change / late-filing dates. SEC
+    filings exist only for US companies, so outside the US both date fields stay
+    ``None`` (unknown); in the US a missing entry means none were filed.
     """
+    region = _resolve_region(conn, company.country)
     latest = annual[-1] if annual else None
 
     revenue_history = _tuple([r.revenue for r in annual])
@@ -558,12 +609,18 @@ def build_company_data(
         if fcf is not None and market_cap is not None and market_cap != 0.0:
             fcf_yield = fcf / market_cap
 
+    auditor_change_dates: tuple[date, ...] | None = None
+    late_filing_dates: tuple[date, ...] | None = None
+    if region == DEFAULT_REGION:
+        auditor_change_dates = governance.auditor_changes if governance else ()
+        late_filing_dates = governance.late_filings if governance else ()
+
     industry = company.industry_damodaran or company.industry
     return CompanyData(
         ticker=company.ticker,
         name=company.name,
         industry=industry,
-        region=_resolve_region(conn, company.country),
+        region=region,
         market_cap=_market_cap_usd(conn, market_cap, currency, as_of),
         years_of_financials=len(annual),
         is_financial_services=industry_is_financial_services(company.industry_damodaran),
@@ -587,6 +644,9 @@ def build_company_data(
         acquisitions_history=acquisitions_history,
         net_income=net_income,
         operating_cashflow=operating_cashflow,
+        as_of=as_of,
+        auditor_change_dates=auditor_change_dates,
+        late_filing_dates=late_filing_dates,
     )
 
 
@@ -610,6 +670,7 @@ def load_holding_inputs(
     ).fetchall()
     all_annual = _load_all_annual(conn)
     all_prices = _load_latest_prices(conn)
+    governance = _load_governance_filings(conn)
     out: dict[str, tuple[CompanyData, IndustryBenchmarks | None]] = {}
     for r in rows:
         row = _CompanyRow(
@@ -624,6 +685,7 @@ def load_holding_inputs(
             close=price.close if price else None,
             currency=price.currency if price else None,
             as_of=price.as_of if price else None,
+            governance=governance.get(row.ticker),
         )
         benchmarks = load_industry_benchmarks(
             conn,
@@ -807,6 +869,7 @@ def run_screen(
     # handful of queries per company inside the loop.
     all_annual = _load_all_annual(conn)
     all_prices = _load_latest_prices(conn)
+    governance = _load_governance_filings(conn)
     table = currencies if currencies is not None else load_currency_table()
     reporting_currencies = _load_reporting_currencies(conn)
     uncovered_by_currency: dict[str | None, int] = defaultdict(int)
@@ -828,6 +891,7 @@ def run_screen(
             close=price.close if price else None,
             currency=price.currency if price else None,
             as_of=price.as_of if price else None,
+            governance=governance.get(row.ticker),
         )
         region = company.region or DEFAULT_REGION
         cache_key = (company.industry, region)
