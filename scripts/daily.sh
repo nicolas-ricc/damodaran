@@ -12,9 +12,9 @@
 # BOT_DB_LOCK_WAIT seconds (default 900) for it; on timeout it fails with a
 # logged "lock timeout:" line and exit 75.
 #
-# Output appends to .cache/daily.log; the exit code is the bot's. `bot
-# portfolio` reads the previous business day's Flex statement; it needs
-# BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID and no TWS.
+# Output appends to .cache/daily.log; the exit code is the bot's, or 75 after a
+# lock timeout. `bot portfolio` reads the previous business day's Flex
+# statement; it needs BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID and no TWS.
 set -uo pipefail
 
 # Repo root = parent of this script's directory (resolve symlinks for cron).

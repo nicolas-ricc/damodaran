@@ -493,7 +493,12 @@ def test_wrapper_waits_for_the_db_lock_then_runs(
             proc.kill()
             proc.wait()
             raise
-    returncode = proc.wait(timeout=60)
+    try:
+        returncode = proc.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        raise
 
     assert returncode == 0
     assert _calls(calls) == _WRAPPERS[name]
@@ -511,8 +516,9 @@ def test_daily_releases_the_db_lock_during_the_pause_between_rounds(
     assert [c for c in _calls(calls) if c.startswith("sleep ")] == ["sleep 3600 lock-free"] * 2
 
 
+@pytest.mark.parametrize("name", list(_WRAPPERS))
 def test_wrapper_holds_the_db_lock_while_bot_runs(
-    repo: Path, recorder_bin: Path, calls: Path
+    name: str, repo: Path, recorder_bin: Path, calls: Path
 ) -> None:
     lock = repo / _LOCK_REL
     (recorder_bin / "uv").rename(recorder_bin / "uv-real")
@@ -522,7 +528,7 @@ def test_wrapper_holds_the_db_lock_while_bot_runs(
         + _probe(lock, "uv $*", calls)
         + f'exec "{recorder_bin / "uv-real"}" "$@"\n',
     )
-    result = _run(repo / "scripts" / "daily.sh", env=_env(recorder_bin))
+    result = _run(repo / "scripts" / name, env=_env(recorder_bin))
 
     assert result.returncode == 0, result.stderr
     probes = [c for c in _calls(calls) if c.startswith("uv run bot ")]
@@ -543,12 +549,15 @@ exec "$@"
 """
 
 
-@pytest.mark.parametrize(("wait", "expected"), [("5", "-w 5"), ("soon", "-w 900")])
+@pytest.mark.parametrize(
+    ("wait", "expected"), [("5", "-w 5"), ("soon", "-w 900"), (None, "-w 900")]
+)
 def test_wrapper_lock_wait_is_configurable_and_falls_back_when_invalid(
-    repo: Path, recorder_bin: Path, calls: Path, wait: str, expected: str
+    repo: Path, recorder_bin: Path, calls: Path, wait: str | None, expected: str
 ) -> None:
     _write_exe(recorder_bin / "flock", _FAKE_FLOCK.format(calls=calls))
-    result = _run(repo / "scripts" / "daily.sh", env=_env(recorder_bin, BOT_DB_LOCK_WAIT=wait))
+    extra = {} if wait is None else {"BOT_DB_LOCK_WAIT": wait}
+    result = _run(repo / "scripts" / "daily.sh", env=_env(recorder_bin, **extra))
 
     assert result.returncode == 0, result.stderr
     flocks = [c for c in _calls(calls) if c.startswith("flock ")]
