@@ -8,6 +8,8 @@
 
 **Tech Stack:** Python 3.12, DuckDB, structlog, pytest, mypy --strict.
 
+**Stage 3 (evals):** before Task 1, the pipeline commits every test this plan names as `test(#271): evals`, failing. The tasks' Step 1 runs them. New tests seed an in-memory DuckDB through `bot.storage.db.apply_schema` and plain INSERTs, as `tests/unit/test_valuation_bulk_load.py` does (`_company` and `conn` fixture).
+
 **Spec:** GitHub issue #271 (`gh issue view 271 --repo nicolas-ricc/damodaran --comments`). The triage comment's **Agent Brief** is the binding spec.
 
 ## Global Constraints
@@ -22,12 +24,22 @@
 ## Assumptions (declared)
 
 - **Unmapped input is returned unchanged (stripped), not `None`.** The `WHERE country = ?` lookup then misses exactly as it does today: the screener falls back to `DEFAULT_TAX_RATE` / `DEFAULT_REGION`, and the valuator's country row is `None`. "keeps today's fallbacks" therefore holds by construction.
-- **Normalisation.** The input is stripped. A two-letter input is matched upper-cased (`"us"` → `"United States"`). Any other input that is a value of the mapping passes through as-is. `None` → `None`. An empty or whitespace-only string → `None` (today, such a value matches no row either).
-- **Log once per code.** `log.warning("reference.country_unmapped", country=<stripped input>)`, logged once per process per distinct stripped input through a module-level `set[str]`. This mirrors the `warned` set idiom in `assumptions._warn_uncovered`, without threading a parameter through every caller. The bot is a CLI, so one process is one run.
+- **Normalisation.** The input is stripped. A two-letter input is matched upper-cased (`"us"` → `"United States"`). Any other input that is a value of the mapping or in `SUBNATIONAL_SHEET_ROWS` (`"Abu Dhabi"` has a real `damodaran_country` row) passes through as-is, without a warning (`test_damodaran_names_pass_through_silently`). Any other value, including alpha-3 (`"USA"`) or a name variant left in an older DuckDB file, is unmapped. `None` → `None`. An empty or whitespace-only string → `None` (today, such a value matches no row either).
+- **Log once per code.** `log.warning("reference.country_unmapped", country=<key>)`, logged once per process per distinct key through a module-level `_warned: set[str]`. The key is the normalised input: upper-cased when it is two letters, so `"xx"` and `"XX"` warn once, and stripped otherwise. The rejected alternative was the caller-passed `warned` parameter of `assumptions._warn_uncovered` (`src/bot/valuator/assumptions.py:391-397`). Threading it through the screener, both valuator loaders and `dataset_region` would change four signatures for a log line. The bot is a CLI, so one process is one run. Tests isolate the set with `monkeypatch.setattr(countries, "_warned", set())`.
+- **Today's empty-batch behaviour is kept.** The bulk loaders already send a possibly empty list to `WHERE country IN (SELECT unnest(?::VARCHAR[]))` (`assumptions.py:476-484`, `analysis.py:570-579`). Translating does not change that.
+- **`_resolve_region` with `None`.** Today it returns `DEFAULT_REGION` for `country=None` (`engine.py:437-438`), and `dataset_region(None, None)` is `DEFAULT_DATASET_REGION` (`regions.py:66-72`). The translated name is `None` only for `None` or blank input, so the early return keeps the same result.
+- **Non-ISO two-letter codes (`"UK"`, `"EU"`).** Nothing written says FMP emits them. They are unmapped, so they log once and keep today's fallbacks, as the brief requires for any unmapped code. No alias is added.
+- **A future sheet that renames or adds a country** (Eswatini, Türkiye, …). The fixture tests cannot see a future sheet. The opt-in live test (`tests/integration/test_damodaran_live.py`, `BOT_LIVE_TESTS=1`, which already downloads today's `ctryprem.xls`) gains one assertion: every imported `damodaran_country.country` is a mapping value or in `SUBNATIONAL_SHEET_ROWS`. A rename surfaces there as an unmapped new name.
+- **Commits between tasks may leave stage-3 tests red.** CI runs the suite on the pull request (`.github/workflows/site.yml`), not on each commit, and the pipeline commits the failing evals first by design.
 - **Mapping source.** Its values are exactly the 178 country names in `tests/fixtures/damodaran/ctryprem_sample.xls` (the January 2026 sheet, `parse_country_xls` with `DEFAULT_COUNTRY_COLUMN_MAP`), minus three sub-national UAE emirates that have no ISO alpha-2 code: `"Abu Dhabi"`, `"Ras Al Khaimah (Emirate of)"` and `"Sharjah"`. They are listed in `SUBNATIONAL_SHEET_ROWS`. `"AE"` maps to `"United Arab Emirates"`. That leaves 175 codes. Territories with their own alpha-2 code (HK, MO, TW, GG, JE, IM, BM, KY, CW, SX, …) map to their own rows.
 - **"a code a known provider can emit".** The known providers are EDGAR (always `"US"`, `src/bot/ingest/sec_edgar.py:163,416`) and FMP (the profile's `country`, ISO alpha-2). The test reads EDGAR's code from `parse_submissions_info(...)` and `parse_company_facts(...)`. It reads FMP's codes from every `"country": "XX"` recorded in `tests/fixtures/cassettes/**/*.yaml` (today CH, DE, JP and US). It asserts that each one maps. FMP can emit any ISO country, so the sheet-coverage test is what bounds the domain.
 - **`dataset_region` translates internally**, so `dataset_region("CN", None) == "China"`. Callers that already pass a translated name hit the pass-through.
 - **Docs.** CONTEXT.md gains a glossary entry, **Company country**. The `regions.py` module docstring gains one line pointing at `countries.py`. The pipeline boards (`docs/pipeline/*.d2`) are not edited: their labels describe the lookup at a level this fix does not change, and `check.py` only checks that cited symbols exist, which they still do.
+- **The reader list is complete.** `grep -rn "damodaran_country\|COUNTRY_REGION_OVERRIDES\|dataset_region(" src/bot` outside the importer gives exactly the six functions in Tasks 2-4, plus `dataset_region` itself. `_warn_uncovered` is about currencies, not countries (`assumptions.py:391-397`), so an unmapped country logs one warning only.
+- **The equivalence tests compare `AssumptionInputs.country` (the `_CountryRow`) and `ValuationInput.sector` (the `_SectorMultiples`, region included).** `company.country` keeps the raw ISO code on both paths.
+- **Coverage is an equality.** `test_every_sheet_country_has_an_iso_code` asserts `set(parsed sheet names) == set(ISO_TO_DAMODARAN_COUNTRY.values()) | SUBNATIONAL_SHEET_ROWS`, so a stray footer row fails it. The 178 names and the mapping literal both came from the `parse_country_xls(..., column_map=DEFAULT_COUNTRY_COLUMN_MAP)` output, compared by exact string equality: empty set difference both ways.
+- **The live guard is opt-in.** That is the repository's existing rule for the live sheet (`src/bot/ingest/damodaran.py:9-11`: "run `BOT_LIVE_TESTS=1 uv run pytest -m live`"). This plan does not change it.
+- **Boards untouched.** Editing a `.d2` label also requires a re-rendered SVG and `rendered.sha256` (`docs/pipeline/check.py:5-10`), and no board needs to cite every module.
 - **Plan location `docs/plans/`** follows the recent issue plans.
 
 ## Acceptance criteria → tests
@@ -56,6 +68,7 @@
 
 **Files:**
 - Create: `src/bot/reference/countries.py`
+- Modify: `tests/integration/test_damodaran_live.py`
 - Test: `tests/unit/test_reference_countries.py` (written in stage 3, already failing)
 
 **Interfaces:**
@@ -114,8 +127,9 @@ SUBNATIONAL_SHEET_ROWS: frozenset[str] = frozenset(
 ```
 
   Write `damodaran_country_name` following the "Normalisation" and "Log once per code" assumptions above.
-- [ ] **Step 3: Run the tests.** Run: `uv run pytest tests/unit/test_reference_countries.py -q && uv run mypy src`. Expected: PASS.
-- [ ] **Step 4: Commit** `feat(#271): ISO alpha-2 to Damodaran country name mapping`.
+- [ ] **Step 3: Live-sheet guard.** In `tests/integration/test_damodaran_live.py`, after the import, assert `{r[0] for r in conn.execute('SELECT country FROM damodaran_country').fetchall()} <= set(ISO_TO_DAMODARAN_COUNTRY.values()) | SUBNATIONAL_SHEET_ROWS`. The assertion is skipped without `BOT_LIVE_TESTS=1`, like the rest of that file.
+- [ ] **Step 4: Run the tests.** Run: `uv run pytest tests/unit/test_reference_countries.py -q && uv run mypy src`. Expected: PASS.
+- [ ] **Step 5: Commit** `feat(#271): ISO alpha-2 to Damodaran country name mapping`.
 
 ### Task 2: `dataset_region` and the screener resolvers translate
 
@@ -144,7 +158,7 @@ SUBNATIONAL_SHEET_ROWS: frozenset[str] = frozenset(
 
 - [ ] **Step 1: Run the stage-3 tests to see them fail.** Run: `uv run pytest tests/unit/test_country_iso_lookups.py -k "valuator or assumption" -q`.
 - [ ] **Step 2:** `_load_country` queries with the translated name. In the bulk loader, build `names = {c.country: damodaran_country_name(c.country) ...}` once, query `damodaran_country` with the distinct non-`None` names, and look each company's row up by its translated name. That is still one query.
-- [ ] **Step 3: Run the tests.** Run: `uv run pytest tests/unit/test_country_iso_lookups.py tests/unit/test_valuation_bulk_load.py tests/integration/test_damodaran_import.py -q`. Expected: PASS.
+- [ ] **Step 3: Run the tests.** Run: `uv run pytest tests/unit/test_country_iso_lookups.py -k "not sector_multiples" tests/unit/test_valuation_bulk_load.py tests/integration/test_damodaran_import.py -q`. Expected: PASS. `test_single_and_bulk_sector_multiples_match` stays red until Task 4.
 - [ ] **Step 4: Commit** `fix(#271): valuator resolves ISO-coded country rows`.
 
 ### Task 4: Analysis sector-multiples loaders translate
@@ -170,3 +184,18 @@ SUBNATIONAL_SHEET_ROWS: frozenset[str] = frozenset(
 - [ ] **Step 1:** Make the edits.
 - [ ] **Step 2: Run the full suite.** Run: `uv run ruff check . && uv run mypy src && uv run pytest -q`. Expected: all green.
 - [ ] **Step 3: Commit** `test(#271): e2e seeds the ISO country providers store`.
+
+## Grilling
+
+Two rounds (fable griller): 17 questions, then 14, for 31 in total.
+
+Sources: CODE 22 (the reader grep, `engine.py:437-445`, `assumptions.py:391-397,476-484`, `analysis.py:570-586`, `schema.sql` columns, `sec_edgar.py:163,416`, `test_valuation_bulk_load.py` seams, `docs/pipeline/check.py:5-10`, `damodaran.py:9-11`, the `parse_country_xls` enumeration), DOC 2 (CONTEXT.md `_Avoid_` entries; CONTEXT.md "After a stage, both get updated"), ISSUE 2 (the Agent Brief's criteria and "logs once per code"), and NO SOURCE 5, all of them technical assumptions.
+
+Assumptions decided (all in the Assumptions section above):
+- The log key is the normalised code, held in a module-level set (rejected: threading a `warned` parameter).
+- Sub-national sheet rows pass through silently.
+- Non-ISO or alpha-3 input is unmapped (rejected: aliases such as `UK`).
+- The live-sheet guard for future renames is opt-in.
+- Commits between tasks may leave stage-3 tests red.
+
+Spec ambiguities: none. Follow-up issues opened: none.
