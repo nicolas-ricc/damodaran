@@ -275,7 +275,7 @@ def main():
         f'<figure style="margin:0"><div class="scroll">{axo}</div>'
         '<figcaption>La Capa C es la que peor sale: el story type se clasifica bien y '
         'después no cambia ningún supuesto, así que todo el aparato de arquetipos del '
-        'spec no llega a la valuación. La Capa B es la que mejor: dieciséis reglas reales '
+        'spec no llega a la valuación. La Capa B es la que mejor: diecisiete reglas reales '
         'con tests, y lo que falla está en los bordes.</figcaption></figure></section>']
 
     for k in estado.INVENTARIO:
