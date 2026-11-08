@@ -46,9 +46,11 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-#: Neutral placeholder for the margin-of-safety sub-score until M4.7 wires the
-#: real DCF ``intrinsic_value / price`` in (spec §6.5). Mid-scale so it neither
-#: rewards nor penalises a candidate the screener cannot yet value.
+#: Neutral margin-of-safety sub-score for a shortlisted candidate the DCF cannot
+#: value (the valuator returns ``None`` in :func:`bot.screener.engine.run_screen`'s
+#: second pass), and the default when a caller passes no margin. Mid-scale, so it
+#: neither rewards nor penalises the candidate. A DCF failure is not an ADR 0006
+#: coverage-gate reason, so the candidate stays in the shortlist and rankable.
 PLACEHOLDER_MARGIN_OF_SAFETY = 0.5
 
 
