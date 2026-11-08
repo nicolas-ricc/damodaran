@@ -815,7 +815,9 @@ def load_override(override_path: Path | None) -> dict[str, Any]:
     try:
         text = override_path.read_text()
     except OSError as exc:
-        raise ValueError(f"override file {override_path} cannot be read: {exc}") from exc
+        raise ValueError(
+            f"override file {override_path} cannot be read: {exc.strerror or exc}"
+        ) from exc
     try:
         loaded = yaml.safe_load(text)
     except yaml.YAMLError as exc:

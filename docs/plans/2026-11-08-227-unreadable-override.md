@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- The `ValueError` message starts with the path and says it cannot be read, in the style of the existing `override file {path} is not valid YAML: {exc}`. Exact copy: `override file {override_path} cannot be read: {exc}`.
+- The `ValueError` message starts with the path and says it cannot be read, in the style of the existing `override file {path} is not valid YAML: {exc}`. Exact copy: `override file {override_path} cannot be read: {exc.strerror or exc}` (the OS error already names the path; `strerror` avoids printing it twice).
 - The `ValueError` is chained from the original `OSError` (`raise ... from exc`).
 - `_analyze_one`'s contract stays: `LookupError` → 2, `ValueError` → 1, the batch goes on, the command exits with the worst per-ticker code (#180).
 - Unchanged: a missing conventional file means no override; a missing or directory `--override` is refused with exit 2 before the DB opens (`--override {path}: no such file.`); malformed YAML gives exit 1.

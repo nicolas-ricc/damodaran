@@ -688,6 +688,7 @@ def test_batch_unreadable_conventional_override_fails_the_ticker_alone(
 def test_batch_directory_conventional_override_fails_the_ticker_alone(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """A directory named ``AAPL.yaml`` is refused as unreadable; MSFT still runs (#227)."""
     reports_dir = _batch_env(tmp_path, monkeypatch)
     override = tmp_path / "assumptions" / "AAPL.yaml"
     override.mkdir(parents=True)
@@ -702,6 +703,7 @@ def test_batch_directory_conventional_override_fails_the_ticker_alone(
 def test_analyze_unreadable_explicit_override_cannot_value(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """An explicit ``--override`` that exists but cannot be read is exit 1, not a traceback (#227)."""
     reports_dir = _batch_env(tmp_path, monkeypatch)
     override = tmp_path / "explicit" / "AAPL.yaml"
     override.parent.mkdir()

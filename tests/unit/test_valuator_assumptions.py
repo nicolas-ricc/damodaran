@@ -1246,6 +1246,7 @@ def test_load_override_directory_is_a_value_error(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match=re.escape(f"override file {path} cannot be read")) as exc:
         load_override(path)
     assert isinstance(exc.value.__cause__, IsADirectoryError)
+    assert str(exc.value).count(str(path)) == 1
 
 
 def test_cyclical_margin_needs_a_full_cycle_of_history() -> None:
