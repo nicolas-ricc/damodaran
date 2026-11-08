@@ -20,11 +20,10 @@ def test_readme_quickstart_says_the_drip_skips_on_the_shared_lock() -> None:
     for fact in (
         ".cache/bot.lock",
         "skipped: DB busy",
-        "Tiingo quota",
+        "Tiingo quota, so the drip",
         "scripts/install_cron.sh",
         "(#108)",
     ):
         assert fact in text, fact
-    assert "Tiingo quota, so the drip" in text  # the quota is why it is first-fill only
     assert "do not run both" not in text
     assert "same DuckDB file" not in text
