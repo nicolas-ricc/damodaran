@@ -134,12 +134,15 @@ def test_detail_facts_rules() -> None:
         assert rule in css, rule
     narrow = css[css.index("@container (max-width: 44rem) {") :]
     narrow = narrow[: narrow.index("\n}")]
-    assert ".facts.stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }" in narrow
+    assert (
+        ".facts.stats { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }"
+    ) in narrow
     assert ".facts .lead-figure { grid-column: 1 / -1; }" in narrow
     assert (
-        ".facts.stats .stat:not(:last-child) { border-inline-end: none; "
+        ".facts.stats .stat:not(:nth-last-child(-n+2)) { border-inline-end: none; "
         "border-block-end: var(--border) dashed var(--rule-faint); }"
     ) in narrow
+    assert ".facts.stats .stat:nth-last-child(2) { border-inline-end: none; }" in narrow
     for gone in (
         ".facts dd",
         ".facts dt",
@@ -245,7 +248,7 @@ def test_search_placeholder_and_border_meet_the_contrast_floor() -> None:
         r"#search\s*\{[^}]*border-color: color-mix\(in oklab, var\(--color-base-content\) (\d+)%, transparent\)",
         css,
     )
-    assert border and int(border.group(1)) >= 45
+    assert border and int(border.group(1)) >= 55
 
 
 def test_search_draws_one_focus_ring() -> None:

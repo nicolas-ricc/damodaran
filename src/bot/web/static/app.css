@@ -185,9 +185,10 @@ table { border-collapse: collapse; width: 100%; }
 .facts .stat-title { color: var(--ink-soft); font-size: var(--text-sm); }
 .facts time { font-family: var(--font-mono); }
 @container (max-width: 44rem) {
-  .facts.stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .facts.stats { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .facts .lead-figure { grid-column: 1 / -1; }
-  .facts.stats .stat:not(:last-child) { border-inline-end: none; border-block-end: var(--border) dashed var(--rule-faint); }
+  .facts.stats .stat:not(:nth-last-child(-n+2)) { border-inline-end: none; border-block-end: var(--border) dashed var(--rule-faint); }
+  .facts.stats .stat:nth-last-child(2) { border-inline-end: none; }
 }
 
 /* the value axis: the SVG scales to the pane, its labels stay HTML at a fixed size */
