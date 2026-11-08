@@ -292,3 +292,9 @@ and much of the tree is not formatted. Never run `ruff format` over the
 whole tree; it rewrites about a hundred files of unrelated code. If you format
 at all, format only the files you change (`uv run ruff format path/to/file.py`),
 and keep the diff to the lines you touched.
+
+The suite refuses non-loopback network connections through pytest-socket. The
+guard covers `socket.connect` in fixture setup and the test body; it does not
+reach child processes, fixture finalizers or `connect_ex`. `BOT_LIVE_TESTS=1`
+lifts it for `live` tests, and `--vcr-record` with a recording mode such as
+`all` lifts it for the whole run; `--vcr-record=none` keeps it on.
