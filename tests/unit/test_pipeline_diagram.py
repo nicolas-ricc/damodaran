@@ -1911,7 +1911,7 @@ def _valuation_input(shares: float) -> Any:
         revenue_history=(90.0, 100.0),
         income_history=(7.0, 8.0),
         ebit_history=(9.0, 10.0),
-        sector=analysis._SectorMultiples("US", None, None, None, None, None),
+        sector=analysis._SectorMultiples("US", None, None, None, None),
         latest_close=analysis.LatestClose(10.0, "USD", date(2026, 5, 29)),
         close_rates=None,
         assumption_inputs=resolve.AssumptionInputs(

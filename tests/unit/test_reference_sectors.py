@@ -54,6 +54,7 @@ def test_cyclicals_classified() -> None:
         "Oil/Gas (Production and Exploration)",
         "Homebuilding",
         "Metals & Mining",
+        "Transportation (Railroads)",
     ):
         assert is_cyclical(industry), industry
 
