@@ -229,7 +229,9 @@ def test_estado_build_passes() -> None:
 def _story_file_section() -> str:
     text = _ASSUMPTIONS_README.read_text(encoding="utf-8")
     section = _section(text, "## Hypergrowth story file", "## Probability of bankruptcy")
-    return _section(section, "A valid story file drives", None)
+    opening = "A valid story file drives"
+    assert opening in section, f"opening sentence {opening!r} moved"
+    return _section(section, opening, None)
 
 
 def test_assumptions_readme_drops_the_stale_sentence() -> None:

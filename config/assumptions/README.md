@@ -46,15 +46,17 @@ no hypergrowth valuation runs. With `story_type: hypergrowth` and a `story`:
 
 - **Assumptions.** `resolve_assumptions` overlays the story on the resolved
   bundle through `apply_story`, replacing the growth, margin and reinvestment
-  assumptions. Its ten-year paths: revenue growth (year 1 `year1_growth`, then
-  solved so year-10 revenue meets `target_revenue_y10`), the operating margin
-  (`year1_margin` to `target_margin` minus `regulatory_drag`), the WACC
-  (`wacc_start` to `wacc_terminal`) and the tax rate. With them come
-  `sales_to_capital`, `terminal_roic`, the cost of equity (`wacc_start`, all
-  equity, no debt), the failure blend (`failure_probability`,
-  `failure_proceeds_pct_of_value`), `fixed_commitments_pv` and `extra_cash`.
-  Each such input shows source `story` in the report.
-- **Scenarios.** `bot analyze` values `base` and then every entry of
+  assumptions. Its ten-year paths: revenue growth (year 1 `year1_growth`, years
+  2 to 5 at one rate solved so year-10 revenue meets `target_revenue_y10`, then
+  a fade to terminal growth), the operating margin (`year1_margin` to
+  `target_margin` minus `regulatory_drag` by `margin_converge_year`), the WACC
+  (`wacc_start` to `wacc_terminal`) and the tax rate (`effective_tax_rate` to
+  the marginal rate). With them come `sales_to_capital`, `terminal_roic`, the
+  cost of equity (`wacc_start`, all equity, no debt), the failure blend
+  (`failure_probability`, `failure_proceeds_pct_of_value`),
+  `fixed_commitments_pv` and `extra_cash`. Each such input shows source `story`
+  in the report.
+- **Scenarios.** The analysis values `base` and then every entry of
   `scenarios`, in file order, with one plain DCF each. The report shows the
   range next to the tornado.
 - **Governance discount.** `governance_discount` never enters the DCF. The

@@ -118,6 +118,10 @@ git add config/assumptions/README.md tests/unit/test_hypergrowth_docs.py
 git commit -m "docs(#206): assumptions README says what the story drives"
 ```
 
+## Execution notes
+
+The task review (stage 4) and the code review (stage 5) refined the shipped README copy and the test beyond Step 1 and Step 3. The README now has the growth stage and fade, the tax and convergence keys, the cost of equity, the raw-value sentence, and "The analysis" in place of `bot analyze`, because the screener's second pass runs it too. The test now slices only the new paragraph. The README and the test on the branch are the record.
+
 ## Assumptions
 
 - **A1. "Weighted" is dropped** (decision 1). The issue's criterion says "consistent with ADR 0009", and its brief says "The wording matches the CONTEXT.md glossary and ADR 0009". The code runs one plain DCF per scenario (`src/bot/valuator/sensitivity.py:447-461`), and the report lists the scenarios as rows with no weighted total (`src/bot/reporting/templates/analysis.md.j2:113-124`). A README that said "weighted" would contradict both. Rejected alternative: keep the word "weighted" for the scenarios.
