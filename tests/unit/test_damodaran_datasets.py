@@ -137,7 +137,11 @@ def test_no_dataset_maps_a_column_the_table_does_not_have() -> None:
 
 
 def test_real_import_fills_the_columns_the_extra_datasets_publish() -> None:
-    """The end of the silent-NULL bug: every mapped column arrives populated for at least 90% of industries."""
+    """The end of the silent-NULL bug: every mapped column arrives populated.
+
+    At least 90% of industries carry each column, so a header drift that empties
+    most of one column fails here.
+    """
     conn = _seeded_conn()
     result = import_damodaran_from_files(
         conn,

@@ -1006,7 +1006,7 @@ def test_assumption_source_has_no_unreachable_member() -> None:
     for info in pkgutil.iter_modules(bot.valuator.__path__):
         module = importlib.import_module(f"bot.valuator.{info.name}")
         source = inspect.getsource(module)
-        referenced |= set(re.findall(r"AssumptionSource\.([A-Z_]+)", source))
+        referenced |= set(re.findall(r"AssumptionSource\.([A-Z0-9_]+)", source))
 
     unreachable = {member.name for member in AssumptionSource} - referenced
     assert not unreachable, f"AssumptionSource members nothing emits: {sorted(unreachable)}"
