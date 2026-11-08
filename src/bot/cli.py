@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import sys
 from contextlib import closing
 from datetime import date
 from pathlib import Path
@@ -672,6 +674,38 @@ def portfolio(
         raise typer.Exit(code=1) from exc
     if sent:
         typer.echo(f"Sent alerts via {settings.notifier}")
+
+
+@app.command()
+def notify() -> None:
+    """Send the text on stdin through the configured notifier.
+
+    Exit codes: 0 sent, or no notifier configured (nothing sent); 1 the send
+    failed; 2 the notifier is misconfigured or stdin is empty. Never opens the
+    database.
+    """
+    settings = load_settings()
+    try:
+        notifier = build_notifier(settings)
+    except NotifierConfigError as exc:
+        typer.echo(f"Notifier misconfigured (BOT_NOTIFIER={settings.notifier}): {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    if notifier is None:
+        typer.echo("No notifier configured (BOT_NOTIFIER=none), nothing sent")
+        return
+    if isinstance(sys.stdin, io.TextIOWrapper):
+        # A log tail cut mid-character must not stop the failure report.
+        sys.stdin.reconfigure(errors="replace")
+    text = sys.stdin.read()
+    if not text.strip():
+        typer.echo("Nothing to send: the message on stdin is empty", err=True)
+        raise typer.Exit(code=2)
+    try:
+        notifier.send(text)
+    except NotificationError as exc:
+        typer.echo(f"Message not sent: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Sent via {settings.notifier}")
 
 
 @app.command(name="flex-capture", hidden=True)
