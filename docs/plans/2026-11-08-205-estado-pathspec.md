@@ -26,14 +26,19 @@
 - **Git unavailable.** The test sets `PATH` to an empty temp dir. `subprocess.run(['git', ...])` then raises `FileNotFoundError` (an `OSError`), so `desfasaje()` returns `None` and no banner is rendered. That behaviour already exists; the test pins it.
 - **Docs.** The `desfasaje()` docstring and `docs/plano/README.md` ("El aviso de foto vieja") gain one sentence: the count uses the repository's `src/`, whatever the cwd. CONTEXT.md already says "touched `src/`" and does not change.
 - **Plan location `docs/plans/`** follows the recent issue plans.
+- **What `main()` touches through `AQUI`.** Only the output file, `AQUI / 'estado.html'`. Fonts are read by `build.read()` through `build.AQUI` (`docs/plano/build.py:15,120`), which stays on the checkout and is read-only. `estado` and `iso` hold their data in code. So a temp `docs/plano/` needs nothing provisioned (grilling Q3, Q17).
+- **Git environment in the fixture.** `monkeypatch.delenv` removes `GIT_DIR`, `GIT_WORK_TREE` and `GIT_INDEX_FILE` (`raising=False`), so a hook or CI env cannot redirect git. Commits pass `--no-verify`. `git init` makes the temp dir its own repository, so a parent repository around `tmp_path` does not change the toplevel. The rejected alternative was a fake `HOME` with an empty gitconfig: heavier, and nothing in the commands depends on user config once the identity is passed with `-c`.
+- **No marker and no git skip.** Only `integration` and `live` are registered (`pyproject.toml:83-86`), and unit tests carry no marker. CI has git (the checkout itself), so there is no `shutil.which("git")` skip.
+- **Subprocess test on the real checkout.** `test_real_builder_same_output_from_any_cwd` runs `sys.executable docs/plano/build_estado.py` with `cwd` set to the repo root and then to `docs/plano/`, and asserts that both stdouts are identical. It writes the gitignored `docs/plano/estado.html`, as `test_estado_build_passes` (`tests/unit/test_hypergrowth_docs.py:218-225`) already does. It does not assert a count: a shallow CI clone gives `None`.
+- **After the fix the real build warns.** At `AUDITADO_EN = "90f717c"`, 29 commits touched `src`, so the real build prints `AVISO` and renders the banner. That is the desired behaviour (brief), and the warning does not break the build (`docs/plano/README.md`: "El aviso no rompe el build"). `test_estado_build_passes` only asserts the return code.
 
 ## Acceptance criteria → tests
 
 All of these are in `tests/unit/test_estado_desfasaje.py`.
 
-- "count above 0 and that the warning and banner appear": `test_src_commit_after_audit_is_counted` (`desfasaje() == 1`), `test_banner_rendered_when_src_moved` (`'class="viejo"'` in `aviso_desfasaje()` and in the generated `estado.html`), and `test_console_warning_printed_when_src_moved` (`"AVISO"` in the `main()` stdout).
+- "count above 0 and that the warning and banner appear": `test_src_commit_after_audit_is_counted` (`desfasaje() == 2`), `test_banner_rendered_when_src_moved` (`'class="viejo"'` in `aviso_desfasaje()` and in the generated `estado.html`), and `test_console_warning_printed_when_src_moved` (`"AVISO"` in the `main()` stdout).
 - "count is 0, with no banner, when no `src` commit follows": `test_docs_only_commit_after_audit_is_not_counted` (`desfasaje() == 0`, `aviso_desfasaje() == ""`, and no `class="viejo"` and no `AVISO` from `main()`).
-- "same count from any cwd": `test_count_is_the_same_from_any_cwd`.
+- "same count from any cwd": `test_count_is_the_same_from_any_cwd` (in-process, temp repo), and `test_real_builder_same_output_from_any_cwd`, which runs the real script from the repo root and from `docs/plano/` as a subprocess.
 - "existing docs tests pass": the full suite. Graceful fallback: `test_git_unavailable_gives_no_banner` and `test_unknown_audit_commit_gives_no_banner`.
 
 ## Review Focus
@@ -65,11 +70,20 @@ All of these are in `tests/unit/test_estado_desfasaje.py`.
   - `test_count_is_the_same_from_any_cwd`: one src commit. For each cwd in `[root, root/"docs"/"plano", tmp_path/"elsewhere"]`, `monkeypatch.chdir`. Assert that every result equals `1`.
   - `test_git_unavailable_gives_no_banner`: `monkeypatch.setenv("PATH", str(empty_dir))`. Assert `desfasaje() is None` and `aviso_desfasaje() == ""`.
   - `test_unknown_audit_commit_gives_no_banner`: `estado.AUDITADO_EN = "0" * 40`. Assert `desfasaje() is None` and `aviso_desfasaje() == ""`.
+  - `test_real_builder_same_output_from_any_cwd`: run the real `docs/plano/build_estado.py` from the repo root and from `docs/plano/`. Assert `returncode == 0` for both and identical stdout.
 
-- [ ] **Step 2: Run them and confirm they fail.** Run: `uv run pytest tests/unit/test_estado_desfasaje.py -q`. Expected: the counted, banner, warning and any-cwd tests FAIL, because the count is 0. The docs-only test also FAILS: the relative pathspec counts `docs/plano/src/nota.md` as 1. The git-unavailable and unknown-commit tests PASS, because they pin existing behaviour.
+- [ ] **Step 2: Run them and confirm they fail.** Run: `uv run pytest tests/unit/test_estado_desfasaje.py -q`. Expected: the counted, banner, warning and any-cwd tests FAIL, because the count is 0. The docs-only test also FAILS: the relative pathspec counts `docs/plano/src/nota.md` as 1. The git-unavailable and unknown-commit tests PASS, because they pin existing behaviour, and so does the real-builder subprocess test, because the process cwd never reaches git. Every red one must be an assertion `FAILED` on the count, the banner or AVISO, never an `ERROR` in fixture setup. An ERROR means the fixture is broken: fix it before Step 3.
 
 - [ ] **Step 3: Fix the pathspec.** In `desfasaje()`, `'src'` becomes `':/src'`. Add one docstring sentence saying the pathspec is top-level (`:/`) because git resolves a bare `src` against `cwd=AQUI`, that is `docs/plano/src`. In `docs/plano/README.md` "El aviso de foto vieja", add one sentence: the count uses the repository's `src/` (pathspec `:/src`), wherever you run the build from.
 
-- [ ] **Step 4: Run them and confirm they pass.** Run: `uv run pytest tests/unit/test_estado_desfasaje.py -q`. Expected: 7 passed. Then run `uv run ruff check . && uv run mypy src && uv run pytest -q`, which must be green.
+- [ ] **Step 4: Run them and confirm they pass.** Run: `uv run pytest tests/unit/test_estado_desfasaje.py -q`. Expected: 8 passed. Then run `uv run ruff check . && uv run mypy src && uv run pytest -q`, which must be green.
 
 - [ ] **Step 5: Commit.** `git add docs/plano/build_estado.py docs/plano/README.md tests/unit/test_estado_desfasaje.py && git commit -m "fix(#205): build_estado counts commits on the top-level src"`
+
+## Grilling
+
+- Rounds: 1. Griller: fable. 17 questions.
+- Sources: CODE 12 (Q1, Q3, Q4, Q5, Q6, Q7, Q8, Q9, Q13, Q14, Q17, Q2 together with DOC), DOC 2 (Q2 README, Q15 AGENTS.md), ISSUE 1 (Q12), recorded command 1 (Q11), NO SOURCE resolved as technical assumption 2 (Q10, Q16).
+- Assumptions added: what `main()` touches through `AQUI`; the git environment in the fixture; no marker and no git skip; the subprocess test on the real checkout; the real build warns after the fix; Step 2 red means FAILED, not ERROR.
+- Spec ambiguities: none. Issues opened: none.
+- The plan revision adds one test and assumptions, with no new seam, so no second round was run.
