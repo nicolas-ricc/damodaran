@@ -231,10 +231,10 @@ assumptions:{role:"valua",titulo:"Los seis supuestos",lead:"Acá vive casi todo 
    "Los overrides van en <code>config/assumptions/&lt;TICKER&gt;.yaml</code> y admiten notas en texto libre; el reporte incluye una sección con todo lo que se cambió a mano."]}},
 
 "a-growth":{role:"valua",titulo:"Crecimiento de ingresos",lead:"El supuesto que más mueve el resultado y el que peor información tiene.",
- idea:["El método de Damodaran pide acá el consenso de analistas para los primeros años, y después hacerlo converger hacia el crecimiento nominal de la economía. La convergencia no es una concesión conservadora: es aritmética. Una empresa que crece por encima de la economía para siempre termina siendo más grande que la economía.",
-  "El programa todavía no hace eso. El feed de estimaciones nunca se conectó, así que el default es el promedio histórico de la propia empresa (la tasa anual compuesta de sus ventas), que baja en línea recta hasta el crecimiento terminal en diez años; y si no hay serie suficiente, una regla sobre el PBI nominal.",
-  "La diferencia importa para leer el resultado: el consenso de analistas tiende a ser optimista, y el promedio histórico tiene el sesgo contrario, el inercial. Proyecta hacia adelante lo que ya pasó, que es exactamente lo que falla en una empresa que está cambiando."],
- code:{where:[["origen real","historical_average"],["respaldo","rule_based sobre PBI nominal"],["lo que pide el spec","analyst_consensus"]],
+ idea:["El crecimiento de los primeros años arranca en el de la propia empresa y después converge al crecimiento terminal. La convergencia no es una concesión conservadora: es aritmética. Una empresa que crece por encima de la economía para siempre termina siendo más grande que la economía.",
+  "Hoy el default es el promedio histórico de la propia empresa (la tasa anual compuesta de sus ventas), que baja en línea recta hasta el crecimiento terminal en diez años; y si no hay serie suficiente, una regla sobre el PBI nominal. El consenso de analistas quedó afuera por decisión (#63), no por falta.",
+  "El promedio histórico tiene un sesgo inercial: proyecta hacia adelante lo que ya pasó, que es exactamente lo que falla en una empresa que está cambiando."],
+ code:{where:[["origen real","historical_average"],["respaldo","rule_based sobre PBI nominal"]],
   notes:["Es el override manual más frecuente, justamente porque ningún default automático es bueno acá."]}},
 
 "a-margin":{role:"valua",titulo:"Margen operativo",lead:"El de largo plazo es el del sector, salvo razón estructural.",
