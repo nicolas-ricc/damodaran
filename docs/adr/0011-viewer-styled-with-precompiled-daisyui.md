@@ -63,8 +63,8 @@ files.
   that file, so docs/DESIGN.md has to follow.
 - Upgrading DaisyUI means editing the two pins in `scripts/vendor_daisyui.sh`
   (`DAISYUI_VERSION` and `DAISYUI_SHA256`), running the script, and editing the `daisyui`
-  line in `src/bot/web/static/VERSIONS`, in the order the script header gives. The script is not run in CI; a test
-  checks that the committed `daisyui.css` matches the pinned SHA-256, so a hand edit of the
-  vendored file is caught.
+  line in `src/bot/web/static/VERSIONS`, in the order the script header gives. The script is
+  not run in CI; a test checks that the committed `daisyui.css` matches the pinned SHA-256,
+  so a hand edit of the vendored file is caught.
 - `.impeccable/design.json` still describes the previous system until the tool that
   generates it is run again. It is not edited by hand.
