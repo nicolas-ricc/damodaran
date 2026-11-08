@@ -26,5 +26,5 @@ def latest_snapshot_date(conn: duckdb.DuckDBPyConnection) -> date | None:
     row = conn.execute("SELECT MAX(snapshot_date) FROM portfolio_snapshots").fetchone()
     if row is None or row[0] is None:
         return None
-    value: date = row[0]
-    return value
+    value = row[0]
+    return value if isinstance(value, date) else None

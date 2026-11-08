@@ -238,4 +238,5 @@ def test_doctor_flex_half_configured_is_not_configured(tmp_path, monkeypatch):
     assert "Flex token:       set" in result.stdout
     assert "Flex query id:    MISSING" in result.stdout
     assert "not configured" in result.stdout
+    assert "Latest snapshot:" not in result.stdout
     _assert_no_secret(result)
