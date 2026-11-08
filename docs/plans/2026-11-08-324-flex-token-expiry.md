@@ -29,7 +29,10 @@
 ## Assumptions (declared)
 
 - The label `Flex token expiry:` is exactly 18 characters, so it fills the 18-char column and is followed by one space, as the issue's copy shows.
-- The validator strips nothing from non-blank values: `" 2027-03-01 "` goes to pydantic as is. The issue asks only that blank and whitespace map to `None`. Pydantic's lax date parsing decides the rest, and that is the existing behaviour for every typed setting.
+- The validator strips nothing from non-blank values: `" 2027-03-01 "` goes to pydantic as is, and pydantic rejects it (`date_from_datetime_parsing`). The issue asks only that blank and whitespace map to `None`. Pydantic's lax date parsing decides the rest, which is the existing behaviour for every typed setting. Checked against the installed pydantic: `2027-03-01T00:00:00` is accepted as 2027-03-01, while `20270301`, `2027-03-01T10:00:00` and `next-year` are rejected. Rejected alternative: stripping first, which the issue does not ask for. (Grilling Q15.)
+- The field description hard-codes "14 days" while the number lives in `TOKEN_EXPIRY_WARN_DAYS`. `bot.config` does not import from `bot.portfolio`, and adding that dependency for a help string isn't worth it. No test ties the two together. (Grilling Q16.)
+- Both tasks land in one PR, squash-merged: the pipeline opens one PR per issue. Task 1 alone would document a doctor behaviour that does not exist yet, so it never ships alone. (Grilling Q17.)
+- `days_left == 0` is a WARN, as the issue's `0 <= days_left <= 14` fixes. Whether IBKR invalidates the token at the start or the end of that date is not stated anywhere, and the issue's design is not reopened. (Grilling Q3.)
 - `N day(s)` is printed literally with `day(s)`, as in the issue. `N days left` appears only when N > 14, so it is always plural.
 - If settings fail to load, doctor exits before any Flex line through its existing `FAIL: Settings invalid — ...` path. No new code handles a bad date.
 - The doctor tests `chdir` into `tmp_path` and `delenv` `BOT_IBKR_FLEX_TOKEN` and `BOT_IBKR_FLEX_QUERY_ID`, so neither a developer's `.env` nor their shell can leak a token in. That also keeps the empty-snapshot FAIL from #323 out of the exit code.
@@ -92,3 +95,10 @@
 - [ ] **Step 4: README.** Step 2 keeps "generate a token. It expires at most yearly" and replaces "so note its expiry" with: put its expiry date in `BOT_IBKR_FLEX_TOKEN_EXPIRES` (ISO, `YYYY-MM-DD`); `bot doctor` prints a warning from 14 days before that date and fails once it has passed. Step 3's `.env` block gains `BOT_IBKR_FLEX_TOKEN_EXPIRES=2027-03-01   # optional; the token's expiry date, bot doctor warns 14 days before` after the `BOT_IBKR_FLEX_TZ` line. Keep "Put both in `.env`" (the tz line is already a third), and keep every string `tests/unit/test_flex_docs.py` asserts.
 - [ ] **Step 5: Run** `uv run pytest -q tests/unit/test_config.py tests/unit/test_cli_doctor.py tests/unit/test_flex_docs.py && uv run ruff check . && uv run mypy src`. Expected: all pass.
 - [ ] **Step 6: Commit** `feat(#324): bot doctor warns before the Flex token expires and fails after`.
+
+## Grilling
+
+- Rounds: 1. The revision added assumptions only: no step was added or removed and the seam is the same, so there was no second round.
+- Questions: 18. Sources: ISSUE 9 (Q1, Q2, Q3, Q4, Q9, Q10, Q14 partly, Q15 partly, Q11 partly), CODE 11 (Q5 `cli.py:741,785-787,840-844`; Q6 `config.py:147-158`; Q7 `cli.py:743-747`; Q8 `config.py:14-19`; Q9 `freshness.py`; Q10 the `freshness.py` docstring; Q11 `cli.py:785-786` hand-padded literals; Q12 `test_flex_docs.py:56-59`, `test_config.py:95-97`; Q13 `test_flex_docs.py:17-29`; Q14 `cli.py:807`), DOC 1 (Q18 `CONTEXT.md` "Commits: Conventional Commits"). Several answers cite more than one source.
+- NO SOURCE → technical assumption: Q15 (lax pydantic parsing, checked empirically), Q16 (hard-coded 14 in the description), Q17 (one PR), Q3 (the IBKR cut-off time inside the expiry day). All are recorded under Assumptions.
+- Spec ambiguities: none. Out-of-scope issues opened: none.
