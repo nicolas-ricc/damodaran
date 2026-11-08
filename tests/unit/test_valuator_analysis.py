@@ -23,7 +23,9 @@ from bot.valuator.analysis import (
     Analysis,
     LatestClose,
     SanityCheck,
+    _CompanyRow,
     _sanity_check,
+    _sector_multiples_from,
     _SectorMultiples,
     analyze,
     bulk_load_valuation_inputs,
@@ -391,9 +393,19 @@ def _check(
         enterprise_value=500.0,
         revenue=100.0,
         sector=_SectorMultiples(
-            region=None, pe=22.0, ev_sales=5.0, op_margin=None, beta_levered=None, erp=None
+            region=None, pe=22.0, ev_sales=5.0, op_margin=None, beta_levered=None
         ),
     )
+
+
+def test_sector_multiples_take_the_geographic_region_only() -> None:
+    # The country row carries only the geographic grouping now; the sector ERP
+    # comes from the assumptions path, never from _SectorMultiples.
+    company = _CompanyRow(
+        name="X", country=None, currency="USD", industry_damodaran=None, ipo_date=None
+    )
+    assert _sector_multiples_from(company, "Western Europe", None).region == "Europe"
+    assert _sector_multiples_from(company, None, None).region == "US"
 
 
 def test_sanity_check_implied_pe_comes_from_the_dcf() -> None:

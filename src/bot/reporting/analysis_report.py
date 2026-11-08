@@ -70,11 +70,12 @@ def fmt_per_share(value: float | None) -> str:
 
     Distinct from :func:`fmt_money`, whose B/M/K scaling is right for
     enterprise-scale aggregates and wrong for a share price: a per-share intrinsic
-    value of 1500 must not render as "1.50K".
+    value of 1500 must not render as "1.50K". Groups thousands like
+    :func:`fmt_money` ("1,500.00").
     """
     if value is None:
         return _DASH
-    return f"{value:.2f}"
+    return f"{value:,.2f}"
 
 
 def fmt_pct(value: Any) -> str:

@@ -351,24 +351,20 @@ class _SectorMultiples:
     ev_sales: float | None
     op_margin: float | None
     beta_levered: float | None
-    erp: float | None
     roic: float | None = None
 
 
 def _sector_multiples_from(
     company: _CompanyRow,
-    country_row: tuple[Any, Any] | None,
+    geographic_region: str | None,
     sector_row: tuple[Any, ...] | None,
 ) -> _SectorMultiples:
     """Shape the Damodaran rows into the company's sector multiples.
 
-    ``country_row`` is ``(region, erp)``; ``sector_row`` is ``(pe, ev_sales,
+    ``geographic_region`` is ``damodaran_country.region`` for the company's
+    country (or ``None``); ``sector_row`` is ``(pe, ev_sales,
     op_margin, beta_levered, roic)`` for the company's industry and dataset region.
     """
-    geographic_region: str | None = None
-    erp: float | None = None
-    if country_row is not None:
-        geographic_region, erp = country_row[0], country_row[1]
     # damodaran_country.region is a geographic grouping (e.g. "North America"),
     # not the damodaran_industry.region dataset key (e.g. "US") — the two
     # taxonomies share the name but not the values, so a raw join between them
@@ -377,7 +373,7 @@ def _sector_multiples_from(
     region = dataset_region(company.country, geographic_region)
     if sector_row is None:
         return _SectorMultiples(
-            region=region, pe=None, ev_sales=None, op_margin=None, beta_levered=None, erp=erp
+            region=region, pe=None, ev_sales=None, op_margin=None, beta_levered=None
         )
     return _SectorMultiples(
         region=region,
@@ -385,7 +381,6 @@ def _sector_multiples_from(
         ev_sales=sector_row[1],
         op_margin=sector_row[2],
         beta_levered=sector_row[3],
-        erp=erp,
         roic=sector_row[4],
     )
 
@@ -393,14 +388,15 @@ def _sector_multiples_from(
 def _load_sector_multiples(
     conn: duckdb.DuckDBPyConnection, company: _CompanyRow
 ) -> _SectorMultiples:
-    country_row: tuple[Any, Any] | None = None
+    geographic_region: str | None = None
     if company.country is not None:
-        country_row = conn.execute(
-            "SELECT region, erp FROM damodaran_country WHERE country = ? "
+        row = conn.execute(
+            "SELECT region FROM damodaran_country WHERE country = ? "
             "ORDER BY year DESC LIMIT 1",
             [company.country],
         ).fetchone()
-    region = dataset_region(company.country, country_row[0] if country_row is not None else None)
+        geographic_region = row[0] if row is not None else None
+    region = dataset_region(company.country, geographic_region)
     sector_row: tuple[Any, ...] | None = None
     if company.industry_damodaran is not None and region is not None:
         sector_row = conn.execute(
@@ -408,7 +404,7 @@ def _load_sector_multiples(
             "WHERE industry = ? AND region = ? ORDER BY year DESC LIMIT 1",
             [company.industry_damodaran, region],
         ).fetchone()
-    return _sector_multiples_from(company, country_row, sector_row)
+    return _sector_multiples_from(company, geographic_region, sector_row)
 
 
 @dataclass(frozen=True)
@@ -572,10 +568,10 @@ def bulk_load_valuation_inputs(
         ).fetchall()
     }
     countries = sorted({c.country for t in kept if (c := companies[t]).country is not None})
-    country_rows = {
-        r[0]: (r[1], r[2])
+    country_rows: dict[str, str] = {
+        r[0]: r[1]
         for r in conn.execute(
-            "SELECT country, region, erp FROM damodaran_country "
+            "SELECT country, region FROM damodaran_country "
             "WHERE country IN (SELECT unnest(?::VARCHAR[])) "
             "QUALIFY row_number() OVER (PARTITION BY country ORDER BY year DESC) = 1",
             [countries],
@@ -584,8 +580,10 @@ def bulk_load_valuation_inputs(
     regions: dict[str, str] = {}
     for t in kept:
         company = companies[t]
-        country_row = country_rows.get(company.country) if company.country is not None else None
-        regions[t] = dataset_region(company.country, country_row[0] if country_row else None)
+        geographic_region = (
+            country_rows.get(company.country) if company.country is not None else None
+        )
+        regions[t] = dataset_region(company.country, geographic_region)
     industries = sorted({
         i for t in kept if (i := companies[t].industry_damodaran) is not None
     })
@@ -639,7 +637,9 @@ def bulk_load_valuation_inputs(
         )
         industry, region = company.industry_damodaran, regions[t]
         sector_row = sector_rows.get((industry, region)) if industry is not None else None
-        country_row = country_rows.get(company.country) if company.country is not None else None
+        geographic_region = (
+            country_rows.get(company.country) if company.country is not None else None
+        )
         revenue_history, income_history, ebit_history = _histories_from_rows(
             (r[0], r[2], r[1]) for r in financials[t]
         )
@@ -650,7 +650,7 @@ def bulk_load_valuation_inputs(
             revenue_history=revenue_history,
             income_history=income_history,
             ebit_history=ebit_history,
-            sector=_sector_multiples_from(company, country_row, sector_row),
+            sector=_sector_multiples_from(company, geographic_region, sector_row),
             latest_close=closes.get(t),
             close_rates=close_rates,
             assumption_inputs=assumption_inputs[t],

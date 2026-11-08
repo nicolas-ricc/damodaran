@@ -1623,6 +1623,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "not valid YAML", "not a mapping", "an unknown key", "a numeric value that is not a finite number",
         "a founded_year that is not a whole year from 1600 to this year",
         "a non-empty list of them for revenue_growth / operating_margin",
+        "a numeric value outside its range",
         "an inconsistent story file", "cannot value, exit code 1",
     ],
     "cli.errors": ["exit code 2", "exit code 1", "worst"],
@@ -1910,7 +1911,7 @@ def _valuation_input(shares: float) -> Any:
         revenue_history=(90.0, 100.0),
         income_history=(7.0, 8.0),
         ebit_history=(9.0, 10.0),
-        sector=analysis._SectorMultiples("US", None, None, None, None, None),
+        sector=analysis._SectorMultiples("US", None, None, None, None),
         latest_close=analysis.LatestClose(10.0, "USD", date(2026, 5, 29)),
         close_rates=None,
         assumption_inputs=resolve.AssumptionInputs(
