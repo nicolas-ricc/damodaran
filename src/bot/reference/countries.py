@@ -204,7 +204,6 @@ SUBNATIONAL_SHEET_ROWS: frozenset[str] = frozenset(
     {"Abu Dhabi", "Ras Al Khaimah (Emirate of)", "Sharjah"}
 )
 
-
 #: Keys already warned about, so each unmapped value logs once per process.
 _warned: set[str] = set()
 
