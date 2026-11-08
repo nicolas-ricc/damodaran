@@ -351,7 +351,7 @@ h1 {
         <li><code data-symbol="bot.cli.refresh">bot.cli.refresh</code> · <code class="at">src/bot/cli.py:108</code>: trae los datos de las fuentes externas; es el único comando que escribe en la base los datos de la Capa A.</li>
         <li><code data-symbol="bot.cli.screen">bot.cli.screen</code> · <code class="at">src/bot/cli.py:516</code>: corre la Capa B sobre el universo y escribe la lista corta.</li>
         <li><code data-symbol="bot.cli.analyze">bot.cli.analyze</code> · <code class="at">src/bot/cli.py:379</code>: corre el DCF de la Capa C para los tickers que le pidas.</li>
-        <li><code data-symbol="bot.screener.engine.run_screen">bot.screener.engine.run_screen</code> · <code class="at">src/bot/screener/engine.py:738</code>: el orquestador de la Capa B. Aplica la compuerta de cobertura, las tres capas eliminatorias y el ranking. Después hace una segunda pasada: pide el DCF de los finalistas y los reordena con ese resultado, pero no saca a ninguno.</li>
+        <li><code data-symbol="bot.screener.engine.run_screen">bot.screener.engine.run_screen</code> · <code class="at">src/bot/screener/engine.py:812</code>: el orquestador de la Capa B. Aplica la compuerta de cobertura, las tres capas eliminatorias y el ranking. Después hace una segunda pasada: pide el DCF de los finalistas y los reordena con ese resultado, pero no saca a ninguno.</li>
         <li>El universo vive en <code>src/bot/ingest/universe_default.csv</code>: 498 nombres.</li>
       </ul>
     </div>
@@ -382,7 +382,7 @@ h1 {
         <li><code data-symbol="bot.ingest.damodaran.parse_industry_xls">bot.ingest.damodaran.parse_industry_xls</code> · <code class="at">src/bot/ingest/damodaran.py:528</code> y <code data-symbol="bot.ingest.damodaran.parse_country_xls">bot.ingest.damodaran.parse_country_xls</code> · <code class="at">src/bot/ingest/damodaran.py:559</code>: leen una hoja de Excel y la devuelven como filas ya normalizadas.</li>
         <li>Dos tablas guardan el resultado: <code>damodaran_industry</code> (una fila por industria, región y año) y <code>damodaran_country</code> (una por país y año).</li>
         <li><code data-symbol="bot.screener.benchmarks.load_industry_benchmarks">bot.screener.benchmarks.load_industry_benchmarks</code> · <code class="at">src/bot/screener/benchmarks.py:37</code>: dada una industria y una región devuelve la fila más reciente, o nada si no existe. Ese «nada» es lo que dispara la compuerta de cobertura del capítulo 2.</li>
-        <li><code data-symbol="bot.screener.types.IndustryBenchmarks">bot.screener.types.IndustryBenchmarks</code> · <code class="at">src/bot/screener/types.py:70</code>: la foto inmutable de una industria que reciben las reglas: WACC, ROIC, ROE, PE, P/BV, EV/EBITDA y márgenes.</li>
+        <li><code data-symbol="bot.screener.types.IndustryBenchmarks">bot.screener.types.IndustryBenchmarks</code> · <code class="at">src/bot/screener/types.py:80</code>: la foto inmutable de una industria que reciben las reglas: WACC, ROIC, ROE, PE, P/BV, EV/EBITDA y márgenes.</li>
       </ul>
     </div>
     <aside class="caveat"><p>La vara es de Estados Unidos. Si una empresa no trae país, o su país no tiene región en la tabla de Damodaran, el screener usa <data data-const="bot.screener.engine.DEFAULT_REGION" value="US">US</data>, y el universo entero es estadounidense (ADR 0007). Compararía mal, por ejemplo, a una empresa alemana contra medianas de EE. UU.; por eso hoy no se intenta.</p></aside>
@@ -406,9 +406,9 @@ h1 {
         <li><code data-symbol="bot.ingest.universe.refresh_prices">bot.ingest.universe.refresh_prices</code> · <code class="at">src/bot/ingest/universe.py:528</code>: trae los precios de cada ticker de forma incremental y los guarda con su moneda.</li>
         <li><code data-symbol="bot.ingest.sec_edgar">bot.ingest.sec_edgar</code> · <code class="at">src/bot/ingest/sec_edgar.py:1</code>: el adaptador que habla con EDGAR y traduce sus archivos al formato de la base.</li>
         <li><code data-symbol="bot.storage.db">bot.storage.db</code> · <code class="at">src/bot/storage/db.py:1</code>: abre el archivo de DuckDB y aplica el esquema de tablas.</li>
-        <li><code data-symbol="bot.screener.types.CompanyData">bot.screener.types.CompanyData</code> · <code class="at">src/bot/screener/types.py:20</code>: la ficha inmutable de una empresa que leen las reglas.</li>
-        <li><code data-symbol="bot.screener.engine.build_company_data">bot.screener.engine.build_company_data</code> · <code class="at">src/bot/screener/engine.py:461</code>: arma esa ficha desde las tablas, calcula los ratios y deja vacío lo que no puede calcular.</li>
-        <li>La compuerta de cobertura vive en <code data-symbol="bot.screener.engine.run_screen">bot.screener.engine.run_screen</code> · <code class="at">src/bot/screener/engine.py:738</code>: anota <code>RejectedCompany(ticker, (razón,))</code> con una sola razón de <code>CoverageReason</code>, por precedencia (<code>industry_unmapped</code>, <code>benchmark_missing</code>, <code>currency_uncovered</code>), y sigue con la próxima.</li>
+        <li><code data-symbol="bot.screener.types.CompanyData">bot.screener.types.CompanyData</code> · <code class="at">src/bot/screener/types.py:21</code>: la ficha inmutable de una empresa que leen las reglas.</li>
+        <li><code data-symbol="bot.screener.engine.build_company_data">bot.screener.engine.build_company_data</code> · <code class="at">src/bot/screener/engine.py:518</code>: arma esa ficha desde las tablas, calcula los ratios y deja vacío lo que no puede calcular.</li>
+        <li>La compuerta de cobertura vive en <code data-symbol="bot.screener.engine.run_screen">bot.screener.engine.run_screen</code> · <code class="at">src/bot/screener/engine.py:812</code>: anota <code>RejectedCompany(ticker, (razón,))</code> con una sola razón de <code>CoverageReason</code>, por precedencia (<code>industry_unmapped</code>, <code>benchmark_missing</code>, <code>currency_uncovered</code>), y sigue con la próxima.</li>
       </ul>
     </div>
     <aside class="caveat"><p>El ADR 0005 pide valuar a cada empresa en su propia moneda y convertir recién al calcular. Está implementado a medias: la parte de la tasa libre de riesgo y el PBI por moneda (§4) ya funciona, con una tabla por moneda y una empresa fuera de la tabla que sale del universo. Siguen faltando el §1 al §3: separar la moneda de cotización de la de reporte y convertir el precio. Hoy no se nota porque el universo es solo de EE. UU.: precio, balance y vara están todos en dólares. El día que entren empresas de otros países, esto tiene que resolverse antes.</p></aside>
@@ -449,15 +449,15 @@ h1 {
     <div class="en-codigo"><h3>En el código</h3>
       <ul>
         <li>El preset por defecto es <code>config/presets/damodaran_value.yaml</code>: las tres listas de reglas y los pesos del ranking.</li>
-        <li><code data-symbol="bot.screener.rules.Rule">bot.screener.rules.Rule</code> · <code class="at">src/bot/screener/rules.py:48</code>: la clase base. Cada regla recibe la empresa y la vara de su industria y devuelve un veredicto.</li>
-        <li><code data-symbol="bot.screener.rules.register">bot.screener.rules.register</code> · <code class="at">src/bot/screener/rules.py:71</code> y <code data-symbol="bot.screener.rules.get_rule">bot.screener.rules.get_rule</code> · <code class="at">src/bot/screener/rules.py:91</code>: el registro y su búsqueda por nombre. Un nombre repetido es un error.</li>
-        <li><code data-symbol="bot.screener.rules.MinMarketCap">bot.screener.rules.MinMarketCap</code> · <code class="at">src/bot/screener/rules.py:121</code></li>
-        <li><code data-symbol="bot.screener.rules.MinYearsHistory">bot.screener.rules.MinYearsHistory</code> · <code class="at">src/bot/screener/rules.py:143</code></li>
-        <li><code data-symbol="bot.screener.rules.ExcludeSectors">bot.screener.rules.ExcludeSectors</code> · <code class="at">src/bot/screener/rules.py:163</code></li>
-        <li><code data-symbol="bot.screener.rules.MaxNetDebtToEBITDA">bot.screener.rules.MaxNetDebtToEBITDA</code> · <code class="at">src/bot/screener/rules.py:193</code></li>
-        <li><code data-symbol="bot.screener.rules.MinInterestCoverage">bot.screener.rules.MinInterestCoverage</code> · <code class="at">src/bot/screener/rules.py:227</code></li>
-        <li><code data-symbol="bot.screener.rules.PositiveOperatingCashflow">bot.screener.rules.PositiveOperatingCashflow</code> · <code class="at">src/bot/screener/rules.py:264</code></li>
-        <li><code data-symbol="bot.screener.rules.MaxGoodwillToAssets">bot.screener.rules.MaxGoodwillToAssets</code> · <code class="at">src/bot/screener/rules.py:299</code></li>
+        <li><code data-symbol="bot.screener.rules.Rule">bot.screener.rules.Rule</code> · <code class="at">src/bot/screener/rules.py:49</code>: la clase base. Cada regla recibe la empresa y la vara de su industria y devuelve un veredicto.</li>
+        <li><code data-symbol="bot.screener.rules.register">bot.screener.rules.register</code> · <code class="at">src/bot/screener/rules.py:72</code> y <code data-symbol="bot.screener.rules.get_rule">bot.screener.rules.get_rule</code> · <code class="at">src/bot/screener/rules.py:92</code>: el registro y su búsqueda por nombre. Un nombre repetido es un error.</li>
+        <li><code data-symbol="bot.screener.rules.MinMarketCap">bot.screener.rules.MinMarketCap</code> · <code class="at">src/bot/screener/rules.py:122</code></li>
+        <li><code data-symbol="bot.screener.rules.MinYearsHistory">bot.screener.rules.MinYearsHistory</code> · <code class="at">src/bot/screener/rules.py:144</code></li>
+        <li><code data-symbol="bot.screener.rules.ExcludeSectors">bot.screener.rules.ExcludeSectors</code> · <code class="at">src/bot/screener/rules.py:164</code></li>
+        <li><code data-symbol="bot.screener.rules.MaxNetDebtToEBITDA">bot.screener.rules.MaxNetDebtToEBITDA</code> · <code class="at">src/bot/screener/rules.py:194</code></li>
+        <li><code data-symbol="bot.screener.rules.MinInterestCoverage">bot.screener.rules.MinInterestCoverage</code> · <code class="at">src/bot/screener/rules.py:228</code></li>
+        <li><code data-symbol="bot.screener.rules.PositiveOperatingCashflow">bot.screener.rules.PositiveOperatingCashflow</code> · <code class="at">src/bot/screener/rules.py:265</code></li>
+        <li><code data-symbol="bot.screener.rules.MaxGoodwillToAssets">bot.screener.rules.MaxGoodwillToAssets</code> · <code class="at">src/bot/screener/rules.py:300</code></li>
       </ul>
     </div>
     <aside class="caveat"><p>Los umbrales son una decisión de diseño razonable, no una ley. Un 4× de deuda neta sobre EBITDA es estricto para una empresa de infraestructura y holgado para una de software. El bot usa el mismo corte para todas las industrias que no son financieras.</p></aside>
@@ -514,6 +514,7 @@ h1 {
           <tr><th scope="row"><code>roic_above_sector_wacc</code></th><td><span class="marca-trampa">Trampa:</span> su ROIC supera el costo de capital de la industria (sin parámetros)</td></tr>
           <tr><th scope="row"><code>sloan_accruals_below</code></th><td><span class="marca-trampa">Trampa:</span> la parte de la ganancia que no es caja es menos de <data data-param="sloan_accruals_below.maximum" value="0.10">10 %</data> de los activos</td></tr>
           <tr><th scope="row"><code>share_count_not_diluting</code></th><td><span class="marca-trampa">Trampa:</span> la cantidad de acciones crece como mucho <data data-param="share_count_not_diluting.max_annual_growth" value="0.05">5 %</data> por año</td></tr>
+          <tr><th scope="row"><code>auditor_changes_and_late_filings</code></th><td><span class="marca-trampa">Trampa:</span> no cambió de auditor (8-K, ítem 4.01) ni avisó que presenta tarde un balance (NT 10-K, NT 10-Q) en los últimos <data data-param="auditor_changes_and_late_filings.window_years" value="2">2</data> años; fuera de Estados Unidos no hay registro y el detector se saltea, y saltearse elimina</td></tr>
         </tbody>
       </table></div>
       <p>Dos aclaraciones sobre cómo leer esto. El ratio de Sloan mira cuánto de la ganancia declarada no se cobró en efectivo; si es mucho, las ganancias son de papel. Y la dilución cuenta el crecimiento promedio de acciones: una empresa que emite acciones todos los años le va regalando tu parte.</p>
@@ -534,19 +535,20 @@ h1 {
     </div>
     <div class="en-codigo"><h3>En el código</h3>
       <ul>
-        <li><code data-symbol="bot.screener.rules.PEBelowIndustryMultiple">bot.screener.rules.PEBelowIndustryMultiple</code> · <code class="at">src/bot/screener/rules.py:353</code></li>
-        <li><code data-symbol="bot.screener.rules.EVEBITDABelowIndustryMultiple">bot.screener.rules.EVEBITDABelowIndustryMultiple</code> · <code class="at">src/bot/screener/rules.py:389</code></li>
-        <li><code data-symbol="bot.screener.rules.PBVBelowIndustryMultipleWithROEAboveMedian">bot.screener.rules.PBVBelowIndustryMultipleWithROEAboveMedian</code> · <code class="at">src/bot/screener/rules.py:428</code></li>
-        <li><code data-symbol="bot.screener.rules.FCFYieldAbove">bot.screener.rules.FCFYieldAbove</code> · <code class="at">src/bot/screener/rules.py:471</code></li>
-        <li><code data-symbol="bot.screener.rules.RevenueNotDeclining">bot.screener.rules.RevenueNotDeclining</code> · <code class="at">src/bot/screener/rules.py:528</code></li>
-        <li><code data-symbol="bot.screener.rules.OperatingMarginNotContracting">bot.screener.rules.OperatingMarginNotContracting</code> · <code class="at">src/bot/screener/rules.py:569</code></li>
-        <li><code data-symbol="bot.screener.rules.ROICAboveSectorWACC">bot.screener.rules.ROICAboveSectorWACC</code> · <code class="at">src/bot/screener/rules.py:607</code></li>
-        <li><code data-symbol="bot.screener.rules.SloanAccrualsBelow">bot.screener.rules.SloanAccrualsBelow</code> · <code class="at">src/bot/screener/rules.py:638</code></li>
-        <li><code data-symbol="bot.screener.rules.ShareCountNotDiluting">bot.screener.rules.ShareCountNotDiluting</code> · <code class="at">src/bot/screener/rules.py:677</code></li>
-        <li><code data-symbol="bot.screener.engine.evaluate_company">bot.screener.engine.evaluate_company</code> · <code class="at">src/bot/screener/engine.py:664</code>: aplica las tres capas a una empresa. Pasa solo si pasan todas las compuertas, al menos un indicador de valor y todos los detectores. Un detector de trampas que no puede correr elimina a la empresa (ADR 0006); un indicador de valor que se saltea no suma ni resta. Del mejor puntaje entre los indicadores que pasan sale la medida de «valor» para el ranking.</li>
-        <li><code data-symbol="bot.screener.engine.run_screen">bot.screener.engine.run_screen</code> · <code class="at">src/bot/screener/engine.py:738</code>: recorre el universo y junta lo que devuelve <code>evaluate_company</code>.</li>
-        <li><code data-symbol="bot.screener.engine.ScreenResult">bot.screener.engine.ScreenResult</code> · <code class="at">src/bot/screener/engine.py:198</code>: el resultado de la corrida, con la lista corta ordenada.</li>
-        <li><code data-symbol="bot.screener.engine.RejectedCompany">bot.screener.engine.RejectedCompany</code> · <code class="at">src/bot/screener/engine.py:184</code>: cada empresa que no pasó, con la lista de reglas que la sacaron. Así se puede preguntar después «¿por qué cayó X?».</li>
+        <li><code data-symbol="bot.screener.rules.PEBelowIndustryMultiple">bot.screener.rules.PEBelowIndustryMultiple</code> · <code class="at">src/bot/screener/rules.py:354</code></li>
+        <li><code data-symbol="bot.screener.rules.EVEBITDABelowIndustryMultiple">bot.screener.rules.EVEBITDABelowIndustryMultiple</code> · <code class="at">src/bot/screener/rules.py:390</code></li>
+        <li><code data-symbol="bot.screener.rules.PBVBelowIndustryMultipleWithROEAboveMedian">bot.screener.rules.PBVBelowIndustryMultipleWithROEAboveMedian</code> · <code class="at">src/bot/screener/rules.py:429</code></li>
+        <li><code data-symbol="bot.screener.rules.FCFYieldAbove">bot.screener.rules.FCFYieldAbove</code> · <code class="at">src/bot/screener/rules.py:472</code></li>
+        <li><code data-symbol="bot.screener.rules.RevenueNotDeclining">bot.screener.rules.RevenueNotDeclining</code> · <code class="at">src/bot/screener/rules.py:529</code></li>
+        <li><code data-symbol="bot.screener.rules.OperatingMarginNotContracting">bot.screener.rules.OperatingMarginNotContracting</code> · <code class="at">src/bot/screener/rules.py:570</code></li>
+        <li><code data-symbol="bot.screener.rules.ROICAboveSectorWACC">bot.screener.rules.ROICAboveSectorWACC</code> · <code class="at">src/bot/screener/rules.py:608</code></li>
+        <li><code data-symbol="bot.screener.rules.SloanAccrualsBelow">bot.screener.rules.SloanAccrualsBelow</code> · <code class="at">src/bot/screener/rules.py:639</code></li>
+        <li><code data-symbol="bot.screener.rules.ShareCountNotDiluting">bot.screener.rules.ShareCountNotDiluting</code> · <code class="at">src/bot/screener/rules.py:678</code></li>
+        <li><code data-symbol="bot.screener.rules.AuditorChangesAndLateFilings">bot.screener.rules.AuditorChangesAndLateFilings</code> · <code class="at">src/bot/screener/rules.py:734</code></li>
+        <li><code data-symbol="bot.screener.engine.evaluate_company">bot.screener.engine.evaluate_company</code> · <code class="at">src/bot/screener/engine.py:738</code>: aplica las tres capas a una empresa. Pasa solo si pasan todas las compuertas, al menos un indicador de valor y todos los detectores. Un detector de trampas que no puede correr elimina a la empresa (ADR 0006); un indicador de valor que se saltea no suma ni resta. Del mejor puntaje entre los indicadores que pasan sale la medida de «valor» para el ranking.</li>
+        <li><code data-symbol="bot.screener.engine.run_screen">bot.screener.engine.run_screen</code> · <code class="at">src/bot/screener/engine.py:812</code>: recorre el universo y junta lo que devuelve <code>evaluate_company</code>.</li>
+        <li><code data-symbol="bot.screener.engine.ScreenResult">bot.screener.engine.ScreenResult</code> · <code class="at">src/bot/screener/engine.py:216</code>: el resultado de la corrida, con la lista corta ordenada.</li>
+        <li><code data-symbol="bot.screener.engine.RejectedCompany">bot.screener.engine.RejectedCompany</code> · <code class="at">src/bot/screener/engine.py:202</code>: cada empresa que no pasó, con la lista de reglas que la sacaron. Así se puede preguntar después «¿por qué cayó X?».</li>
       </ul>
     </div>
     <aside class="caveat"><p>El screener no puede juzgar la narrativa (spec §6.7). Una empresa con un gran cuento y números flojos queda afuera. Y una que parece barata y pasa todos los filtros puede esconder algo que no está en los balances. Que sobreviva solo significa que no cayó en ninguna trampa que el bot sabe medir.</p></aside>
