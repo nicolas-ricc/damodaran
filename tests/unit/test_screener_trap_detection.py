@@ -321,7 +321,6 @@ def test_share_count_not_diluting_configurable() -> None:
     assert result.passed is False
 
 
-
 # --------------------------------------------------------------------------- #
 # AuditorChangesAndLateFilings
 # --------------------------------------------------------------------------- #

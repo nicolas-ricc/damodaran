@@ -505,7 +505,8 @@ class FCFYieldAbove(Rule):
 # the gate (the screener will not vouch for a company it cannot measure), except
 # where noted: ROICAboveSectorWACC *skips* when the sector WACC median is absent
 # (a data gap in the benchmark, not the company, must not eliminate on its own),
-# and the best-effort SEC flags pass when the datum is simply unknown.
+# and AuditorChangesAndLateFilings *skips* without an SEC filing history (outside
+# the US). The engine treats a skipped trap detector as eliminatory (ADR 0006).
 # --------------------------------------------------------------------------- #
 
 
