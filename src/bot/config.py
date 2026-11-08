@@ -152,22 +152,15 @@ class Settings(BaseSettings):
             return "none"
         return value
 
-    @field_validator("industry_mapping_path", mode="before")
+    @field_validator("industry_mapping_path", "ibkr_flex_token_expires", mode="before")
     @classmethod
     def _blank_path_is_unset(cls, value: object) -> object:
-        """Treat ``BOT_INDUSTRY_MAPPING_PATH=`` as "not configured".
+        """Treat a blank env var as "not configured" for these optional settings.
 
-        Without this, an empty or whitespace env var coerces to ``Path(".")``,
-        which exists, so path resolution hands the CSV loader a *directory*.
+        ``BOT_IBKR_FLEX_TOKEN_EXPIRES=`` is an unset expiry date.
+        For ``BOT_INDUSTRY_MAPPING_PATH=``: without this, an empty or whitespace
+        env var coerces to ``Path(".")``, which exists, so path resolution hands the CSV loader a *directory*.
         """
-        if isinstance(value, str) and not value.strip():
-            return None
-        return value
-
-    @field_validator("ibkr_flex_token_expires", mode="before")
-    @classmethod
-    def _blank_expiry_is_unset(cls, value: object) -> object:
-        """Treat ``BOT_IBKR_FLEX_TOKEN_EXPIRES=`` as "not set"."""
         if isinstance(value, str) and not value.strip():
             return None
         return value
