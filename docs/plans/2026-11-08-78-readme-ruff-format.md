@@ -32,7 +32,7 @@
   uv run mypy src                  # type check
   ```
 
-  These are the commands CI runs (`.github/workflows/site.yml`); the lint gate
+  These are the checks CI runs (`.github/workflows/site.yml`); the lint gate
   is `uv run ruff check . && uv run mypy src`.
 
   Formatting is not enforced: neither CI nor the lint gate runs `ruff format`,
