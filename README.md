@@ -59,9 +59,11 @@ Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
    through the universe. `scripts/daily.sh` therefore repeats the price refresh (up to
    `BOT_PRICE_ROUNDS`, default 10, pausing `BOT_PRICE_RETRY_PAUSE` seconds, default 3600,
    between rounds) until no tickers are deferred. Once the universe is filled, the plain run
-   does cheap daily incremental updates (one bar/ticker). The `price_fill.sh` drip is only for
-   a first fill before `scripts/install_cron.sh`; do not run both, or they compete for the
-   same hourly Tiingo quota and the same DuckDB file (#108).
+   does cheap daily incremental updates (one bar/ticker). `price_fill.sh`, `daily.sh` and
+   `weekly.sh` share `.cache/bot.lock`: when the `price_fill.sh` drip finds it held, it logs
+   `skipped: DB busy` and the next hourly run catches up. The drip and the daily rounds still
+   share the hourly Tiingo quota, so the drip is meant only for the first fill before
+   `scripts/install_cron.sh` (#108).
    For the full S&P 500 priced daily without the drip, Tiingo Power (~$30/mo) lifts the caps —
    same `edgar-tiingo` provider, just a paid key, and re-add the trimmed names.
 

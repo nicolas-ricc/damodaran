@@ -7,6 +7,7 @@ or the developer's ``.env``.
 
 from __future__ import annotations
 
+import fcntl
 import os
 import shutil
 import subprocess
@@ -569,6 +570,75 @@ def test_price_fill_with_no_count_logs_a_question_mark(repo: Path, recorder_bin:
     assert result.returncode == 0, result.stderr
     assert "missing=?\n" in _price_fill_log(repo)
     assert not (repo / ".cache" / "price_fill.DONE").exists()
+
+
+def test_price_fill_skips_when_the_db_lock_is_held(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    (repo / ".cache").mkdir()
+    fd = os.open(repo / ".cache" / "bot.lock", os.O_WRONLY | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        result = _run(repo / "scripts" / "price_fill.sh", env=_env(recorder_bin))
+    finally:
+        os.close(fd)
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls) == []
+    log = _price_fill_log(repo)
+    assert log.count("skipped: DB busy") == 1
+    assert ".cache/bot.lock" in log
+    assert " run ===" in log
+    assert not (repo / ".cache" / "price_fill.DONE").exists()
+
+
+def test_price_fill_runs_when_the_db_lock_is_free(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    (repo / ".cache").mkdir()
+    (repo / ".cache" / "bot.lock").touch()
+
+    result = _run(repo / "scripts" / "price_fill.sh", env=_env(recorder_bin))
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls) == _PRICE_FILL
+    assert "skipped: DB busy" not in _price_fill_log(repo)
+
+
+# Records, per call, whether .cache/bot.lock was held by someone else while `uv` ran;
+# any other `flock` failure (127: not installed) records its exit code instead.
+_UV_LOCK_PROBE = """#!/usr/bin/env bash
+flock -n "{lock}" true
+rc=$?
+case $rc in
+  0) state=lock-free ;;
+  1) state=lock-held ;;
+  *) state="flock-exit-$rc" ;;
+esac
+echo "$state $*" >> "{calls}"
+if [ "$2" = python ]; then
+  cat > /dev/null
+  echo 0
+fi
+"""
+
+
+def test_price_fill_holds_the_db_lock_while_uv_runs(
+    repo: Path, tmp_path: Path, calls: Path
+) -> None:
+    probe_bin = tmp_path / "bin-probe"
+    lock = repo / ".cache" / "bot.lock"
+    _write_exe(probe_bin / "uv", _UV_LOCK_PROBE.format(lock=lock, calls=calls))
+
+    result = _run(repo / "scripts" / "price_fill.sh", env=_env(probe_bin))
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls) == [f"lock-held {c}" for c in _PRICE_FILL]
+    fd = os.open(lock, os.O_WRONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)  # released once the script exits
+    finally:
+        os.close(fd)
 
 
 _UA = "Jane Doe jane@example.com"
