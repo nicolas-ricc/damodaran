@@ -791,9 +791,16 @@ def doctor() -> None:
     else:
         days_left = (expires - date.today()).days
         if days_left < 0:
-            issues.append(f"Flex token expired on {expires.isoformat()} (BOT_IBKR_FLEX_TOKEN_EXPIRES)")
+            issues.append(
+                f"Flex token expired on {expires.isoformat()} (BOT_IBKR_FLEX_TOKEN_EXPIRES) — "
+                "generate a new one in Client Portal → Settings → Reporting → "
+                "Flex Web Service and update .env"
+            )
         elif days_left <= TOKEN_EXPIRY_WARN_DAYS:
-            typer.echo(f"WARN: Flex token expires in {days_left} day(s) ({expires.isoformat()})")
+            typer.echo(
+                f"WARN: Flex token expires in {days_left} day(s) ({expires.isoformat()}) — "
+                "renew it in Client Portal → Settings → Reporting → Flex Web Service"
+            )
         else:
             typer.echo(f"Flex token expiry: {expires.isoformat()} ({days_left} days left)")
     if not flex_configured:

@@ -287,7 +287,11 @@ def test_doctor_flex_token_expiry_within_window_warns(tmp_path, monkeypatch, day
     result = CliRunner().invoke(app, ["doctor"])
 
     assert result.exit_code == 0, result.stderr
-    assert f"WARN: Flex token expires in {days} day(s) ({_in_days(days)})" in result.stdout
+    warn = (
+        f"WARN: Flex token expires in {days} day(s) ({_in_days(days)}) — renew it in "
+        "Client Portal → Settings → Reporting → Flex Web Service"
+    )
+    assert warn in result.stdout.splitlines()
     assert "WARN:" not in result.stderr
     assert "All checks OK." in result.stdout
 
@@ -298,8 +302,12 @@ def test_doctor_flex_token_expired_fails(tmp_path, monkeypatch):
     result = CliRunner().invoke(app, ["doctor"])
 
     assert result.exit_code == 1
-    prefix = f"FAIL: Flex token expired on {_in_days(-1)} (BOT_IBKR_FLEX_TOKEN_EXPIRES)"
-    assert any(line.startswith(prefix) for line in result.stderr.splitlines())
+    fail = (
+        f"FAIL: Flex token expired on {_in_days(-1)} (BOT_IBKR_FLEX_TOKEN_EXPIRES) — "
+        "generate a new one in Client Portal → Settings → Reporting → "
+        "Flex Web Service and update .env"
+    )
+    assert fail in result.stderr.splitlines()
 
 
 def test_doctor_flex_token_expiry_unset(tmp_path, monkeypatch):
