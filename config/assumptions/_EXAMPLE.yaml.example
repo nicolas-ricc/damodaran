@@ -1,15 +1,15 @@
 # Copiá este archivo a <TICKER>.yaml (p.ej. AAPL.yaml) y descomentá lo que quieras fijar.
-# revenue_growth: [0.12, 0.10, 0.08, 0.06, 0.04]   # path anual, o escalar que se repite
-# operating_margin: 0.22                           # path anual, o escalar que se repite
-# sales_to_capital: 2.5                            # eficiencia de reinversión (Damodaran)
-# terminal_growth: 0.03                            # crecimiento perpetuo, año terminal
-# cost_of_equity: 0.09                              # CAPM manual, en vez del cálculo por sector
-# pretax_cost_of_debt: 0.05                        # costo de la deuda antes de impuestos
-# equity_weight: 0.85                              # debt_weight se deriva (1 - equity_weight)
-# debt_weight: 0.15                                # alternativa a equity_weight (se derivan entre sí)
-# tax_rate: 0.21                                   # tasa marginal para el NOPAT
-# probability_of_bankruptcy: 0.15                  # ponderación del escenario distress
-# distress_value_per_share: 4.0                    # valor por acción en el escenario distress
+# revenue_growth: [0.12, 0.10, 0.08, 0.06, 0.04]   # path anual, o escalar que se repite, cada valor > -1
+# operating_margin: 0.22                           # path anual, o escalar que se repite, cada valor < 1
+# sales_to_capital: 2.5                            # eficiencia de reinversión (Damodaran), > 0
+# terminal_growth: 0.03                            # crecimiento perpetuo, año terminal, -1 < x < 1, y menor que el WACC
+# cost_of_equity: 0.09                              # CAPM manual, en vez del cálculo por sector, 0 < x < 1
+# pretax_cost_of_debt: 0.05                        # costo de la deuda antes de impuestos, 0 < x < 1
+# equity_weight: 0.85                              # debt_weight se deriva (1 - equity_weight), 0..1
+# debt_weight: 0.15                                # alternativa a equity_weight (se derivan entre sí), 0..1
+# tax_rate: 0.21                                   # tasa marginal para el NOPAT, 0..1
+# probability_of_bankruptcy: 0.15                  # ponderación del escenario distress, 0..1
+# distress_value_per_share: 4.0                    # valor por acción en el escenario distress, >= 0
 # story_type: high-growth                          # high-growth | mature-stable | mature-decline | cyclical | distressed | hypergrowth (hypergrowth exige `story`)
 # founded_year: 2021                               # año de fundación, entero 1600..año actual; vale para cualquier story_type
 # story:                                           # solo con story_type: hypergrowth. Montos en moneda de reporte, sin escalar (como financials_annual; no en millones)

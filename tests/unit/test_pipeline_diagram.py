@@ -1623,6 +1623,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "not valid YAML", "not a mapping", "an unknown key", "a numeric value that is not a finite number",
         "a founded_year that is not a whole year from 1600 to this year",
         "a non-empty list of them for revenue_growth / operating_margin",
+        "a numeric value outside its range",
         "an inconsistent story file", "cannot value, exit code 1",
     ],
     "cli.errors": ["exit code 2", "exit code 1", "worst"],

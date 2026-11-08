@@ -453,6 +453,159 @@ def test_override_numeric_string_still_applies(
     assert result.terminal_growth.source is AssumptionSource.MANUAL
 
 
+@pytest.mark.parametrize(
+    ("body", "key"),
+    [
+        pytest.param("tax_rate: 25\n", "tax_rate", id="percent-as-whole-number"),
+        pytest.param("tax_rate: '25'\n", "tax_rate", id="percent-as-string"),
+        pytest.param("probability_of_bankruptcy: 1.5\n", "probability_of_bankruptcy", id="pob"),
+        pytest.param("equity_weight: -0.1\n", "equity_weight", id="negative-weight"),
+        pytest.param("debt_weight: 1.2\n", "debt_weight", id="weight-above-one"),
+        pytest.param("cost_of_equity: 0\n", "cost_of_equity", id="zero-cost-of-equity"),
+        pytest.param("pretax_cost_of_debt: 1\n", "pretax_cost_of_debt", id="cost-of-debt-one"),
+        pytest.param("terminal_growth: -1\n", "terminal_growth", id="terminal-growth"),
+        pytest.param("sales_to_capital: 0\n", "sales_to_capital", id="zero-sales-to-capital"),
+        pytest.param("distress_value_per_share: -1\n", "distress_value_per_share", id="distress"),
+        pytest.param("operating_margin: [0.2, 1.0]\n", "operating_margin", id="margin-path"),
+        pytest.param("operating_margin: 1.0\n", "operating_margin", id="margin-scalar"),
+        pytest.param("revenue_growth: -1\n", "revenue_growth", id="growth-scalar"),
+    ],
+)
+def test_override_value_outside_its_range_is_refused(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path, body: str, key: str
+) -> None:
+    """A finite number its formula cannot take fails the ticker, not the DCF (#292)."""
+    _seed_full_sector(conn)
+    override = _write_override(tmp_path, body)
+    with pytest.raises(ValueError, match=rf"ACME\.yaml: {key} must be"):
+        resolve_assumptions("ACME", conn, override_path=override)
+
+
+@pytest.mark.parametrize(
+    ("body", "message"),
+    [
+        ("tax_rate: 25\n", r"ACME\.yaml: tax_rate must be between 0 and 1, got 25$"),
+        ("tax_rate: '25'\n", r"got '25'$"),
+        (
+            "revenue_growth: [0.1, -1.5, 0.1]\n",
+            r"revenue_growth must be greater than -1 \(every element\), got \[0\.1, -1\.5, 0\.1\]$",
+        ),
+    ],
+)
+def test_override_range_error_names_the_range_and_the_value(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path, body: str, message: str
+) -> None:
+    _seed_full_sector(conn)
+    override = _write_override(tmp_path, body)
+    with pytest.raises(ValueError, match=message):
+        resolve_assumptions("ACME", conn, override_path=override)
+
+
+@pytest.mark.parametrize(
+    ("body", "field", "expected"),
+    [
+        ("tax_rate: 0\n", "tax_rate", 0.0),
+        ("tax_rate: 1\n", "tax_rate", 1.0),
+        ("probability_of_bankruptcy: 0\n", "probability_of_bankruptcy", 0.0),
+        ("distress_value_per_share: 0\n", "distress_value_per_share", 0.0),
+        ("operating_margin: -0.5\n", "operating_margin", (-0.5,) * 10),
+        ("revenue_growth: 2.0\n", "revenue_growth", (2.0,) * 10),
+    ],
+)
+def test_override_boundary_value_is_accepted(
+    conn: duckdb.DuckDBPyConnection,
+    tmp_path: Path,
+    body: str,
+    field: str,
+    expected: float | tuple[float, ...],
+) -> None:
+    _seed_full_sector(conn)
+    override = _write_override(tmp_path, body)
+    result = resolve_assumptions("ACME", conn, override_path=override)
+    resolved = getattr(result, field)
+    assert resolved.value == pytest.approx(expected)
+    assert resolved.source is AssumptionSource.MANUAL
+
+
+@pytest.mark.parametrize(
+    ("body", "key"),
+    [
+        ("tax_rate: [0.2]\ncost_of_equity: 5\n", "tax_rate"),
+        ("cost_of_equity: 5\ntax_rate: abc\n", "cost_of_equity"),
+    ],
+)
+def test_override_type_and_range_errors_keep_file_order(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path, body: str, key: str
+) -> None:
+    """Type and range share one pass: the first bad key written is the one named."""
+    _seed_full_sector(conn)
+    override = _write_override(tmp_path, body)
+    with pytest.raises(ValueError, match=rf"ACME\.yaml: {key} must be"):
+        resolve_assumptions("ACME", conn, override_path=override)
+
+
+def test_override_range_phrases() -> None:
+    phrases = {key: rng.phrase() for key, rng in assumptions_mod._OVERRIDE_RANGES.items()}
+    assert phrases == {
+        "tax_rate": "between 0 and 1",
+        "probability_of_bankruptcy": "between 0 and 1",
+        "equity_weight": "between 0 and 1",
+        "debt_weight": "between 0 and 1",
+        "cost_of_equity": "greater than 0 and less than 1",
+        "pretax_cost_of_debt": "greater than 0 and less than 1",
+        "terminal_growth": "greater than -1 and less than 1",
+        "sales_to_capital": "greater than 0",
+        "distress_value_per_share": "at least 0",
+        "operating_margin": "less than 1",
+        "revenue_growth": "greater than -1",
+    }
+
+
+def test_every_numeric_override_key_has_a_range() -> None:
+    numeric = (
+        assumptions_mod._OVERRIDE_KEYS
+        - assumptions_mod._OVERRIDE_TEXT_KEYS
+        - assumptions_mod._OVERRIDE_STORY_KEYS
+    )
+    assert set(assumptions_mod._OVERRIDE_RANGES) == numeric
+
+
+#: Range each numeric line of the example file states in its trailing comment.
+_EXAMPLE_RANGE_COMMENTS = {
+    "revenue_growth": "cada valor > -1",
+    "operating_margin": "cada valor < 1",
+    "sales_to_capital": "> 0",
+    "terminal_growth": "-1 < x < 1, y menor que el WACC",
+    "cost_of_equity": "0 < x < 1",
+    "pretax_cost_of_debt": "0 < x < 1",
+    "equity_weight": "0..1",
+    "debt_weight": "0..1",
+    "tax_rate": "0..1",
+    "probability_of_bankruptcy": "0..1",
+    "distress_value_per_share": ">= 0",
+}
+
+
+def test_example_file_with_every_numeric_line_uncommented_loads(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[2]
+    example = (root / "config" / "assumptions" / "_EXAMPLE.yaml.example").read_text()
+    lines = []
+    comments = {}
+    for line in example.splitlines():
+        if line.startswith("# "):
+            key = line.removeprefix("# ").split(":", 1)[0]
+            if key in _EXAMPLE_RANGE_COMMENTS:
+                line = line.removeprefix("# ")
+                comments[key] = line.split("#", 1)[1]
+        lines.append(line)
+    assert set(comments) == set(_EXAMPLE_RANGE_COMMENTS)
+    for key, expected in _EXAMPLE_RANGE_COMMENTS.items():
+        assert expected in comments[key], key
+    path = tmp_path / "EX.yaml"
+    path.write_text("\n".join(lines) + "\n")
+    assert set(_EXAMPLE_RANGE_COMMENTS) <= set(load_override(path))
+
+
 def test_story_type_from_override_is_surfaced(
     conn: duckdb.DuckDBPyConnection, tmp_path: Path
 ) -> None:
