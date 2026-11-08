@@ -537,9 +537,6 @@ def test_analyze_with_a_missing_default_spreads_file_values_with_p_zero(
     assert "| Probability of bankruptcy | 0.0% | rule_based |" in md
 
 
-# --- #178: a report that can't be rendered or written fails its ticker alone ---
-
-
 def _batch_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     db_path = tmp_path / "bot.duckdb"
     reports_dir = tmp_path / "reports"
