@@ -9,7 +9,8 @@ from structlog.testing import capture_logs
 
 from bot.ingest.damodaran import (
     DEFAULT_COUNTRY_COLUMN_MAP,
-    DEFAULT_INDUSTRY_COLUMN_MAP,
+    INDUSTRY_PARSE_ARTEFACT_COLUMNS,
+    WACC_COLUMN_MAP,
     parse_country_xls,
     parse_industry_xls,
 )
@@ -26,7 +27,7 @@ def test_parse_industry_xls_returns_rows():
         FIXTURES / "wacc_sample.xls",
         region="US",
         year=2026,
-        column_map=DEFAULT_INDUSTRY_COLUMN_MAP,
+        column_map={**WACC_COLUMN_MAP, **INDUSTRY_PARSE_ARTEFACT_COLUMNS},
     )
     assert len(rows) > 50  # Damodaran publishes ~90+ industries
     sample = rows[0]
