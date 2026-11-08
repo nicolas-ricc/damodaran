@@ -435,16 +435,14 @@ def _resolve_region(conn: duckdb.DuckDBPyConnection, country: str | None) -> str
     ("US"). Returning the former made every sector-relative rule skip, because the
     benchmark query matched nothing.
     """
-    name = damodaran_country_name(country)
-    if name is None:
+    if (name := damodaran_country_name(country)) is None:
         return DEFAULT_REGION
     row = conn.execute(
         "SELECT region FROM damodaran_country WHERE country = ? "
         "AND region IS NOT NULL ORDER BY year DESC LIMIT 1",
         [name],
     ).fetchone()
-    geographic = str(row[0]) if row is not None and row[0] is not None else None
-    return dataset_region(name, geographic)
+    return dataset_region(name, str(row[0]) if row is not None and row[0] is not None else None)
 
 
 def _resolve_tax_rate(conn: duckdb.DuckDBPyConnection, country: str | None) -> float:
@@ -461,8 +459,7 @@ def _resolve_tax_rate(conn: duckdb.DuckDBPyConnection, country: str | None) -> f
     stored as ``30`` instead of ``0.30``) is rejected back to the default rather
     than producing a negative NOPAT.
     """
-    name = damodaran_country_name(country)
-    if name is None:
+    if (name := damodaran_country_name(country)) is None:
         return DEFAULT_TAX_RATE
     row = conn.execute(
         "SELECT tax_rate FROM damodaran_country WHERE country = ? "

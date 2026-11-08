@@ -29,6 +29,8 @@ Current version: US-only (S&P 500).
   _Avoid_: currency, reported currency, functional currency.
 - **Uncovered currency**: a valuation currency with no row in `config/currencies.yaml` (or an unknown, NULL one). The company leaves the universe with reason `currency_uncovered`.
   _Avoid_: missing currency.
+- **Company country** (`companies.country`): the ISO 3166 alpha-2 code providers store, translated to Damodaran's country name by `bot.reference.countries` before any Damodaran lookup.
+  _Avoid_: using it as a `damodaran_country` key directly.
 - **Valuation currency**: the currency a company is valued in — its reporting currency. Cash flows and discount rate are always expressed in it. See [ADR 0005](docs/adr/0005-currency-handling-and-valuation-currency.md).
 
 ## Source of truth
