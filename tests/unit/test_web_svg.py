@@ -86,13 +86,12 @@ def test_full_value_line_labels_are_html_outside_the_svg() -> None:
     assert "<text" not in html
     lefts = _label_lefts(html)
     assert set(lefts) == {
-        "fair 1.0\u00d7",
         "undervalued 1.3\u00d7",
-        "price 100.00",
+        "price 100.00 \u00b7 fair 1.0\u00d7",
         "intrinsic 150.00",
     }
     assert all(0 <= left <= 100 for left in lefts.values())
-    assert lefts["price 100.00"] < lefts["intrinsic 150.00"]
+    assert lefts["price 100.00 \u00b7 fair 1.0\u00d7"] < lefts["intrinsic 150.00"]
 
 
 def test_charts_carry_no_filter() -> None:
@@ -213,5 +212,84 @@ def test_tables_are_daisyui_tables() -> None:
         '<table class="table table-xs tornado" aria-label="Drivers">'
     )
     assert str(scenario_grid_table(_grid())).startswith(
-        '<table class="table table-xs scenario-grid" aria-label="Scenarios 10/24">'
+        '<div class="scroll"><table class="table table-xs scenario-grid" aria-label="Scenarios 10/24">'
     )
+
+
+# --- issue #262: findings of the impeccable critique and audit ---
+
+
+def _anchors(html: str) -> dict[str, tuple[float, str]]:
+    return {
+        m.group(3): (float(m.group(2)), m.group(1))
+        for m in re.finditer(r'class="axis-label [a-z]+ at-([a-z]+)" style="left:([\d.]+)%">([^<]*)</span>', html)
+    }
+
+
+def test_fair_threshold_is_named_on_the_price_label() -> None:
+    html = str(value_line_svg(_vl(), mini=False))
+    labels = set(_anchors(html))
+    assert "price 100.00 \u00b7 fair 1.0\u00d7" in labels
+    assert not any(label.startswith("fair") for label in labels)
+
+
+def _fds_like() -> ValueLine:
+    # overvalued: intrinsic well under the price, so the undervalued tick sits near the right end
+    price, intrinsic = 100.0, 40.0
+    lo, hi = 35.0, price * 1.3
+    pad = (hi - lo) * 0.03
+    return ValueLine(
+        price=price,
+        intrinsic=intrinsic,
+        range_low=36.0,
+        range_high=60.0,
+        axis_min=lo - pad,
+        axis_max=hi + pad,
+        verdict=Verdict.OVERVALUED,
+    )
+
+
+def _cmcsa_like() -> ValueLine:
+    # undervalued: the price sits at the start of the axis
+    price, intrinsic = 25.0, 195.0
+    return ValueLine(
+        price=price,
+        intrinsic=intrinsic,
+        range_low=150.0,
+        range_high=240.0,
+        axis_min=price - 5.0,
+        axis_max=245.0,
+        verdict=Verdict.UNDERVALUED,
+    )
+
+
+@pytest.mark.parametrize("vl", [_cmcsa_like(), _fds_like()], ids=["price-at-start", "under-at-end"])
+def test_axis_labels_anchor_inside_the_axis(vl: ValueLine) -> None:
+    anchors = _anchors(str(value_line_svg(vl, mini=False)))
+    assert len(anchors) == 3
+    for text, (left, anchor) in anchors.items():
+        expected = "start" if left < 30 else "end" if left > 70 else "middle"
+        assert anchor == expected, (text, left, anchor)
+
+
+def test_mini_value_line_is_decorative() -> None:
+    svg = str(value_line_svg(_vl(), mini=True))
+    assert 'aria-hidden="true"' in svg
+    assert 'role="img"' not in svg
+    assert "aria-label" not in svg
+
+
+def test_scenario_cells_name_the_verdict_once() -> None:
+    html = str(scenario_grid_table(_grid()))
+    cells = re.findall(r'<td class="cell cell-(?!none)[a-z]+">(.*?)</td>', html)
+    assert cells
+    for cell in cells:
+        assert 'aria-hidden="true"' in cell
+        assert "<title>" not in cell
+        assert '<span class="sr">' in cell
+
+
+def test_scenario_grid_scrolls_inside_its_section() -> None:
+    html = str(scenario_grid_table(_grid()))
+    assert html.startswith('<div class="scroll"><table class="table table-xs scenario-grid"')
+    assert html.endswith("</table></div>")

@@ -128,3 +128,25 @@ def test_announce_reads_the_stat_value() -> None:
     script = _SCRIPT.read_text()
     assert '"#detail .facts .lead-figure .stat-value"' in script
     assert ".lead-figure dd" not in script
+
+
+# --- issue #262: findings of the impeccable critique and audit ---
+
+
+def test_viewer_scrolls_the_selected_row_into_the_list_on_load() -> None:
+    script = _SCRIPT.read_text()
+    assert "function revealSelected()" in script
+    body = script[script.index("function revealSelected()") :]
+    body = body[: body.index("\n  }\n")]
+    assert ".list-pane" in body
+    assert "scrollTop" in body
+    assert "scrollIntoView" not in body
+    # called once at load, right after the first markSelected()
+    assert re.search(r"\n  markSelected\(\);\n  revealSelected\(\);\n", script)
+
+
+def test_announcement_does_not_double_the_period() -> None:
+    script = _SCRIPT.read_text()
+    body = script[script.index("function announceDetail()") :]
+    body = body[: body.index("\n  }\n")]
+    assert 'replace(/\\.$/, "")' in body

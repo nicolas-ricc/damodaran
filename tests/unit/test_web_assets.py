@@ -202,3 +202,112 @@ def test_detail_restores_what_the_stat_and_btn_defaults_override() -> None:
     css = (_STATIC / "app.css").read_text()
     assert ".facts time { font-family: var(--font-mono); }" in css
     assert ".history .btn { font-weight: 400; }" in css
+
+
+# --- issue #262: findings of the impeccable critique and audit ---
+
+
+def _blocks(css: str, header: str) -> str:
+    """The bodies of every top-level block opened by ``header``, joined."""
+    out = []
+    start = css.find(header)
+    while start != -1:
+        depth, i = 0, css.index("{", start)
+        for j in range(i, len(css)):
+            depth += {"{": 1, "}": -1}.get(css[j], 0)
+            if depth == 0:
+                out.append(css[i + 1 : j])
+                break
+        start = css.find(header, start + 1)
+    return "\n".join(out)
+
+
+def _rule(css: str, selector: str) -> str:
+    """The declarations of the first rule whose selector list is exactly ``selector``."""
+    match = re.search(rf"(?:^|[}};\n])\s*{re.escape(selector)}\s*\{{([^}}]*)\}}", css)
+    assert match, selector
+    return match.group(1)
+
+
+def test_facts_labels_meet_the_contrast_floor() -> None:
+    rule = _rule((_STATIC / "app.css").read_text(), ".facts .stat-title")
+    assert "color: var(--ink-soft)" in rule
+    assert "font-size: var(--text-sm)" in rule
+
+
+def test_search_placeholder_and_border_meet_the_contrast_floor() -> None:
+    css = (_STATIC / "app.css").read_text()
+    placeholder = _rule(css, "#search input::placeholder")
+    assert "color: var(--ink-soft)" in placeholder
+    assert "opacity: 1" in placeholder
+    border = re.search(
+        r"#search\s*\{[^}]*border-color: color-mix\(in oklab, var\(--color-base-content\) (\d+)%, transparent\)",
+        css,
+    )
+    assert border and int(border.group(1)) >= 45
+
+
+def test_search_draws_one_focus_ring() -> None:
+    css = (_STATIC / "app.css").read_text()
+    assert "outline: none" in _rule(css, "#search input:focus-visible")
+    assert "outline: 2px solid var(--color-primary)" in _rule(css, "#search:focus-within")
+
+
+def test_search_input_is_16px_on_touch_screens() -> None:
+    coarse = _blocks((_STATIC / "app.css").read_text(), "@media (pointer: coarse)")
+    assert "font-size: 16px" in _rule(coarse, "#search input")
+
+
+def test_history_dates_are_at_least_12px() -> None:
+    assert "font-size: var(--text-sm)" in _rule((_STATIC / "app.css").read_text(), ".history .btn")
+
+
+def test_facts_use_two_columns_in_a_narrow_pane() -> None:
+    narrow = _blocks((_STATIC / "app.css").read_text(), "@container (max-width: 44rem)")
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr))" in _rule(narrow, ".facts.stats")
+    assert "grid-column: 1 / -1" in _rule(narrow, ".facts .lead-figure")
+
+
+def test_story_column_leaves_the_split_ledger_at_every_width() -> None:
+    wide = _blocks((_STATIC / "app.css").read_text(), "@media (min-width: 1100px) {")
+    assert "display: none" in _rule(wide, '.list th:nth-child(7), .list td[data-label="Story"]')
+
+
+def test_intrinsic_column_leaves_the_split_ledger() -> None:
+    wide = _blocks((_STATIC / "app.css").read_text(), "@media (min-width: 1100px) {")
+    assert "display: none" in _rule(wide, '.list th:nth-child(6), .list td[data-label="Intrinsic"]')
+
+
+def test_phone_row_is_one_link() -> None:
+    phone = _blocks((_STATIC / "app.css").read_text(), "@media (max-width: 699px)")
+    assert "position: relative" in _rule(phone, ".list tbody tr")
+    overlay = _rule(phone, ".list td.ticker a::after")
+    for decl in ('content: ""', "position: absolute", "inset: 0"):
+        assert decl in overlay, decl
+
+
+def test_sort_arrow_is_not_part_of_the_column_name() -> None:
+    css = (_STATIC / "app.css").read_text()
+    for arrow in ("2193", "2191"):
+        assert f'content: "\\{arrow}"; content: "\\{arrow}" / "";' in css, arrow
+
+
+def test_no_dead_tokens() -> None:
+    css = (_STATIC / "app.css").read_text()
+    assert "--z-raised" not in css
+    motion = _blocks(css, "@media (prefers-reduced-motion: reduce)")
+    assert "#detail, #rows { transition: none; }" not in motion
+    assert "#detail.htmx-settling > * { animation: none; }" not in motion
+
+
+def test_skip_link_rules() -> None:
+    css = (_STATIC / "app.css").read_text()
+    assert "transform: translateY(-200%)" in _rule(css, ".skip")
+    assert "transform: none" in _rule(css, ".skip:focus")
+    assert "outline: none" in _rule(css, "#detail:focus")
+    narrow = _blocks(css, "@media (max-width: 1099px)")
+    assert "display: none" in _rule(narrow, "body.page-list .skip")
+
+
+def test_scroll_box_is_shared() -> None:
+    assert "overflow-x: auto" in _rule((_STATIC / "app.css").read_text(), ".scroll")
