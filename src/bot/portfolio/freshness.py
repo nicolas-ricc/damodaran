@@ -10,7 +10,7 @@ from datetime import date, timedelta
 
 import duckdb
 
-MAX_SNAPSHOT_AGE_BUSINESS_DAYS = 2
+MAX_SNAPSHOT_AGE_BUSINESS_DAYS: int = 2
 
 
 def business_days_between(start: date, end: date) -> int:
