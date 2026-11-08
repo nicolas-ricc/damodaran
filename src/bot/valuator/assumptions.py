@@ -51,6 +51,7 @@ from typing import Any, TypeVar
 import duckdb
 import yaml
 
+from bot.reference.countries import damodaran_country_name
 from bot.reference.currencies import (
     CurrencyRates,
     CurrencyTable,
@@ -473,7 +474,12 @@ def bulk_load_assumption_inputs(
             [wanted],
         ).fetchall()
     }
-    countries = sorted({c.country for c in companies.values() if c.country is not None})
+    # companies.country is ISO alpha-2; damodaran_country is keyed by Damodaran name.
+    names = {
+        code: damodaran_country_name(code)
+        for code in {c.country for c in companies.values() if c.country is not None}
+    }
+    countries = sorted({n for n in names.values() if n is not None})
     country_rows = {
         r[0]: _CountryRow(region=r[1], erp=r[2], tax_rate=r[3])
         for r in conn.execute(
@@ -515,7 +521,8 @@ def bulk_load_assumption_inputs(
     result: dict[str, AssumptionInputs] = {}
     uncovered: set[str | None] = set()
     for ticker, company in companies.items():
-        country = country_rows.get(company.country) if company.country is not None else None
+        name = names.get(company.country) if company.country is not None else None
+        country = country_rows.get(name) if name is not None else None
         region = dataset_region(company.country, country.region if country is not None else None)
         industry = company.industry_damodaran
         sector, cross_region = _pick_sector(
@@ -583,12 +590,13 @@ def _load_company(conn: duckdb.DuckDBPyConnection, ticker: str) -> _Company:
 
 
 def _load_country(conn: duckdb.DuckDBPyConnection, country: str | None) -> _CountryRow | None:
-    if country is None:
+    name = damodaran_country_name(country)
+    if name is None:
         return None
     row = conn.execute(
         "SELECT region, erp, tax_rate FROM damodaran_country "
         "WHERE country = ? ORDER BY year DESC LIMIT 1",
-        [country],
+        [name],
     ).fetchone()
     if row is None:
         return None

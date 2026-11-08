@@ -18,6 +18,7 @@ from bot.ingest.damodaran import (
     download_dataset,
     import_damodaran_from_files,
 )
+from bot.reference.countries import ISO_TO_DAMODARAN_COUNTRY, SUBNATIONAL_SHEET_ROWS
 from bot.storage.db import apply_schema, connect
 
 _UNAVAILABLE_EVENTS = {
@@ -53,4 +54,7 @@ def test_published_files_still_carry_country_tax_rates(tmp_path: Path) -> None:
     assert counts is not None
     total, with_tax = counts
     assert with_tax / total >= 0.95
+    # #271: a country Damodaran adds or renames needs its ISO code mapped.
+    names = {r[0] for r in conn.execute("SELECT country FROM damodaran_country").fetchall()}
+    assert names - set(ISO_TO_DAMODARAN_COUNTRY.values()) - SUBNATIONAL_SHEET_ROWS == set()
     conn.close()

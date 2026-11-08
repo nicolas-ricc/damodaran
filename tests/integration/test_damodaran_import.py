@@ -52,7 +52,7 @@ def _country_value(conn: duckdb.DuckDBPyConnection, column: str, country: str) -
 def _seed_us_software_company(conn: duckdb.DuckDBPyConnection) -> None:
     conn.execute(
         "INSERT INTO companies (ticker, name, country, industry_damodaran, source) "
-        "VALUES ('ACME', 'ACME Inc', 'United States', ?, 'test')",
+        "VALUES ('ACME', 'ACME Inc', 'US', ?, 'test')",  # the ISO code EDGAR stores
         [_SOFTWARE],
     )
     conn.execute(
@@ -212,6 +212,7 @@ def test_terminal_growth_uses_the_currency_file_usd_rate() -> None:
 def test_screener_reads_the_imported_us_tax_rate() -> None:
     conn = _imported_conn()
     assert screener_tax_rate(conn, "United States") == pytest.approx(0.25)
+    assert screener_tax_rate(conn, "US") == pytest.approx(0.25)
     conn.close()
 
 
