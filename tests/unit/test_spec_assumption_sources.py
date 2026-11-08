@@ -1,5 +1,7 @@
 """Spec §7.3 states the implemented assumption model (issue #238, folds in #207).
 
+Analyst consensus is not a source, by decision (#63); #320 drops it from the spec.
+
 The source list is the ``AssumptionSource`` enum, and the growth row fades to
 terminal growth by year 10, as ``_resolve_revenue_growth`` does.
 """
@@ -34,11 +36,18 @@ def test_source_list_is_the_enum() -> None:
     assert listed == {source.value for source in AssumptionSource}
 
 
-def test_analyst_consensus_only_as_not_implemented() -> None:
-    lines = [line for line in _section_7_3().splitlines() if "analyst_consensus" in line]
-    assert lines
-    for line in lines:
-        assert "no implementado" in line and "#63" in line
+def test_section_7_3_does_not_name_analyst_consensus() -> None:
+    # #320: analyst consensus was dropped by decision (#63), not left planned.
+    section = _section_7_3().lower()
+    assert "consensus" not in section and "consenso" not in section
+
+
+def test_garbage_in_risk_names_the_historical_cagr() -> None:
+    text = _SPEC.read_text(encoding="utf-8")
+    risks = text[text.index("## 16. ") :]
+    risk = next(line for line in risks.splitlines() if line.startswith("4. **DCF garbage-in"))
+    assert "consens" not in risk.lower()
+    assert "CAGR histórico" in risk
 
 
 def test_growth_does_not_converge_to_gdp() -> None:
@@ -56,3 +65,9 @@ def test_growth_row_targets_terminal_growth_over_ten_years() -> None:
 
 def test_growth_docstring_drops_gdp_convergence() -> None:
     assert "convergence to nominal GDP" not in (_resolve_revenue_growth.__doc__ or "")
+
+
+def test_growth_docstring_states_the_decision() -> None:
+    doc = _resolve_revenue_growth.__doc__ or ""
+    assert "planned" not in doc and "not implemented" not in doc
+    assert "#63" in doc

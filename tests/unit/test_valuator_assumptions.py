@@ -7,9 +7,8 @@ historical_average, unresolved}``). ``analyst_consensus`` was removed: nothing e
 The resolution order is:
 
 1. Manual override from ``config/assumptions/<TICKER>.yaml`` if present
-2. Analyst consensus (FMP, M2 — for the M1 universe, fall back to historical)
-3. Sector default from ``damodaran_industry`` / ``damodaran_country``
-4. Rule-based (e.g. ``terminal_growth = min(rfr_ccy, gdp_ccy)``)
+2. Sector default from ``damodaran_industry`` / ``damodaran_country``
+3. Rule-based (e.g. ``terminal_growth = min(rfr_ccy, gdp_ccy)``)
 
 These tests exercise each branch in isolation against an in-memory DuckDB and a
 temporary override file, so resolution stays a pure function of (ticker, conn,

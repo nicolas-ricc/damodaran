@@ -175,7 +175,7 @@ STORIES = [
      "M8,48 C24,46 34,40 46,24 S84,8 122,6"),
 ]
 ASSUMPTIONS = [
-    ("a-growth", "Crecimiento de ingresos", "hoy: promedio histórico, plano",
+    ("a-growth", "Crecimiento de ingresos", "CAGR histórico, converge al terminal",
      "historical_average"),
     ("a-margin", "Margen operativo", "el de largo plazo es el del sector",
      "sector_default_damodaran"),

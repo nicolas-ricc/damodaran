@@ -1,5 +1,7 @@
 # Lección del pipeline de Damodaran — Implementation Plan
 
+> **Superseded (#320):** analyst consensus is not a source, by decision (#63); mentions of it below are historical.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A self-contained HTML lesson, `docs/leccion/index.html`, that explains the Damodaran pipeline (Capas A, B, C) and where each piece lives in `src/bot/`, plus `docs/leccion/check.py`, which fails when the lesson cites a symbol that no longer exists.

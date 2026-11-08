@@ -1,5 +1,7 @@
 # Damodaran fixture paths and three test assertions — Implementation Plan
 
+> **Superseded (#320):** analyst consensus is not a source, by decision (#63); mentions of it below are historical.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** The Damodaran dataset tests find their fixtures from any working directory and fail (never skip) when one is missing; a misnamed test is renamed; the fill-rate test and the `AssumptionSource` reachability test assert what their names claim.

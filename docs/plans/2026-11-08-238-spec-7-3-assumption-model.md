@@ -1,5 +1,7 @@
 # Spec §7.3 states the implemented assumption model — Implementation Plan
 
+> **Superseded (#320):** analyst consensus is not a source, by decision (#63); mentions of it below are historical.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Spec §7.3 stops saying revenue growth converges to nominal GDP by year 10 and stops listing an unimplemented `analyst_consensus` source: the growth row names terminal growth as the year-10 target over a 10-year horizon, and the source list is exactly the `AssumptionSource` enum, with `analyst_consensus` marked planned (#63).

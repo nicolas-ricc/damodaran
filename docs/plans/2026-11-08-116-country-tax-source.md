@@ -1,5 +1,7 @@
 # Country-sourced tax rate gets its own source — Implementation Plan
 
+> **Superseded (#320):** analyst consensus is not a source, by decision (#63); mentions of it below are historical.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** When the tax rate falls back to the company's `damodaran_country` row, tag it `country_default_damodaran` instead of `sector_default_damodaran`, and explain the new source everywhere sources are explained to a reader.
