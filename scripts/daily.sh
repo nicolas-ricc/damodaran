@@ -13,8 +13,10 @@
 # logged "lock timeout:" line and exit 75.
 #
 # Output appends to .cache/daily.log; the exit code is the bot's, or 75 after a
-# lock timeout. `bot portfolio` reads the previous business day's Flex
-# statement; it needs BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID and no TWS.
+# lock timeout. A failed run also sends one message (failed steps with exit
+# codes, last 20 log lines) through `bot notify`; that never changes the exit
+# code. `bot portfolio` reads the previous business day's Flex statement; it
+# needs BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID and no TWS.
 set -uo pipefail
 
 # Repo root = parent of this script's directory (resolve symlinks for cron).
@@ -74,16 +76,42 @@ refresh_prices() {
   done
 }
 
+FAILED=()
+
 # FX runs even when prices failed, as it did when both were one `bot refresh
-# --prices --fx`; the portfolio sync runs only when both succeeded, and the exit
-# code is the worst of the three.
-{
+# --prices --fx`; the portfolio sync runs only when both succeeded. Returns the
+# worst of prices/FX when non-zero, else the portfolio's status. A function, not
+# a subshell, so FAILED survives for notify_failure.
+run_steps() {
+  local prices fx worst status
   echo "=== $(date -Is) run ==="
   refresh_prices
   prices=$?
+  ((prices == 0)) || FAILED+=("bot refresh --prices (exit $prices)")
   locked uv run bot refresh --fx
   fx=$?
+  ((fx == 0)) || FAILED+=("bot refresh --fx (exit $fx)")
   worst=$((prices > fx ? prices : fx))
-  ((worst == 0)) || exit "$worst"
+  ((worst == 0)) || return "$worst"
   locked uv run bot portfolio
-} >> "$LOG" 2>&1
+  status=$?
+  ((status == 0)) || FAILED+=("bot portfolio (exit $status)")
+  return "$status"
+}
+
+# One message per failed run through `bot notify` (no DB, so not under locked).
+# Called before notify's own output reaches the log, so the tail is the run's.
+notify_failure() {
+  local status=$1 joined="" step message
+  for step in "${FAILED[@]}"; do
+    joined+="${joined:+, }$step"
+  done
+  message="$(printf '# daily.sh failed: %s\n\n%s on %s, run exit code %s\nLast 20 lines of .cache/daily.log:\n\n%s' \
+    "$joined" "$(date -Is)" "${HOSTNAME:-unknown}" "$status" "$(tail -n 20 "$LOG")")"
+  printf '%s\n' "$message" | uv run bot notify
+}
+
+run_steps >> "$LOG" 2>&1
+status=$?
+((status == 0)) || notify_failure "$status" >> "$LOG" 2>&1
+exit "$status"

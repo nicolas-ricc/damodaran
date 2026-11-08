@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import fcntl
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -45,6 +46,7 @@ exec "{VENV_BIN}/$1" "${{@:2}}"
 # deferred NOTE, as a rate-limited price refresh does; FAKE_PRICES_EXIT, when
 # set, is the exit code of `refresh --prices` alone. `uv run python -` (the
 # price_fill.sh missing-count query) prints FAKE_MISSING (default 0) and nothing else.
+# `uv run bot notify` also saves its stdin, the message, to "<calls>.notify".
 _UV_RECORDER = """#!/usr/bin/env bash
 echo "$*" >> "{calls}"
 if [ "$2" = python ]; then
@@ -53,6 +55,7 @@ if [ "$2" = python ]; then
   exit 0
 fi
 echo "fake uv: $*"
+if [ "$3" = notify ]; then cat > "{calls}.notify"; fi
 if [ "$3 $4" = "refresh --prices" ]; then
   n=$(( $(cat "{calls}.rounds" 2>/dev/null || echo 0) + 1 ))
   echo "$n" > "{calls}.rounds"
@@ -308,10 +311,19 @@ def test_wrapper_runs_both_commands_and_logs_with_a_header(
     assert f"fake uv: {_WRAPPERS[name][1]}" in log
 
 
+_NOTIFY = "run bot notify"
+
+
+def _notify_message(calls: Path) -> str:
+    """The text daily.sh piped into `bot notify`."""
+    return Path(f"{calls}.notify").read_text()
+
+
 # A failing refresh skips what follows it, except that daily.sh still refreshes
 # FX after failing prices, as `bot refresh --prices --fx` did in one process.
+# A failed daily.sh run then sends its failure message.
 _AFTER_FAILING_REFRESH = {
-    "daily.sh": _WRAPPERS["daily.sh"][:2],
+    "daily.sh": [*_WRAPPERS["daily.sh"][:2], _NOTIFY],
     "weekly.sh": _WRAPPERS["weekly.sh"][:1],
 }
 
@@ -332,8 +344,94 @@ def test_daily_exits_with_portfolio_failure_and_logs_it(
     result = _run(repo / "scripts" / "daily.sh", env=_env(recorder_bin, FAKE_PORTFOLIO_EXIT="1"))
 
     assert result.returncode == 1
-    assert _calls(calls) == _WRAPPERS["daily.sh"]
+    assert _calls(calls) == [*_WRAPPERS["daily.sh"], _NOTIFY]
     assert "fake uv: run bot portfolio" in (repo / ".cache" / "daily.log").read_text()
+
+
+# --- the failure message (#322): one `bot notify` call per failed daily.sh run ---------
+
+
+def test_daily_failing_portfolio_sends_one_failure_message(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    result = _run(repo / "scripts" / "daily.sh", env=_env(recorder_bin, FAKE_PORTFOLIO_EXIT="1"))
+
+    assert result.returncode == 1
+    assert _calls(calls) == [*_WRAPPERS["daily.sh"], _NOTIFY]
+    message = _notify_message(calls)
+    lines = message.splitlines()
+    assert lines[0] == "# daily.sh failed: bot portfolio (exit 1)"
+    assert lines[1] == ""
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\S+ on \S+, run exit code 1", lines[2]), lines[2]
+    assert lines[3] == "Last 20 lines of .cache/daily.log:"
+    assert lines[4] == ""
+    assert "fake uv: run bot portfolio" in message
+    assert "fake uv: run bot notify" not in message
+
+
+def test_daily_failing_prices_and_fx_send_one_message_listing_both(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    env = _env(recorder_bin, FAKE_PRICES_EXIT="1", FAKE_REFRESH_EXIT="2", **_NO_PAUSE)
+    result = _run(repo / "scripts" / "daily.sh", env=env)
+
+    assert result.returncode == 2
+    assert _calls(calls) == [*_WRAPPERS["daily.sh"][:2], _NOTIFY]
+    message = _notify_message(calls)
+    assert message.splitlines()[0] == (
+        "# daily.sh failed: bot refresh --prices (exit 1), bot refresh --fx (exit 2)"
+    )
+    assert "run exit code 2" in message
+
+
+def test_daily_successful_run_sends_no_message(repo: Path, recorder_bin: Path, calls: Path) -> None:
+    result = _run(repo / "scripts" / "daily.sh", env=_env(recorder_bin))
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls) == _WRAPPERS["daily.sh"]
+    assert not Path(f"{calls}.notify").exists()
+
+
+def test_daily_failing_notify_keeps_the_run_exit_code(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    env = _env(recorder_bin, FAKE_PORTFOLIO_EXIT="1", FAKE_NOTIFY_EXIT="1")
+    result = _run(repo / "scripts" / "daily.sh", env=env)
+
+    assert result.returncode == 1
+    assert _calls(calls) == [*_WRAPPERS["daily.sh"], _NOTIFY]
+    assert "fake uv: run bot notify" in (repo / ".cache" / "daily.log").read_text()
+
+
+def test_daily_failure_message_carries_exactly_the_last_20_log_lines(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    env = _env(
+        recorder_bin,
+        FAKE_DEFERRED_ROUNDS="30",
+        BOT_PRICE_ROUNDS="30",
+        FAKE_PORTFOLIO_EXIT="1",
+        **_NO_PAUSE,
+    )
+    result = _run(repo / "scripts" / "daily.sh", env=env)
+
+    assert result.returncode == 1
+    log = (repo / ".cache" / "daily.log").read_text().splitlines()
+    assert log[-1] == "fake uv: run bot notify"
+    assert len(log) > 21
+    assert _notify_message(calls).splitlines()[5:] == log[:-1][-20:]
+
+
+def test_daily_failure_message_keeps_log_lines_verbatim(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    odd = "-n 100% done \\t %s"
+    (repo / ".cache").mkdir()
+    (repo / ".cache" / "daily.log").write_text(odd + "\n")
+    result = _run(repo / "scripts" / "daily.sh", env=_env(recorder_bin, FAKE_PORTFOLIO_EXIT="1"))
+
+    assert result.returncode == 1
+    assert odd in _notify_message(calls).splitlines()
 
 
 _PRICES = "run bot refresh --prices"
@@ -379,7 +477,7 @@ def test_daily_failing_price_round_stops_the_loop_still_refreshes_fx_skips_portf
     result = _run(repo / "scripts" / "daily.sh", env=env)
 
     assert result.returncode == 2
-    assert _calls(calls) == _WRAPPERS["daily.sh"][:2]
+    assert _calls(calls) == [*_WRAPPERS["daily.sh"][:2], _NOTIFY]
 
 
 def test_daily_exits_with_the_worst_of_prices_and_fx(
@@ -389,7 +487,7 @@ def test_daily_exits_with_the_worst_of_prices_and_fx(
     result = _run(repo / "scripts" / "daily.sh", env=env)
 
     assert result.returncode == 2
-    assert _calls(calls) == _WRAPPERS["daily.sh"][:2]
+    assert _calls(calls) == [*_WRAPPERS["daily.sh"][:2], _NOTIFY]
 
 
 def _fake_sleep(bin_dir: Path, calls: Path) -> None:
@@ -465,10 +563,15 @@ def test_wrapper_times_out_when_the_db_lock_stays_held(
         result = _run(repo / "scripts" / name, env=env)
 
     assert result.returncode == 75, result.stderr
-    assert _calls(calls) == []
+    # daily.sh's failure message needs no lock, so it is sent while the lock is held.
+    assert _calls(calls) == ([_NOTIFY] if name == "daily.sh" else [])
     log = (repo / ".cache" / name.replace(".sh", ".log")).read_text()
     assert "lock timeout:" in log
     assert ".cache/bot.lock" in log
+    if name == "daily.sh":
+        assert _notify_message(calls).splitlines()[0] == (
+            "# daily.sh failed: bot refresh --prices (exit 75), bot refresh --fx (exit 75)"
+        )
 
 
 @pytest.mark.parametrize("name", list(_WRAPPERS))
@@ -598,6 +701,21 @@ def test_readme_scheduling_documents_the_shared_db_lock() -> None:
         "skips",
     ):
         assert fact in section, fact
+
+
+def test_readme_scheduling_documents_the_failure_message() -> None:
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    start = readme.index("\n## Scheduling\n")
+    end = readme.find("\n## ", start + 1)
+    section = " ".join(readme[start : None if end == -1 else end].split())
+    for fact in ("daily.sh failed:", "bot notify", "20 lines", "BOT_NOTIFIER=none", "exit code"):
+        assert fact in section, fact
+
+
+def test_daily_header_comment_mentions_the_failure_message() -> None:
+    lines = (REPO_ROOT / "scripts" / "daily.sh").read_text().splitlines()
+    header = " ".join(lines[1 : lines.index("set -uo pipefail")])
+    assert "bot notify" in header
 
 
 def test_weekly_exits_with_screen_failure(repo: Path, recorder_bin: Path, calls: Path) -> None:

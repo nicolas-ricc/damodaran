@@ -137,6 +137,11 @@ uv run bot show AAPL             # show a US company's fundamentals (M1)
   quarterly and are not refreshed daily. `bot portfolio` fails (exit 1) when the Flex
   service does, and exits 2 while the Flex token or query id is unset; that is logged,
   not a bug.
+- **Failure message**: when any `daily.sh` step fails, the run pipes one message into
+  `bot notify`. The subject is `# daily.sh failed: <step> (exit N), ...`, followed by the time,
+  the host, the run's exit code and the last 20 lines of `.cache/daily.log`. The notify result
+  is logged and never changes the job's exit code; with `BOT_NOTIFIER=none` it only logs the
+  "nothing sent" line. A successful run sends nothing.
 - **Weekly** (Saturday 10:00): `bot refresh --all && bot screen --preset damodaran_value &&
   bot analyze --from-screen && scripts/publish_site.sh`. The last step commits only the
   `reports/*/analysis/*.json` sidecars and pushes them to `master`, which redeploys the
