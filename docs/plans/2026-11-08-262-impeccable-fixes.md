@@ -15,7 +15,7 @@
 - Colours only through DaisyUI variables, `--ink-soft` or `--rule-faint` (`tests/unit/test_web_assets.py::test_css_reads_daisyui_variables_only`): no `oklch(`, `rgb(`, `hsl(`, hex, `white` or `black` in `app.css`, `svg.py`, the templates or `viewer.js`.
 - `static/daisyui.css` and `static/theme.css` are not edited. Overrides go in `app.css`.
 - No new dependency, no CDN, no build step, no Tailwind utilities beyond those already used (`bg-base-300`, `text-secondary`, `lg:stats-horizontal`).
-- Search text is never written to the URL or storage (spec §2, §6). Filter and sort state may be, because those pages already exist as `l/<filter>-<sort>-<dir>.html`.
+- Search: "Nothing is written to the URL or storage" (spec §6, under the search behaviour of `viewer.js`; §2 lists "Persisting the search text in the URL" as a non-goal). Navigation URLs are not search state: the ticker links already push `c/<T>.html` (`_rows.html:4`), and the filter and sort links may push their existing `l/<filter>-<sort>-<dir>.html` pages.
 - Every filter, sort, "Show all" and ticker link keeps its `href` and works without JavaScript; `#search` keeps `hidden` in the static HTML.
 - Text contrast ≥ 4.5:1 (DESIGN.md Contrast Floor Rule); UI component boundaries ≥ 3:1 (WCAG 1.4.11).
 - `uv run ruff check . && uv run mypy src && uv run pytest -q` green after every task.
@@ -57,10 +57,23 @@ Severity is the synthesis of critique Assessment A (design review), Assessment B
 ## Review Focus
 
 - **No JavaScript:** after T4, every filter, sort and "Show all" link still navigates by `href`, the skip link still works (it is a plain fragment link), and `#search` stays hidden. Pinned by the T4 site tests and the no-JS step of the browser script.
-- **Back after a pushed filter (F9):** htmx restores its snapshot and `viewer.js` re-reveals `#search` and re-applies the query (`htmx:historyRestore` → `initSearch`). The browser script checks Back after a filter click.
-- **A filter that empties the list** swaps in `empty_detail` out of band. The skip link must still point at a `#detail` that exists, and the empty `#detail` must accept focus. Pinned by the T4 test on `empty_detail`.
+- **Back after a pushed filter (F9):** with the history cache off, htmx re-fetches the static page and swaps `<body>`. The scripts are in `<head>` (`base.html:13-14`, `defer`), so nothing re-executes and no listener is registered twice. `htmx:historyRestore` → `initSearch` reveals `#search`, which comes back empty (the query is not kept, as §6 requires). The browser script checks Back after a filter click.
+- **A filter that empties the list** swaps in `empty_detail` out of band (`hx-swap-oob="true"`, i.e. outerHTML). The skip link must still point at a `#detail` that exists, and the empty `#detail` must accept focus. Pinned by the T4 test on `empty_detail`.
 - **Long values in the list at ≥1600** (two flags, long names, `n/a` MoS): the fit check runs on the real 80-company site with all rows visible, at 1100, 1280, 1440, 1600, 1920 and 768.
 - **An overvalued company whose undervalued tick sits near the right edge (FDS), and an undervalued one whose price sits at the left edge (CMCSA):** pinned by the T3 anchor tests with both geometries.
+
+## Assumptions
+
+Technical decisions taken while grilling the plan, each with the alternative it rejects:
+
+- **The filter and sort URL is the `l/` page** (F9). On `/c/ABT.html`, clicking "fair" pushes `/l/fair-mos-desc.html`. Refreshing that URL shows the fair list with its first row's detail, which is what every `l/` page shows (site.py:157-163, `list_page`). A URL that keeps the open company does not exist in the static site, and adding one per company × filter × sort would multiply the pages by 30. Rejected.
+- **The htmx history cache is turned off** to honour spec §6 (`historyCacheSize: 0`). Back re-fetches the static page. Rejected alternative: scrubbing the snapshot in `htmx:beforeHistorySave` and re-applying the search afterwards. More code and racy.
+- **The layout geometry is checked in a browser only.** The repo has no browser in pytest/CI, so the fit and containment checks of T2/T3 live in the agent-browser script (`.scratch/evals-262.md`, untracked), and the committed tests pin the CSS rules and markup that produce them. Rejected alternative: adding a headless browser to the test suite, a new dependency the spec does not allow.
+- **The 16px search text applies on `(pointer: coarse)`, not by width,** because the iOS zoom depends on the device, not the viewport. Rejected: 16px at every width, which would change the desktop `input-sm`.
+- **The fair threshold is named on the price label.** This rests on CONTEXT.md's Verdict definition, `>=1.0` around fair value, so `ValueLine.fair == price * MOS_FAIR` (`views.py:129-130`) sits on the price line. The label keeps formatting `MOS_FAIR`, so it stays truthful if the constant moves.
+- **The geometry numbers go in the PR description.** The browser script's measured `scrollWidth/clientWidth` at the six widths, and the containment checks of T3, are copied into the PR description, so a reviewer can verify them without `.scratch/`.
+- **The arrow fallback** (F17) is generated on the sort `<a>` (`.list thead th[aria-sort] a::after`, app.css:89-91). In a browser without alt-text `content`, the fallback keeps today's behaviour (the arrow is part of the link name); nothing regresses. No browser floor is declared in DESIGN.md or the spec.
+- **P3s are declined in the PR description with one line each.** The issue allows it: "A P3 may be declined with one line of reason in the pull request description".
 
 ---
 
@@ -78,11 +91,11 @@ Severity is the synthesis of critique Assessment A (design review), Assessment B
   - `test_facts_labels_meet_the_contrast_floor`: a rule for `.facts .stat-title` sets `color: var(--ink-soft)` and `font-size: var(--text-sm)`.
   - `test_search_placeholder_and_border_meet_the_contrast_floor`: `#search input::placeholder` sets `color: var(--ink-soft)` and `opacity: 1`; `#search` sets a `border-color` built from `var(--color-base-content)` at ≥ 45%.
   - `test_search_draws_one_focus_ring`: `#search input:focus-visible` sets `outline: none`, and `#search:focus-within` sets `outline: 2px solid var(--color-primary)`.
-  - `test_search_input_is_16px_on_phones`: inside `@media (max-width: 699px)`, `#search input` sets `font-size: 16px`.
+  - `test_search_input_is_16px_on_touch_screens`: inside `@media (pointer: coarse)`, `#search input` sets `font-size: 16px` (covers phones and iPads, both of which zoom on a focused input under 16px).
   - `test_history_dates_are_at_least_12px`: `.history .btn` sets `font-size: var(--text-sm)`.
   - `test_facts_use_two_columns_in_a_narrow_pane`: inside `@container (max-width: 44rem)`, `.facts.stats` sets `grid-template-columns: repeat(2, minmax(0, 1fr))`, and `.facts .lead-figure` spans both columns (`grid-column: 1 / -1`).
 - [ ] **Step 2:** `uv run pytest tests/unit/test_web_assets.py -q`. Expected: the six new tests FAIL.
-- [ ] **Step 3: Add the rules to `app.css`** next to the rules they amend: the search rules by `#search`, the facts rules in the facts block, the 16px rule in the existing `@media (max-width: 699px)` block. In the 44rem container query the dashed separator moves from `border-block-end` on every stat but the last to one that works for two columns: keep `border-block-end` on every stat except the last row. If an existing test pins the old one-column rule, update it to match.
+- [ ] **Step 3: Add the rules to `app.css`** next to the rules they amend: the search rules by `#search`, the facts rules in the facts block, the 16px rule in a new `@media (pointer: coarse)` block. In the 44rem container query the one-column rule `.facts.stats { grid-auto-flow: row; }` and the dashed `border-block-end` separator are pinned by `tests/unit/test_web_assets.py:137-141` (`test_detail_facts_rules`); replace those assertions with the two-column ones, and keep the dashed `border-block-end` on every stat but the last. Measured on the shipped theme by the audit: `--ink-soft` is 5.66:1 on base-200 (facts) and 6.14:1 on base-100 (search field). The border expression is exactly `border-color: color-mix(in oklab, var(--color-base-content) 45%, transparent);`; measure it in the browser against base-100 and base-200 and raise the percentage (and the test) until both are ≥ 3:1.
 - [ ] **Step 4:** run the tests, then the full gate. Expected: PASS.
 - [ ] **Step 5: Commit** `fix(#262): contrast floor and one focus ring on the search control`
 
@@ -90,7 +103,6 @@ Severity is the synthesis of critique Assessment A (design review), Assessment B
 
 **Files:**
 - Modify: `src/bot/web/static/app.css` (the `@media (min-width: 1100px)` column rules and the `@media (max-width: 699px)` block)
-- Modify: `docs/DESIGN.md` (the list section, if it names the columns shown per width)
 - Test: `tests/unit/test_web_assets.py`
 
 **Interfaces:**
@@ -104,7 +116,7 @@ Severity is the synthesis of critique Assessment A (design review), Assessment B
 - [ ] **Step 2:** run them. Expected: FAIL.
 - [ ] **Step 3: Implement** in `app.css`:
   - Move the Story rule and add the Intrinsic rule.
-  - Extend the name ellipsis (`max-width: 6rem`) from 1100–1599 to all of ≥1100, and trim the mini value line further if the fit check below still overflows.
+  - Extend the name ellipsis (`max-width: 6rem`) from 1100–1599 to all of ≥1100, then, only if the fit check still overflows, hide `.value-line.mini` at ≥1100 (it is already hidden at 1100–1399, app.css:144). Stop condition: if the check still fails at any width after these four trims, the task has not landed. It goes back through the stage-4 escalation with the measured widths. F1 is P1, so the story does not merge with it open.
   - Make the phone row one link with the `::after` overlay. `.list .ticker { position: relative }` must not apply at ≤699px, or the overlay would anchor to the cell. Keep the selected-row square (`.list tr.selected .ticker::before`) positioned against the row there.
 - [ ] **Step 4: Fit check in a real browser.** Rebuild the site and serve it:
   `uv run bot site --out /tmp/site --reports-dir reports --base-url /`, then `python3 -m http.server 8765 -d /tmp/site`.
@@ -119,7 +131,7 @@ Severity is the synthesis of critique Assessment A (design review), Assessment B
 - Modify: `src/bot/web/svg.py` (`value_line_svg`, `scenario_grid_table`, `tornado_table`)
 - Modify: `src/bot/web/templates/detail.html` (the scenarios/flags pair)
 - Modify: `src/bot/web/static/app.css` (`.value-axis`, `.scenario-grid`, `.tornado .track-head`)
-- Test: `tests/unit/test_web_svg.py`, `tests/unit/test_web_svg_tornado.py`, `tests/unit/test_web_site.py`
+- Test: `tests/unit/test_web_svg.py` (rewrite `test_full_value_line_labels_are_html_outside_the_svg`, lines 84-96, whose label set includes `"fair 1.0×"` and `"price 100.00"`), `tests/unit/test_web_svg_tornado.py`, `tests/unit/test_web_site.py`
 
 **Interfaces:**
 - Consumes: `ValueLine.fair == price * MOS_FAIR` (`views.py`), so the fair tick always sits at the price line. `_anchor(x, width, margin)`.
@@ -146,7 +158,7 @@ Severity is the synthesis of critique Assessment A (design review), Assessment B
   - **`tornado_table`:** emit the head span. In CSS, `.tornado .track-head { text-align: left }`; `.track-price { display: inline-block }`; `.track-price.at-middle { transform: translateX(-50%) }`; `.track-price.at-end { transform: translateX(-100%) }`.
   - **`detail.html`:** add `wide-first` to the scenarios/flags `.pair-grid`.
   - **`app.css`:** give the scenario column heads `padding-inline: var(--space-2xs)` so "-1.0pp" and "-0.5pp" no longer touch.
-  - **`docs/DESIGN.md`:** update the value-axis sentence if it names the fair tick label.
+  - The ticks row now holds only the undervalued label; the price label sits in its own row below the SVG (svg.py:149-161 structure), so the two start-anchored labels on a CMCSA-like axis never share a row.
 - [ ] **Step 4: Browser check.** Rebuild and serve the site as in Task 2. On `/c/CMCSA.html` and `/c/FDS.html` at 390 and 1440, every `.axis-label`, `.track-price` and the scenario table must have `getBoundingClientRect()` inside its section's rect, the table measured inside its `.scroll` box. At 1440 the scenario table must not intersect `section.flag-list`.
 - [ ] **Step 5:** full gate, then commit `fix(#262): detail charts stay inside their boxes`
 
@@ -161,7 +173,7 @@ Severity is the synthesis of critique Assessment A (design review), Assessment B
 
 **Interfaces:**
 - Consumes: `page_title()` (`_controls.html`), `list_href(f, s, d)` (`site.py` env globals). htmx 2.0.11 sets `document.title` from a top-level `<title>` in a swapped fragment (verified in `htmx.min.js`: `o.parentNode===r` → `r.title`).
-- Produces: `#detail-title` (the id of the detail `h1`), the `.skip` link class.
+- Produces: the `.skip` link class; `#detail` as a labelled region.
 
 - [ ] **Step 1: Write the failing tests**:
   - `test_fragments_carry_their_page_title` (`test_web_site.py`):
@@ -172,12 +184,12 @@ Severity is the synthesis of critique Assessment A (design review), Assessment B
   - `test_filter_sort_and_show_all_push_their_list_url`: in `index.html` and in a rows fragment, every `<a>` with `hx-target="#rows"` has `hx-push-url` equal to its own `href`.
   - `test_skip_link_leads_to_the_analysis`:
     - `index.html` and `c/AAA.html` have, as the first element of `<body>` after the defs SVG, `<a class="skip btn btn-sm btn-primary" href="#detail">Skip to analysis</a>`.
-    - `#detail` in `list.html` carries `tabindex="-1"` and `aria-labelledby="detail-title"`, and the detail `h1` has `id="detail-title"`.
-    - The `empty_detail` section carries `tabindex="-1"` and `aria-label="Analysis"`.
+    - Both `section#detail` variants carry `tabindex="-1"` and `aria-label="Analysis"`: the one in `list.html` and the `empty_detail` one. An `innerHTML` swap keeps them, and an OOB `empty_detail` swap brings the same pair, so the region's name never depends on which swap ran last.
     - `404.html` has no skip link.
   - `test_viewer_scrolls_the_selected_row_into_the_list_on_load` (`test_web_viewer_js.py`, static grep in the file's style): `viewer.js` defines `revealSelected` and calls it once at load, and it touches `.list-pane` `scrollTop`.
   - `test_announcement_does_not_double_the_period`: `viewer.js` strips a trailing `.` before adding `". "` (a grep for `replace(/\.$/, "")` is enough).
-  - `test_sort_arrow_is_not_part_of_the_column_name` (`test_web_assets.py`): `app.css` contains `content: "\2193" / ""` and `content: "\2191" / ""`.
+  - `test_sort_arrow_is_not_part_of_the_column_name` (`test_web_assets.py`): each arrow rule declares `content` twice, first the plain fallback and then the alt-text form, e.g. `content: "\2193"; content: "\2193" / "";`, so a browser without alt-text support for `content` keeps the arrow.
+  - `test_history_cache_is_off` (`test_web_site.py`): `index.html` `<head>` has `<meta name="htmx-config" content='{"historyCacheSize":0}'>`. With pushed filter URLs, htmx would otherwise snapshot the page into `sessionStorage` (`htmx-history-cache`), including a no-match row quoting the query, which breaks spec §6 "Nothing is written to the URL or storage". With the cache off, Back reloads the pushed page from its static file and fires `htmx:historyRestore` (`initSearch` already listens).
   - `test_no_dead_tokens`: `--z-raised` is absent from `app.css`, and the reduced-motion block has no `#detail, #rows { transition: none; }` and no `#detail.htmx-settling > * { animation: none; }`.
 - [ ] **Step 2:** run them. Expected: FAIL.
 - [ ] **Step 3: Implement**:
@@ -185,7 +197,7 @@ Severity is the synthesis of critique Assessment A (design review), Assessment B
   - **`rows_fragment.html`:** first line `<title>{{ page_title() }}</title>`. Import `page_title` there.
   - **`_controls.html`:** filter links, sort links and the `empty_detail` "Show all" link get `hx-push-url="{{ list_href(...) }}"`, the same arguments as their `href`.
   - **`_rows.html`:** the "Show all" link gets `hx-push-url` the same way.
-  - **`base.html`:** add `{% block skip %}{% endblock %}` right after the defs SVG. `list.html` fills it with the skip link only when `detail` is set. `#detail` and the `empty_detail` section get the attributes above. The `detail.html` `h1` gets `id="detail-title"`.
+  - **`base.html`:** add the `htmx-config` meta before the scripts; add `{% block skip %}{% endblock %}` right after the defs SVG. `list.html` fills it with the skip link only when `detail` is set. `#detail` and the `empty_detail` section get the attributes above.
   - **`app.css`:**
     - `.skip { position: absolute; left: var(--space-md); top: var(--space-xs); z-index: var(--z-sticky); transform: translateY(-200%); }` and `.skip:focus { transform: none; }`.
     - Under `@media (max-width: 1099px)`: `body.page-list .skip { display: none; }`, because the detail pane is hidden there.
@@ -194,9 +206,40 @@ Severity is the synthesis of critique Assessment A (design review), Assessment B
   - **`viewer.js`:**
     - Add `revealSelected()`. At ≥1100px, if `#rows tr.selected` lies outside the `.list-pane`'s visible box, set `pane.scrollTop` so the row sits about a third of the way down. Use the `getBoundingClientRect()` difference, never `scrollIntoView`, which would also scroll the window. Call it once after the first `markSelected()`.
     - In `announceDetail`, strip a trailing `.` from the heading text before appending `". "`.
+- [ ] **Step 3b: `docs/DESIGN.md`.** Record in its component sections:
+  - the skip link and the `#detail` region;
+  - filter and sort pushing their `l/` URLs, and the history cache turned off;
+  - the 45% search border and the placeholder on `--ink-soft`;
+  - the two-column facts strip in a narrow pane;
+  - the shared `.scroll` wrapper of the scenario grid;
+  - the ledger dropping Story and Intrinsic beside the detail (≥1100px);
+  - the phone row as one link.
 - [ ] **Step 4: Browser check** (the search walk-through and navigation part of `.scratch/evals-262.md`):
   - A detail click sets `document.title` to `<T> · <name> · Analyses`.
   - The fair filter pushes `/l/fair-mos-desc.html` and its title. Back returns to `/` with search visible and the query re-applied.
   - Loading `/c/ABT.html` at 1440 shows the ABT row inside the list pane.
   - Tab from a fresh load: the first stop is "Skip to analysis", and Enter puts the next Tab inside the detail.
 - [ ] **Step 5:** full gate, then commit `fix(#262): title, pushed filters, skip link and deep link follow the reader`
+
+## Grilling
+
+Two rounds, griller model `fable`. Round 1 asked 17 questions and round 2 asked 17, 34 in all.
+
+Every answer is sourced:
+- **CODE (24):** `svg.py:80-84`, `:144`, `:149-161`, `:205`; `app.css:10-15`, `:89-91`, `:120`, `:137-144`, `:222`; `_rows.html:4`, `:6`; `_controls.html` `empty_detail`; `base.html:13-14`; `list.html:3`; `site.py:157-163`, `_write_company`; `views.py:129-130`; the vendored `htmx.min.js` history-cache writer (`historyCacheSize<=0` → `sessionStorage.removeItem("htmx-history-cache"); return`); `tests/unit/test_web_assets.py:137-141`; `tests/unit/test_web_svg.py:84-96`.
+- **ISSUE (4):** "Fix every P0, P1 and P2 finding", "A P3 may be declined with one line of reason".
+- **DOC (4):** spec §2, §5 and §6; CONTEXT.md Verdict.
+- **NO SOURCE → technical assumption (2):** the geometry is checked in the browser only, and the 16px text is scoped by `pointer: coarse`.
+
+The plan changed in these places:
+- history cache off;
+- `pointer: coarse`;
+- double `content` declaration for the arrow;
+- one `aria-label` on both `#detail` variants;
+- DESIGN.md step;
+- the stop condition for the ledger trims;
+- the tests to rewrite are named.
+
+**Spec ambiguities:** none. **Out-of-scope issues opened:** none.
+
+Result: `ok`.
