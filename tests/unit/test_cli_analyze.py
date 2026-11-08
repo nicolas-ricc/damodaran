@@ -655,3 +655,63 @@ def test_batch_reports_are_all_or_none(tmp_path: Path, monkeypatch: pytest.Monke
     for ticker in ("AAPL", "MSFT"):
         mine = {n for n in names if n.startswith(f"{ticker}.")}
         assert mine in (set(), {f"{ticker}.md", f"{ticker}.html", f"{ticker}.json"}), ticker
+
+
+def _fail_override_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    real = Path.read_text
+
+    def read_text(self: Path, *args: Any, **kwargs: Any) -> str:
+        if self.name == "AAPL.yaml":
+            raise PermissionError(errno.EACCES, "Permission denied")
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+
+
+def test_batch_unreadable_conventional_override_fails_the_ticker_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An override that exists but cannot be read is "cannot value", not a crash (#227)."""
+    reports_dir = _batch_env(tmp_path, monkeypatch)
+    override = tmp_path / "assumptions" / "AAPL.yaml"
+    override.parent.mkdir()
+    override.write_text("notes: unreadable\n")
+    _fail_override_read(monkeypatch)
+    result = CliRunner().invoke(app, ["analyze", "AAPL", "MSFT"])
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert result.exit_code == 1
+    assert "AAPL: cannot value" in result.stderr
+    assert str(override) in result.stderr
+    assert _names(_analysis_dir(reports_dir)) == _MSFT_SET
+
+
+def test_batch_directory_conventional_override_fails_the_ticker_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A directory named ``AAPL.yaml`` is refused as unreadable; MSFT still runs (#227)."""
+    reports_dir = _batch_env(tmp_path, monkeypatch)
+    override = tmp_path / "assumptions" / "AAPL.yaml"
+    override.mkdir(parents=True)
+    result = CliRunner().invoke(app, ["analyze", "AAPL", "MSFT"])
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert result.exit_code == 1
+    assert "AAPL: cannot value" in result.stderr
+    assert str(override) in result.stderr
+    assert _names(_analysis_dir(reports_dir)) == _MSFT_SET
+
+
+def test_analyze_unreadable_explicit_override_cannot_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An explicit ``--override`` that exists but cannot be read is exit 1, not a traceback (#227)."""
+    reports_dir = _batch_env(tmp_path, monkeypatch)
+    override = tmp_path / "explicit" / "AAPL.yaml"
+    override.parent.mkdir()
+    override.write_text("notes: unreadable\n")
+    _fail_override_read(monkeypatch)
+    result = CliRunner().invoke(app, ["analyze", "AAPL", "--override", str(override)])
+    assert isinstance(result.exception, SystemExit), result.exception
+    assert result.exit_code == 1
+    assert "AAPL: cannot value" in result.stderr
+    assert str(override) in result.stderr
+    assert _names(_analysis_dir(reports_dir)) == []

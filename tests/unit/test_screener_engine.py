@@ -952,6 +952,26 @@ def test_run_screen_honours_assumptions_dir_override(
     assert overridden_mos != baseline_mos
 
 
+def test_run_screen_unreadable_override_falls_back(
+    conn: duckdb.DuckDBPyConnection, tmp_path: object
+) -> None:
+    """An override that cannot be read keeps the placeholder MoS, not a crash (#227)."""
+    from pathlib import Path
+
+    from bot.screener.ranking import PLACEHOLDER_MARGIN_OF_SAFETY
+
+    assert isinstance(tmp_path, Path)
+    _seed_valuable_sector(conn)
+    _seed_company(conn, "AAA")
+    assumptions_dir = tmp_path / "assumptions"
+    (assumptions_dir / "AAA.yaml").mkdir(parents=True)
+
+    result = run_screen(conn, _value_preset(), top=1, assumptions_dir=assumptions_dir)
+
+    assert result.shortlist[0].ticker == "AAA"
+    assert result.shortlist[0].margin_of_safety == pytest.approx(PLACEHOLDER_MARGIN_OF_SAFETY)
+
+
 def test_batch_dcf_margins_query_count_independent_of_shortlist(
     conn: duckdb.DuckDBPyConnection,
 ) -> None:

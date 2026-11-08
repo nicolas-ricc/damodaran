@@ -791,7 +791,8 @@ def conventional_override_path(assumptions_dir: Path | None, ticker: str) -> Pat
     """Return ``<assumptions_dir>/<TICKER>.yaml`` when it exists (spec §7.6), else None.
 
     The single place that knows the convention: ``bot analyze`` and the
-    screener's second-pass DCF both resolve overrides through here.
+    screener's second-pass DCF both resolve overrides through here. A non-file at
+    the path (a directory) is passed on as is; ``load_override`` refuses it.
     """
     if assumptions_dir is None:
         return None
@@ -802,7 +803,8 @@ def conventional_override_path(assumptions_dir: Path | None, ticker: str) -> Pat
 def load_override(override_path: Path | None) -> dict[str, Any]:
     """Load and validate ``config/assumptions/<TICKER>.yaml``; return the raw mapping.
 
-    Returns ``{}`` for no path, a missing file or an empty file. Refuses unknown
+    Returns ``{}`` for no path, a missing file or an empty file. Refuses a file
+    that exists but cannot be read (permissions, a directory, an I/O error), unknown
     keys, non-numeric or out-of-range values, a bad ``founded_year``, and an
     inconsistent story file (``story`` / ``scenarios`` / ``story_type: hypergrowth``),
     all as ``ValueError`` whose message starts with the path. The story section is
@@ -811,7 +813,13 @@ def load_override(override_path: Path | None) -> dict[str, Any]:
     if override_path is None or not override_path.exists():
         return {}
     try:
-        loaded = yaml.safe_load(override_path.read_text())
+        text = override_path.read_text()
+    except OSError as exc:
+        raise ValueError(
+            f"override file {override_path} cannot be read: {exc.strerror or exc}"
+        ) from exc
+    try:
+        loaded = yaml.safe_load(text)
     except yaml.YAMLError as exc:
         raise ValueError(f"override file {override_path} is not valid YAML: {exc}") from exc
     if loaded is None:

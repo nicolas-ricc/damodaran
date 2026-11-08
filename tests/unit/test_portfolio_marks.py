@@ -461,3 +461,16 @@ def test_mark_holdings_forwards_the_default_spread_table(
     mark_holdings(conn, DAY, default_spreads=table)
 
     assert seen == {"AAPL": table}
+
+
+def test_mark_holdings_unreadable_override_leaves_the_holding_unvalued(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    # #227: a directory named AAPL.yaml cannot be read; the holding is marked unvalued.
+    _seed_valuable(conn)
+    _hold(conn, "AAPL")
+    (tmp_path / "AAPL.yaml").mkdir()
+
+    (mark,) = mark_holdings(conn, DAY, assumptions_dir=tmp_path)
+
+    assert mark.intrinsic_value is None
