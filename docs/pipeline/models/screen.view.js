@@ -59,7 +59,7 @@ const steps = {
   AValueIndicatorPassesAnotherFails: "a value indicator passes and another fails; the failure is recorded",
   NoValueIndicatorPasses: "no value indicator passes [one fails, the others fail or are skipped]",
   EveryValueIndicatorIsSkipped: "all four value indicators are skipped [a median or a company figure is missing]",
-  EveryTrapDetectorPasses: "the five trap detectors pass",
+  EveryTrapDetectorPasses: "the six trap detectors pass",
   ATrapDetectorFails: "a trap detector fails",
   TheCompanyIsRejected: "it is rejected [a quality gate failed, no value indicator passed, or a trap detector failed]",
   TheCompanySurvives: "it survives [all three layers passed]",

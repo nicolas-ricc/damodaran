@@ -56,7 +56,10 @@ def test_preset_lists_all_three_layers() -> None:
     config = load_screener_config(PRESET_PATH)
     assert len(config.quality_gates.rules) == 7
     assert len(config.value_indicators.rules) == 4
-    assert len(config.trap_detection.rules) == 5
+    assert len(config.trap_detection.rules) == 6
+    governance = config.trap_detection.rules[-1]
+    assert governance.name == "auditor_changes_and_late_filings"
+    assert governance.params == {"window_years": 2}
 
 
 def test_preset_rule_names_resolve_to_registered_classes() -> None:

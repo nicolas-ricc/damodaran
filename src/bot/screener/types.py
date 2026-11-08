@@ -14,6 +14,7 @@ for a company it cannot measure).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 
 
 @dataclass(frozen=True)
@@ -64,6 +65,15 @@ class CompanyData:
     """Most recent fiscal-year net income (spec §6.4, Sloan accruals numerator)."""
     operating_cashflow: float | None = None
     """Most recent fiscal-year operating cashflow (spec §6.4, Sloan accruals)."""
+    as_of: date | None = None
+    """Date of the market snapshot the screen runs on; ``None`` when unpriced."""
+    auditor_change_dates: tuple[date, ...] | None = None
+    """Dates of 8-K item 4.01 auditor-change filings, oldest first. ``None`` means
+    no SEC filing history is known (non-US company), which is not the same as
+    ``()`` (history known, nothing reported)."""
+    late_filing_dates: tuple[date, ...] | None = None
+    """Dates of NT 10-K / NT 10-Q late-filing notices, oldest first. ``None`` means
+    no SEC filing history is known, as for ``auditor_change_dates``."""
 
 
 @dataclass(frozen=True)
