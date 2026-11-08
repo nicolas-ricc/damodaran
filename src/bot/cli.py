@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import sys
 from contextlib import closing
 from datetime import date
@@ -692,6 +693,9 @@ def notify() -> None:
     if notifier is None:
         typer.echo("No notifier configured (BOT_NOTIFIER=none), nothing sent")
         return
+    if isinstance(sys.stdin, io.TextIOWrapper):
+        # A log tail cut mid-character must not stop the failure report.
+        sys.stdin.reconfigure(errors="replace")
     text = sys.stdin.read()
     if not text.strip():
         typer.echo("Nothing to send: the message on stdin is empty", err=True)

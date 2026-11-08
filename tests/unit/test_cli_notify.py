@@ -6,6 +6,7 @@ message leaves the process.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -49,6 +50,18 @@ def test_notify_sends_stdin_verbatim(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert result.exit_code == 0, result.output
     assert rec.sent == [text]
     assert "Sent via telegram" in result.stdout
+
+
+def test_notify_replaces_undecodable_bytes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _env(tmp_path, monkeypatch)
+    monkeypatch.setenv("BOT_NOTIFIER", "telegram")
+    rec = _RecordingNotifier()
+    monkeypatch.setattr(bot.cli, "build_notifier", lambda settings: rec)
+
+    result = CliRunner().invoke(app, ["notify"], input=b"# daily.sh failed\n\xff tail\n")
+
+    assert result.exit_code == 0, result.output
+    assert rec.sent == ["# daily.sh failed\n\ufffd tail\n"]
 
 
 def test_notify_without_notifier_sends_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -133,7 +146,7 @@ def test_notify_never_opens_the_database(tmp_path: Path, monkeypatch: pytest.Mon
 def test_notify_is_listed_in_help() -> None:
     root_help = CliRunner().invoke(app, ["--help"])
     assert root_help.exit_code == 0
-    assert "notify" in root_help.stdout
+    assert re.search(r"^\W*notify\s", root_help.stdout, re.MULTILINE)
 
     notify_help = CliRunner().invoke(app, ["notify", "--help"])
     assert notify_help.exit_code == 0, notify_help.output
