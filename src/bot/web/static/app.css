@@ -122,11 +122,12 @@ table { border-collapse: collapse; width: 100%; }
   .list thead tr { display: flex; gap: var(--space-md); border-bottom: var(--rule-hair) solid var(--color-base-300); }
   .list thead th { border-bottom: 0; padding: 0; }
   .list thead th:not(:has(a)) { display: none; }
-  .list tbody tr { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto; grid-template-areas: "ticker name name mark" "mos mos mos flags" "price intrinsic story date"; align-items: baseline; column-gap: var(--space-sm); row-gap: var(--space-xs); padding: var(--space-sm) 0 var(--space-sm) var(--space-md); border-bottom: var(--rule-hair) solid var(--rule-faint); }
+  .list tbody tr { position: relative; display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr) auto; grid-template-areas: "ticker name name mark" "mos mos mos flags" "price intrinsic story date"; align-items: baseline; column-gap: var(--space-sm); row-gap: var(--space-xs); padding: var(--space-sm) 0 var(--space-sm) var(--space-md); border-bottom: var(--rule-hair) solid var(--rule-faint); }
   .list tbody td { display: block; padding: 0; border-bottom: 0; text-align: left; }
   .list tbody td:first-child { padding-left: 0; }
-  .list td.ticker { grid-area: ticker; }
-  .list tr.selected .ticker::before { left: calc(-1 * var(--space-sm)); }
+  .list td.ticker { grid-area: ticker; position: static; }
+  .list td.ticker a::after { content: ""; position: absolute; inset: 0; }
+  .list tr.selected .ticker::before { left: var(--space-2xs); top: calc(var(--space-sm) + 0.6em); transform: none; }
   .list td.name { grid-area: name; max-width: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .list td:nth-child(3) { grid-area: mark; }
   .list td.mos { grid-area: mos; }
@@ -139,10 +140,18 @@ table { border-collapse: collapse; width: 100%; }
   .list td.none { display: block; }
 }
 
-@media (min-width: 1100px) and (max-width: 1599px) {
-  /* the ledger beside the detail: the name shortens and Story leaves (the facts strip names both) */
+@media (min-width: 700px) and (max-width: 1099px) {
+  /* the full-width ledger on a tablet: tighter cells so the Date column stays in view */
+  .list th, .list td { padding-left: var(--space-2xs); padding-right: var(--space-2xs); }
+  .list th:first-child, .list td:first-child { padding-left: var(--space-md); }
+}
+@media (min-width: 1100px) {
+  /* the ledger beside the detail: the name shortens; Intrinsic and Story leave (the facts strip names both) */
   .list .name { max-width: 6rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .list th:nth-child(7), .list td[data-label="Story"] { display: none; }
+  .list th:nth-child(6), .list td[data-label="Intrinsic"] { display: none; }
+}
+@media (min-width: 1100px) and (max-width: 1599px) {
   .list th, .list td { padding-left: var(--space-2xs); padding-right: var(--space-2xs); }
   .list th:first-child, .list td:first-child { padding-left: var(--space-md); }
 }
