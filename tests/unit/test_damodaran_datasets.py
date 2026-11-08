@@ -166,8 +166,12 @@ def test_real_import_fills_the_columns_the_extra_datasets_publish() -> None:
     assert counts is not None
     total, *populated = counts
     assert total > 0, "the import wrote no industry rows"
-    for column, count in zip(columns, populated, strict=True):
-        assert count >= 0.9 * total, f"{column}: {count} of {total} industries populated"
+    short = [
+        f"{column}: {count} of {total} industries populated"
+        for column, count in zip(columns, populated, strict=True)
+        if count < 0.9 * total
+    ]
+    assert not short, "; ".join(short)
     conn.close()
 
 
