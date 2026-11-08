@@ -33,6 +33,10 @@
 
 - **Probe for "held while uv runs".** A probe `uv` written with `_write_exe` into `tmp_path/"bin-probe"/"uv"` runs `flock -n "<lock>" true`; exit 0 → appends `lock-free <argv>` to the calls file, non-zero → `lock-held <argv>`. For `$2 = python` it then drains stdin and prints `0` (so the run completes like the recorder's). It probes both calls, so the test pins the refresh **and** the MISSING query: expected calls are `["lock-held run bot refresh --prices --only-missing", "lock-held run python -"]`. This works because `flock -n <file>` opens a new open file description, which conflicts with the one fd 9 holds even though the child inherits fd 9.
 - **Lock holder in tests.** A small context-manager-free helper in the test: `(repo/".cache").mkdir()`, `fd = os.open(lock, os.O_WRONLY | os.O_CREAT)`, `fcntl.flock(fd, fcntl.LOCK_EX)`, run, `os.close(fd)` in `finally`.
+- **Missing `flock(1)`** (rejected alternative: a `command -v flock` guard that fails loudly). Spec: "No fallback when it is missing; the wrappers are Linux cron jobs." Without it, `flock` exits 127, `! flock -n 9` is true, and the run logs the skip line and exits 0, with `command not found` on stderr (cron mails it). The test host has `/usr/bin/flock` (util-linux), and the issue verified the `fcntl`/`flock(1)` interplay there.
+- **`exec 9>>"$LOCK"` failing** (unwritable `.cache/`). The script runs without `set -e` (`price_fill.sh:21`). By then `.cache/` is unwritable, so `$LOG` (lines 33, 40, 44) already fails to take writes. No test is added (rejected alternative: a chmod test, which passes trivially as root). Out of the spec's criteria.
+- **Doc test location**: `tests/unit/test_price_fill_docs.py`, following the `tests/unit/test_*_docs.py` precedent (`test_flex_docs.py`, `test_readme_dev_docs.py`) rather than `test_scripts.py` (rejected alternative). The spec's three script tests stay in `test_scripts.py` as it requires.
+- **Header comment wording**: it says `daily.sh`/`weekly.sh` share the lock. This is true once the story branch reaches `master`, because #108's children comment says `feature/108-db-lock` merges into `master` only when both #310 and #311 are closed.
 - **Plan location `docs/plans/`** follows the recent issue plans (e.g. `docs/plans/2026-11-08-114-price-fill-env.md`).
 - **Docs.** `docs/pipeline/` boards cite `scripts/price_fill.sh` by file only; `docs/plano/estado.html` is not a per-child concern (story #108 plan item 7 lists it as unchanged). No ADR covers the lock.
 
@@ -59,6 +63,7 @@
 - Modify: `scripts/price_fill.sh` (header comment; insert the lock block after the run header line)
 - Modify: `README.md:62-64` (Quickstart step 3, the "do not run both" sentence)
 - Test: `tests/integration/test_scripts.py` (in the `# --- price_fill.sh` section, after `test_price_fill_with_no_count_logs_a_question_mark`)
+- Create: `tests/unit/test_price_fill_docs.py` (README test)
 
 **Interfaces:**
 - Consumes: fixtures `repo`, `calls`, `recorder_bin`, `tmp_path`; helpers `_env`, `_run`, `_calls`, `_write_exe`, `_price_fill_log`; constant `_PRICE_FILL`.
@@ -69,10 +74,10 @@
   - `test_price_fill_runs_when_the_db_lock_is_free(repo, recorder_bin, calls)`: `(repo/".cache").mkdir()`, `(repo/".cache"/"bot.lock").touch()`, run. Assert `returncode == 0`, `_calls(calls) == _PRICE_FILL`, `"skipped" not in log`.
   - `test_price_fill_holds_the_db_lock_while_uv_runs(repo, tmp_path, calls)`: probe `uv` (see Assumptions), run with `_env(probe_bin)`. Assert `returncode == 0`, `_calls(calls) == ["lock-held run bot refresh --prices --only-missing", "lock-held run python -"]`.
 
-  - `test_readme_quickstart_says_the_drip_skips_on_the_shared_lock()`: read `REPO_ROOT/"README.md"`, take the text between `price_fill.sh` drip is only for` and `Tiingo Power`, collapse whitespace. Assert it contains `.cache/bot.lock`, `skipped: DB busy`, `Tiingo quota`, `scripts/install_cron.sh`, `(#108)`, and does not contain `do not run both` nor `same DuckDB file`.
+  - `test_readme_quickstart_says_the_drip_skips_on_the_shared_lock()`: in `tests/unit/test_price_fill_docs.py`, read `Path(__file__).resolve().parents[2]/"README.md"`, take the text between `price_fill.sh` drip is only for` and `Tiingo Power`, collapse whitespace. Assert it contains `.cache/bot.lock`, `skipped: DB busy`, `Tiingo quota`, `scripts/install_cron.sh`, `(#108)`, and does not contain `do not run both` nor `same DuckDB file`.
 
 - [ ] **Step 2: Run, see them fail**
-  Run: `uv run pytest -q tests/integration/test_scripts.py -k "price_fill or readme"`
+  Run: `uv run pytest -q tests/integration/test_scripts.py tests/unit/test_price_fill_docs.py -k "price_fill or readme"`
   Expected: `skips_when_the_db_lock_is_held` fails (uv is called), `holds_the_db_lock_while_uv_runs` fails (`lock-free`), the README test fails (`do not run both` present). `runs_when_the_db_lock_is_free` passes already (pins kept behaviour). The existing price_fill tests pass.
 
 - [ ] **Step 3: Edit `scripts/price_fill.sh`**
@@ -82,11 +87,18 @@
   Replace `; do not run both, or they compete for the same hourly Tiingo quota and the same DuckDB file (#108).` so the paragraph says: the wrappers share `.cache/bot.lock`; when the drip finds it held it logs `skipped: DB busy` and the next hourly run catches up; the drip and the daily rounds still share the hourly Tiingo quota, so the drip is meant for the first fill before `scripts/install_cron.sh`. Keep `(#108)`.
 
 - [ ] **Step 5: Verify**
-  Run: `uv run pytest -q tests/integration/test_scripts.py && uv run ruff check . && uv run mypy src`
+  Run: `uv run pytest -q tests/integration/test_scripts.py tests/unit/test_price_fill_docs.py && uv run ruff check . && uv run mypy src`
   Expected: all pass (including shellcheck for `price_fill.sh`).
 
 - [ ] **Step 6: Commit**
   ```bash
-  git add scripts/price_fill.sh README.md tests/integration/test_scripts.py
+  git add scripts/price_fill.sh README.md tests/integration/test_scripts.py tests/unit/test_price_fill_docs.py
   git commit -m "feat(#310): price_fill.sh skips when .cache/bot.lock is held"
   ```
+
+## Grilling
+
+- Rounds: 1 (griller: fable). The revision was not substantial (one test moved file, assumptions added), so no second round.
+- Questions: 15. Sources: ISSUE 7 (Q3, Q4, Q11, Q12, Q13, Q15, plus #108 comments), CODE 7 (Q1, Q2, Q5, Q6, Q7, Q8, Q10), NO SOURCE 3 (Q4 part, Q9, Q14), all technical assumptions.
+- Assumptions added: missing `flock` gives a silent skip (spec: no fallback); an `exec 9>>` failure is not covered; the doc test lives in `tests/unit/test_price_fill_docs.py`; the header comment's claim about the shared lock holds once the story branch merges. Shellcheck acceptance of `exec 9>>`/`flock -n 9` is checked in Step 5, not assumed.
+- Issues opened: none.
