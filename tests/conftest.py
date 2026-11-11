@@ -68,6 +68,12 @@ def _config_defaults_on_repo_root(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def _no_notifier(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin `BOT_NOTIFIER=none` so a notifier in a developer's `.env` never fails `bot doctor` tests."""
+    monkeypatch.setenv("BOT_NOTIFIER", "none")
+
+
+@pytest.fixture(autouse=True)
 def _no_flex_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     """Blank the IBKR Flex settings so `bot portfolio` tests never reach IBKR.
 

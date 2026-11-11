@@ -813,6 +813,17 @@ def doctor() -> None:
         )
 
     try:
+        notifier = build_notifier(settings)
+    except NotifierConfigError as exc:
+        typer.echo(f"Notifier:         {settings.notifier} (MISCONFIGURED)")
+        issues.append(f"Notifier misconfigured (BOT_NOTIFIER={settings.notifier}): {exc}")
+    else:
+        if notifier is None:
+            typer.echo("Notifier:         none (no alerts are pushed)")
+        else:
+            typer.echo(f"Notifier:         {settings.notifier} (OK)")
+
+    try:
         with closing(connect(settings.db_path)) as conn:
             apply_schema(conn)
             row = conn.execute(

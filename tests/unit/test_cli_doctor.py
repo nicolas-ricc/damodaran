@@ -345,3 +345,147 @@ def test_doctor_flex_token_expiry_follows_query_id_line(tmp_path, monkeypatch):
     lines = result.stdout.splitlines()
     (index,) = [i for i, line in enumerate(lines) if line.startswith("Flex query id:")]
     assert lines[index + 1].startswith("Flex token expiry:")
+
+
+NOTIFIER_SECRET = "SECRET-notifier-value"
+
+
+def _doctor_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **env: str) -> None:
+    monkeypatch.setenv("BOT_DB_PATH", str(tmp_path / "x.duckdb"))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(tmp_path / "reports"))
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+
+
+def _valid_email_env() -> dict[str, str]:
+    return {
+        "BOT_NOTIFIER": "email",
+        "BOT_SMTP_HOST": "smtp.example.com",
+        "BOT_SMTP_FROM": "bot@example.com",
+        "BOT_SMTP_TO": "me@example.com",
+        "BOT_SMTP_USERNAME": "user",
+        "BOT_SMTP_PASSWORD": NOTIFIER_SECRET,
+        "BOT_SMTP_SECURITY": "starttls",
+    }
+
+
+@pytest.mark.parametrize("channel", ["none", ""])
+def test_doctor_notifier_none_passes(tmp_path, monkeypatch, channel):
+    _doctor_env(tmp_path, monkeypatch, BOT_NOTIFIER=channel)
+
+    result = CliRunner().invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "Notifier:         none (no alerts are pushed)" in result.stdout
+    assert "Notifier misconfigured" not in result.stdout + result.stderr
+
+
+def test_doctor_email_valid_passes(tmp_path, monkeypatch):
+    _doctor_env(tmp_path, monkeypatch, **_valid_email_env())
+
+    result = CliRunner().invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "Notifier:         email (OK)" in result.stdout
+    assert NOTIFIER_SECRET not in result.stdout + result.stderr
+
+
+def test_doctor_email_missing_host_fails(tmp_path, monkeypatch):
+    _doctor_env(tmp_path, monkeypatch, **{**_valid_email_env(), "BOT_SMTP_HOST": ""})
+
+    result = CliRunner().invoke(app, ["doctor"])
+
+    assert result.exit_code == 1
+    assert "Notifier:         email (MISCONFIGURED)" in result.stdout
+    assert "Notifier misconfigured (BOT_NOTIFIER=email)" in result.stderr
+    assert "BOT_SMTP_HOST" in result.stderr
+    assert NOTIFIER_SECRET not in result.stdout + result.stderr
+
+
+def test_doctor_email_cleartext_credentials_fail_without_leaking_password(tmp_path, monkeypatch):
+    _doctor_env(tmp_path, monkeypatch, **{**_valid_email_env(), "BOT_SMTP_SECURITY": "none"})
+
+    result = CliRunner().invoke(app, ["doctor"])
+
+    assert result.exit_code == 1
+    assert "BOT_SMTP_SECURITY=none" in result.stderr
+    assert NOTIFIER_SECRET not in result.stdout + result.stderr
+
+
+def test_doctor_telegram_valid_passes(tmp_path, monkeypatch):
+    _doctor_env(
+        tmp_path,
+        monkeypatch,
+        BOT_NOTIFIER="telegram",
+        BOT_TELEGRAM_BOT_TOKEN=NOTIFIER_SECRET,
+        BOT_TELEGRAM_CHAT_ID="12345",
+    )
+
+    result = CliRunner().invoke(app, ["doctor"])
+
+    assert result.exit_code == 0
+    assert "Notifier:         telegram (OK)" in result.stdout
+    assert NOTIFIER_SECRET not in result.stdout + result.stderr
+
+
+def test_doctor_telegram_missing_token_fails(tmp_path, monkeypatch):
+    _doctor_env(
+        tmp_path,
+        monkeypatch,
+        BOT_NOTIFIER="telegram",
+        BOT_TELEGRAM_BOT_TOKEN="",
+        BOT_TELEGRAM_CHAT_ID="12345",
+    )
+
+    result = CliRunner().invoke(app, ["doctor"])
+
+    assert result.exit_code == 1
+    assert "Notifier:         telegram (MISCONFIGURED)" in result.stdout
+    assert "Notifier misconfigured (BOT_NOTIFIER=telegram)" in result.stderr
+    assert "BOT_TELEGRAM_BOT_TOKEN" in result.stderr
+
+
+def test_doctor_telegram_missing_chat_id_fails_without_leaking_token(tmp_path, monkeypatch):
+    _doctor_env(
+        tmp_path,
+        monkeypatch,
+        BOT_NOTIFIER="telegram",
+        BOT_TELEGRAM_BOT_TOKEN=NOTIFIER_SECRET,
+        BOT_TELEGRAM_CHAT_ID="",
+    )
+
+    result = CliRunner().invoke(app, ["doctor"])
+
+    assert result.exit_code == 1
+    assert "BOT_TELEGRAM_CHAT_ID" in result.stderr
+    assert NOTIFIER_SECRET not in result.stdout + result.stderr
+
+
+def test_doctor_reports_notifier_and_fmp_issues_together(tmp_path, monkeypatch):
+    _doctor_env(
+        tmp_path,
+        monkeypatch,
+        BOT_DATA_PROVIDER="fmp",
+        BOT_FMP_API_KEY="",
+        BOT_NOTIFIER="telegram",
+        BOT_TELEGRAM_BOT_TOKEN="",
+        BOT_TELEGRAM_CHAT_ID="",
+    )
+
+    result = CliRunner().invoke(app, ["doctor"])
+
+    assert result.exit_code == 1
+    fails = [line for line in result.stderr.splitlines() if line.startswith("FAIL:")]
+    assert len(fails) == 2
+    assert any("FMP" in line for line in fails)
+    assert any("Notifier misconfigured" in line for line in fails)
+
+
+def test_doctor_rejects_unknown_notifier(tmp_path, monkeypatch):
+    _doctor_env(tmp_path, monkeypatch, BOT_NOTIFIER="slack")
+
+    result = CliRunner().invoke(app, ["doctor"])
+
+    assert result.exit_code == 1
+    assert "FAIL: Settings invalid" in result.stderr

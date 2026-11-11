@@ -300,6 +300,9 @@ Failure modes:
 There is no automatic retry. Re-running `bot portfolio` the same day re-renders
 and re-sends that day's alerts.
 
+`bot doctor` prints the configured channel and fails (exit 1) when these
+settings are missing or unsafe, without sending anything.
+
 `bot notify` sends any text through the same configured notifier. It reads the
 message from stdin and sends it verbatim; for email, the first non-empty line,
 with leading `#` stripped, becomes the subject. It never opens the database, so
