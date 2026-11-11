@@ -36,6 +36,9 @@
 - **Skip, not replace.** The rerun never deletes. A logged event that a rerun no longer detects (its inputs changed) stays logged and stays in that day's `alerts.md`. Rejected: delete-then-insert for the day, which would drop the `new_filing` events of the first run (the issue's caveat).
 - **`PortfolioRunResult.events`** becomes the number of events in the day's `alerts.md` (the logged events of the snapshot date after this run), so the CLI line `→ N event(s)` matches the file. The `portfolio_report_written` log line gets `events_logged=<rows inserted by this run>`.
 - **Order of the alerts** is insertion order, `ORDER BY rowid`, so a rerun renders the first run's events in the first run's order, followed by the newly logged ones.
+- **`load_events` collapses identical rows** (same identity, first one kept), so a database that already holds duplicates for the day from before this fix renders each event once. The duplicate rows themselves stay (cleaning them is out of scope). Rejected: rendering raw rows, which would list a pre-existing duplicate twice.
+- **No unique index, no explicit transaction.** `details` is free-form JSON, so it cannot be a clean unique key. Two `bot portfolio` processes cannot write the same file at once, because `bot.storage.db.connect` opens the file read-write and DuckDB holds an exclusive per-process file lock. Rejected: a `UNIQUE` constraint on a canonicalised details column, which would need a schema migration.
+- **An `event_type` string unknown to `EventType`** makes `load_events` raise `ValueError`. Only `persist_events` writes `events_log`, always as `str(EventType)`, and no member has been removed. Rejected: silently skipping such rows.
 
 ### Task 1: `persist_events` skips logged events; `load_events` reads a day back
 
@@ -48,7 +51,7 @@
 - Consumes: `Event`, `EventType` (same module).
 - Produces:
   - `persist_events(conn: duckdb.DuckDBPyConnection, events: list[Event]) -> int`: inserts each event whose identity (see Assumptions) is neither in `events_log` nor earlier in the same batch; returns the number of rows inserted.
-  - `load_events(conn: duckdb.DuckDBPyConnection, snapshot_date: date) -> list[Event]`: every `events_log` row with `curr_snapshot_date = snapshot_date`, `ORDER BY rowid`, as `Event` with `event_type=EventType(row)`, `details=json.loads(row)` (an empty dict for NULL).
+  - `load_events(conn: duckdb.DuckDBPyConnection, snapshot_date: date) -> list[Event]`: every `events_log` row with `curr_snapshot_date = snapshot_date`, `ORDER BY rowid`, identical rows collapsed to the first, as `Event` with `event_type=EventType(row)`, `details=json.loads(row)` (an empty dict for NULL).
 
 - [ ] **Step 1: Write the failing tests** in `tests/integration/test_portfolio_events.py` (use the module's `conn` fixture and its `PREV`/`CURR` dates)
 
@@ -59,6 +62,8 @@
   - `test_persist_events_other_dates_unaffected`: persist an event on `PREV`, then the same type, ticker and details on `CURR`: both calls return `1`, and `load_events(conn, PREV)` still has exactly the first one.
   - `test_load_events_round_trips_details`: persist `[e1, e2]` with `e1.details == {"z": 0.123456789, "a": None, "m": "s"}`. Assert `load_events(conn, CURR) == [e1, e2]` and `list(load_events(conn, CURR)[0].details) == ["z", "a", "m"]` (key order kept).
   - `test_load_events_empty_day`: `load_events(conn, CURR) == []`.
+  - `test_persist_events_empty_batch`: `persist_events(conn, []) == 0`.
+  - `test_load_events_collapses_preexisting_duplicates`: insert the same event row twice with a raw `INSERT INTO events_log` (as the old append did), then assert `load_events(conn, CURR) == [e]`.
   - Keep `test_new_filing_reported_once` as it is (it must still pass).
 
 - [ ] **Step 2: Run the tests and confirm they fail**
@@ -68,7 +73,7 @@
 
 - [ ] **Step 3: Implement** `persist_events` and `load_events` in `src/bot/portfolio/events.py`
 
-  `persist_events` selects `event_type, ticker, prev_snapshot_date, curr_snapshot_date, details` from `events_log` for the distinct `curr_snapshot_date`s of the batch, builds a set of identity keys, then walks the batch in order. It keeps an event whose key is unseen, adds the key, and `executemany`-inserts the kept ones exactly as today (`json.dumps(e.details)`, insertion order of keys preserved). It returns `len(kept)`. Update its docstring.
+  `persist_events` returns 0 on an empty batch before any query (as today), then selects `event_type, ticker, prev_snapshot_date, curr_snapshot_date, details` from `events_log` for the distinct `curr_snapshot_date`s of the batch, builds a set of identity keys, then walks the batch in order. It keeps an event whose key is unseen, adds the key, and `executemany`-inserts the kept ones exactly as today (`json.dumps(e.details)`, insertion order of keys preserved). It returns `len(kept)`. Update its docstring.
 
 - [ ] **Step 4: Run the tests and confirm they pass**
 
@@ -109,3 +114,10 @@
   Expected: all PASS (this includes `tests/unit/test_cli_portfolio.py` and `tests/unit/test_pipeline_*.py`).
 
 - [ ] **Step 5: Commit**: `fix(#83): same-day rerun of bot portfolio is idempotent`
+
+## Grilling
+
+- Rounds: 1 (the revision added tests and assumptions on the same seam, so no second round).
+- Questions: 18. Sources: CODE 12 (Q1, Q3, Q4, Q5, Q6, Q9, Q10, Q13, Q14, Q15, Q16, Q17), ISSUE 3 (Q2, Q8, Q12), DOC 1 (Q18), NO SOURCE → technical assumption 2 (Q7, Q11). No spec ambiguity.
+- Assumptions added: `load_events` collapses identical rows; no unique index or explicit transaction (the DuckDB file lock serialises processes); an unknown `event_type` raises.
+- Issues opened: none. Notifier re-sends and pre-existing duplicate rows are already out of scope in the issue's Agent Brief.
