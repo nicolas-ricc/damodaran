@@ -26,6 +26,15 @@
 - **The assumptions module is in scope.** `_historical_growth_path` and `bulk_load_assumption_inputs` feed revenue into `cagr` for the DCF growth start. The brief's summary ("Histories fed to `cagr` ... must only contain consecutive fiscal years") covers them, and `test_valuation_bulk_load.py` requires the single-ticker and batch loaders to stay equal.
 - **Margin histories are left alone** (`op_margin_history` in the screener, `_margins_from_rows` in assumptions). They are not fed to `cagr` and are not listed in the brief.
 
+## Assumptions
+
+Technical decisions taken during plan grilling. No source dictates them; any of the options would satisfy the issue.
+
+- **Each task leaves the full suite green.** Task 2 adds `GAPPY`/`HOLED` to the shared bulk fixtures. The assumption loaders stay equal to each other until Task 3 changes both together. Rejected alternative: one big commit.
+- **Duplicate fiscal years are not handled specially.** `financials_annual` has `PRIMARY KEY (ticker, fiscal_year, is_restated)` and every call site filters `is_restated = FALSE`, so there is at most one row per year. Rejected alternative: deduplicating inside the helper.
+- **The screener's `_growth_metric` keeps mapping an undefined CAGR to `0.0`** (its existing documented behaviour, `engine.py:732-738`). Rejected alternative: excluding such companies from the ranking. The brief only asks for "no inflated growth".
+- **The `RevenueNotDeclining` trap gate now sees the contiguous run.** A company with a hole in its last four years fails it as "insufficient revenue history". This follows from "the screener's histories follow the same rule". Rejected alternative: a separate gap-tolerant history for that rule.
+
 ## Review Focus
 
 1. **Latest year NULL**: if the latest revenue is NULL, the history is the run before it, not empty. Pinned in Task 1 (`test_trailing_null_is_skipped`).
@@ -128,8 +137,17 @@ def test_no_values_yield_an_empty_run() -> None:
   - Update `_annual_row_with_acquisitions(acquisitions)` to take `fiscal_year` as well and pass it first. `test_build_company_data_acquisitions_history_drops_missing_years` becomes `..._keeps_the_run_after_a_missing_year`, with years 2020-2022 and acquisitions `(100.0, None, 300.0)`, and expects `(300.0,)`.
   - New `test_build_company_data_gappy_revenue_has_no_growth`: annual rows for 2013 and 2019 (revenue 1000 and 3000) give `cd.revenue_history == (3000.0,)`, and `_growth_metric(cd) == 0.0`.
   - New `test_build_company_data_histories_follow_the_contiguous_run`: years 2015-2019 with revenue NULL in 2017 give `revenue_history` with the 2018-2019 values. Rows with `operating_cashflow`, `shares_diluted` and `acquisitions` populated in all five years keep all five.
+  - New `test_revenue_not_declining_fails_a_gappy_history`: the 2013/2019 company from the gappy test, evaluated by `RevenueNotDeclining()` (`bot.screener.rules`), fails with a reason starting `"insufficient revenue history: 1 years"`. This pins the trap gate reading the contiguous run.
   - Update every other `_AnnualRow(...)` construction in the test file to pass a `fiscal_year`.
 - [ ] **Step 2: Run** `uv run pytest tests/unit/test_screener_engine.py -q`. Expected: FAIL.
 - [ ] **Step 3: Implement.** Add the field, select it, delete `_tuple`, and build `revenue_history`, `ocf_history`, `share_history` and `acquisitions_history` with `latest_contiguous_run((r.fiscal_year, r.<field>) for r in annual)`. `op_margin_history` is unchanged.
 - [ ] **Step 4: Run** `uv run pytest -q`, then `uv run ruff check . && uv run mypy src`. Expected: all pass.
 - [ ] **Step 5: Commit** `fix(#125): screener histories keep the latest contiguous run`.
+
+## Grilling
+
+- Rounds: 1. The plan did not change substantially: one test pin and an Assumptions section were added, and no seam changed.
+- Model: fable. Questions: 17.
+- Sources: CODE 14, ISSUE 3 (questions 1, 10 and 15 cite the triage Agent Brief), DOC 1 (CONTEXT.md, Conventional Commits). Some answers cite more than one source.
+- NO SOURCE: 4 questions. All are technical assumptions (see `## Assumptions`). No spec ambiguities.
+- Follow-up issues opened: none.
