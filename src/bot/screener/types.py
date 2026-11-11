@@ -46,7 +46,8 @@ class CompanyData:
     goodwill: float | None = None
     total_assets: float | None = None
     operating_cashflow_history: tuple[float, ...] = field(default_factory=tuple)
-    """Operating cashflow per fiscal year, most recent last (spec §6.2)."""
+    """Operating cashflow per fiscal year, most recent last: the latest run of
+    consecutive fiscal years with the datum (spec §6.2)."""
     pe: float | None = None
     pbv: float | None = None
     ev_ebitda: float | None = None
@@ -55,15 +56,17 @@ class CompanyData:
     fcf_yield: float | None = None
     # --- Trap-detection inputs (spec §6.4) ------------------------------- #
     revenue_history: tuple[float, ...] = field(default_factory=tuple)
-    """Revenue per fiscal year, most recent last (spec §6.4)."""
+    """Revenue per fiscal year, most recent last: the latest run of consecutive
+    fiscal years with the datum (spec §6.4)."""
     operating_margin_history: tuple[float, ...] = field(default_factory=tuple)
     """Operating margin (fraction, e.g. 0.18 = 18%) per fiscal year, most recent
     last (spec §6.4)."""
     share_count_history: tuple[float, ...] = field(default_factory=tuple)
-    """Diluted share count per fiscal year, most recent last (spec §6.4)."""
+    """Diluted share count per fiscal year, most recent last: the latest run of
+    consecutive fiscal years with the datum (spec §6.4)."""
     acquisitions_history: tuple[float, ...] = field(default_factory=tuple)
     """Cash paid for acquisitions per fiscal year, most recent last, outflow positive;
-    years without the datum are omitted (spec §6.4)."""
+    the latest run of consecutive fiscal years with the datum (spec §6.4)."""
     net_income: float | None = None
     """Most recent fiscal-year net income (spec §6.4, Sloan accruals numerator)."""
     operating_cashflow: float | None = None

@@ -427,7 +427,8 @@ class ValuationInput:
         ticker: The (upper-cased) ticker these rows belong to.
         company: The ``companies`` row (name, country, currency, industry).
         latest: The latest non-restated annual financials.
-        revenue_history / income_history / ebit_history: Oldest-first histories.
+        revenue_history / income_history / ebit_history: Oldest-first histories,
+            each the latest run of consecutive fiscal years with the datum.
         sector: The Damodaran sector/country multiples.
         latest_close: Newest close (on or before ``price_as_of`` when set) with its
             currency and date, or ``None``.

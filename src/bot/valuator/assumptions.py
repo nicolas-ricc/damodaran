@@ -691,7 +691,8 @@ def _historical_growth_path(
 
     Returns a flat path of ``_HORIZON`` years at the historical revenue CAGR
     (_resolve_revenue_growth takes it as the fade start), or ``None`` when it is
-    undefined (< 2 years of revenue, or a non-positive first or last revenue).
+    undefined (< 2 consecutive years of revenue, or a non-positive first or last
+    revenue).
     """
     rows = conn.execute(
         "SELECT fiscal_year, revenue FROM financials_annual "
