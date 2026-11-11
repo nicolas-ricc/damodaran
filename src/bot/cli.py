@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import io
 import sys
-from contextlib import closing
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
 from datetime import date
 from pathlib import Path
 
@@ -72,12 +73,16 @@ def _root() -> None:
     """Investment bot — value screener + portfolio monitor."""
 
 
-def _open_db() -> tuple[duckdb.DuckDBPyConnection, Settings]:
+@contextmanager
+def _open_db() -> Iterator[tuple[duckdb.DuckDBPyConnection, Settings]]:
     settings = load_settings()
     configure_logging(level=settings.log_level, json_output=False)
     conn = connect(settings.db_path)
-    apply_schema(conn)
-    return conn, settings
+    try:
+        apply_schema(conn)
+        yield conn, settings
+    finally:
+        conn.close()
 
 
 def _make_provider(settings: Settings) -> MarketDataProvider:
@@ -197,20 +202,20 @@ def refresh(
         )
         raise typer.Exit(code=2)
 
-    conn, settings = _open_db()
-    exit_code = 0
-    if damodaran:
-        exit_code = max(
-            exit_code,
-            _refresh_damodaran(conn, region=region, year=year, download_dir=download_dir),
-        )
-    if fmp:
-        exit_code = max(exit_code, _refresh_fmp_universe(conn, settings, universe, limit, force))
-    if prices:
-        exit_code = max(exit_code, _refresh_prices(conn, settings, universe, limit, only_missing))
-    if fx:
-        exit_code = max(exit_code, _refresh_fx(conn, settings))
-    raise typer.Exit(code=exit_code)
+    with _open_db() as (conn, settings):
+        exit_code = 0
+        if damodaran:
+            exit_code = max(
+                exit_code,
+                _refresh_damodaran(conn, region=region, year=year, download_dir=download_dir),
+            )
+        if fmp:
+            exit_code = max(exit_code, _refresh_fmp_universe(conn, settings, universe, limit, force))
+        if prices:
+            exit_code = max(exit_code, _refresh_prices(conn, settings, universe, limit, only_missing))
+        if fx:
+            exit_code = max(exit_code, _refresh_fx(conn, settings))
+        raise typer.Exit(code=exit_code)
 
 
 def _refresh_damodaran(
@@ -339,58 +344,58 @@ def show(
     ),
 ) -> None:
     """Show a company's basic info and last 5 years of financials."""
-    conn, settings = _open_db()
-    ticker = ticker.upper()
+    with _open_db() as (conn, settings):
+        ticker = ticker.upper()
 
-    def _load_company_row(
-        conn: duckdb.DuckDBPyConnection, ticker: str
-    ) -> tuple[object, ...] | None:
-        return conn.execute(
-            "SELECT ticker, name, cik, country, currency FROM companies WHERE ticker = ?",
-            [ticker],
-        ).fetchone()
+        def _load_company_row(
+            conn: duckdb.DuckDBPyConnection, ticker: str
+        ) -> tuple[object, ...] | None:
+            return conn.execute(
+                "SELECT ticker, name, cik, country, currency FROM companies WHERE ticker = ?",
+                [ticker],
+            ).fetchone()
 
-    row = _load_company_row(conn, ticker)
-
-    if row is None:
-        if not fetch_if_missing:
-            typer.echo(
-                f"{ticker} not in DB (use --fetch to import from the configured data provider).",
-                err=True,
-            )
-            raise typer.Exit(code=2)
-        typer.echo(f"{ticker} not in DB — fetching from the configured data provider...")
-        with closing(_make_provider(settings)) as provider:
-            result = import_company(
-                conn,
-                ticker=ticker,
-                provider=provider,
-                mapping_path=settings.industry_mapping_path,
-            )
-        if not result.is_success():
-            typer.echo(f"Failed to import {ticker}: {result.error_message}", err=True)
-            raise typer.Exit(code=1)
         row = _load_company_row(conn, ticker)
 
-    if row is None:
-        typer.echo(f"{ticker} still not in DB after import — aborting.", err=True)
-        raise typer.Exit(code=1)
+        if row is None:
+            if not fetch_if_missing:
+                typer.echo(
+                    f"{ticker} not in DB (use --fetch to import from the configured data provider).",
+                    err=True,
+                )
+                raise typer.Exit(code=2)
+            typer.echo(f"{ticker} not in DB — fetching from the configured data provider...")
+            with closing(_make_provider(settings)) as provider:
+                result = import_company(
+                    conn,
+                    ticker=ticker,
+                    provider=provider,
+                    mapping_path=settings.industry_mapping_path,
+                )
+            if not result.is_success():
+                typer.echo(f"Failed to import {ticker}: {result.error_message}", err=True)
+                raise typer.Exit(code=1)
+            row = _load_company_row(conn, ticker)
 
-    company = dict(zip(["ticker", "name", "cik", "country", "currency"], row, strict=False))
-    annual_cursor = conn.execute(
-        """
-        SELECT *
-        FROM financials_annual
-        WHERE ticker = ?
-        ORDER BY fiscal_year DESC
-        LIMIT 5
-        """,
-        [ticker],
-    )
-    columns = [d[0] for d in annual_cursor.description]
-    annual_rows = [dict(zip(columns, r, strict=False)) for r in annual_cursor.fetchall()]
+        if row is None:
+            typer.echo(f"{ticker} still not in DB after import — aborting.", err=True)
+            raise typer.Exit(code=1)
 
-    typer.echo(format_company_summary(company, annual_rows))
+        company = dict(zip(["ticker", "name", "cik", "country", "currency"], row, strict=False))
+        annual_cursor = conn.execute(
+            """
+            SELECT *
+            FROM financials_annual
+            WHERE ticker = ?
+            ORDER BY fiscal_year DESC
+            LIMIT 5
+            """,
+            [ticker],
+        )
+        columns = [d[0] for d in annual_cursor.description]
+        annual_rows = [dict(zip(columns, r, strict=False)) for r in annual_cursor.fetchall()]
+
+        typer.echo(format_company_summary(company, annual_rows))
 
 
 @app.command()
@@ -442,42 +447,42 @@ def analyze(
         typer.echo(f"--override {override}: no such file.", err=True)
         raise typer.Exit(code=2)
 
-    conn, settings = _open_db()
+    with _open_db() as (conn, settings):
 
-    if from_screen:
-        latest_run = conn.execute(
-            "SELECT run_id FROM screener_candidates ORDER BY created_at DESC LIMIT 1"
-        ).fetchone()
-        if latest_run is None:
-            typer.echo(
-                "No screen has been persisted — run `bot screen` first.",
-                err=True,
-            )
-            raise typer.Exit(code=2)
-        rows = conn.execute(
-            "SELECT ticker FROM screener_candidates "
-            "WHERE passed AND run_id = ? ORDER BY rank",
-            [latest_run[0]],
-        ).fetchall()
-        if not rows:
-            typer.echo(
-                "The last screen did not leave any candidates — try loading more "
-                "data and re-running `bot screen`.",
-                err=True,
-            )
-            raise typer.Exit(code=2)
-        tickers = [str(r[0]) for r in rows]
+        if from_screen:
+            latest_run = conn.execute(
+                "SELECT run_id FROM screener_candidates ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+            if latest_run is None:
+                typer.echo(
+                    "No screen has been persisted — run `bot screen` first.",
+                    err=True,
+                )
+                raise typer.Exit(code=2)
+            rows = conn.execute(
+                "SELECT ticker FROM screener_candidates "
+                "WHERE passed AND run_id = ? ORDER BY rank",
+                [latest_run[0]],
+            ).fetchall()
+            if not rows:
+                typer.echo(
+                    "The last screen did not leave any candidates — try loading more "
+                    "data and re-running `bot screen`.",
+                    err=True,
+                )
+                raise typer.Exit(code=2)
+            tickers = [str(r[0]) for r in rows]
 
-    currencies = load_currency_table(settings.currencies_path)
-    default_spreads = load_default_spreads(settings.default_spreads_path)
-    warned: set[str | None] = set()
-    exit_code = 0
-    for ticker in tickers:
-        exit_code = max(
-            exit_code,
-            _analyze_one(conn, settings, ticker, override, currencies, default_spreads, warned),
-        )
-    raise typer.Exit(code=exit_code)
+        currencies = load_currency_table(settings.currencies_path)
+        default_spreads = load_default_spreads(settings.default_spreads_path)
+        warned: set[str | None] = set()
+        exit_code = 0
+        for ticker in tickers:
+            exit_code = max(
+                exit_code,
+                _analyze_one(conn, settings, ticker, override, currencies, default_spreads, warned),
+            )
+        raise typer.Exit(code=exit_code)
 
 
 def _analyze_one(
@@ -566,38 +571,38 @@ def screen(
     persists the top-N to ``screener_candidates`` under a fresh run id, and writes
     ``<reports_dir>/YYYY-MM-DD/screen/<preset>.{md,csv}``.
     """
-    conn, settings = _open_db()
+    with _open_db() as (conn, settings):
 
-    config_path = config if config is not None else settings.presets_dir / f"{preset}.yaml"
-    if not config_path.exists():
-        typer.echo(f"Screener config not found: {config_path}", err=True)
-        raise typer.Exit(code=2)
-    screener_config = load_screener_config(config_path)
+        config_path = config if config is not None else settings.presets_dir / f"{preset}.yaml"
+        if not config_path.exists():
+            typer.echo(f"Screener config not found: {config_path}", err=True)
+            raise typer.Exit(code=2)
+        screener_config = load_screener_config(config_path)
 
-    result = run_screen(
-        conn,
-        screener_config,
-        top=top,
-        assumptions_dir=settings.assumptions_dir,
-        currencies=load_currency_table(settings.currencies_path),
-        default_spreads=load_default_spreads(settings.default_spreads_path),
-    )
-    run_id = persist_candidates(conn, result)
+        result = run_screen(
+            conn,
+            screener_config,
+            top=top,
+            assumptions_dir=settings.assumptions_dir,
+            currencies=load_currency_table(settings.currencies_path),
+            default_spreads=load_default_spreads(settings.default_spreads_path),
+        )
+        run_id = persist_candidates(conn, result)
 
-    today = date.today()
-    out_dir = settings.reports_dir / today.isoformat() / "screen"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    md_path = out_dir / f"{screener_config.name}.md"
-    csv_path = out_dir / f"{screener_config.name}.csv"
-    md_path.write_text(render_markdown(result, generated_on=today))
-    csv_path.write_text(render_csv(result))
+        today = date.today()
+        out_dir = settings.reports_dir / today.isoformat() / "screen"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        md_path = out_dir / f"{screener_config.name}.md"
+        csv_path = out_dir / f"{screener_config.name}.csv"
+        md_path.write_text(render_markdown(result, generated_on=today))
+        csv_path.write_text(render_csv(result))
 
-    typer.echo(
-        f"Screened {result.screened} companies → {len(result.shortlist)} candidates (run {run_id})"
-    )
-    typer.echo(format_coverage_counts(result))
-    typer.echo(f"Wrote {md_path}")
-    typer.echo(f"Wrote {csv_path}")
+        typer.echo(
+            f"Screened {result.screened} companies → {len(result.shortlist)} candidates (run {run_id})"
+        )
+        typer.echo(format_coverage_counts(result))
+        typer.echo(f"Wrote {md_path}")
+        typer.echo(f"Wrote {csv_path}")
 
 
 @app.command()
@@ -646,40 +651,40 @@ def portfolio(
             err=True,
         )
         raise typer.Exit(code=2)
-    conn, settings = _open_db()
-    client = FlexPortfolioClient.from_settings(settings)
-    gates = [*preset.quality_gates.build(), *preset.trap_detection.build()]
-    try:
-        result = run_portfolio(
-            conn,
-            client,
-            reports_dir=settings.reports_dir,
-            today=date.today(),
-            history=history,
-            concentration=concentration,
-            quality_gates=gates,
-            assumptions_dir=settings.assumptions_dir,
-            currencies=load_currency_table(settings.currencies_path),
-            default_spreads=load_default_spreads(settings.default_spreads_path),
+    with _open_db() as (conn, settings):
+        client = FlexPortfolioClient.from_settings(settings)
+        gates = [*preset.quality_gates.build(), *preset.trap_detection.build()]
+        try:
+            result = run_portfolio(
+                conn,
+                client,
+                reports_dir=settings.reports_dir,
+                today=date.today(),
+                history=history,
+                concentration=concentration,
+                quality_gates=gates,
+                assumptions_dir=settings.assumptions_dir,
+                currencies=load_currency_table(settings.currencies_path),
+                default_spreads=load_default_spreads(settings.default_spreads_path),
+            )
+        except FlexError as exc:
+            typer.echo(f"IBKR Flex statement unavailable: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+        typer.echo(
+            f"Synced snapshot {result.snapshot_date.isoformat()} "
+            f"(prev {result.prev_snapshot_date.isoformat() if result.prev_snapshot_date else 'none'}) "
+            f"→ {result.events} event(s)"
         )
-    except FlexError as exc:
-        typer.echo(f"IBKR Flex statement unavailable: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-    typer.echo(
-        f"Synced snapshot {result.snapshot_date.isoformat()} "
-        f"(prev {result.prev_snapshot_date.isoformat() if result.prev_snapshot_date else 'none'}) "
-        f"→ {result.events} event(s)"
-    )
-    typer.echo(f"Recorded {result.trades_inserted} new trade(s)")
-    typer.echo(f"Wrote {result.portfolio_path}")
-    typer.echo(f"Wrote {result.alerts_path}")
-    try:
-        sent = notify_alerts(result.alerts_path, notifier)
-    except NotificationError as exc:
-        typer.echo(f"Alerts not sent: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
-    if sent:
-        typer.echo(f"Sent alerts via {settings.notifier}")
+        typer.echo(f"Recorded {result.trades_inserted} new trade(s)")
+        typer.echo(f"Wrote {result.portfolio_path}")
+        typer.echo(f"Wrote {result.alerts_path}")
+        try:
+            sent = notify_alerts(result.alerts_path, notifier)
+        except NotificationError as exc:
+            typer.echo(f"Alerts not sent: {exc}", err=True)
+            raise typer.Exit(code=1) from exc
+        if sent:
+            typer.echo(f"Sent alerts via {settings.notifier}")
 
 
 @app.command()
@@ -867,25 +872,25 @@ def doctor() -> None:
 @app.command()
 def status() -> None:
     """Show the most recent refresh result per data source."""
-    conn, _ = _open_db()
-    rows = conn.execute(
-        """
-        SELECT source, MAX(finished_at) AS last_finished, status, rows_affected
-        FROM refresh_log
-        GROUP BY source, status, rows_affected
-        QUALIFY ROW_NUMBER() OVER (PARTITION BY source ORDER BY last_finished DESC) = 1
-        ORDER BY source
-        """
-    ).fetchall()
-    if not rows:
-        typer.echo("No refresh history yet — run `bot refresh --damodaran` first.")
-        return
-    typer.echo(f"{'Source':<14}{'Last run':<22}{'Status':<10}{'Rows':>8}")
-    typer.echo("-" * 54)
-    for source, last_finished, status_str, rows_affected in rows:
-        typer.echo(
-            f"{source:<14}{last_finished.strftime('%Y-%m-%d %H:%M:%S'):<22}{status_str:<10}{rows_affected:>8}"
-        )
+    with _open_db() as (conn, _):
+        rows = conn.execute(
+            """
+            SELECT source, MAX(finished_at) AS last_finished, status, rows_affected
+            FROM refresh_log
+            GROUP BY source, status, rows_affected
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY source ORDER BY last_finished DESC) = 1
+            ORDER BY source
+            """
+        ).fetchall()
+        if not rows:
+            typer.echo("No refresh history yet — run `bot refresh --damodaran` first.")
+            return
+        typer.echo(f"{'Source':<14}{'Last run':<22}{'Status':<10}{'Rows':>8}")
+        typer.echo("-" * 54)
+        for source, last_finished, status_str, rows_affected in rows:
+            typer.echo(
+                f"{source:<14}{last_finished.strftime('%Y-%m-%d %H:%M:%S'):<22}{status_str:<10}{rows_affected:>8}"
+            )
 
 
 @app.command()
