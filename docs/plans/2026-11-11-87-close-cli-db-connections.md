@@ -30,6 +30,8 @@
 
 - **Context manager over `with closing(conn)` at each call site.** Both re-indent each command body. The context manager also closes the connection when `apply_schema` raises (Review Focus 1), and it leaves exactly one place that owns the lifetime. Rejected: registering `conn.close` with `click.get_current_context().call_on_close`, which needs no re-indent but hides the lifetime from the reader and does nothing when a command is called outside Click.
 - **Keep the name `_open_db`.** Renaming it would break doc citations and buy nothing.
+- **`doctor` uses `closing(connect(...))`, not `_open_db`.** `doctor` loads settings in its own `try` with its own `FAIL: Settings invalid` message (`cli.py:744-748`) and then reports DB failures as an `issues` line rather than crashing (`cli.py:812-849`). `_open_db` would load the settings a second time and call `configure_logging`, which is a behaviour change the brief rules out ("Command output and exit codes stay unchanged"). Either way, the connection's lifetime is owned by one `with` statement, and that is the consistency the brief asks for. Rejected: calling `_open_db()` inside doctor's `try`.
+- **The evals commit is red.** The pipeline requires the failing evals to be committed before implementation, so `git bisect` must skip `test(#87): evals`.
 - **The final `raise typer.Exit(code=exit_code)` in `refresh` and `analyze` stays inside the `with`.** The `finally` closes the connection before the exit propagates.
 
 ---
@@ -47,14 +49,15 @@
 | `test_analyze_closes_db` | `bot.cli._analyze_one` → returns 0; `analyze AAA` | exit 0 |
 | `test_analyze_closes_db_on_early_exit` | empty DB; `analyze --from-screen` | exit 2 |
 | `test_analyze_closes_db_when_it_raises` | `_analyze_one` raises `RuntimeError` | RuntimeError |
-| `test_screen_closes_db` | `bot.cli.run_screen` / `persist_candidates` stubbed if a real empty-DB screen is not cheap; `screen` | exit 0 |
+| `test_screen_closes_db` | empty DB, no stubs (a real `screen` with the default preset on an empty DB prints `Screened 0 companies → 0 candidates` and exits 0, checked by hand on master); `screen` | exit 0 |
+| `test_screen_closes_db_when_it_raises` | `bot.cli.run_screen` raises `RuntimeError` | RuntimeError |
 | `test_screen_closes_db_on_early_exit` | `screen --config <tmp>/missing.yaml` | exit 2 |
-| `test_portfolio_closes_db_on_flex_failure` | token `tok`, query id `123`; `bot.cli.FlexPortfolioClient.from_settings` stubbed; `bot.cli.run_portfolio` raises `FlexError("x")` | exit 1 |
+| `test_portfolio_closes_db_on_flex_failure` | env `BOT_IBKR_FLEX_TOKEN=tok`, `BOT_IBKR_FLEX_QUERY_ID=123`; `bot.cli.FlexPortfolioClient.from_settings` stubbed; `bot.cli.run_portfolio` raises `FlexError("x")` | exit 1 |
 | `test_portfolio_closes_db_when_it_raises` | same, `run_portfolio` raises `RuntimeError` | RuntimeError |
 | `test_status_closes_db` | one `refresh_log` row inserted beforehand | exit 0 |
 | `test_status_closes_db_on_early_return` | empty DB | exit 0 |
 
-The DB is seeded beforehand with the real `connect`/`apply_schema`, and that connection is closed before the fixture patches `bot.cli.connect`, so only the command's connections are recorded. All of these tests fail on `master`.
+The DB is seeded beforehand with the real `connect`/`apply_schema`, and that connection is closed before the fixture patches `bot.cli.connect`, so only the command's connections are recorded. `test_doctor_closes_db_when_probe_raises` (specified in Task 2) is written in this same stage, so the evals commit `test(#87): evals` holds every failing test before Task 1 starts. That commit is red by design (the pipeline commits failing evals first). From the Task 1 commit on, only the doctor test fails, and from Task 2 on the suite is green. All of these tests fail on `master`, because every row's early exit or raise happens after `_open_db()`: `show` opens at `cli.py:342` and exits 2 at `:361`; `analyze` opens at `:445` and exits 2 at `:456`; `screen` opens at `:569` and exits 2 at `:574`; `portfolio` opens at `:649` before `run_portfolio` at `:653`.
 
 ---
 
@@ -85,8 +88,16 @@ The DB is seeded beforehand with the real `connect`/`apply_schema`, and that con
 **Interfaces:**
 - Consumes: the `opened` fixture and `_assert_all_closed` from the test module.
 
-- [ ] **Step 1: Write the failing test** `test_doctor_closes_db_when_probe_raises`: env as in the evals, with `BOT_REPORTS_DIR` writable; monkeypatch `bot.cli.schema_table_count` to raise `RuntimeError("probe")`; `doctor` exits 1, `"DB error" in result.output`, and `_assert_all_closed(opened)` holds.
+- [ ] **Step 1: Write the failing test** `test_doctor_closes_db_when_probe_raises`: env as in the evals, with `BOT_REPORTS_DIR` writable, and `BOT_DATA_PROVIDER` / `BOT_STOOQ_DIR` deleted so that no other probe adds an issue (conftest already blanks the Flex settings). Monkeypatch `bot.cli.schema_table_count` to raise `RuntimeError("probe")`. Assert that `doctor` exits 1, that `"DB error — probe" in result.output` (so the exit comes from the DB probe), and that `_assert_all_closed(opened)` holds.
 - [ ] **Step 2: Run it.** Expected: FAIL (the connection is still open).
 - [ ] **Step 3: Implement.** Inside doctor's existing `try`, replace `conn = connect(...)` … `conn.close()` with `with closing(connect(settings.db_path)) as conn:` around the same statements, and drop the explicit `close()`. The `except Exception` stays where it is.
 - [ ] **Step 4: Run** `uv run pytest -q` and `uv run ruff check . && uv run mypy src`. Expected: everything passes.
 - [ ] **Step 5: Commit** `fix(#87): doctor closes its DB connection on error`.
+
+## Grilling
+
+- **Rounds:** 1. The plan was refined (eval rows made concrete, one row added, the doctor test tightened, assumptions added) without a change of seam, so no second round was run.
+- **Questions:** 15. CODE: 13. ISSUE: 1 (Q3, the acceptance criteria quoted from the triage comment). NO SOURCE → technical assumption: 2 (Q9, doctor's `closing` approach; Q12, the red evals commit).
+- **Checks run to answer them:** duckdb 1.5.3 (`uv.lock:259-260`) raises `_duckdb.ConnectionException: Connection already closed!` on `execute` after `close()`, and a second `close()` is a no-op. Typer's `CliRunner` hands back the original `RuntimeError` in `result.exception` (checked with a throwaway Typer app). A real `bot screen` on an empty DB exits 0.
+- **Assumptions added:** doctor uses `closing(connect(...))`; the evals commit is red.
+- **Issues opened:** none.
