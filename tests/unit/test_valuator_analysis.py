@@ -1122,3 +1122,34 @@ def test_manual_distressed_without_interest_expense_says_why(
     )
     md = render_analysis(a, generated_on=date(2026, 1, 1))
     assert "**Probability of bankruptcy chain:** distressed, but interest coverage is unknown" in md
+
+
+def _seed_gappy_financials(conn: duckdb.DuckDBPyConnection, ticker: str) -> None:
+    """Revenue for 2013 and 2019 only: one year of contiguous history (#125)."""
+    for year, revenue in ((2013, 100_000.0), (2019, 300_000.0)):
+        conn.execute(
+            "INSERT INTO financials_annual "
+            "(ticker, fiscal_year, revenue, ebit, net_income, interest_expense, "
+            "total_debt, cash, shares_diluted, is_restated, source, currency) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'USD')",
+            [
+                ticker,
+                year,
+                revenue * _MILLIONS,
+                revenue * 0.15 * _MILLIONS,
+                revenue * 0.10 * _MILLIONS,
+                0.0,
+                0.0,
+                0.0,
+                1_000.0 * _MILLIONS,
+                False,
+                "sec_edgar",
+            ],
+        )
+
+
+def test_gappy_revenue_reports_too_little_history(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_company(conn, ticker="GAP", industry_damodaran="Computers/Peripherals")
+    _seed_gappy_financials(conn, ticker="GAP")
+    result = analyze("GAP", conn)
+    assert "too little revenue history for a reliable growth signal" in result.story_reasons
