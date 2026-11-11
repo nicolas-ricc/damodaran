@@ -10,10 +10,16 @@ an explicit hand-computed expected-value test.
 
 from __future__ import annotations
 
+from datetime import date
+
+import pytest
+
 from bot.screener.rules import (
+    AuditorChangesAndLateFilings,
     OperatingMarginNotContracting,
     RevenueNotDeclining,
     ROICAboveSectorWACC,
+    RuleResult,
     ShareCountNotDiluting,
     SloanAccrualsBelow,
     get_rule,
@@ -317,3 +323,214 @@ def test_share_count_not_diluting_configurable() -> None:
     )
     assert result.passed is False
 
+
+# 10%/yr issuance: above the 5% default cap, so the M&A exception is consulted.
+_DILUTING = (100.0, 110.0, 121.0)
+
+
+def _dilution(
+    acquisitions: tuple[float, ...],
+    total_assets: float | None,
+    rule: ShareCountNotDiluting | None = None,
+) -> RuleResult:
+    company = _company(
+        share_count_history=_DILUTING,
+        acquisitions_history=acquisitions,
+        total_assets=total_assets,
+    )
+    return (rule or ShareCountNotDiluting()).evaluate(company, _benchmarks())
+
+
+def test_share_count_dilution_justified_by_material_acquisitions() -> None:
+    result = _dilution((0.0, 0.0, 300.0), 1000.0)
+    assert result.passed is True
+    assert result.skipped is False
+    assert "0.300x total assets" in result.reason
+    assert "last 3 fiscal years" in result.reason
+
+
+def test_share_count_dilution_not_justified_by_small_acquisitions() -> None:
+    result = _dilution((0.0, 0.0, 50.0), 1000.0)
+    assert result.passed is False
+    assert result.skipped is False
+    assert "0.050x" in result.reason
+    assert "not justified" in result.reason
+
+
+def test_share_count_dilution_no_acquisitions_reported() -> None:
+    result = _dilution((), 1000.0)
+    assert result.passed is False
+    assert "no acquisitions reported" in result.reason
+
+
+def test_share_count_dilution_total_assets_unavailable() -> None:
+    result = _dilution((0.0, 0.0, 300.0), None)
+    assert result.passed is False
+    assert "total assets unavailable" in result.reason
+
+
+def test_share_count_dilution_zero_total_assets_unavailable() -> None:
+    result = _dilution((0.0, 0.0, 300.0), 0.0)
+    assert result.passed is False
+    assert "total assets unavailable" in result.reason
+
+
+def test_share_count_dilution_nan_total_assets_unavailable() -> None:
+    result = _dilution((0.0, 0.0, 300.0), float("nan"))
+    assert result.passed is False
+    assert "total assets unavailable" in result.reason
+
+
+def test_share_count_dilution_acquisitions_outside_window_ignored() -> None:
+    # The 900 is four years back, outside the 3-year window.
+    result = _dilution((900.0, 0.0, 0.0, 0.0), 1000.0, ShareCountNotDiluting(ma_window=3))
+    assert result.passed is False
+    assert "0.000x" in result.reason
+
+
+def test_share_count_dilution_rejects_empty_window() -> None:
+    # history[-0:] would be the whole history, not an empty window.
+    with pytest.raises(ValueError, match="ma_window"):
+        ShareCountNotDiluting(ma_window=0)
+
+
+def test_share_count_dilution_materiality_is_inclusive() -> None:
+    result = _dilution((0.0, 0.0, 50.0), 1000.0, ShareCountNotDiluting(ma_materiality=0.05))
+    assert result.passed is True
+
+
+def test_share_count_dilution_short_history_summed_as_reported() -> None:
+    result = _dilution((300.0,), 1000.0)
+    assert result.passed is True
+    assert result.reason.endswith("over the last 1 fiscal year")
+
+
+def test_share_count_dilution_net_divestiture_lowers_ratio() -> None:
+    # 400 bought, 350 net divested: 50 / 1000 = 0.05 < 0.10.
+    result = _dilution((400.0, -350.0), 1000.0)
+    assert result.passed is False
+    assert "0.050x" in result.reason
+
+
+def test_share_count_within_cap_ignores_acquisitions() -> None:
+    result = ShareCountNotDiluting().evaluate(
+        _company(
+            share_count_history=(100.0, 103.0, 106.09),
+            acquisitions_history=(0.0, 0.0, 300.0),
+            total_assets=1000.0,
+        ),
+        _benchmarks(),
+    )
+    assert result.passed is True
+    assert result.reason == "avg share-count growth 0.030 <= maximum 0.050"
+# --------------------------------------------------------------------------- #
+# AuditorChangesAndLateFilings
+# --------------------------------------------------------------------------- #
+_AS_OF = date(2026, 5, 29)
+
+
+def _governance(
+    auditor: tuple[date, ...] | None = (),
+    late: tuple[date, ...] | None = (),
+    as_of: date | None = _AS_OF,
+) -> CompanyData:
+    return _company(as_of=as_of, auditor_change_dates=auditor, late_filing_dates=late)
+
+
+def test_auditor_rule_registered() -> None:
+    assert get_rule("auditor_changes_and_late_filings") is AuditorChangesAndLateFilings
+
+
+def test_auditor_rule_skips_without_filing_history() -> None:
+    result = AuditorChangesAndLateFilings().evaluate(
+        _governance(auditor=None, late=None), _benchmarks()
+    )
+    assert result.skipped is True
+    assert result.passed is False
+    assert result.reason == (
+        "no SEC filing history: auditor changes and late filings are unknown outside the US"
+    )
+
+
+def test_auditor_rule_fails_on_recent_auditor_change() -> None:
+    result = AuditorChangesAndLateFilings().evaluate(
+        _governance(auditor=(date(2025, 5, 29),)), _benchmarks()
+    )
+    assert result.passed is False
+    assert result.skipped is False
+    assert "auditor change" in result.reason
+    assert "2025-05-29" in result.reason
+
+
+def test_auditor_rule_passes_on_old_auditor_change() -> None:
+    result = AuditorChangesAndLateFilings().evaluate(
+        _governance(auditor=(date(2023, 5, 29),)), _benchmarks()
+    )
+    assert result.passed is True
+
+
+def test_auditor_rule_fails_on_recent_late_filing() -> None:
+    result = AuditorChangesAndLateFilings().evaluate(
+        _governance(late=(date(2025, 5, 29),)), _benchmarks()
+    )
+    assert result.passed is False
+    assert result.skipped is False
+    assert "late-filing" in result.reason
+
+
+def test_auditor_rule_passes_with_empty_history() -> None:
+    result = AuditorChangesAndLateFilings().evaluate(_governance(), _benchmarks())
+    assert result.passed is True
+    assert result.reason == (
+        "no auditor change or late-filing notice in the last 2 years of SEC filings"
+    )
+
+
+def test_auditor_rule_without_as_of_counts_any_filing() -> None:
+    # No snapshot date, no window: a known adverse filing counts.
+    result = AuditorChangesAndLateFilings().evaluate(
+        _governance(auditor=(date(2010, 1, 1),), as_of=None), _benchmarks()
+    )
+    assert result.passed is False
+
+
+def test_auditor_rule_wider_window_catches_old_change() -> None:
+    result = AuditorChangesAndLateFilings(window_years=5).evaluate(
+        _governance(auditor=(date(2023, 5, 29),)), _benchmarks()
+    )
+    assert result.passed is False
+
+
+def test_auditor_rule_one_field_none_other_recent_fails() -> None:
+    result = AuditorChangesAndLateFilings().evaluate(
+        _governance(auditor=None, late=(date(2025, 5, 29),)), _benchmarks()
+    )
+    assert result.passed is False
+    assert result.skipped is False
+
+
+def test_auditor_rule_future_filing_counts_as_recent() -> None:
+    # Filings fetched after the newest price: still a current signal.
+    result = AuditorChangesAndLateFilings().evaluate(
+        _governance(late=(date(2026, 6, 15),)), _benchmarks()
+    )
+    assert result.passed is False
+
+
+def test_auditor_rule_window_bound_is_inclusive() -> None:
+    # Exactly 2 x 365 days before as_of is still inside the window.
+    result = AuditorChangesAndLateFilings().evaluate(
+        _governance(auditor=(date(2024, 5, 29),)), _benchmarks()
+    )
+    assert (_AS_OF - date(2024, 5, 29)).days == 730
+    assert result.passed is False
+
+
+def test_auditor_rule_reason_names_newest_date() -> None:
+    result = AuditorChangesAndLateFilings().evaluate(
+        _governance(auditor=(date(2019, 1, 1), date(2025, 1, 10), date(2025, 11, 3))),
+        _benchmarks(),
+    )
+    assert result.reason == (
+        "auditor change reported on 2025-11-03 (8-K item 4.01), within the last 2 years"
+    )

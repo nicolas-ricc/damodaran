@@ -256,6 +256,9 @@ _REFRESH_TEXT: dict[str, list[str]] = {
         "the earlier file wins a shared column",
         "D/E = w ÷ (1 - w)",  # normalize() reads the minus sign as a hyphen
         "beta_unlevered = beta_levered ÷ (1 + (1 - tax) \u00d7 D/E)",
+        "the country rows are read sheet 'ERPs by country', two tables: the Moody's-rated "
+        "countries, then the unrated countries scored by PRS (Political Risk Services), "
+        "each read with its own columns; erp_basis says which",
     ],
     "refresh-fundamentals": ["5%", "25%", "deferred, not failed"],
     "refresh-facts": [
@@ -323,7 +326,7 @@ _SCREEN_TEXT: dict[str, list[str]] = {
         "8%",
         "value metric = highest score among passing indicators",
     ],
-    "screen-traps": ["\u22125%", "\u2212200 basis points", "< 0.1", "\u2264 5%"],
+    "screen-traps": ["\u22125%", "\u2212200 basis points", "< 0.1", "\u2264 5%", "2 years"],
     "screen-ranking": [
         "0.40 \u00d7 value",
         "0.30 \u00d7 quality",
@@ -423,6 +426,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "story_pattern",
         "historical_average",
         "sector_default_damodaran_cross_region",
+        "country tax_rate \u2192 country_default_damodaran",
         "min(risk-free rate, nominal GDP growth)",
         "debt weight = D/E \u00f7 (1 + D/E)",
         "config/currencies.yaml",

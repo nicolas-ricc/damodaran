@@ -77,3 +77,15 @@ def test_drivers_price_head_sits_at_the_price() -> None:
 def test_drivers_head_without_a_price_reads_range() -> None:
     html = str(tornado_table([TornadoBar("tax_rate", 150.0, 135.0)], price=None))
     assert '<th scope="col" class="track-head">range</th>' in html
+
+
+def test_row_label_carries_its_description_as_a_tooltip() -> None:
+    bar = TornadoBar("Sales-to-capital", 100.0, 120.0, description="Revenue per unit reinvested.")
+    html = str(tornado_table([bar], price=None))
+    assert '<abbr title="Revenue per unit reinvested.">Sales-to-capital</abbr>' in html
+
+
+def test_row_label_without_description_is_plain() -> None:
+    html = str(tornado_table([TornadoBar("Tax rate", 100.0, 120.0)], price=None))
+    assert "<abbr" not in html
+    assert '<th scope="row">Tax rate</th>' in html

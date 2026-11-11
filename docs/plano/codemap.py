@@ -29,7 +29,7 @@ NIVEL = {'orquestador': 0, 'salida': 1, 'capa-c': 2, 'capa-b': 3,
 # adapters de proveedor: que uno importe a otro llama la atención;
 # que universe componga a fmp, no.
 PROVEEDORES = {'bot.ingest.damodaran', 'bot.ingest.sec_edgar',
-               'bot.ingest.fmp', 'bot.ingest.ibkr'}
+               'bot.ingest.fmp', 'bot.ingest.ibkr_flex'}
 
 
 def mod_name(path):

@@ -17,7 +17,7 @@ from bot.reporting import analysis_report
 from bot.reporting.analysis_report import render_analysis
 from bot.storage.db import apply_schema, connect
 from bot.valuator.analysis import Analysis, analyze
-from bot.valuator.assumptions import BankruptcyDerivation
+from bot.valuator.assumptions import AssumptionSource, BankruptcyDerivation
 
 # Fixture money and share counts are written in millions; the valuator refuses
 # share counts below 1,000,000, so seeds are scaled up by this factor.
@@ -137,6 +137,14 @@ def test_render_shows_assumption_sources(analysis: Analysis) -> None:
     assert "historical_average" in md
 
 
+def test_render_shows_a_country_sourced_tax_rate(analysis: Analysis) -> None:
+    # The seed's sector row has no tax rate, so the country row supplies it.
+    assert analysis.assumptions.tax_rate.source is AssumptionSource.COUNTRY_DEFAULT_DAMODARAN
+    md = render_analysis(analysis)
+    tax_row = next(line for line in md.splitlines() if line.startswith("| Tax rate |"))
+    assert tax_row.endswith("| country_default_damodaran |")
+
+
 def test_render_shows_year_by_year_and_terminal(analysis: Analysis) -> None:
     md = render_analysis(analysis)
     # One row per forecast year plus a terminal line.
@@ -237,9 +245,10 @@ def test_tornado_path_axes_are_labelled_year_one(analysis: Analysis) -> None:
 def test_per_share_values_are_not_scaled_to_thousands() -> None:
     from bot.reporting.analysis_report import fmt_per_share
 
-    # A per-share price of 1500 is 1500, not "1.50K".
-    assert fmt_per_share(1500.0) == "1500.00"
+    # A per-share price of 1500 is 1500, not "1.50K"; thousands are grouped.
+    assert fmt_per_share(1500.0) == "1,500.00"
     assert fmt_per_share(12.3456) == "12.35"
+    assert fmt_per_share(-1234.5) == "-1,234.50"
     assert fmt_per_share(None) == "—"
 
 
@@ -248,7 +257,7 @@ def test_report_renders_per_share_values_unscaled(
 ) -> None:
     analysis = _seeded_analysis(conn, intrinsic_per_share=1500.0)
     md = render_analysis(analysis)
-    assert "1500.00" in md
+    assert "1,500.00" in md
     assert "1.50K" not in md
 
 def test_grid_heading_reflects_the_no_price_mode(analysis: Analysis) -> None:

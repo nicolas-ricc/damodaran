@@ -1082,3 +1082,66 @@ def test_total_debt_combined_total_concept_wins_over_tranches() -> None:
         }
     )
     assert _annual(facts)[2025]["total_debt"] == 5_000_000_000
+
+
+# --- acquisitions (#278) ---------------------------------------------------
+
+_NET = "PaymentsToAcquireBusinessesNetOfCashAcquired"
+_GROSS = "PaymentsToAcquireBusinessesGross"
+_AFFILIATES = "PaymentsToAcquireBusinessesAndInterestInAffiliates"
+
+
+def test_acquisitions_from_net_of_cash_acquired() -> None:
+    facts = _facts(
+        {
+            "Revenues": [_fact("2025-12-31", 26_885_000_000, start="2025-01-01")],
+            _NET: [_fact("2025-12-31", 1_500_000_000, start="2025-01-01")],
+        }
+    )
+    assert _annual(facts)[2025]["acquisitions"] == 1_500_000_000
+
+
+def test_acquisitions_gross_fills_a_period_net_does_not_cover() -> None:
+    facts = _facts(
+        {
+            _NET: [_fact("2025-12-31", 1_500_000_000, start="2025-01-01")],
+            _GROSS: [
+                _fact("2024-12-31", 900_000_000, start="2024-01-01"),
+                _fact("2025-12-31", 1_600_000_000, start="2025-01-01"),
+            ],
+        }
+    )
+    annual = _annual(facts)
+    assert annual[2025]["acquisitions"] == 1_500_000_000
+    assert annual[2024]["acquisitions"] == 900_000_000
+
+
+def test_acquisitions_from_interest_in_affiliates_as_last_resort() -> None:
+    facts = _facts({_AFFILIATES: [_fact("2025-12-31", 250_000_000, start="2025-01-01")]})
+    assert _annual(facts)[2025]["acquisitions"] == 250_000_000
+
+
+def test_no_acquisitions_concept_yields_no_value() -> None:
+    facts = _facts({"Revenues": [_fact("2025-12-31", 26_885_000_000, start="2025-01-01")]})
+    assert _annual(facts)[2025].get("acquisitions") is None
+
+
+def test_quarterly_rows_do_not_carry_acquisitions_from_10k_facts() -> None:
+    facts = _facts(
+        {
+            "Revenues": [
+                _fact(
+                    "2025-03-31",
+                    6_000_000_000,
+                    start="2025-01-01",
+                    form="10-Q",
+                    fp="Q1",
+                    filed="2025-05-01",
+                )
+            ],
+            _NET: [_fact("2025-12-31", 1_500_000_000, start="2025-01-01")],
+        }
+    )
+    quarterly = _quarterly(facts)
+    assert quarterly
+    assert all("acquisitions" not in row for row in quarterly.values())

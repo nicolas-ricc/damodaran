@@ -80,7 +80,7 @@
       },
       "tax_rate": {
         "value": 0.21,
-        "source": "sector_default_damodaran"
+        "source": "country_default_damodaran"
       },
       "story_type": "high-growth",
       "notes": null,
@@ -92,7 +92,8 @@
       "extra_cash": null,
       "governance_discount": null,
       "story": null,
-      "scenarios": null
+      "scenarios": null,
+      "bankruptcy_derivation": null
     },
     "financials": {
       "revenue": 207360000000.0,
@@ -418,27 +419,27 @@
       {
         "name": "story_margin",
         "color": "yellow",
-        "reason": "high-growth story but operating margin 15.0% already exceeds sector 12.0% \u2014 little room to improve"
+        "reason": "A high-growth story, but the operating margin of 15.0% already exceeds the sector's 12.0%: little room left for the margin to improve."
       },
       {
         "name": "growth_reinvestment",
         "color": "green",
-        "reason": "projected reinvestment is comfortably funded by NOPAT every year"
+        "reason": "Every year the reinvestment growth needs fits within after-tax operating profit (NOPAT)."
       },
       {
         "name": "beta_business_risk",
         "color": "unknown",
-        "reason": "not evaluated: sector beta, operating leverage or company leverage unavailable"
+        "reason": "not evaluated: the sector beta, the operating leverage or the company's debt share is missing."
       },
       {
         "name": "terminal_value_share",
         "color": "green",
-        "reason": "terminal value is 75% of enterprise value (<= 80%)"
+        "reason": "75% of enterprise value comes from the terminal value, within the 80% ceiling."
       },
       {
         "name": "country_exposure",
         "color": "unknown",
-        "reason": "not evaluated: needs revenue by geography and a revenue-weighted ERP; no ingest path supplies either"
+        "reason": "not evaluated: it needs revenue by geography and a revenue-weighted equity risk premium (ERP), and no data source supplies either."
       }
     ],
     "sanity_check": {

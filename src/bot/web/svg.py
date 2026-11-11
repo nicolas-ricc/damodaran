@@ -242,13 +242,13 @@ def _unit_once(name: str, labels: Sequence[str]) -> tuple[str, tuple[str, ...]]:
 
 def scenario_grid_table(grid: ScenarioGrid) -> Markup:
     """The scenario grid as a table: one axis down, one across, a verdict per cell."""
-    axis_a, row_labels = _unit_once(grid.axis_a, grid.row_labels)
-    axis_b, col_labels = _unit_once(grid.axis_b, grid.col_labels)
+    axis_a, row_labels = _unit_once(grid.axis_a.label, grid.row_labels)
+    axis_b, col_labels = _unit_once(grid.axis_b.label, grid.col_labels)
     head = [
         '<tr><td class="corner"></td>'
         f'<th scope="colgroup" colspan="{len(col_labels)}" class="axis">'
-        f"{escape(axis_b)} →</th></tr>",
-        f'<tr><th scope="col" class="axis">{escape(axis_a)} ↓</th>'
+        f"{term_html(axis_b, grid.axis_b.description)} →</th></tr>",
+        f'<tr><th scope="col" class="axis">{term_html(axis_a, grid.axis_a.description)} ↓</th>'
         + "".join(f'<th scope="col">{escape(label)}</th>' for label in col_labels)
         + "</tr>",
     ]
@@ -269,6 +269,13 @@ def scenario_grid_table(grid: ScenarioGrid) -> Markup:
         f'<table class="table table-xs scenario-grid" aria-label="Scenarios {grid.matching}/{grid.total}">'
         f"<thead>{''.join(head)}</thead><tbody>{''.join(body)}</tbody></table></div>"
     )
+
+
+def term_html(label: str, description: str) -> str:
+    """A label as HTML, wrapped in ``<abbr>`` with its description when it has one."""
+    if not description:
+        return str(escape(label))
+    return f'<abbr title="{escape(description)}">{escape(label)}</abbr>'
 
 
 def tornado_table(bars: Sequence[TornadoBar], *, price: float | None) -> Markup:
@@ -303,7 +310,7 @@ def tornado_table(bars: Sequence[TornadoBar], *, price: float | None) -> Markup:
             )
         shock = f' <span class="shock">{escape(bar.shock)}</span>' if bar.shock else ""
         rows.append(
-            f'<tr><th scope="row">{escape(bar.label)}{shock}</th>'
+            f'<tr><th scope="row">{term_html(bar.label, bar.description)}{shock}</th>'
             f'<td class="num low">{_num(lo_val)}</td>'
             f'<td class="track"><svg viewBox="0 0 100 12" preserveAspectRatio="none" '
             f'aria-hidden="true" focusable="false">{track}</svg></td>'

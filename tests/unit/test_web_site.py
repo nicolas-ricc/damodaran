@@ -523,7 +523,7 @@ def test_detail_flags_are_badges(reports: Path, tmp_path: Path) -> None:
     for item in items:
         assert re.match(
             r'<span class="badge badge-sm badge-(success|warning|error|ghost)">[^<]+</span> '
-            r'<span class="id">[^<]*</span> <span class="reason">',
+            r'<span class="id">(?:<abbr title="[^"]*">)?[^<]*(?:</abbr>)?</span> <span class="reason">',
             item,
         ), item
 
@@ -615,3 +615,15 @@ def test_scenarios_take_the_wide_column(tmp_path: Path) -> None:
     grid = re.search(r'<div class="pair-grid([^"]*)">\s*<section class="scenarios">', html)
     assert grid, "scenarios open their pair grid"
     assert "wide-first" in grid.group(1)
+
+
+def test_detail_speaks_in_words_with_tooltips(reports: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    build(reports, out, "/")
+    detail = (out / "f" / "AAA.html").read_text()
+    assert "sales_to_capital" not in detail
+    assert "cost_of_equity" not in detail
+    assert "terminal_value_share" not in detail
+    assert "Sales-to-capital</abbr>" in detail
+    assert "Terminal value share</abbr>" in detail
+    assert "sector default (Damodaran)</abbr>" in detail

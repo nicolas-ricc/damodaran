@@ -1,6 +1,6 @@
 """Integration tests for the high-level FMP fundamentals importer (M2.3).
 
-``import_company`` (through :class:`FmpProvider`) mirrors ``import_company_from_sec``:
+``import_company`` (through :class:`FmpProvider`) honours the provider-port contract:
 it fetches the profile + income / balance / cash-flow statements (annual and
 quarterly), parses them with the pure M2.2 parser, and upserts a single ticker
 atomically.
@@ -8,7 +8,8 @@ atomically.
 Network is replayed from VCR cassettes in ``tests/fixtures/cassettes/fmp/``. The
 cassettes are SYNTHETIC (hand-authored, fabricated-but-realistic FMP JSON) so the
 suite runs deterministically offline with no live calls. Re-record them against the
-live API with a real BOT_FMP_API_KEY via ``uv run pytest -m integration --vcr-record=all``.
+live API by exporting a real BOT_FMP_API_KEY and running
+``uv run pytest -m integration --vcr-record=all``.
 """
 
 from __future__ import annotations
@@ -19,16 +20,14 @@ from bot.ingest.fmp import FmpProvider
 from bot.ingest.universe import import_company
 from bot.storage.db import apply_schema, connect
 
-API_KEY = "test-fmp-key"
-
 
 @pytest.mark.integration
 @pytest.mark.vcr
-def test_import_company_from_fmp_us_populates_db() -> None:
+def test_import_company_from_fmp_us_populates_db(fmp_api_key: str) -> None:
     conn = connect(":memory:")
     apply_schema(conn)
 
-    with FmpProvider(api_key=API_KEY) as provider:
+    with FmpProvider(api_key=fmp_api_key) as provider:
         result = import_company(conn, ticker="AAPL", provider=provider)
 
     assert result.is_success()
@@ -80,11 +79,11 @@ def test_import_company_from_fmp_us_populates_db() -> None:
 
 @pytest.mark.integration
 @pytest.mark.vcr
-def test_import_company_from_fmp_non_us_has_local_currency() -> None:
+def test_import_company_from_fmp_non_us_has_local_currency(fmp_api_key: str) -> None:
     conn = connect(":memory:")
     apply_schema(conn)
 
-    with FmpProvider(api_key=API_KEY) as provider:
+    with FmpProvider(api_key=fmp_api_key) as provider:
         result = import_company(conn, ticker="NESN.SW", provider=provider)
 
     assert result.is_success()

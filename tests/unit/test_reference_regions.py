@@ -61,3 +61,11 @@ def test_numeric_region_string_falls_back_rather_than_matching() -> None:
     # Defence in depth: even if a corrupt PRS score reached the column, it must
     # not resolve to a dataset region.
     assert dataset_region("Algeria", "67.0") == "US"
+
+
+def test_iso_codes_resolve_their_own_dataset() -> None:
+    # #271: companies.country holds ISO alpha-2 codes.
+    assert dataset_region("CN", None) == "China"
+    assert dataset_region("IN", "Asia") == "India"
+    assert dataset_region("JP", "Asia") == "Japan"
+    assert dataset_region("US", "North America") == "US"

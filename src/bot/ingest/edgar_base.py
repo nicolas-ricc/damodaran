@@ -24,6 +24,7 @@ from bot.ingest.provider import (
 )
 from bot.ingest.sec_edgar import (
     SecEdgarClient,
+    governance_filings_from_submissions,
     latest_filing_date_from_submissions,
     parse_company_facts,
     parse_submissions_info,
@@ -118,6 +119,12 @@ class EdgarPricedProvider:
         if cik is None:
             raise LookupError(f"{sym}: not in EDGAR's ticker table")
         parsed = parse_company_facts(sym, self._edgar().fetch_company_facts(cik))
+        submissions = self._submissions(sym)
+        if submissions is not None:
+            parsed = dataclasses.replace(
+                parsed,
+                filings=parsed.filings + governance_filings_from_submissions(sym, submissions),
+            )
         restamped = self._restamp(parsed)
         return FundamentalsBundle(
             info=self.lookup_company(sym),
@@ -129,11 +136,11 @@ class EdgarPricedProvider:
     def _restamp(self, parsed: ParsedCompanyData) -> ParsedCompanyData:
         """Re-stamp ``source`` as this provider's name (not the raw "sec_edgar").
 
-        ``parse_company_facts`` always stamps "sec_edgar" so the ``bot show
-        --fetch`` path keeps its own provenance. But the incremental-skip
-        watermark (``universe.latest_local_filing_date``) is queried under
-        ``provider.name``; leaving the raw stamp means the watermark query never
-        finds a row and every fundamentals refresh re-imports the full universe.
+        ``parse_company_facts`` stamps the raw "sec_edgar" source, but the
+        incremental-skip watermark (``universe.latest_local_filing_date``) is
+        queried under ``provider.name``; leaving the raw stamp means the watermark
+        query never finds a row and every fundamentals refresh re-imports the full
+        universe.
         """
         return ParsedCompanyData(
             company={**parsed.company, "source": self.name},

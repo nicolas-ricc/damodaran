@@ -12,6 +12,9 @@ vars == << phase, batch, exitCode, storyTypes, overrideStory, currency, tgSource
 (* The narrative flags the analysis computes after the DCF, one name each. *)
 FlagNames == {"story margin", "reinvestment", "beta", "terminal value share", "country"}
 
+(* The narrative flags every story type gets: all but the story margin, which only a high-growth story gets. *)
+BaseFlagNames == FlagNames \ {"story margin"}
+
 (* The narrative flags the hypergrowth story type adds after the five, one name each. *)
 HypergrowthFlagNames == {"hypergrowth story", "revenue scale", "terminal ROIC"}
 
@@ -232,7 +235,7 @@ NoManualStoryType ==
   /\ storyFile = "absent"
   /\ ~signal
   /\ overrideStory' = "absent"
-  /\ storyType' = "other"
+  /\ storyType' \in {"high-growth", "other"}
   /\ UNCHANGED << batch, exitCode, storyTypes, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal >>
 
 (* src/bot/valuator/assumptions.py: _resolve_story_type (manual wins); resolve_assumptions, _STORY_TYPE_VALUES *)
@@ -242,7 +245,7 @@ TheOverrideSetsTheStoryType ==
   /\ storyFile = "absent"
   /\ overrideStory' = "given"
   /\ storyTypes' = {"override"}
-  /\ storyType' = "other"
+  /\ storyType' \in {"high-growth", "other"}
   /\ UNCHANGED << batch, exitCode, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal >>
 
 (* src/bot/valuator/assumptions.py: _resolve_story_type returns high-growth for a hypergrowth label without a story section *)
@@ -252,7 +255,7 @@ HypergrowthWithoutAStoryFallsBack ==
   /\ signal
   /\ storyFile = "absent"
   /\ overrideStory' = "absent"
-  /\ storyType' = "other"
+  /\ storyType' = "high-growth"
   /\ UNCHANGED << batch, exitCode, storyTypes, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal >>
 
 (* src/bot/valuator/assumptions.py: _resolve_story_type, load_override (story_type hypergrowth with a story section) *)
@@ -527,6 +530,7 @@ StoryMarginGreen ==
   /\ phase = "scenarios_done"
   /\ phase' = "story_margin_checked"
   /\ valued
+  /\ storyType = "high-growth"
   /\ flags' = flags \cup {"story margin"}
   /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports, storyFile, signal, storyType >>
 
@@ -535,6 +539,7 @@ StoryMarginYellow ==
   /\ phase = "scenarios_done"
   /\ phase' = "story_margin_checked"
   /\ valued
+  /\ storyType = "high-growth"
   /\ flags' = flags \cup {"story margin"}
   /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports, storyFile, signal, storyType >>
 
@@ -543,8 +548,17 @@ StoryMarginUnknown ==
   /\ phase = "scenarios_done"
   /\ phase' = "story_margin_checked"
   /\ valued
+  /\ storyType = "high-growth"
   /\ flags' = flags \cup {"story margin"}
   /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, margin, verdict, reports, storyFile, signal, storyType >>
+
+(* src/bot/valuator/narrative_flags.py: narrative_flags skips story_margin_flag *)
+StoryMarginSkipped ==
+  /\ phase = "scenarios_done"
+  /\ phase' = "story_margin_checked"
+  /\ valued
+  /\ storyType # "high-growth"
+  /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
 (* src/bot/valuator/narrative_flags.py: growth_reinvestment_flag *)
 ReinvestmentRed ==
@@ -703,7 +717,7 @@ TheMultiplesAreCompared ==
   /\ phase' = "sanity_checked"
   /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, storyFile, signal, storyType >>
 
-(* src/bot/cli.py: _analyze_one, three write_text calls after render_* *)
+(* src/bot/cli.py: _analyze_one renders the three reports, then write_report_set writes them all-or-none *)
 TheReportsAreWritten ==
   /\ phase = "sanity_checked"
   /\ phase' = "reported"
@@ -786,6 +800,7 @@ Next ==
   \/ StoryMarginGreen
   \/ StoryMarginYellow
   \/ StoryMarginUnknown
+  \/ StoryMarginSkipped
   \/ ReinvestmentRed
   \/ ReinvestmentYellow
   \/ ReinvestmentGreen
@@ -854,9 +869,9 @@ VerdictFromTheMargin ==
 \* The narrative flags are computed after the DCF, and the verdict reads the margin of safety alone.
 FlagsAfterTheDcfNotInTheVerdict ==
   (flags # {} => valued)
-  /\ (verdict # "none" => (flags \in {FlagNames, FlagNames \cup {"hypergrowth story"}, FlagNames \cup HypergrowthFlagNames} /\ verdict = ThresholdVerdict(margin)))
+  /\ (verdict # "none" => (flags \in {FlagNames, FlagNames \cup {"hypergrowth story"}, FlagNames \cup HypergrowthFlagNames, BaseFlagNames, BaseFlagNames \cup {"hypergrowth story"}, BaseFlagNames \cup HypergrowthFlagNames} /\ verdict = ThresholdVerdict(margin)))
 
-(* Cites: cli.py _analyze_one: three write_text calls in a row, after a successful run_analysis. *)
+(* Cites: cli.py _analyze_one: renders the three reports after a successful run_analysis, then write_report_set writes them all-or-none. *)
 \* The markdown, HTML and JSON reports are written together, and only for a valued company.
 ReportsTogetherOnlyWhenValued ==
   reports # {} => (reports = {"markdown", "HTML", "JSON"} /\ valued /\ verdict # "none")

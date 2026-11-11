@@ -74,6 +74,11 @@ trap_detection:
     - name: share_count_not_diluting
       params:
         max_annual_growth: 0.05
+        ma_window: 3               # M&A window: last 3 fiscal years
+        ma_materiality: 0.10       # acquisitions ≥ 10% of total assets lift the cap
+    - name: auditor_changes_and_late_filings
+      params:
+        window_years: 2            # 8-K item 4.01 or NT 10-K/10-Q in the last 2 years
 
 # --- Ranking score weights (spec §6.5) ------------------------------------- #
 # Weight off growth and onto cheapness + margin of safety: we are buying the

@@ -67,6 +67,8 @@ una vez. En concreto:
 tocaron `src/` desde entonces, en la consola y con un cartel arriba de la propia
 página. Se filtra por `src/` a propósito: un commit de documentación no invalida
 una auditoría del código, y contarlo solo enseñaría a ignorar el aviso.
+El conteo usa el `src/` de la raíz del repositorio (pathspec `:/src`), desde
+donde sea que corras el build.
 
 El aviso no rompe el build. Una foto puede ser legítimamente más vieja que HEAD;
 lo que no puede es fingir que no lo es.

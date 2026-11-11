@@ -1,7 +1,9 @@
 """Application settings, loaded from environment / .env."""
 
+from datetime import date
 from pathlib import Path
 from typing import Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -49,31 +51,33 @@ class Settings(BaseSettings):
             "of Stooq's HTTP endpoint, which is behind an anti-bot wall (ADR 0007)."
         ),
     )
-    ibkr_host: str = Field(
-        default="127.0.0.1",
-        description="Host of the running TWS / IB Gateway socket (M5).",
-    )
-    ibkr_port: int = Field(
-        default=7496,
-        description=(
-            "TWS API socket port. 7496 = live TWS (default), 7497 = paper TWS, "
-            "4001/4002 = IB Gateway live/paper."
-        ),
-    )
-    ibkr_client_id: int = Field(
-        default=1,
-        description="Client id for the TWS API connection. Each concurrent client needs a distinct id.",
-    )
     ibkr_flex_token: str = Field(
         default="",
         description=(
-            "IBKR Flex Web Service token. With BOT_IBKR_FLEX_QUERY_ID set, `bot portfolio` "
-            "imports dividends and splits from the Flex Query before computing events."
+            "IBKR Flex Web Service token. Required by `bot portfolio`, which reads positions, "
+            "cash, trades and corporate actions from one Activity Flex Query."
         ),
     )
     ibkr_flex_query_id: str = Field(
         default="",
-        description="Id of the Activity Flex Query holding Corporate Actions and Cash Transactions.",
+        description=(
+            "Id of the Activity Flex Query. Required by `bot portfolio`; sections: Open Positions, "
+            "Cash Report, Trades, Corporate Actions, Cash Transactions."
+        ),
+    )
+    ibkr_flex_tz: str = Field(
+        default="America/New_York",
+        description=(
+            "IANA time zone of the Flex Query's trade dateTime values (the account's "
+            "reporting time zone in Account Management)."
+        ),
+    )
+    ibkr_flex_token_expires: date | None = Field(
+        default=None,
+        description=(
+            "Expiry date (ISO, YYYY-MM-DD) of the Flex token. `bot doctor` warns from 14 days "
+            "before it and fails once it has passed. Unset or blank: no check."
+        ),
     )
     reports_dir: Path = Field(default=Path("./reports"))
     presets_dir: Path = Field(
@@ -130,6 +134,16 @@ class Settings(BaseSettings):
     )
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(default="INFO")
 
+    @field_validator("ibkr_flex_tz")
+    @classmethod
+    def _known_flex_tz(cls, value: str) -> str:
+        """Reject a time zone name the tz database does not know."""
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError, OSError):
+            raise ValueError(f"unknown time zone {value!r} (use an IANA name such as America/New_York)") from None
+        return value
+
     @field_validator("notifier", mode="before")
     @classmethod
     def _blank_notifier_is_none(cls, value: object) -> object:
@@ -138,13 +152,14 @@ class Settings(BaseSettings):
             return "none"
         return value
 
-    @field_validator("industry_mapping_path", mode="before")
+    @field_validator("industry_mapping_path", "ibkr_flex_token_expires", mode="before")
     @classmethod
-    def _blank_path_is_unset(cls, value: object) -> object:
-        """Treat ``BOT_INDUSTRY_MAPPING_PATH=`` as "not configured".
+    def _blank_is_unset(cls, value: object) -> object:
+        """Treat a blank or whitespace env var as "not configured".
 
-        Without this, an empty or whitespace env var coerces to ``Path(".")``,
-        which exists, so path resolution hands the CSV loader a *directory*.
+        Without this, ``BOT_INDUSTRY_MAPPING_PATH=`` coerces to ``Path(".")``,
+        which exists, so path resolution hands the CSV loader a *directory*;
+        ``BOT_IBKR_FLEX_TOKEN_EXPIRES=`` fails date parsing.
         """
         if isinstance(value, str) and not value.strip():
             return None

@@ -41,16 +41,20 @@ roic_above_sector_wacc: "roic_above_sector_wacc\nreturn on invested capital (ROI
 sloan_accruals_below: "sloan_accruals_below\nSloan ratio = (net income − operating cash flow)\n÷ total assets < 0.1\nmissing figure or total assets ≤ 0: fails" {  # @rule sloan_accruals_below @param sloan_accruals_below.maximum
   class: decision
 }
-share_count_not_diluting: "share_count_not_diluting\naverage diluted share count growth ≤ 5% a year\nfewer than two counts, or a base ≤ 0\n(growth undefined): fails" {  # @rule share_count_not_diluting @param share_count_not_diluting.max_annual_growth @symbol bot.screener.rules._avg_growth_rate
+share_count_not_diluting: "share_count_not_diluting\naverage diluted share count growth ≤ 5% a year\nunless cash paid for acquisitions over the last 3 reported fiscal years\n≥ 10% of the latest total assets\nfewer than two counts, or a base ≤ 0\n(growth undefined): fails" {  # @rule share_count_not_diluting @param share_count_not_diluting.max_annual_growth @param share_count_not_diluting.ma_window @param share_count_not_diluting.ma_materiality @symbol bot.screener.rules._avg_growth_rate
+  class: decision
+}
+
+auditor_changes_and_late_filings: "auditor_changes_and_late_filings\nno auditor change (8-K item 4.01) and\nno notification of late filing (NT 10-K, NT 10-Q)\nin the last 2 years of Securities and Exchange Commission (SEC) filings\noutside the US dataset region: skipped\na skipped detector counts as failed" {  # @rule auditor_changes_and_late_filings @param auditor_changes_and_late_filings.window_years @const bot.ingest.sec_edgar.AUDITOR_CHANGE_ITEM @table filings_log
   class: decision
 }
 
 out: "Comes out:\na survivor with its value, quality and growth inputs, or a rejected company with its failed rules" {class: output; link: "./screen-ranking.svg"}
 
 # Edges
-value_passed -> traps_passed: "the five trap detectors pass"
-value_failed -> traps_passed: "the five trap detectors pass"
-value_skipped -> traps_passed: "the five trap detectors pass"
+value_passed -> traps_passed: "the six trap detectors pass"
+value_failed -> traps_passed: "the six trap detectors pass"
+value_skipped -> traps_passed: "the six trap detectors pass"
 value_passed -> traps_failed: "a trap detector fails"
 value_failed -> traps_failed: "a trap detector fails"
 value_skipped -> traps_failed: "a trap detector fails"
@@ -67,6 +71,8 @@ sloan_accruals_below -> traps_passed: "[pass]"
 sloan_accruals_below -> traps_failed: "[fail]"
 share_count_not_diluting -> traps_passed: "[pass]"
 share_count_not_diluting -> traps_failed: "[fail]"
+auditor_changes_and_late_filings -> traps_passed: "[pass]"
+auditor_changes_and_late_filings -> traps_failed: "[fail or skipped]\na skipped detector counts as failed"
 traps_passed -> survivor: "it survives [all three layers passed]"
 rejected_rules -> rejected_saved: "the run saves its rejected row"
 survivor -> out: "on to the ranking [always: only survivors are ranked]"

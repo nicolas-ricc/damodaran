@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import date
 from itertools import pairwise
 
 from bot.screener.types import CompanyData, IndustryBenchmarks
@@ -504,7 +505,8 @@ class FCFYieldAbove(Rule):
 # the gate (the screener will not vouch for a company it cannot measure), except
 # where noted: ROICAboveSectorWACC *skips* when the sector WACC median is absent
 # (a data gap in the benchmark, not the company, must not eliminate on its own),
-# and the best-effort SEC flags pass when the datum is simply unknown.
+# and AuditorChangesAndLateFilings *skips* without an SEC filing history (outside
+# the US). The engine treats a skipped trap detector as eliminatory (ADR 0006).
 # --------------------------------------------------------------------------- #
 
 
@@ -681,15 +683,25 @@ class ShareCountNotDiluting(Rule):
     (default ``0.05`` = 5% per year, on average) it is a trap signal. Fewer than
     two points, or a non-positive base, fails the gate.
 
-    The cap is unconditional. Spec §6.4 qualifies it with "sin M&A justificado",
-    but no data source distinguishes stock-funded M&A from ordinary issuance, so
-    the qualification is not implemented rather than faked.
+    Spec §6.4's "sin M&A justificado" qualification is implemented through cash
+    paid for acquisitions over the last ``ma_window`` reported fiscal years,
+    relative to the latest total assets: a ratio at or above ``ma_materiality``
+    (inclusive floor, default ``0.10``) lifts the cap.
     """
 
     name = "share_count_not_diluting"
 
-    def __init__(self, max_annual_growth: float = 0.05) -> None:
+    def __init__(
+        self,
+        max_annual_growth: float = 0.05,
+        ma_window: int = 3,
+        ma_materiality: float = 0.10,
+    ) -> None:
+        if ma_window < 1:
+            raise ValueError(f"ma_window must be >= 1, got {ma_window}")
         self.max_annual_growth = max_annual_growth
+        self.ma_window = ma_window
+        self.ma_materiality = ma_materiality
 
     def evaluate(
         self, company: CompanyData, benchmarks: IndustryBenchmarks
@@ -716,10 +728,112 @@ class ShareCountNotDiluting(Rule):
                     f"<= maximum {self.max_annual_growth:.3f}"
                 ),
             )
+        prefix = (
+            f"avg share-count growth {avg_growth:.3f} > maximum "
+            f"{self.max_annual_growth:.3f}"
+        )
+        recent = company.acquisitions_history[-self.ma_window :]
+        if not recent:
+            return RuleResult(
+                passed=False, reason=f"{prefix}, not justified: no acquisitions reported"
+            )
+        total_assets = company.total_assets
+        if total_assets is None or not total_assets > 0:
+            return RuleResult(
+                passed=False,
+                reason=f"{prefix}, not justified: total assets unavailable",
+            )
+        ratio = sum(recent) / total_assets
+        span = f"the last {len(recent)} fiscal year{'s' if len(recent) > 1 else ''}"
+        if ratio >= self.ma_materiality:
+            return RuleResult(
+                passed=True,
+                reason=(
+                    f"{prefix}, justified by acquisitions of {ratio:.3f}x total "
+                    f"assets over {span}"
+                ),
+            )
         return RuleResult(
             passed=False,
             reason=(
-                f"avg share-count growth {avg_growth:.3f} > maximum "
-                f"{self.max_annual_growth:.3f}"
+                f"{prefix}, not justified: acquisitions of {ratio:.3f}x total "
+                f"assets over {span} < {self.ma_materiality:.3f}"
+            ),
+        )
+
+
+#: Days per year for the filing-recency window (calendar years, no leap days).
+DAYS_PER_YEAR = 365
+
+
+@register
+class AuditorChangesAndLateFilings(Rule):
+    """Trap detector: no recent auditor change or late-filing notice (spec §6.4).
+
+    Fails when the SEC filings log shows an auditor change (8-K item 4.01) or a
+    late-filing notice (NT 10-K / NT 10-Q) within the last ``window_years``
+    years of ``company.as_of``. The bound is inclusive: a filing exactly
+    ``DAYS_PER_YEAR * window_years`` days old is recent. A filing dated after
+    ``as_of`` also counts as recent, and with no ``as_of`` every known filing
+    counts.
+
+    A data gap is a skip, never a pass: when both date fields are ``None`` the
+    company has no SEC filing history (non-US) and the rule returns a skipped
+    result. That skip is eliminatory (ADR 0006), so the company is rejected. A
+    US company imported through FMP sees empty tuples and passes vacuously
+    (story #61 decision 5). One ``None`` field is treated as empty.
+    """
+
+    name = "auditor_changes_and_late_filings"
+
+    def __init__(self, window_years: int = 2) -> None:
+        self.window_years = window_years
+
+    def _newest_recent(
+        self, company: CompanyData, dates: tuple[date, ...] | None
+    ) -> date | None:
+        limit = DAYS_PER_YEAR * self.window_years
+        recent = [
+            d
+            for d in dates or ()
+            if company.as_of is None or (company.as_of - d).days <= limit
+        ]
+        return max(recent) if recent else None
+
+    def evaluate(
+        self, company: CompanyData, benchmarks: IndustryBenchmarks
+    ) -> RuleResult:
+        if company.auditor_change_dates is None and company.late_filing_dates is None:
+            return RuleResult(
+                passed=False,
+                skipped=True,
+                reason=(
+                    "no SEC filing history: auditor changes and late filings "
+                    "are unknown outside the US"
+                ),
+            )
+        auditor = self._newest_recent(company, company.auditor_change_dates)
+        if auditor is not None:
+            return RuleResult(
+                passed=False,
+                reason=(
+                    f"auditor change reported on {auditor:%Y-%m-%d} (8-K item 4.01), "
+                    f"within the last {self.window_years} years"
+                ),
+            )
+        late = self._newest_recent(company, company.late_filing_dates)
+        if late is not None:
+            return RuleResult(
+                passed=False,
+                reason=(
+                    f"late-filing notice on {late:%Y-%m-%d} (NT 10-K/10-Q), "
+                    f"within the last {self.window_years} years"
+                ),
+            )
+        return RuleResult(
+            passed=True,
+            reason=(
+                "no auditor change or late-filing notice in the last "
+                f"{self.window_years} years of SEC filings"
             ),
         )

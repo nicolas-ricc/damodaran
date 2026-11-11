@@ -263,3 +263,72 @@ def test_daily_prices_missing_csv_names_the_recipe(tmp_path: Path) -> None:
 def test_restamp_keeps_shares_rescaled() -> None:
     parsed = ParsedCompanyData(company={"ticker": "MCD"}, shares_rescaled=3)
     assert _provider()._restamp(parsed).shares_rescaled == 3
+
+
+# ---------------------------------------------------------------------------
+# #275 — the governance filings of the submissions index
+# ---------------------------------------------------------------------------
+
+_GOVERNANCE = {("8-K", "2026-05-20", "4.01,9.01"), ("NT 10-Q", "2026-04-30", None)}
+_GOVERNANCE_QUERY = (
+    "SELECT filing_type, filing_date, items FROM filings_log "
+    "WHERE ticker = 'AAPL' AND (filing_type LIKE 'NT %' OR items IS NOT NULL)"
+)
+
+
+def test_fundamentals_includes_the_governance_filings() -> None:
+    bundle = _provider().fundamentals("AAPL")
+    keys = {(r["filing_type"], r["filing_date"], r.get("items")) for r in bundle.filings}
+    assert keys >= _GOVERNANCE
+    governance = [r for r in bundle.filings if r["filing_type"] in {"8-K", "NT 10-Q"}]
+    assert {r["source"] for r in governance} == {"edgar_stooq"}
+    assert (bundle.filings[0]["filing_type"], bundle.filings[0]["filing_date"]) == (
+        "10-K",
+        "2025-11-01",
+    )
+
+
+def test_import_company_stores_the_governance_filings() -> None:
+    from bot.ingest.universe import import_company
+    from bot.storage.db import apply_schema, connect
+
+    conn = connect(":memory:")
+    apply_schema(conn)
+    import_company(conn, ticker="AAPL", provider=_provider())
+    assert set(conn.execute(_GOVERNANCE_QUERY).fetchall()) == {
+        ("8-K", date(2026, 5, 20), "4.01,9.01"),
+        ("NT 10-Q", date(2026, 4, 30), None),
+    }
+
+
+def test_refresh_skips_a_ticker_whose_newest_filing_is_a_stored_nt_notice() -> None:
+    from bot.ingest.universe import _should_skip, import_company, latest_local_filing_date
+    from bot.storage.db import apply_schema, connect
+
+    submissions: dict[str, Any] = json.loads(
+        (FIXTURES / "edgar" / "aapl_submissions.json").read_text("utf-8")
+    )
+    submissions["filings"]["recent"] = {
+        "form": ["NT 10-K", "10-K"],
+        "filingDate": ["2026-09-15", "2025-11-01"],
+        "accessionNumber": ["0000320193-26-000090", "0000320193-25-000106"],
+        "items": ["", ""],
+    }
+
+    def edgar(request: httpx.Request) -> httpx.Response:
+        if "submissions/CIK0000320193" in str(request.url):
+            return httpx.Response(200, json=submissions)
+        return _edgar_handler(request)
+
+    provider = EdgarStooqProvider(
+        sec_user_agent="Test test@example.com",
+        sec_transport=httpx.MockTransport(edgar),
+        stooq_transport=httpx.MockTransport(_stooq_handler),
+    )
+    conn = connect(":memory:")
+    apply_schema(conn)
+    import_company(conn, ticker="AAPL", provider=provider)
+
+    local = latest_local_filing_date(conn, "AAPL", "edgar_stooq")
+    assert local == date(2026, 9, 15)
+    assert _should_skip("AAPL", local, provider) is True

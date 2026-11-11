@@ -14,6 +14,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import quote, quote_plus
+from zoneinfo import ZoneInfo
 
 import httpx
 import pytest
@@ -36,6 +37,7 @@ from bot.ingest.ibkr_flex_capture import (
 
 FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "ibkr_flex" / "statement_sample.xml"
 MONEY_KEYS = ("amount", "proceeds", "quantity", "value")
+NY = ZoneInfo("America/New_York")
 
 
 @pytest.fixture
@@ -158,6 +160,9 @@ SAMPLE_SUMMARY = FlexSummary(
         "Payment In Lieu Of Dividends": 1,
         "Withholding Tax": 1,
     },
+    positions=3,
+    cash_rows=3,
+    trades=2,
     parsed=5,
     parsed_by_action_type={"dividend": 2, "split": 2, "tc": 1},
     skipped={"CashTransaction/Dividends": 1, "CashTransaction/Withholding Tax": 1},
@@ -165,60 +170,94 @@ SAMPLE_SUMMARY = FlexSummary(
 
 
 def test_summary_of_sample(sample: str) -> None:
-    assert summarize_statement(sample) == SAMPLE_SUMMARY
+    assert summarize_statement(sample, tz=NY) == SAMPLE_SUMMARY
 
 
 def test_summary_survives_redaction(redacted: str) -> None:
-    assert summarize_statement(redacted) == SAMPLE_SUMMARY
+    assert summarize_statement(redacted, tz=NY) == SAMPLE_SUMMARY
+
+
+def test_summary_counts_new_sections(sample: str) -> None:
+    summary = summarize_statement(sample, tz=NY)
+    assert (summary.positions, summary.cash_rows, summary.trades) == (3, 3, 2)
+    assert '"positions": 3' in summary.to_json()
+
+
+def test_redaction_fakes_position_money(sample: str, redacted: str) -> None:
+    tags = {"OpenPosition", "CashReportCurrency", "Trade"}
+    originals = [e for e in ET.fromstring(sample).iter() if e.tag in tags]
+    fakes = [e for e in ET.fromstring(redacted).iter() if e.tag in tags]
+    assert len(originals) == len(fakes)
+    checked = changed = 0
+    for old, el in zip(originals, fakes, strict=True):
+        for key in ("position", "costBasisPrice", "markPrice", "endingCash", "tradePrice"):
+            if key not in old.attrib:
+                continue
+            o, n = old.attrib[key], el.attrib[key]
+            assert n.startswith("-") == o.startswith("-"), (key, o, n)
+            assert _decimals(n) == _decimals(o), (key, o, n)
+            changed += n != o
+            checked += 1
+    assert checked >= 15
+    assert changed >= 5  # 171.10 -> 100.00, 12345.67 -> 10000.00, ...
+
+
+def test_capture_rejects_query_without_open_positions(sample: str, tmp_path: Path) -> None:
+    stripped = re.sub(r"<OpenPositions>.*?</OpenPositions>", "", sample, flags=re.S)
+    assert "OpenPositions" not in stripped
+    with pytest.raises(FlexError):
+        ibkr_flex_capture.capture(_flex_settings(), root=tmp_path, transport=_transport(stripped))
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_summary_dict_keys_sorted(sample: str) -> None:
-    for value in dataclasses.asdict(summarize_statement(sample)).values():
+    for value in dataclasses.asdict(summarize_statement(sample, tz=NY)).values():
         if isinstance(value, dict):
             assert list(value) == sorted(value)
 
 
 def test_to_json_round_trips(sample: str) -> None:
-    summary = summarize_statement(sample)
+    summary = summarize_statement(sample, tz=NY)
     text = summary.to_json()
     assert json.loads(text) == dataclasses.asdict(summary)
     assert text.endswith("\n")
 
 
-def test_summary_dates_none_when_absent() -> None:
-    xml = (
+_SECTIONS = (
+    '<OpenPositions><OpenPosition accountId="U1" conid="1" symbol="X" position="1" '
+    'costBasisPrice="1" markPrice="1" reportDate="20260930" levelOfDetail="SUMMARY" />'
+    "</OpenPositions><CashReport /><Trades />"
+)
+
+
+def _minimal(attrs: str = "", extra: str = "") -> str:
+    return (
         "<FlexQueryResponse><FlexStatements>"
-        '<FlexStatement accountId="U1" />'
+        f'<FlexStatement accountId="U1" {attrs}>{_SECTIONS}{extra}</FlexStatement>'
         "</FlexStatements></FlexQueryResponse>"
     )
-    summary = summarize_statement(xml)
+
+
+def test_summary_dates_none_when_absent() -> None:
+    summary = summarize_statement(_minimal(), tz=NY)
     assert (summary.from_date, summary.to_date) == (None, None)
     assert (summary.accounts, summary.rows) == (1, 0)
 
 
 def test_summary_dates_tolerate_padding() -> None:
-    xml = (
-        "<FlexQueryResponse><FlexStatements>"
-        '<FlexStatement accountId="U1" fromDate=" 20260901" toDate="20260930 " />'
-        "</FlexStatements></FlexQueryResponse>"
-    )
-    summary = summarize_statement(xml)
+    xml = _minimal('fromDate=" 20260901" toDate="20260930 "')
+    summary = summarize_statement(xml, tz=NY)
     assert (summary.from_date, summary.to_date) == ("2026-09-01", "2026-09-30")
 
 
 def test_summary_missing_type_counts_under_empty() -> None:
-    xml = (
-        "<FlexQueryResponse><FlexStatements>"
-        '<FlexStatement accountId="U1" fromDate="20260901" toDate="20260930">'
-        '<CorporateActions><CorporateAction symbol="X" actionID="9" /></CorporateActions>'
-        "</FlexStatement></FlexStatements></FlexQueryResponse>"
-    )
-    assert summarize_statement(xml).corporate_action_types == {"": 1}
+    xml = _minimal(extra='<CorporateActions><CorporateAction symbol="X" actionID="9" /></CorporateActions>')
+    assert summarize_statement(xml, tz=NY).corporate_action_types == {"": 1}
 
 
 def test_summarize_rejects_other_root() -> None:
     with pytest.raises(ValueError, match="expected a FlexQueryResponse, got Foo"):
-        summarize_statement("<Foo/>")
+        summarize_statement("<Foo/>", tz=NY)
 
 
 TOKEN = "1234567890/abc+def=4567"  # not purely alphanumeric: httpx percent-encodes it in URLs
@@ -284,9 +323,18 @@ def test_capture_writes_exactly_the_three_paths(captured: FlexSummary, tmp_path:
         ibkr_flex_capture.REDACTED_XML_PATH,
         ibkr_flex_capture.SUMMARY_PATH,
     }
-    assert Path("tests/fixtures/cassettes/ibkr_flex/statement_real.yaml") == ibkr_flex_capture.CASSETTE_PATH
-    assert Path("tests/fixtures/ibkr_flex/statement_real_redacted.xml") == ibkr_flex_capture.REDACTED_XML_PATH
-    assert Path("tests/fixtures/ibkr_flex/statement_real_summary.json") == ibkr_flex_capture.SUMMARY_PATH
+    assert (
+        Path("tests/fixtures/cassettes/ibkr_flex/statement_real.yaml")
+        == ibkr_flex_capture.CASSETTE_PATH
+    )
+    assert (
+        Path("tests/fixtures/ibkr_flex/statement_real_redacted.xml")
+        == ibkr_flex_capture.REDACTED_XML_PATH
+    )
+    assert (
+        Path("tests/fixtures/ibkr_flex/statement_real_summary.json")
+        == ibkr_flex_capture.SUMMARY_PATH
+    )
 
 
 def test_capture_cassette_is_scrubbed_and_redacted(captured: FlexSummary, tmp_path: Path) -> None:
@@ -304,18 +352,22 @@ def test_capture_cassette_is_scrubbed_and_redacted(captured: FlexSummary, tmp_pa
     assert len(cassette["interactions"]) == 3
 
 
-def test_capture_writes_redacted_xml_and_summary(sample: str, captured: FlexSummary, tmp_path: Path) -> None:
+def test_capture_writes_redacted_xml_and_summary(
+    sample: str, captured: FlexSummary, tmp_path: Path
+) -> None:
     redacted_text = (tmp_path / ibkr_flex_capture.REDACTED_XML_PATH).read_text(encoding="utf-8")
     summary_text = (tmp_path / ibkr_flex_capture.SUMMARY_PATH).read_text(encoding="utf-8")
     assert redacted_text == redact_statement(sample)
-    assert summary_text == summarize_statement(sample).to_json()
+    assert summary_text == summarize_statement(sample, tz=NY).to_json()
 
 
 def test_capture_returns_the_summary(sample: str, captured: FlexSummary) -> None:
-    assert captured == summarize_statement(sample)
+    assert captured == summarize_statement(sample, tz=NY)
 
 
-def test_capture_cassette_replays_through_vcr(sample: str, captured: FlexSummary, tmp_path: Path) -> None:
+def test_capture_cassette_replays_through_vcr(
+    sample: str, captured: FlexSummary, tmp_path: Path
+) -> None:
     path = tmp_path / ibkr_flex_capture.CASSETTE_PATH
     replayer = vcr.VCR(record_mode="none", filter_query_parameters=[("t", "SCRUBBED")])
     with replayer.use_cassette(str(path)):
@@ -329,7 +381,9 @@ def test_capture_cassette_replays_through_vcr(sample: str, captured: FlexSummary
 def test_capture_refuses_a_cassette_carrying_the_token(sample: str, tmp_path: Path) -> None:
     leaky = sample.replace("SPLIT 4 FOR 1", f"SPLIT 4 FOR 1 {TOKEN}")
     assert TOKEN in leaky
-    with pytest.raises(ibkr_flex_capture.FlexCaptureError, match="token found in the rendered cassette"):
+    with pytest.raises(
+        ibkr_flex_capture.FlexCaptureError, match="token found in the rendered cassette"
+    ):
         ibkr_flex_capture.capture(_flex_settings(), root=tmp_path, transport=_transport(leaky))
     assert list(tmp_path.iterdir()) == []
 
@@ -458,7 +512,7 @@ def test_cli_success_prints_paths_and_summary(
     ]
     wrote = [line for line in result.stdout.splitlines() if line.startswith("Wrote ")]
     assert wrote == [f"Wrote {p}" for p in expected_paths]
-    assert result.stdout.endswith(summarize_statement(sample).to_json())
+    assert result.stdout.endswith(summarize_statement(sample, tz=NY).to_json())
     for form in FORMS:
         assert form not in result.output
 
@@ -473,3 +527,61 @@ def test_render_cassette_without_a_token_has_nothing_to_refuse() -> None:
     interactions = _record(lambda request: httpx.Response(200, text=SUCCESS))
     text = ibkr_flex_capture.render_cassette(interactions, token="")
     assert len(yaml.safe_load(text)["interactions"]) == 1
+
+
+def test_redaction_fakes_unlisted_money_columns_and_keeps_identifiers() -> None:
+    xml = (
+        "<FlexQueryResponse><FlexStatements><FlexStatement>"
+        '<OpenPosition accountId="U1" conid="265598" costBasisMoney="12345.6" reportDate="20260930" '
+        'dateTime="20260915;093500" ibOrderID="1234567890" actionID="777" fifoPnlUnrealized="-5.5" />'
+        '<CashReportCurrency currency="USD" startingCash="99.5" netCash="-20" />'
+        '<Trade ibCommission="-1.25" ibExecID="0000e0d5.66e6c1a1.01.01" />'
+        "</FlexStatement></FlexStatements></FlexQueryResponse>"
+    )
+    root = ET.fromstring(redact_statement(xml))
+    pos, cash, trade = (root.find(f".//{t}") for t in ("OpenPosition", "CashReportCurrency", "Trade"))
+    assert pos is not None
+    assert cash is not None
+    assert trade is not None
+    assert pos.get("costBasisMoney") == "10000.0"
+    assert pos.get("fifoPnlUnrealized") == "-1.0"
+    assert cash.get("startingCash") == "10.0"
+    assert cash.get("netCash") == "-10"
+    assert trade.get("ibCommission") == "-1.00"
+    for key, value in (
+        ("conid", "265598"),
+        ("reportDate", "20260930"),
+        ("dateTime", "20260915;093500"),
+        ("ibOrderID", "1234567890"),
+        ("actionID", "777"),
+    ):
+        assert pos.get(key) == value
+    assert trade.get("ibExecID") == "0000e0d5.66e6c1a1.01.01"
+
+
+def test_redaction_hides_which_instruments_are_held_or_traded(sample: str, redacted: str) -> None:
+    # The repo is public: positions and fills must not reveal the book (#256).
+    # Corporate-action rows keep their real identity, which #111 needs.
+    def rows(xml: str, section: str) -> list[ET.Element]:
+        return [el for s in ET.fromstring(xml).iter(section) for el in s.iter() if el is not s]
+
+    real = {"AAPL", "TSLA", "KO", "265598", "76792991", "8894"}
+    for section in ("OpenPositions", "Trades"):
+        for el in rows(redacted, section):
+            for key in ("symbol", "conid", "isin", "cusip", "figi", "securityID", "description"):
+                assert el.get(key, "") not in real or el.get(key, "") == "", (section, key, el.attrib)
+    positions = rows(redacted, "OpenPositions")
+    trades = [el for el in rows(redacted, "Trades") if el.tag == "Trade"]
+    # One pseudonym per instrument, shared across sections, so rows still line up.
+    assert positions[0].get("symbol") == positions[1].get("symbol") == trades[0].get("symbol")
+    assert positions[0].get("conid") == trades[0].get("conid")
+    assert positions[0].get("symbol") != positions[2].get("symbol")
+    assert {el.get("symbol") for el in ET.fromstring(redacted).iter("CorporateAction")} >= {"AAPL"}
+
+
+def test_redacted_statement_still_parses(redacted: str) -> None:
+    from bot.ingest.ibkr_flex import parse_statement
+
+    parsed = parse_statement(redacted, tz=NY)
+    assert len(parsed.positions) == 3 and len(parsed.trades) == 2
+    assert all(p.con_id > 0 for p in parsed.positions)

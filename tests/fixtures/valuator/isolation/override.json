@@ -81,7 +81,8 @@
       "extra_cash": null,
       "governance_discount": null,
       "story": null,
-      "scenarios": null
+      "scenarios": null,
+      "bankruptcy_derivation": null
     },
     "financials": {
       "revenue": 430000000000.0,
@@ -355,29 +356,24 @@
     },
     "narrative_flags": [
       {
-        "name": "story_margin",
-        "color": "green",
-        "reason": "story type 'mature-stable' is not 'high-growth'"
-      },
-      {
         "name": "growth_reinvestment",
         "color": "green",
-        "reason": "projected reinvestment is comfortably funded by NOPAT every year"
+        "reason": "Every year the reinvestment growth needs fits within after-tax operating profit (NOPAT)."
       },
       {
         "name": "beta_business_risk",
         "color": "unknown",
-        "reason": "not evaluated: sector beta, operating leverage or company leverage unavailable"
+        "reason": "not evaluated: the sector beta, the operating leverage or the company's debt share is missing."
       },
       {
         "name": "terminal_value_share",
         "color": "yellow",
-        "reason": "terminal value is 82% of enterprise value (> 80%) \u2014 valuation is fragile"
+        "reason": "82% of enterprise value comes from the terminal value, above the 80% ceiling: the valuation rests almost entirely on the perpetuity."
       },
       {
         "name": "country_exposure",
         "color": "unknown",
-        "reason": "not evaluated: needs revenue by geography and a revenue-weighted ERP; no ingest path supplies either"
+        "reason": "not evaluated: it needs revenue by geography and a revenue-weighted equity risk premium (ERP), and no data source supplies either."
       }
     ],
     "sanity_check": {

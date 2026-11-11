@@ -65,3 +65,28 @@ def test_adr_0005_records_the_price_conversion() -> None:
     status = ADR_0005.read_text().split("## Context", 1)[0]
     assert "#222" in status
     assert "§1" in status
+
+
+def test_damodaran_country_has_erp_provenance_columns() -> None:
+    conn = connect(":memory:")
+    apply_schema(conn)
+    assert {"prs_score", "erp_basis"} <= _columns(conn)
+
+
+def test_apply_schema_adds_erp_provenance_columns_to_a_legacy_table() -> None:
+    conn = connect(":memory:")
+    # The CREATE TABLE as it stood before #59.
+    conn.execute(
+        "CREATE TABLE damodaran_country (country VARCHAR NOT NULL, year INTEGER NOT NULL, "
+        "erp DOUBLE, country_risk_premium DOUBLE, tax_rate DOUBLE, "
+        "rating VARCHAR, region VARCHAR, PRIMARY KEY (country, year))"
+    )
+    conn.execute(
+        "INSERT INTO damodaran_country (country, year, erp) VALUES ('Brazil', 2026, 0.09)"
+    )
+    apply_schema(conn)
+    apply_schema(conn)  # idempotent once the columns exist
+    assert {"prs_score", "erp_basis"} <= _columns(conn)
+    assert conn.execute(
+        "SELECT country, erp, prs_score, erp_basis FROM damodaran_country"
+    ).fetchall() == [("Brazil", 0.09, None, None)]

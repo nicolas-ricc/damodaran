@@ -2,20 +2,37 @@ from datetime import date
 
 import pytest
 
-from bot.ingest.sec_edgar import import_company_from_sec
+from bot.ingest.base import transaction
+from bot.ingest.sec_edgar import (
+    SecEdgarClient,
+    parse_company_facts,
+    upsert_company,
+    upsert_filings,
+    upsert_financials_annual,
+    upsert_financials_quarterly,
+)
 from bot.storage.db import apply_schema, connect
 
 
 @pytest.mark.integration
 @pytest.mark.vcr
-def test_import_company_from_sec_populates_db():
+def test_parse_company_facts_from_cassette_populates_db():
     conn = connect(":memory:")
     apply_schema(conn)
 
-    result = import_company_from_sec(conn, ticker="AAPL", user_agent="Tester t@example.com")
+    with SecEdgarClient(user_agent="Tester t@example.com") as client:
+        cik = client.lookup_cik("AAPL")
+        assert cik == "0000320193"
+        facts = client.fetch_company_facts(cik)
+    parsed = parse_company_facts("AAPL", facts)
 
-    assert result.is_success()
-    assert result.rows_affected > 0
+    with transaction(conn):
+        upsert_company(conn, parsed.company)
+        annual = upsert_financials_annual(conn, parsed.annual)
+        quarterly = upsert_financials_quarterly(conn, parsed.quarterly)
+        filings = upsert_filings(conn, parsed.filings)
+
+    assert annual + quarterly + filings > 0
 
     companies = conn.execute(
         "SELECT ticker, cik, name, country FROM companies WHERE ticker = 'AAPL'"
@@ -36,14 +53,16 @@ def test_import_company_from_sec_populates_db():
     ).fetchone()
     assert newest == (2025, date(2025, 9, 27))
 
+    # PaymentsToAcquireBusinessesNetOfCashAcquired, as the 10-Ks in the cassette report it.
+    acquisitions = conn.execute(
+        "SELECT fiscal_year, acquisitions FROM financials_annual "
+        "WHERE ticker = 'AAPL' AND fiscal_year IN (2020, 2021) ORDER BY fiscal_year"
+    ).fetchall()
+    assert acquisitions == [(2020, 1_524_000_000.0), (2021, 33_000_000.0)]
+
     filings_count = conn.execute(
         "SELECT COUNT(*) FROM filings_log WHERE ticker = 'AAPL'"
     ).fetchone()[0]
     assert filings_count >= 1
-
-    refresh_rows = conn.execute(
-        "SELECT status FROM refresh_log WHERE source = 'sec_edgar'"
-    ).fetchall()
-    assert refresh_rows[0][0] == "success"
 
     conn.close()

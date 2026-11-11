@@ -7,7 +7,11 @@ Seeds an in-memory-equivalent DuckDB file with a fixture company, runs
 
 from __future__ import annotations
 
+import errno
+import json
+from datetime import date
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pytest
@@ -531,3 +535,183 @@ def test_analyze_with_a_missing_default_spreads_file_values_with_p_zero(
         in md
     )
     assert "| Probability of bankruptcy | 0.0% | rule_based |" in md
+
+
+def _batch_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    db_path = tmp_path / "bot.duckdb"
+    reports_dir = tmp_path / "reports"
+    monkeypatch.setenv("BOT_DB_PATH", str(db_path))
+    monkeypatch.setenv("BOT_REPORTS_DIR", str(reports_dir))
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Tester t@x.com")
+    monkeypatch.setenv("BOT_ASSUMPTIONS_DIR", str(tmp_path / "assumptions"))
+    conn = connect(db_path)
+    apply_schema(conn)
+    _seed(conn, "AAPL")
+    _seed(conn, "MSFT")
+    conn.close()
+    return reports_dir
+
+
+def _analysis_dir(reports_dir: Path) -> Path:
+    return reports_dir / date.today().isoformat() / "analysis"
+
+
+def _names(out_dir: Path) -> list[str]:
+    return sorted(p.name for p in out_dir.iterdir()) if out_dir.exists() else []
+
+
+def _fail_html_write(monkeypatch: pytest.MonkeyPatch) -> None:
+    real = Path.write_text
+
+    def write_text(self: Path, *args: object, **kwargs: object) -> int:
+        if "AAPL.html" in self.name:
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return real(self, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(Path, "write_text", write_text)
+
+
+_MSFT_SET = ["MSFT.html", "MSFT.json", "MSFT.md"]
+
+
+def test_batch_html_write_error_fails_the_ticker_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reports_dir = _batch_env(tmp_path, monkeypatch)
+    _fail_html_write(monkeypatch)
+    result = CliRunner().invoke(app, ["analyze", "AAPL", "MSFT"])
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert result.exit_code == 1
+    assert "AAPL: cannot write report" in result.stderr
+    assert "AAPL.html" in result.stderr
+    assert "No space left on device" in result.stderr
+    assert _names(_analysis_dir(reports_dir)) == _MSFT_SET
+
+
+def test_batch_json_render_error_fails_the_ticker_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reports_dir = _batch_env(tmp_path, monkeypatch)
+    real = bot.cli.render_analysis_json
+
+    def render(analysis: Any, *, generated_on: date) -> str:
+        if analysis.ticker == "AAPL":
+            return json.dumps(float("nan"), allow_nan=False)
+        return real(analysis, generated_on=generated_on)
+
+    monkeypatch.setattr(bot.cli, "render_analysis_json", render)
+    result = CliRunner().invoke(app, ["analyze", "AAPL", "MSFT"])
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert result.exit_code == 1
+    assert "AAPL: cannot render report" in result.stderr
+    assert _names(_analysis_dir(reports_dir)) == _MSFT_SET
+
+
+def test_batch_mkdir_error_fails_each_ticker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reports_dir = _batch_env(tmp_path, monkeypatch)
+    real = Path.mkdir
+
+    def mkdir(self: Path, *args: Any, **kwargs: Any) -> None:
+        if self.name == "analysis":
+            raise OSError(errno.EACCES, "Permission denied")
+        real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", mkdir)
+    result = CliRunner().invoke(app, ["analyze", "AAPL", "MSFT"])
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert result.exit_code == 1
+    assert "AAPL: cannot write report" in result.stderr
+    assert "MSFT: cannot write report" in result.stderr
+    assert "Permission denied" in result.stderr
+    assert not _analysis_dir(reports_dir).exists()
+
+
+def test_batch_success_output_is_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reports_dir = _batch_env(tmp_path, monkeypatch)
+    result = CliRunner().invoke(app, ["analyze", "AAPL", "MSFT"])
+    assert result.exit_code == 0, result.output
+    out_dir = _analysis_dir(reports_dir)
+    wrote = [line for line in result.stdout.splitlines() if line.startswith("Wrote ")]
+    assert wrote == [
+        f"Wrote {out_dir / name}"
+        for ticker in ("AAPL", "MSFT")
+        for name in (f"{ticker}.md", f"{ticker}.html", f"{ticker}.json")
+    ]
+    assert _names(out_dir) == ["AAPL.html", "AAPL.json", "AAPL.md", *_MSFT_SET]
+    assert result.stderr == ""
+
+
+def test_batch_reports_are_all_or_none(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every ticker of a batch ends with its three reports or none of them."""
+    reports_dir = _batch_env(tmp_path, monkeypatch)
+    _fail_html_write(monkeypatch)
+    CliRunner().invoke(app, ["analyze", "AAPL", "MSFT"])
+    names = _names(_analysis_dir(reports_dir))
+    assert not [n for n in names if n.endswith(".tmp")]
+    for ticker in ("AAPL", "MSFT"):
+        mine = {n for n in names if n.startswith(f"{ticker}.")}
+        assert mine in (set(), {f"{ticker}.md", f"{ticker}.html", f"{ticker}.json"}), ticker
+
+
+def _fail_override_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    real = Path.read_text
+
+    def read_text(self: Path, *args: Any, **kwargs: Any) -> str:
+        if self.name == "AAPL.yaml":
+            raise PermissionError(errno.EACCES, "Permission denied")
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+
+
+def test_batch_unreadable_conventional_override_fails_the_ticker_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An override that exists but cannot be read is "cannot value", not a crash (#227)."""
+    reports_dir = _batch_env(tmp_path, monkeypatch)
+    override = tmp_path / "assumptions" / "AAPL.yaml"
+    override.parent.mkdir()
+    override.write_text("notes: unreadable\n")
+    _fail_override_read(monkeypatch)
+    result = CliRunner().invoke(app, ["analyze", "AAPL", "MSFT"])
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert result.exit_code == 1
+    assert "AAPL: cannot value" in result.stderr
+    assert str(override) in result.stderr
+    assert _names(_analysis_dir(reports_dir)) == _MSFT_SET
+
+
+def test_batch_directory_conventional_override_fails_the_ticker_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A directory named ``AAPL.yaml`` is refused as unreadable; MSFT still runs (#227)."""
+    reports_dir = _batch_env(tmp_path, monkeypatch)
+    override = tmp_path / "assumptions" / "AAPL.yaml"
+    override.mkdir(parents=True)
+    result = CliRunner().invoke(app, ["analyze", "AAPL", "MSFT"])
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert result.exit_code == 1
+    assert "AAPL: cannot value" in result.stderr
+    assert str(override) in result.stderr
+    assert _names(_analysis_dir(reports_dir)) == _MSFT_SET
+
+
+def test_analyze_unreadable_explicit_override_cannot_value(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An explicit ``--override`` that exists but cannot be read is exit 1, not a traceback (#227)."""
+    reports_dir = _batch_env(tmp_path, monkeypatch)
+    override = tmp_path / "explicit" / "AAPL.yaml"
+    override.parent.mkdir()
+    override.write_text("notes: unreadable\n")
+    _fail_override_read(monkeypatch)
+    result = CliRunner().invoke(app, ["analyze", "AAPL", "--override", str(override)])
+    assert isinstance(result.exception, SystemExit), result.exception
+    assert result.exit_code == 1
+    assert "AAPL: cannot value" in result.stderr
+    assert str(override) in result.stderr
+    assert _names(_analysis_dir(reports_dir)) == []

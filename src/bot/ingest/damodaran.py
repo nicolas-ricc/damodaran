@@ -1,9 +1,9 @@
 """Damodaran datasets — parser (Capa A).
 
 Column headers reflect the January 2026 Damodaran release.  If headers drift in
-a future release, update ``DEFAULT_INDUSTRY_COLUMN_MAP`` and
-``DEFAULT_COUNTRY_COLUMN_MAP`` to match the new strings; no other code change is
-required.
+a future release, update ``WACC_COLUMN_MAP``, ``INDUSTRY_PARSE_ARTEFACT_COLUMNS``
+and ``DEFAULT_COUNTRY_COLUMN_MAP`` to match the new strings; no other code change
+is required.
 
 ``tax_rate`` is not a column of the ``ERPs by country`` sheet: it comes from the
 ``Country Tax Rates`` sheet of ``ctryprem.xls``. The risk-free rate is not imported;
@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import zipfile
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -29,13 +29,14 @@ from bot.utils.logging import get_logger
 log = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
-# Column maps — db_column_name -> xls_header_string
+# Column maps — db_column_name -> xls_header_string, except the parse
+# artefacts, whose keys are row fields that never reach the DB
 # Inspected from Damodaran Jan-2026 files:
 #   wacc.xls      sheet "Industry Averages"   header row 18
 #   ctryprem.xls  sheet "ERPs by country"     header row 7
 # ---------------------------------------------------------------------------
 
-DEFAULT_INDUSTRY_COLUMN_MAP: dict[str, str] = {
+WACC_COLUMN_MAP: dict[str, str] = {
     "industry": "Industry Name",
     "beta_levered": "Beta",
     "cost_of_equity": "Cost of Equity",
@@ -43,8 +44,12 @@ DEFAULT_INDUSTRY_COLUMN_MAP: dict[str, str] = {
     "tax_rate": "Tax Rate",
     # "Cost of Capital" is labelled "WACC" in the DB schema
     "wacc": "Cost of Capital",
-    # Parsing artefact, not a DB column: the published file carries D/(D+E) and
-    # `derive_industry_columns` turns it into debt_to_equity + beta_unlevered.
+}
+
+# Parsing artefact, not a DB column: the published file carries D/(D+E) and
+# `derive_industry_columns` consumes and pops this row field, turning it into
+# debt_to_equity + beta_unlevered.
+INDUSTRY_PARSE_ARTEFACT_COLUMNS: dict[str, str] = {
     "debt_weight_raw": "D/(D+E)",
 }
 
@@ -57,6 +62,20 @@ DEFAULT_COUNTRY_COLUMN_MAP: dict[str, str] = {
     "rating": "Moody's rating",
     "erp": "Total Equity Risk Premium",
     "country_risk_premium": "Country Risk Premium",
+}
+
+#: Value of ``damodaran_country.erp_basis``: how a country's ERP was derived.
+ERP_BASIS_MOODYS = "moodys_rating"
+ERP_BASIS_PRS = "prs_score"
+
+# The second table of the sheet (unrated "Frontier Markets") has its own header
+# row: column B is the PRS (Political Risk Services) score where the first
+# table has the region. "Default Spread" is not stored.
+PRS_COUNTRY_COLUMN_MAP: dict[str, str] = {
+    "country": "Country",
+    "prs_score": "PRS Composite Risk Score",
+    "erp": "ERP",
+    "country_risk_premium": "CRP",
 }
 
 _DATASET_BASE = "https://pages.stern.nyu.edu/~adamodar/pc/datasets/"
@@ -77,12 +96,21 @@ class IndustryDataset:
         column_map: DB column → exact header string, as observed in the file.
             ``industry`` must be first: ``_to_normalized_rows`` treats the first
             key as the primary key of the row.
+        parse_artefacts: Row field → header string for values the parser reads but
+            that are not DB columns (``derive_industry_columns`` consumes them).
+        header_map: ``column_map`` plus ``parse_artefacts``: everything the parser
+            reads from the sheet, ``industry`` still first.
     """
 
     key: str
     url: str
     sheet_keywords: tuple[str, ...]
     column_map: dict[str, str]
+    parse_artefacts: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def header_map(self) -> dict[str, str]:
+        return {**self.column_map, **self.parse_artefacts}
 
 
 #: Industry datasets merged into ``damodaran_industry``, in precedence order: an
@@ -97,7 +125,8 @@ INDUSTRY_DATASETS: tuple[IndustryDataset, ...] = (
         key="wacc",
         url=INDUSTRY_WACC_URL,
         sheet_keywords=("industry", "average"),
-        column_map=DEFAULT_INDUSTRY_COLUMN_MAP,
+        column_map=WACC_COLUMN_MAP,
+        parse_artefacts=INDUSTRY_PARSE_ARTEFACT_COLUMNS,
     ),
     # margin.xls — margins. "Pre-tax Unadjusted Operating Margin" is the plain
     # operating margin; the file also publishes lease- and R&D-adjusted variants.
@@ -319,8 +348,11 @@ def _load_to_records(
         return []
 
     header_idx = _find_header_row(rows)
-    header_raw = rows[header_idx]
+    return _records_from_rows(rows[header_idx], rows[header_idx + 1 :])
 
+
+def _records_from_rows(header_raw: list[Any], body: list[list[Any]]) -> list[dict[str, Any]]:
+    """Key each *body* row by the sanitized, de-duplicated *header_raw* names."""
     # Deduplicate and sanitize column names.
     seen: dict[str, int] = {}
     header: list[str] = []
@@ -334,7 +366,7 @@ def _load_to_records(
         header.append(name)
 
     records: list[dict[str, Any]] = []
-    for r in rows[header_idx + 1 :]:
+    for r in body:
         records.append({h: (r[i] if i < len(r) else None) for i, h in enumerate(header)})
     return records
 
@@ -405,14 +437,12 @@ def _to_normalized_rows(
     are dropped.
 
     A row whose PK cell repeats the PK column's header string marks the start of a
-    **different table** on the same sheet, not a cosmetic sub-header. Damodaran's
-    ``ERPs by country`` sheet is the case that matters: below the Moody's-rated
-    table it publishes a second table of unrated countries scored by PRS, whose
-    columns do not line up (its column B is a risk score where the first table has
-    the region, and its ERP sits where the first table has the default spread).
-    Continuing past that boundary stored a wrong equity risk premium for 21
-    countries. So parsing stops there, and how many rows were discarded is logged
-    rather than passed over in silence.
+    **different table** on the same sheet, not a cosmetic sub-header, so industry
+    parsing stops there, and how many rows were discarded is logged rather than
+    passed over in silence. Damodaran's ``ERPs by country`` sheet is the case that
+    matters: below the Moody's-rated table it publishes a second table whose
+    columns do not line up with the first. ``parse_country_xls`` reads that table
+    itself, with its own header and column map, and never reaches this truncation.
     """
     pk_field = next(iter(column_map))
     pk_xls_col = column_map[pk_field]  # e.g. "Country" or "Industry Name"
@@ -540,7 +570,9 @@ def parse_industry_xls(
         path: Path to the ``.xls`` / ``.xlsx`` file.
         region: Region tag injected into every row (e.g. ``"US"``).
         year: Data year injected into every row.
-        column_map: Mapping ``db_column_name -> xls_header_string``.
+        column_map: Mapping ``row_field -> xls_header_string``; may include parse
+            artefacts that are not DB columns (callers pass
+            ``IndustryDataset.header_map``).
         sheet_name: Explicit sheet to open; auto-detected when *None*.
         sheet_keywords: Keywords driving that auto-detection, most specific
             first; the module default is used when *None*.
@@ -565,6 +597,14 @@ def parse_country_xls(
 ) -> list[dict[str, Any]]:
     """Parse a Damodaran country-level xls into normalized rows.
 
+    The ``ERPs by country`` sheet holds two tables, each read with its own header
+    and column map: the Moody's-rated countries (*column_map*), then, below a
+    second header row, the unrated countries scored by PRS
+    (:data:`PRS_COUNTRY_COLUMN_MAP`), up to the first blank country cell. Every row
+    carries ``erp_basis``; PRS rows also carry ``prs_score`` and a ``None`` region
+    and rating. A title row (every mapped value blank) is dropped, and so is a PRS
+    row for a country the first table already has.
+
     Args:
         path: Path to the ``.xls`` / ``.xlsx`` file.
         year: Data year injected into every row.
@@ -574,11 +614,73 @@ def parse_country_xls(
     Returns:
         List of dicts ready for DB upsert.
     """
-    records = _load_to_records(path, sheet_name)
-    if not records:
+    rows, picked = _load_rows(path, sheet_name)
+    log.debug("damodaran.sheet_picked", path=str(path), sheet=picked)
+    if not rows:
         log.warning("damodaran.country.empty_file", path=str(path))
         return []
-    return _to_normalized_rows(records, column_map, {"year": year})
+
+    header_idx = _find_header_row(rows)
+    header_raw = rows[header_idx]
+    pk_field = next(iter(column_map))
+    pk_header = column_map[pk_field]
+    pk_col = next((i for i, h in enumerate(header_raw) if str(h).strip() == pk_header), None)
+
+    second_idx: int | None = None
+    if pk_col is not None:
+        second_idx = next(
+            (
+                i
+                for i in range(header_idx + 1, len(rows))
+                if _pk_cell(rows[i], pk_col) == pk_header
+            ),
+            None,
+        )
+
+    first_body = rows[header_idx + 1 : second_idx]
+    # No country column, or no country under it: nothing to read.
+    if pk_col is None or not any(_pk_cell(r, pk_col) for r in first_body):
+        log.warning("damodaran.country.empty_file", path=str(path))
+        return []
+
+    rated: list[dict[str, Any]] = []
+    for row in _to_normalized_rows(
+        _records_from_rows(header_raw, first_body),
+        column_map,
+        {"year": year, "erp_basis": ERP_BASIS_MOODYS},
+    ):
+        if all(row.get(k) is None for k in column_map if k != pk_field):
+            log.debug("damodaran.country.title_row_dropped", country=row[pk_field])
+            continue
+        rated.append(row)
+
+    prs: list[dict[str, Any]] = []
+    if second_idx is not None:
+        body: list[list[Any]] = []
+        for r in rows[second_idx + 1 :]:
+            if not _pk_cell(r, pk_col):
+                break
+            body.append(r)
+        rated_names = {r[pk_field] for r in rated}
+        for row in _to_normalized_rows(
+            _records_from_rows(rows[second_idx], body),
+            PRS_COUNTRY_COLUMN_MAP,
+            {"year": year, "erp_basis": ERP_BASIS_PRS, "region": None, "rating": None},
+        ):
+            if row[pk_field] in rated_names:
+                log.warning("damodaran.country.prs_duplicate", country=row[pk_field])
+                continue
+            prs.append(row)
+
+    log.info("damodaran.country.tables_read", rated=len(rated), prs=len(prs))
+    return rated + prs
+
+
+def _pk_cell(row: list[Any], pk_col: int) -> str:
+    """Return the stripped text of *row*'s PK cell; ``""`` when blank or absent."""
+    if pk_col >= len(row) or row[pk_col] is None:
+        return ""
+    return str(row[pk_col]).strip()
 
 
 # ---------- Downloader ----------
@@ -682,7 +784,7 @@ def _import_files_into_run(
             industry_path,
             region=region,
             year=year,
-            column_map=_WACC_DATASET.column_map,
+            column_map=_WACC_DATASET.header_map,
             sheet_keywords=_WACC_DATASET.sheet_keywords,
         )
     ]
@@ -696,7 +798,7 @@ def _import_files_into_run(
                 path,
                 region=region,
                 year=year,
-                column_map=dataset.column_map,
+                column_map=dataset.header_map,
                 sheet_keywords=dataset.sheet_keywords,
             )
         except Exception as exc:

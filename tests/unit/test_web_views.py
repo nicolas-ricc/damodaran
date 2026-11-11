@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Any
 
@@ -179,7 +180,8 @@ def test_detail_from_a_real_analysis() -> None:
     ]
     assert all(a.source for a in detail.assumptions)
     assert detail.assumptions[0].value == f"{growth[0]:.1%} → {growth[-1]:.1%}"
-    assert [f.color for f in detail.flags] == ["green", "green", "unknown", "green", "unknown"]
+    # story_margin only comes out for a high-growth story (#265); this one is mature.
+    assert [f.color for f in detail.flags] == ["green", "unknown", "green", "unknown"]
     assert [s.label for s in detail.sanity] == ["P/E implied (DCF)", "P/E market", "EV/Sales"]
     assert len(detail.dcf_rows) == len(payload["analysis"]["dcf_result"]["projections"])
     assert [t.label for t in detail.dcf_totals] == [
@@ -259,3 +261,29 @@ def test_unknown_filter_or_sort_raises() -> None:
 )
 def test_flag_tone_follows_severity(color: str, tone: str) -> None:
     assert FlagView("x", color, "").tone == tone
+
+
+def test_detail_labels_carry_descriptions_and_no_identifiers() -> None:
+    payload = real_sidecar()
+    detail = detail_view(_entry(_ref(payload)), _ref(payload))
+    snake = re.compile(r"[a-z]+_[a-z_]+")
+    for a in detail.assumptions:
+        assert a.description and not snake.search(a.label), a
+    for bar in detail.tornado:
+        assert bar.description and not snake.search(bar.label), bar
+    for f in detail.flags:
+        assert f.description and not snake.search(f.label), f
+    assert detail.grid is not None
+    assert detail.grid.axis_a.description and not snake.search(detail.grid.axis_a.label)
+    assert detail.grid.axis_b.description and not snake.search(detail.grid.axis_b.label)
+    assert detail.grid.axis_a.label == "Cost of equity"
+
+
+def test_country_tax_source_is_worded_with_a_tooltip() -> None:
+    payload = real_sidecar()
+    payload["analysis"]["assumptions"]["tax_rate"]["source"] = "country_default_damodaran"
+    detail = detail_view(_entry(_ref(payload)), _ref(payload))
+    tax = next(a for a in detail.assumptions if a.label == "Tax rate")
+    assert tax.source == "country default (Damodaran)"
+    assert tax.source_description
+    assert "_" not in tax.source + tax.source_description

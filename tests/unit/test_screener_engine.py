@@ -145,7 +145,7 @@ def test_build_company_data_derives_ratios(conn: duckdb.DuckDBPyConnection) -> N
     annual = conn.execute(
         "SELECT revenue, ebit, ebitda, interest_expense, net_income, total_assets, "
         "total_debt, cash, total_equity, goodwill, operating_cashflow, free_cashflow, "
-        "shares_diluted FROM financials_annual WHERE ticker = ? ORDER BY fiscal_year",
+        "shares_diluted, acquisitions FROM financials_annual WHERE ticker = ? ORDER BY fiscal_year",
         ["TST"],
     ).fetchall()
     from bot.screener.engine import _AnnualRow
@@ -210,7 +210,7 @@ def test_build_company_data_roic_uses_country_tax_rate(
     annual = conn.execute(
         "SELECT revenue, ebit, ebitda, interest_expense, net_income, total_assets, "
         "total_debt, cash, total_equity, goodwill, operating_cashflow, free_cashflow, "
-        "shares_diluted FROM financials_annual WHERE ticker = ? ORDER BY fiscal_year",
+        "shares_diluted, acquisitions FROM financials_annual WHERE ticker = ? ORDER BY fiscal_year",
         ["DEU"],
     ).fetchall()
     cd = build_company_data(
@@ -226,7 +226,7 @@ def _load_tst_annual(conn: duckdb.DuckDBPyConnection) -> list:  # type: ignore[t
     rows = conn.execute(
         "SELECT revenue, ebit, ebitda, interest_expense, net_income, total_assets, "
         "total_debt, cash, total_equity, goodwill, operating_cashflow, free_cashflow, "
-        "shares_diluted FROM financials_annual WHERE ticker = ? ORDER BY fiscal_year",
+        "shares_diluted, acquisitions FROM financials_annual WHERE ticker = ? ORDER BY fiscal_year",
         ["TST"],
     ).fetchall()
     return [_AnnualRow(*r) for r in rows]
@@ -318,6 +318,57 @@ def test_load_all_annual_groups_oldest_first_per_ticker(
     # Oldest-first: revenue grows 1.1**offset, so ascending.
     revs = [r.revenue for r in by_ticker["AAA"]]
     assert revs == sorted(revs)
+
+
+def _annual_row_with_acquisitions(acquisitions: float | None):  # type: ignore[no-untyped-def]
+    from bot.screener.engine import _AnnualRow
+
+    return _AnnualRow(
+        1000.0, 200.0, 300.0, 10.0, 150.0, 2000.0, 0.0, 100.0, 1000.0, 100.0,
+        250.0, 200.0, 100.0, acquisitions,
+    )
+
+
+def test_build_company_data_acquisitions_history_drops_missing_years(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_one(conn)
+    row = _load_companies(conn)[0]
+    annual = [_annual_row_with_acquisitions(v) for v in (100.0, None, 300.0)]
+    cd = build_company_data(conn, row, annual, market_cap=1000.0, close=10.0)
+    assert cd.acquisitions_history == (100.0, 300.0)
+
+
+def test_build_company_data_without_rows_has_empty_acquisitions_history(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_one(conn)
+    row = _load_companies(conn)[0]
+    cd = build_company_data(conn, row, [], market_cap=1000.0, close=10.0)
+    assert cd.acquisitions_history == ()
+
+
+def test_load_all_annual_carries_acquisitions(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    from bot.screener.engine import _load_all_annual
+
+    _seed_sector(conn)
+    _seed_company(conn, "AAA")
+    conn.execute(
+        "UPDATE financials_annual SET acquisitions = 250.0 "
+        "WHERE ticker = 'AAA' AND fiscal_year = 2025"
+    )
+    # A restated row's acquisitions must not reach the history.
+    conn.execute(
+        "INSERT INTO financials_annual "
+        "(ticker, fiscal_year, acquisitions, is_restated, source, currency) "
+        "VALUES (?, ?, ?, ?, ?, 'USD')",
+        ["AAA", 2030, 9999.0, True, "fmp"],
+    )
+
+    rows = _load_all_annual(conn)["AAA"]
+    assert [r.acquisitions for r in rows] == [None, None, None, None, None, 250.0]
 
 
 def test_load_latest_prices_picks_latest_non_null_per_ticker(
@@ -901,6 +952,26 @@ def test_run_screen_honours_assumptions_dir_override(
     assert overridden_mos != baseline_mos
 
 
+def test_run_screen_unreadable_override_falls_back(
+    conn: duckdb.DuckDBPyConnection, tmp_path: object
+) -> None:
+    """An override that cannot be read keeps the placeholder MoS, not a crash (#227)."""
+    from pathlib import Path
+
+    from bot.screener.ranking import PLACEHOLDER_MARGIN_OF_SAFETY
+
+    assert isinstance(tmp_path, Path)
+    _seed_valuable_sector(conn)
+    _seed_company(conn, "AAA")
+    assumptions_dir = tmp_path / "assumptions"
+    (assumptions_dir / "AAA.yaml").mkdir(parents=True)
+
+    result = run_screen(conn, _value_preset(), top=1, assumptions_dir=assumptions_dir)
+
+    assert result.shortlist[0].ticker == "AAA"
+    assert result.shortlist[0].margin_of_safety == pytest.approx(PLACEHOLDER_MARGIN_OF_SAFETY)
+
+
 def test_batch_dcf_margins_query_count_independent_of_shortlist(
     conn: duckdb.DuckDBPyConnection,
 ) -> None:
@@ -971,3 +1042,172 @@ def test_run_screen_forwards_the_default_spread_table_to_analyze(
     run_screen(conn, _value_preset(), top=2, default_spreads=table)
 
     assert seen == [table, table]
+
+
+# --------------------------------------------------------------------------- #
+# #276 — governance filings feed auditor_changes_and_late_filings             #
+# --------------------------------------------------------------------------- #
+
+
+def _seed_filing(
+    conn: duckdb.DuckDBPyConnection,
+    ticker: str,
+    form: str,
+    filing_date: str,
+    items: str | None = None,
+    source: str = "sec_edgar",
+) -> None:
+    conn.execute(
+        "INSERT INTO filings_log (ticker, filing_type, filing_date, items, source) "
+        "VALUES (?, ?, ?, ?, ?)",
+        [ticker, form, filing_date, items, source],
+    )
+
+
+def _screen_snapshot(conn: duckdb.DuckDBPyConnection, ticker: str) -> CompanyData:
+    """``CompanyData`` for ``ticker`` built the way ``run_screen`` builds it."""
+    from bot.screener.engine import (
+        _load_all_annual,
+        _load_governance_filings,
+        _load_latest_prices,
+    )
+
+    row = next(r for r in _load_companies(conn) if r.ticker == ticker)
+    price = _load_latest_prices(conn).get(ticker)
+    return build_company_data(
+        conn,
+        row,
+        _load_all_annual(conn).get(ticker, []),
+        market_cap=price.market_cap if price else None,
+        close=price.close if price else None,
+        currency=price.currency if price else None,
+        as_of=price.as_of if price else None,
+        governance=_load_governance_filings(conn).get(ticker),
+    )
+
+
+def test_build_company_data_reads_auditor_change(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_one(conn)
+    _seed_filing(conn, "TST", "8-K", "2025-11-03", items="4.01,9.01")
+    cd = _screen_snapshot(conn, "TST")
+    assert cd.auditor_change_dates == (date(2025, 11, 3),)
+    assert cd.late_filing_dates == ()
+    assert cd.as_of == date(2026, 5, 29)
+
+
+def test_build_company_data_ignores_plain_8k_and_10q(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_one(conn)
+    # A company-facts 8-K row has no items: not an auditor change.
+    _seed_filing(conn, "TST", "8-K", "2025-11-03")
+    _seed_filing(conn, "TST", "10-Q", "2025-08-01")
+    cd = _screen_snapshot(conn, "TST")
+    assert cd.auditor_change_dates == ()
+    assert cd.late_filing_dates == ()
+
+
+def test_build_company_data_reads_late_filing(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed_one(conn)
+    _seed_filing(conn, "TST", "NT 10-Q", "2025-08-15")
+    cd = _screen_snapshot(conn, "TST")
+    assert cd.late_filing_dates == (date(2025, 8, 15),)
+    assert cd.auditor_change_dates == ()
+
+
+def test_build_company_data_governance_none_outside_us(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    conn.execute(
+        "INSERT INTO companies (ticker, name, country, industry, industry_damodaran, source) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        ["DEU", "Deutsche Test AG", "Germany", "Software", "Software", "fmp"],
+    )
+    conn.execute(
+        "INSERT INTO damodaran_country (country, year, region, tax_rate) VALUES (?, ?, ?, ?)",
+        ["Germany", 2026, "Western Europe", 0.30],
+    )
+    _seed_filing(conn, "DEU", "NT 10-K", "2026-03-02")
+    cd = _screen_snapshot(conn, "DEU")
+    assert cd.region == "Europe"
+    assert cd.auditor_change_dates is None
+    assert cd.late_filing_dates is None
+
+
+def test_build_company_data_without_governance_is_empty_in_us(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_one(conn)
+    row = next(r for r in _load_companies(conn) if r.ticker == "TST")
+    cd = build_company_data(conn, row, _load_tst_annual(conn), market_cap=1000.0, close=10.0)
+    assert cd.auditor_change_dates == ()
+    assert cd.late_filing_dates == ()
+    assert cd.as_of is None
+
+
+def test_governance_dates_deduplicated_and_sorted(conn: duckdb.DuckDBPyConnection) -> None:
+    from bot.screener.engine import _GovernanceFilings, _load_governance_filings
+
+    _seed_filing(conn, "TST", "8-K", "2025-11-03", items="4.01")
+    _seed_filing(conn, "TST", "8-K/A", "2025-11-03", items="4.01")
+    _seed_filing(conn, "TST", "8-K", "2024-02-10", items="4.01", source="fmp")
+    _seed_filing(conn, "TST", "NT 10-K", "2025-03-03")
+    _seed_filing(conn, "TST", "NT 10-K/A", "2025-03-03")
+    governance = _load_governance_filings(conn)
+    assert governance == {
+        "TST": _GovernanceFilings(
+            auditor_changes=(date(2024, 2, 10), date(2025, 11, 3)),
+            late_filings=(date(2025, 3, 3),),
+        )
+    }
+
+
+def test_governance_amended_8k_counts_alone(conn: duckdb.DuckDBPyConnection) -> None:
+    from bot.screener.engine import _load_governance_filings
+
+    _seed_filing(conn, "TST", "8-K/A", "2025-12-01", items="4.01")
+    assert _load_governance_filings(conn)["TST"].auditor_changes == (date(2025, 12, 1),)
+
+
+def test_governance_skip_is_eliminatory() -> None:
+    from bot.screener.rules import AuditorChangesAndLateFilings
+
+    company = CompanyData(ticker="X", name="X", region="Europe")
+    verdict = evaluate_company(
+        company,
+        IndustryBenchmarks(industry="Software", region="Europe", year=2026),
+        quality_gates=[],
+        value_indicators=[],
+        trap_detection=[AuditorChangesAndLateFilings()],
+    )
+    assert verdict.passed is False
+    assert "auditor_changes_and_late_filings" in verdict.failed_gates
+
+
+def test_load_holding_inputs_carries_governance_dates(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    from bot.screener.engine import load_holding_inputs
+
+    _seed_one(conn)
+    _seed_filing(conn, "TST", "8-K", "2025-11-03", items="4.01,9.01")
+    _seed_filing(conn, "TST", "NT 10-Q", "2025-08-15")
+    held, _ = load_holding_inputs(conn, ["TST"])["TST"]
+    screened = _screen_snapshot(conn, "TST")
+    assert held.auditor_change_dates == screened.auditor_change_dates == (date(2025, 11, 3),)
+    assert held.late_filing_dates == screened.late_filing_dates == (date(2025, 8, 15),)
+    assert held.as_of == date(2026, 5, 29)
+
+
+def test_run_screen_rejects_a_company_with_a_recent_late_filing(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_sector(conn)
+    _seed_company(conn, "TST")
+    clean = run_screen(conn, _value_preset(), valuator=None)
+    assert [c.ticker for c in clean.shortlist] == ["TST"]
+
+    _seed_filing(conn, "TST", "NT 10-K", "2026-02-27")
+    result = run_screen(conn, _value_preset(), valuator=None)
+    rejected = {r.ticker: r.failed_gates for r in result.rejected}
+    assert "TST" in rejected
+    assert "auditor_changes_and_late_filings" in rejected["TST"]
+    assert "TST" not in {c.ticker for c in result.shortlist}

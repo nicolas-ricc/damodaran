@@ -39,8 +39,7 @@ edgar: "Securities and Exchange Commission (SEC) Electronic Data Gathering, Anal
 tiingo: "Tiingo, end-of-day (EOD) prices, default provider, with EDGAR fundamentals" {class: external}
 stooq: "Stooq, alternative prices source, with EDGAR fundamentals" {class: external}
 fmp: "Financial Modeling Prep (FMP), alternative provider for fundamentals, prices and foreign exchange (FX)" {class: external}
-tws: "Interactive Brokers (IBKR) Trader Workstation (TWS)" {class: external}
-flex: "IBKR Flex, corporate actions" {class: external}
+flex: "Interactive Brokers (IBKR) Flex Web Service: positions, cash, trades and corporate actions" {class: external}
 pages: "GitHub Pages" {class: external}
 
 # Configuration and generated files
@@ -114,6 +113,7 @@ duckdb.prices_daily -> screen: "prices"
 duckdb.damodaran_industry -> screen: "sector benchmark"
 duckdb.damodaran_country -> screen: "country risk"
 duckdb.currencies -> screen: "exchange rates to USD (market cap)"
+duckdb.filings_log -> screen: "auditor changes and late filings"
 screen -> duckdb.screener_candidates: "ranked shortlist with run id"
 screen -> screen_report: "shortlist report"
 
@@ -134,8 +134,7 @@ site -> published_site: "bot site builds the viewer"  # @symbol bot.web.site.bui
 published_site -> pages: "deployed by .github/workflows/site.yml"  # @file .github/workflows/site.yml
 
 # portfolio
-tws -> portfolio: "positions, cash and executions"
-flex -> portfolio: "corporate actions"
+flex -> portfolio: "one statement: positions, cash, trades and corporate actions"
 presets -> portfolio: "quality gates and trap detection for holdings"
 assumptions -> portfolio: "overrides when revaluing holdings"
 duckdb.companies -> portfolio: "holding inputs"

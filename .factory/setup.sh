@@ -10,6 +10,8 @@ command -v uv >/dev/null || curl -LsSf https://astral.sh/uv/install.sh | env UV_
 uv sync --frozen
 
 # d2 renders docs/pipeline. Best effort: without it the pipeline-diagram workflow renders.
-if ! curl -fsSL https://d2lang.com/install.sh | sh -s -- --version "$(cat docs/pipeline/D2_VERSION)" --method standalone --prefix /usr/local; then
+# The standalone release installs through `make install`, and the image has no make.
+command -v make >/dev/null || { apt-get update -qq && apt-get install -y -qq make >/dev/null; }
+if ! command -v d2 >/dev/null && ! curl -fsSL https://d2lang.com/install.sh | sh -s -- --version "$(cat docs/pipeline/D2_VERSION)" --method standalone --prefix /usr/local; then
   echo "d2 not installed; the pipeline-diagram workflow renders instead"
 fi

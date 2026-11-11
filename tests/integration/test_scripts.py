@@ -7,10 +7,15 @@ or the developer's ``.env``.
 
 from __future__ import annotations
 
+import fcntl
 import os
+import re
 import shutil
 import subprocess
 import sys
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -25,6 +30,7 @@ SCRIPTS = [
     "weekly.sh",
     "publish_site.sh",
     "sync_master.sh",
+    "price_fill.sh",
     "vendor_daisyui.sh",
 ]
 
@@ -39,10 +45,18 @@ exec "{VENV_BIN}/$1" "${{@:2}}"
 # where SUBCOMMAND is the bot subcommand: `uv run bot refresh ...` -> REFRESH.
 # The first FAKE_DEFERRED_ROUNDS `refresh --prices` calls also print the bot's
 # deferred NOTE, as a rate-limited price refresh does; FAKE_PRICES_EXIT, when
-# set, is the exit code of `refresh --prices` alone.
+# set, is the exit code of `refresh --prices` alone. `uv run python -` (the
+# price_fill.sh missing-count query) prints FAKE_MISSING (default 0) and nothing else.
+# `uv run bot notify` also saves its stdin, the message, to "<calls>.notify".
 _UV_RECORDER = """#!/usr/bin/env bash
 echo "$*" >> "{calls}"
+if [ "$2" = python ]; then
+  cat > /dev/null
+  echo "${{FAKE_MISSING-0}}"
+  exit 0
+fi
 echo "fake uv: $*"
+if [ "$3" = notify ]; then cat > "{calls}.notify"; fi
 if [ "$3 $4" = "refresh --prices" ]; then
   n=$(( $(cat "{calls}.rounds" 2>/dev/null || echo 0) + 1 ))
   echo "$n" > "{calls}.rounds"
@@ -112,11 +126,16 @@ def _env(bin_dir: Path, **extra: str) -> dict[str, str]:
 
 
 def _run(
-    script: Path, *args: str, env: dict[str, str], stdin: str | None = None
+    script: Path,
+    *args: str,
+    env: dict[str, str],
+    stdin: str | None = None,
+    cwd: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [str(script), *args],
         env=env,
+        cwd=cwd,
         input=stdin,
         stdin=None if stdin is not None else subprocess.DEVNULL,
         capture_output=True,
@@ -293,10 +312,19 @@ def test_wrapper_runs_both_commands_and_logs_with_a_header(
     assert f"fake uv: {_WRAPPERS[name][1]}" in log
 
 
+_NOTIFY = "run bot notify"
+
+
+def _notify_message(calls: Path) -> str:
+    """The text daily.sh piped into `bot notify`."""
+    return Path(f"{calls}.notify").read_text()
+
+
 # A failing refresh skips what follows it, except that daily.sh still refreshes
 # FX after failing prices, as `bot refresh --prices --fx` did in one process.
+# A failed daily.sh run then sends its failure message.
 _AFTER_FAILING_REFRESH = {
-    "daily.sh": _WRAPPERS["daily.sh"][:2],
+    "daily.sh": [*_WRAPPERS["daily.sh"][:2], _NOTIFY],
     "weekly.sh": _WRAPPERS["weekly.sh"][:1],
 }
 
@@ -317,8 +345,94 @@ def test_daily_exits_with_portfolio_failure_and_logs_it(
     result = _run(repo / "scripts" / "daily.sh", env=_env(recorder_bin, FAKE_PORTFOLIO_EXIT="1"))
 
     assert result.returncode == 1
-    assert _calls(calls) == _WRAPPERS["daily.sh"]
+    assert _calls(calls) == [*_WRAPPERS["daily.sh"], _NOTIFY]
     assert "fake uv: run bot portfolio" in (repo / ".cache" / "daily.log").read_text()
+
+
+# --- the failure message (#322): one `bot notify` call per failed daily.sh run ---------
+
+
+def test_daily_failing_portfolio_sends_one_failure_message(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    result = _run(repo / "scripts" / "daily.sh", env=_env(recorder_bin, FAKE_PORTFOLIO_EXIT="1"))
+
+    assert result.returncode == 1
+    assert _calls(calls) == [*_WRAPPERS["daily.sh"], _NOTIFY]
+    message = _notify_message(calls)
+    lines = message.splitlines()
+    assert lines[0] == "# daily.sh failed: bot portfolio (exit 1)"
+    assert lines[1] == ""
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\S+ on \S+, run exit code 1", lines[2]), lines[2]
+    assert lines[3] == "Last 20 lines of .cache/daily.log:"
+    assert lines[4] == ""
+    assert "fake uv: run bot portfolio" in message
+    assert "fake uv: run bot notify" not in message
+
+
+def test_daily_failing_prices_and_fx_send_one_message_listing_both(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    env = _env(recorder_bin, FAKE_PRICES_EXIT="1", FAKE_REFRESH_EXIT="2", **_NO_PAUSE)
+    result = _run(repo / "scripts" / "daily.sh", env=env)
+
+    assert result.returncode == 2
+    assert _calls(calls) == [*_WRAPPERS["daily.sh"][:2], _NOTIFY]
+    message = _notify_message(calls)
+    assert message.splitlines()[0] == (
+        "# daily.sh failed: bot refresh --prices (exit 1), bot refresh --fx (exit 2)"
+    )
+    assert "run exit code 2" in message
+
+
+def test_daily_successful_run_sends_no_message(repo: Path, recorder_bin: Path, calls: Path) -> None:
+    result = _run(repo / "scripts" / "daily.sh", env=_env(recorder_bin))
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls) == _WRAPPERS["daily.sh"]
+    assert not Path(f"{calls}.notify").exists()
+
+
+def test_daily_failing_notify_keeps_the_run_exit_code(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    env = _env(recorder_bin, FAKE_PORTFOLIO_EXIT="1", FAKE_NOTIFY_EXIT="1")
+    result = _run(repo / "scripts" / "daily.sh", env=env)
+
+    assert result.returncode == 1
+    assert _calls(calls) == [*_WRAPPERS["daily.sh"], _NOTIFY]
+    assert "fake uv: run bot notify" in (repo / ".cache" / "daily.log").read_text()
+
+
+def test_daily_failure_message_carries_exactly_the_last_20_log_lines(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    env = _env(
+        recorder_bin,
+        FAKE_DEFERRED_ROUNDS="30",
+        BOT_PRICE_ROUNDS="30",
+        FAKE_PORTFOLIO_EXIT="1",
+        **_NO_PAUSE,
+    )
+    result = _run(repo / "scripts" / "daily.sh", env=env)
+
+    assert result.returncode == 1
+    log = (repo / ".cache" / "daily.log").read_text().splitlines()
+    assert log[-1] == "fake uv: run bot notify"
+    assert len(log) > 21
+    assert _notify_message(calls).splitlines()[5:] == log[:-1][-20:]
+
+
+def test_daily_failure_message_keeps_log_lines_verbatim(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    odd = "-n 100% done \\t %s"
+    (repo / ".cache").mkdir()
+    (repo / ".cache" / "daily.log").write_text(odd + "\n")
+    result = _run(repo / "scripts" / "daily.sh", env=_env(recorder_bin, FAKE_PORTFOLIO_EXIT="1"))
+
+    assert result.returncode == 1
+    assert odd in _notify_message(calls).splitlines()
 
 
 _PRICES = "run bot refresh --prices"
@@ -364,7 +478,7 @@ def test_daily_failing_price_round_stops_the_loop_still_refreshes_fx_skips_portf
     result = _run(repo / "scripts" / "daily.sh", env=env)
 
     assert result.returncode == 2
-    assert _calls(calls) == _WRAPPERS["daily.sh"][:2]
+    assert _calls(calls) == [*_WRAPPERS["daily.sh"][:2], _NOTIFY]
 
 
 def test_daily_exits_with_the_worst_of_prices_and_fx(
@@ -374,7 +488,7 @@ def test_daily_exits_with_the_worst_of_prices_and_fx(
     result = _run(repo / "scripts" / "daily.sh", env=env)
 
     assert result.returncode == 2
-    assert _calls(calls) == _WRAPPERS["daily.sh"][:2]
+    assert _calls(calls) == [*_WRAPPERS["daily.sh"][:2], _NOTIFY]
 
 
 def _fake_sleep(bin_dir: Path, calls: Path) -> None:
@@ -412,6 +526,197 @@ def test_daily_log_marks_each_price_round(repo: Path, recorder_bin: Path) -> Non
     log = (repo / ".cache" / "daily.log").read_text()
     assert "--- prices round 1/10 " in log
     assert "--- prices round 2/10 " in log
+
+
+# --- the shared DB lock (#108): daily.sh and weekly.sh wait for it --------------------
+
+_LOCK_REL = Path(".cache") / "bot.lock"
+
+
+@contextmanager
+def _hold_lock(repo: Path) -> Iterator[int]:
+    """Hold repo/.cache/bot.lock from the test process, as another wrapper would."""
+    lock = repo / _LOCK_REL
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield fd
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+
+
+def _probe(lock: Path, label: str, calls: Path) -> str:
+    """A bash line recording whether ``lock`` is free right now, as ``<label> lock-*``."""
+    return (
+        f'if flock -n "{lock}" true; then echo "{label} lock-free" >> "{calls}"; '
+        f'else echo "{label} lock-held" >> "{calls}"; fi\n'
+    )
+
+
+@pytest.mark.parametrize("name", list(_WRAPPERS))
+def test_wrapper_times_out_when_the_db_lock_stays_held(
+    name: str, repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    env = _env(recorder_bin, BOT_DB_LOCK_WAIT="1", **_NO_PAUSE)
+    with _hold_lock(repo):
+        result = _run(repo / "scripts" / name, env=env)
+
+    assert result.returncode == 75, result.stderr
+    # daily.sh's failure message needs no lock, so it is sent while the lock is held.
+    assert _calls(calls) == ([_NOTIFY] if name == "daily.sh" else [])
+    log = (repo / ".cache" / name.replace(".sh", ".log")).read_text()
+    assert "lock timeout:" in log
+    assert ".cache/bot.lock" in log
+    if name == "daily.sh":
+        assert _notify_message(calls).splitlines()[0] == (
+            "# daily.sh failed: bot refresh --prices (exit 75), bot refresh --fx (exit 75)"
+        )
+
+
+@pytest.mark.parametrize("name", list(_WRAPPERS))
+def test_wrapper_waits_for_the_db_lock_then_runs(
+    name: str, repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    env = _env(recorder_bin, BOT_DB_LOCK_WAIT="60")
+    with _hold_lock(repo):
+        proc = subprocess.Popen(
+            [str(repo / "scripts" / name)],
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                assert _calls(calls) == []
+                time.sleep(0.1)
+        except BaseException:
+            proc.kill()
+            proc.wait()
+            raise
+    try:
+        returncode = proc.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
+        raise
+
+    assert returncode == 0
+    assert _calls(calls) == _WRAPPERS[name]
+
+
+def test_daily_releases_the_db_lock_during_the_pause_between_rounds(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    lock = repo / _LOCK_REL
+    _write_exe(recorder_bin / "sleep", "#!/usr/bin/env bash\n" + _probe(lock, "sleep $*", calls))
+    env = _env(recorder_bin, FAKE_DEFERRED_ROUNDS="99", BOT_PRICE_ROUNDS="3")
+    result = _run(repo / "scripts" / "daily.sh", env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert [c for c in _calls(calls) if c.startswith("sleep ")] == ["sleep 3600 lock-free"] * 2
+
+
+@pytest.mark.parametrize("name", list(_WRAPPERS))
+def test_wrapper_holds_the_db_lock_while_bot_runs(
+    name: str, repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    lock = repo / _LOCK_REL
+    (recorder_bin / "uv").rename(recorder_bin / "uv-real")
+    _write_exe(
+        recorder_bin / "uv",
+        "#!/usr/bin/env bash\n"
+        + _probe(lock, "uv $*", calls)
+        + f'exec "{recorder_bin / "uv-real"}" "$@"\n',
+    )
+    result = _run(repo / "scripts" / name, env=_env(recorder_bin))
+
+    assert result.returncode == 0, result.stderr
+    probes = [c for c in _calls(calls) if c.startswith("uv run bot ")]
+    assert len(probes) == 3
+    assert all(p.endswith(" lock-held") for p in probes), probes
+
+
+# Records its argv, skips the options up to the lock path, then runs the command,
+# as flock(1) does with a free lock.
+_FAKE_FLOCK = """#!/usr/bin/env bash
+echo "flock $*" >> "{calls}"
+while [ "$#" -gt 0 ]; do
+  arg="$1"
+  shift
+  [[ "$arg" == *bot.lock ]] && break
+done
+exec "$@"
+"""
+
+
+@pytest.mark.parametrize(
+    ("wait", "expected"), [("5", "-w 5"), ("soon", "-w 900"), (None, "-w 900")]
+)
+def test_wrapper_lock_wait_is_configurable_and_falls_back_when_invalid(
+    repo: Path, recorder_bin: Path, calls: Path, wait: str | None, expected: str
+) -> None:
+    _write_exe(recorder_bin / "flock", _FAKE_FLOCK.format(calls=calls))
+    extra = {} if wait is None else {"BOT_DB_LOCK_WAIT": wait}
+    result = _run(repo / "scripts" / "daily.sh", env=_env(recorder_bin, **extra))
+
+    assert result.returncode == 0, result.stderr
+    flocks = [c for c in _calls(calls) if c.startswith("flock ")]
+    assert len(flocks) == 3
+    for line in flocks:
+        assert f" {expected} " in line
+        assert ".cache/bot.lock" in line
+
+
+def test_weekly_runs_publish_site_without_the_db_lock(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    lock = repo / _LOCK_REL
+    _write_exe(
+        repo / "scripts" / "publish_site.sh",
+        "#!/usr/bin/env bash\n" + _probe(lock, "publish", calls),
+    )
+    result = _run(repo / "scripts" / "weekly.sh", env=_env(recorder_bin))
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls)[-1] == "publish lock-free"
+
+
+def test_readme_scheduling_documents_the_shared_db_lock() -> None:
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    start = readme.index("\n## Scheduling\n")
+    end = readme.find("\n## ", start + 1)
+    section = " ".join(readme[start : None if end == -1 else end].split())
+    for fact in (
+        ".cache/bot.lock",
+        "daily.sh",
+        "weekly.sh",
+        "price_fill.sh",
+        "BOT_DB_LOCK_WAIT",
+        "900",
+        "lock timeout:",
+        "75",
+        "skips",
+    ):
+        assert fact in section, fact
+
+
+def test_readme_scheduling_documents_the_failure_message() -> None:
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    start = readme.index("\n## Scheduling\n")
+    end = readme.find("\n## ", start + 1)
+    section = " ".join(readme[start : None if end == -1 else end].split())
+    for fact in ("daily.sh failed:", "bot notify", "20 lines", "BOT_NOTIFIER=none", "exit code"):
+        assert fact in section, fact
+
+
+def test_daily_header_comment_mentions_the_failure_message() -> None:
+    lines = (REPO_ROOT / "scripts" / "daily.sh").read_text().splitlines()
+    header = " ".join(lines[1 : lines.index("set -uo pipefail")])
+    assert "bot notify" in header
 
 
 def test_weekly_exits_with_screen_failure(repo: Path, recorder_bin: Path, calls: Path) -> None:
@@ -459,6 +764,174 @@ def test_wrapper_run_from_another_directory_logs_in_the_checkout(
     )
     assert (repo / ".cache" / "daily.log").exists()
     assert not (tmp_path / ".cache").exists()
+
+
+# --- price_fill.sh: the hourly Tiingo drip ---------------------------------------------
+
+_PRICE_FILL = ["run bot refresh --prices --only-missing", "run python -"]
+
+
+def _price_fill_log(repo: Path) -> str:
+    return (repo / ".cache" / "price_fill.log").read_text()
+
+
+def test_price_fill_uses_the_first_uv_on_path(
+    repo: Path, tmp_path: Path, recorder_bin: Path, calls: Path
+) -> None:
+    home = tmp_path / "home"
+    marker = tmp_path / "decoy-ran"
+    _write_exe(home / ".local" / "bin" / "uv", f'#!/usr/bin/env bash\ntouch "{marker}"\nexit 97\n')
+
+    result = _run(repo / "scripts" / "price_fill.sh", env=_env(recorder_bin, HOME=str(home)))
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls) == _PRICE_FILL
+    assert not marker.exists()
+
+
+def test_price_fill_through_a_symlink_logs_in_the_real_checkout(
+    repo: Path, tmp_path: Path, recorder_bin: Path
+) -> None:
+    link = tmp_path / "elsewhere" / "price_fill.sh"
+    link.parent.mkdir()
+    link.symlink_to(repo / "scripts" / "price_fill.sh")
+
+    result = _run(link, env=_env(recorder_bin), cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert " run ===" in _price_fill_log(repo)
+    assert not (tmp_path / ".cache").exists()
+    assert not (link.parent / ".cache").exists()
+
+
+def test_price_fill_run_from_another_directory_logs_in_the_checkout(
+    repo: Path, tmp_path: Path, recorder_bin: Path
+) -> None:
+    result = _run(repo / "scripts" / "price_fill.sh", env=_env(recorder_bin), cwd=tmp_path)
+
+    assert result.returncode == 0, result.stderr
+    assert " run ===" in _price_fill_log(repo)
+    assert not (tmp_path / ".cache").exists()
+
+
+def test_price_fill_with_done_exits_0_without_uv(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    (repo / ".cache").mkdir()
+    (repo / ".cache" / "price_fill.DONE").touch()
+
+    result = _run(repo / "scripts" / "price_fill.sh", env=_env(recorder_bin))
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls) == []
+    assert not (repo / ".cache" / "price_fill.log").exists()
+
+
+def test_price_fill_writes_done_when_nothing_is_missing(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    env = _env(recorder_bin, FAKE_MISSING="0")
+
+    result = _run(repo / "scripts" / "price_fill.sh", env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls) == _PRICE_FILL
+    assert (repo / ".cache" / "price_fill.DONE").exists()
+    log = _price_fill_log(repo)
+    assert "missing=0\n" in log
+    assert "FILLED" in log
+
+
+def test_price_fill_with_tickers_missing_keeps_going(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    env = _env(recorder_bin, FAKE_MISSING="12")
+
+    result = _run(repo / "scripts" / "price_fill.sh", env=env)
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls) == _PRICE_FILL
+    assert not (repo / ".cache" / "price_fill.DONE").exists()
+    log = _price_fill_log(repo)
+    assert "missing=12\n" in log
+    assert "FILLED" not in log
+
+
+def test_price_fill_with_no_count_logs_a_question_mark(repo: Path, recorder_bin: Path) -> None:
+    result = _run(repo / "scripts" / "price_fill.sh", env=_env(recorder_bin, FAKE_MISSING=""))
+
+    assert result.returncode == 0, result.stderr
+    assert "missing=?\n" in _price_fill_log(repo)
+    assert not (repo / ".cache" / "price_fill.DONE").exists()
+
+
+def test_price_fill_skips_when_the_db_lock_is_held(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    (repo / ".cache").mkdir()
+    fd = os.open(repo / ".cache" / "bot.lock", os.O_WRONLY | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        result = _run(repo / "scripts" / "price_fill.sh", env=_env(recorder_bin))
+    finally:
+        os.close(fd)
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls) == []
+    log = _price_fill_log(repo)
+    assert log.count("skipped: DB busy") == 1
+    assert ".cache/bot.lock" in log
+    assert " run ===" in log
+    assert not (repo / ".cache" / "price_fill.DONE").exists()
+
+
+def test_price_fill_runs_when_the_db_lock_is_free(
+    repo: Path, recorder_bin: Path, calls: Path
+) -> None:
+    (repo / ".cache").mkdir()
+    (repo / ".cache" / "bot.lock").touch()
+
+    result = _run(repo / "scripts" / "price_fill.sh", env=_env(recorder_bin))
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls) == _PRICE_FILL
+    assert "skipped: DB busy" not in _price_fill_log(repo)
+
+
+# Records, per call, whether .cache/bot.lock was held by someone else while `uv` ran;
+# any other `flock` failure (127: not installed) records its exit code instead.
+_UV_LOCK_PROBE = """#!/usr/bin/env bash
+flock -n "{lock}" true
+rc=$?
+case $rc in
+  0) state=lock-free ;;
+  1) state=lock-held ;;
+  *) state="flock-exit-$rc" ;;
+esac
+echo "$state $*" >> "{calls}"
+if [ "$2" = python ]; then
+  cat > /dev/null
+  echo 0
+fi
+"""
+
+
+def test_price_fill_holds_the_db_lock_while_uv_runs(
+    repo: Path, tmp_path: Path, calls: Path
+) -> None:
+    probe_bin = tmp_path / "bin-probe"
+    lock = repo / ".cache" / "bot.lock"
+    _write_exe(probe_bin / "uv", _UV_LOCK_PROBE.format(lock=lock, calls=calls))
+
+    result = _run(repo / "scripts" / "price_fill.sh", env=_env(probe_bin))
+
+    assert result.returncode == 0, result.stderr
+    assert _calls(calls) == [f"lock-held {c}" for c in _PRICE_FILL]
+    fd = os.open(lock, os.O_WRONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)  # released once the script exits
+    finally:
+        os.close(fd)
 
 
 _UA = "Jane Doe jane@example.com"
@@ -715,19 +1188,16 @@ def test_bootstrap_stops_when_damodaran_fails(repo: Path, recorder_bin: Path, ca
     assert _calls(calls) == ["run bot refresh --damodaran"]
 
 
-def test_bootstrap_prints_the_tws_checklist_and_next_steps(repo: Path, recorder_bin: Path) -> None:
+def test_bootstrap_prints_the_flex_checklist_and_next_steps(repo: Path, recorder_bin: Path) -> None:
     _filled_env(repo)
 
     out = _run(_bootstrap(repo), "--skip-damodaran", env=_env(recorder_bin)).stdout
 
     for needle in (
-        "Enable ActiveX and Socket Clients",
-        "127.0.0.1",
-        "Read-Only API",
-        "BOT_IBKR_HOST=127.0.0.1",
-        "BOT_IBKR_PORT=7496",
-        "BOT_IBKR_CLIENT_ID=1",
-        "IbkrClient.from_settings(load_settings()).accounts()",
+        "Flex Web Service",
+        "BOT_IBKR_FLEX_TOKEN",
+        "BOT_IBKR_FLEX_QUERY_ID",
+        "bot flex-capture",
         "bot portfolio",
         "uv run bot refresh --fundamentals",
         "uv run bot refresh --prices --only-missing",
@@ -941,3 +1411,19 @@ def test_wrapper_with_a_failing_pull_logs_it_and_still_runs(
     assert result.returncode == 0, result.stderr
     assert _calls(calls) == _WRAPPERS["daily.sh"]
     assert "sync_master: pull failed" in (repo / ".cache" / "daily.log").read_text()
+
+
+def test_price_fill_pulls_origin_master_before_running(
+    behind_origin: Path, recorder_bin: Path, calls: Path
+) -> None:
+    repo = behind_origin
+
+    result = _run(repo / "scripts" / "price_fill.sh", env=_env(recorder_bin, **_GIT_ENV))
+
+    assert result.returncode == 0, result.stderr
+    assert (repo / "NEW").read_text() == "from origin\n"
+    assert _calls(calls) == _PRICE_FILL
+    log = _price_fill_log(repo)
+    assert log.index(" sync ===") < log.index(" run ===")
+    assert "sync_master: master " in log
+    assert log.count(" sync ===") == 1

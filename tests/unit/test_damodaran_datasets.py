@@ -17,6 +17,9 @@ import pytest
 
 from bot.ingest.damodaran import (
     INDUSTRY_DATASETS,
+    INDUSTRY_PARSE_ARTEFACT_COLUMNS,
+    WACC_COLUMN_MAP,
+    derive_industry_columns,
     import_damodaran_from_files,
     merge_industry_datasets,
 )
@@ -24,7 +27,7 @@ from bot.storage.db import apply_schema
 from bot.valuator.assumptions import AssumptionSource, resolve_assumptions
 from tests.unit.test_valuator_assumptions import _seed_company, _seed_financials
 
-_FIXTURES = Path("tests/fixtures/damodaran")
+_FIXTURES = Path(__file__).resolve().parent.parent / "fixtures" / "damodaran"
 _WACC_FIXTURE = _FIXTURES / "wacc_sample.xls"
 _CTRY_FIXTURE = _FIXTURES / "ctryprem_sample.xls"
 
@@ -32,12 +35,6 @@ _CTRY_FIXTURE = _FIXTURES / "ctryprem_sample.xls"
 _EXTRA_KEYS = tuple(d.key for d in INDUSTRY_DATASETS if d.key != "wacc")
 
 _EXTRA_FIXTURES = {key: _FIXTURES / f"{key}_sample.xls" for key in _EXTRA_KEYS}
-
-_ALL_FIXTURES_PRESENT = (
-    _WACC_FIXTURE.exists()
-    and _CTRY_FIXTURE.exists()
-    and all(p.exists() for p in _EXTRA_FIXTURES.values())
-)
 
 
 def test_registry_covers_every_column_the_consumers_select() -> None:
@@ -70,6 +67,16 @@ def test_every_registry_column_map_starts_with_the_industry_key() -> None:
     # _to_normalized_rows treats the first key as the row's primary key.
     for dataset in INDUSTRY_DATASETS:
         assert next(iter(dataset.column_map)) == "industry", dataset.key
+        assert next(iter(dataset.header_map)) == "industry", dataset.key
+
+
+def test_wacc_column_map_carries_no_parse_artefact() -> None:
+    assert "debt_weight_raw" not in WACC_COLUMN_MAP
+    assert INDUSTRY_PARSE_ARTEFACT_COLUMNS == {"debt_weight_raw": "D/(D+E)"}
+    wacc = next(d for d in INDUSTRY_DATASETS if d.key == "wacc")
+    assert wacc.column_map == WACC_COLUMN_MAP
+    assert wacc.parse_artefacts == INDUSTRY_PARSE_ARTEFACT_COLUMNS
+    assert wacc.header_map == {**WACC_COLUMN_MAP, **INDUSTRY_PARSE_ARTEFACT_COLUMNS}
 
 
 def test_merge_is_an_outer_join_on_industry() -> None:
@@ -113,21 +120,9 @@ def _seeded_conn() -> duckdb.DuckDBPyConnection:
     return conn
 
 
-def test_no_dataset_maps_a_column_the_table_does_not_have() -> None:
-    """A stray column_map key would reach INSERT and fail at runtime.
-
-    upsert_industry_rows builds its INSERT column list from the row keys, so a
-    key that is not a damodaran_industry column produces a SQL error against the
-    real table. Only declared parse artefacts — header strings the parser reads
-    and derive_industry_columns consumes and pops before the upsert — are exempt.
-    """
-    #: Row fields the parser produces that are deliberately not DB columns.
-    #: derive_industry_columns turns debt_weight_raw into debt_to_equity plus
-    #: beta_unlevered and drops it.
-    parse_artefacts = {"debt_weight_raw"}
-
+def _industry_columns() -> set[str]:
     conn = _seeded_conn()
-    real_columns = {
+    columns = {
         row[0]
         for row in conn.execute(
             "SELECT column_name FROM information_schema.columns "
@@ -135,16 +130,60 @@ def test_no_dataset_maps_a_column_the_table_does_not_have() -> None:
         ).fetchall()
     }
     conn.close()
-    assert real_columns, "damodaran_industry has no columns; the schema did not apply"
+    assert columns, "damodaran_industry has no columns; the schema did not apply"
+    return columns
 
+
+def test_no_dataset_maps_a_column_the_table_does_not_have() -> None:
+    """A stray column_map key would reach INSERT and fail at runtime.
+
+    upsert_industry_rows builds its INSERT column list from the row keys, so a
+    key that is not a damodaran_industry column produces a SQL error against the
+    real table. Nothing is exempt: parse artefacts live in ``parse_artefacts``.
+    """
+    real_columns = _industry_columns()
     for dataset in INDUSTRY_DATASETS:
-        stray = set(dataset.column_map) - real_columns - parse_artefacts
+        stray = set(dataset.column_map) - real_columns
         assert not stray, f"{dataset.key} maps non-columns: {sorted(stray)}"
 
 
-@pytest.mark.skipif(not _ALL_FIXTURES_PRESENT, reason="dataset fixtures absent")
+def test_parse_artefacts_are_not_columns_and_never_reach_the_upsert() -> None:
+    real_columns = _industry_columns()
+    for dataset in INDUSTRY_DATASETS:
+        artefacts = set(dataset.parse_artefacts)
+        assert not artefacts & real_columns, dataset.key
+        assert not artefacts & set(dataset.column_map), dataset.key
+        for field in artefacts:
+            assert field not in derive_industry_columns({field: 0.2}), field
+
+
+def test_real_import_derives_leverage_from_the_parse_artefact() -> None:
+    """D/(D+E) is read although no column_map carries it, and reaches the DB as D/E."""
+    conn = _seeded_conn()
+    import_damodaran_from_files(
+        conn,
+        industry_path=_WACC_FIXTURE,
+        country_path=_CTRY_FIXTURE,
+        region="US",
+        year=2026,
+    )
+    counts = conn.execute(
+        "SELECT count(*), count(debt_to_equity), count(beta_unlevered) "
+        "FROM damodaran_industry WHERE region = 'US' AND year = 2026"
+    ).fetchone()
+    assert counts is not None
+    total, with_de, with_bu = counts
+    assert total > 50
+    assert with_de > total * 0.9
+    assert with_bu > total * 0.9
+
+
 def test_real_import_fills_the_columns_the_extra_datasets_publish() -> None:
-    """The end of the silent-NULL bug: every mapped column arrives populated."""
+    """The end of the silent-NULL bug: every mapped column arrives populated.
+
+    At least 90% of industries carry each column, so a header drift that empties
+    most of one column fails here.
+    """
     conn = _seeded_conn()
     result = import_damodaran_from_files(
         conn,
@@ -168,11 +207,17 @@ def test_real_import_fills_the_columns_the_extra_datasets_publish() -> None:
         "roic",
     )
     counts = conn.execute(
-        "SELECT " + ", ".join(f"COUNT({c})" for c in columns) + " FROM damodaran_industry"
+        "SELECT COUNT(*), " + ", ".join(f"COUNT({c})" for c in columns) + " FROM damodaran_industry"
     ).fetchone()
     assert counts is not None
-    for column, count in zip(columns, counts, strict=True):
-        assert count > 0, f"{column} is NULL for every industry"
+    total, *populated = counts
+    assert total > 0, "the import wrote no industry rows"
+    short = [
+        f"{column}: {count} of {total} industries populated"
+        for column, count in zip(columns, populated, strict=True)
+        if count < 0.9 * total
+    ]
+    assert not short, "; ".join(short)
     conn.close()
 
 
@@ -198,7 +243,6 @@ def _imported_software_company() -> duckdb.DuckDBPyConnection:
     return conn
 
 
-@pytest.mark.skipif(not _ALL_FIXTURES_PRESENT, reason="dataset fixtures absent")
 def test_imported_files_resolve_a_full_dcf_for_a_software_company() -> None:
     """#50's criterion 2 against the imported files, not hand-seeded sector rows."""
     conn = _imported_software_company()
@@ -209,7 +253,6 @@ def test_imported_files_resolve_a_full_dcf_for_a_software_company() -> None:
     conn.close()
 
 
-@pytest.mark.skipif(not _ALL_FIXTURES_PRESENT, reason="dataset fixtures absent")
 def test_a_blanked_sector_margin_leaves_the_dcf_unresolved() -> None:
     """Negative control: the guard above can fail the way #50's bug would make it."""
     conn = _imported_software_company()
@@ -221,8 +264,7 @@ def test_a_blanked_sector_margin_leaves_the_dcf_unresolved() -> None:
     conn.close()
 
 
-@pytest.mark.skipif(not _ALL_FIXTURES_PRESENT, reason="dataset fixtures absent")
-def test_the_cost_of_capital_file_wins_the_columns_it_shares() -> None:
+def test_the_margin_file_wins_the_columns_it_shares_with_psdata() -> None:
     """psdata.xls also publishes Net Margin; margin.xls comes first and wins."""
     conn = _seeded_conn()
     import_damodaran_from_files(
@@ -260,7 +302,6 @@ def test_the_cost_of_capital_file_wins_the_columns_it_shares() -> None:
     conn2.close()
 
 
-@pytest.mark.skipif(not _ALL_FIXTURES_PRESENT, reason="dataset fixtures absent")
 def test_a_dataset_that_fails_to_parse_degrades_to_partial(tmp_path: Path) -> None:
     """§13.2: one broken extra dataset warns and downgrades, never aborts."""
     conn = _seeded_conn()
@@ -291,7 +332,6 @@ def test_a_dataset_that_fails_to_parse_degrades_to_partial(tmp_path: Path) -> No
     conn.close()
 
 
-@pytest.mark.skipif(not _ALL_FIXTURES_PRESENT, reason="dataset fixtures absent")
 def test_download_of_the_full_registry_writes_one_refresh_log_row(tmp_path: Path) -> None:
     """import_damodaran downloads every registry dataset, still logging once."""
     from bot.ingest.damodaran import import_damodaran
@@ -316,7 +356,6 @@ def test_download_of_the_full_registry_writes_one_refresh_log_row(tmp_path: Path
     conn.close()
 
 
-@pytest.mark.skipif(not _ALL_FIXTURES_PRESENT, reason="dataset fixtures absent")
 def test_an_extra_dataset_download_failure_degrades_to_partial(tmp_path: Path) -> None:
     """A 404 on one of the extra files must not lose the rest of the import."""
     from bot.ingest.damodaran import import_damodaran

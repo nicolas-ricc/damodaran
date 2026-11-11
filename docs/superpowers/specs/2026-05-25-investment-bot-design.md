@@ -270,11 +270,21 @@ Reinvestment = ΔWC + Capex − Depreciation ≈ ΔRevenue / sales_to_capital
 
 ### 7.3 Seis supuestos críticos con source explícito
 
-Cada supuesto tiene `source ∈ {manual, analyst_consensus, sector_default_damodaran, rule_based, historical_average, story}`. El reporte muestra siempre cuál es cuál. `story` aplica solo para `hypergrowth`, ver §7.6.
+Cada supuesto lleva un `source` (`AssumptionSource` en `bot.valuator.assumptions`). El reporte muestra siempre cuál es cuál. Valores implementados:
+
+- `manual`: override en `config/assumptions/<TICKER>.yaml`.
+- `sector_default_damodaran`: mediana sectorial de Damodaran de la región de la empresa.
+- `country_default_damodaran`: el dato de país de `damodaran_country` (solo la tasa impositiva), cuando la fila sectorial no trae tasa.
+- `sector_default_damodaran_cross_region`: mediana sectorial de Damodaran de otra región, porque la de la empresa no tiene filas ingeridas; el reporte muestra la sustitución.
+- `rule_based`: una regla fija, p. ej. `g = min(rfr, GDP nominal)` de la moneda de valuación, o el GDP nominal como arranque del growth sin historia.
+- `historical_average`: la historia propia de la empresa (CAGR de ingresos, margen promedio del ciclo).
+- `story_pattern`: trayectoria del patrón de proyección del story type (§7.1), derivada de datos de la empresa y del sector (growth de `high-growth`, rampa de margen).
+- `story`: la sección `story` del archivo de override; aplica solo para `hypergrowth`, ver §7.6.
+- `unresolved`: ninguna capa produjo un valor; el reporte muestra el hueco en lugar de un número.
 
 | Supuesto | Default | Override común |
 |---|---|---|
-| Revenue growth path (años 1-5) | analyst_consensus → converge a GDP nominal país en y10 | Manual cuando consensus está sesgado |
+| Revenue growth path (10 años) | Arranca en el growth propio de la empresa: el CAGR histórico de ingresos (`story_pattern` en `high-growth`, `historical_average` en los demás), o el GDP nominal de la moneda sin historia (`rule_based`). Converge linealmente al terminal growth (g, ver abajo, o el `terminal_growth` manual) en y10. `hypergrowth` sigue su story (§7.6) y también termina en g en y10. Sin g, o sin historia ni GDP de la moneda, el default queda `unresolved` | Manual (escalar, o lista de un valor por año cuyo largo fija el horizonte) cuando el CAGR histórico no representa el futuro |
 | Operating margin steady-state | Sector default Damodaran | Manual si hay razón estructural |
 | Sales-to-capital ratio | Sector default Damodaran | Manual |
 | WACC | CAPM con beta sectorial + ERP país (ambos Damodaran) + estructura de capital de la empresa | Raro, solo si estructura atípica |
@@ -291,15 +301,15 @@ Cada reporte de análisis incluye:
 
 ### 7.5 Narrative flags cuantitativos
 
-Proxies de "story↔numbers consistency" (verde/amarillo/rojo):
+Proxies de "story↔numbers consistency" (verde/amarillo/rojo). Cuatro controles corren siempre; el quinto, story-margin, corre solo cuando el story type es `high-growth`:
 
-- **Story-margin consistency**: si `high-growth` pero margins > sector, flag amarillo.
+- **Story-margin consistency**: corre solo para `high-growth`; otros story types no llevan esta flag. Si el margen de la empresa supera al del sector, flag amarillo; verde si no; desconocido si falta un margen.
 - **Growth-reinvestment consistency**: si growth implícito no se soporta con reinvestment proyectado, flag rojo.
 - **Beta vs business risk**: si beta sectorial < 1 pero leverage operativo+financiero altos, flag amarillo.
 - **Terminal value share > 80%**: flag amarillo (valuación frágil, depende casi todo de perpetuidad).
 - **Country exposure vs ERP listado**: si revenue mayoritariamente fuera del país de listado y ERP weighted > listado + 300bps, flag rojo.
 
-Se suman hasta tres flags más: `hypergrowth_story` aparece cuando disparan las señales del clasificador o cuando el story type es `hypergrowth`; los otros dos, solo cuando el story type es `hypergrowth`:
+Se suman hasta tres flags más, también condicionales. `hypergrowth_story` aparece cuando disparan las señales del clasificador o cuando el story type es `hypergrowth`; los otros dos, solo cuando el story type es `hypergrowth`:
 
 - **`hypergrowth_story`**: reconcilia las señales del clasificador con el archivo de story. Rojo si hay señales y no hay archivo (la valuación default no es confiable); amarillo si hay archivo y no hay señales; verde si están las dos.
 - **`hypergrowth_revenue_scale`**: si los ingresos del año 10 superan a los de la empresa más grande hoy (~750B), flag amarillo.
@@ -358,14 +368,12 @@ Reglas de validación, todas con `ValueError` solo para ese ticker (el batch sig
 
 ### 8.1 Sync con IBKR
 
-**API elegida**: Client Portal API (REST), no TWS API.
+**API elegida**: IBKR Flex Web Service, única fuente de IBKR (ADR 0010; reemplaza a las ADR 0003 y 0004). Ni Client Portal ni TWS.
 
-- HTTP/JSON, más simple de operar
-- Auth OAuth + sesión renovable
-- IBKR provee Docker oficial `ibkr/cp-gateway` corriendo en localhost
-- Trade-off: requiere re-login interactivo cada ~24h (10 segundos en browser). Aceptable.
-
-Si la fricción de re-login molesta, migración natural a TWS API con IB Gateway headless.
+- Una sola Activity Flex Query en XML, período «Last 7 Calendar Days», con cinco secciones: Open Positions (accountId, conid, symbol, assetCategory, currency, listingExchange, position, costBasisPrice, markPrice, reportDate), Cash Report (accountId, currency, endingCash, levelOfDetail), Trades a nivel Executions (accountId, conid, symbol, assetCategory, currency, buySell, quantity, tradePrice, dateTime, ibExecID, ibOrderID, levelOfDetail), Corporate Actions y Cash Transactions
+- Auth con un token del Flex Web Service (vence como máximo al año), sin sesión de escritorio ni gateway: `bot portfolio` corre sin supervisión desde cron
+- `BOT_IBKR_FLEX_TOKEN` y `BOT_IBKR_FLEX_QUERY_ID` en `.env`; `BOT_IBKR_FLEX_TZ` (por defecto America/New_York) es la zona horaria de los `dateTime` de los trades
+- Trade-off: el statement es de fin de día, así que el snapshot lleva la fecha del statement (el día hábil anterior), no la de la corrida. Un hueco entre corridas mayor que el período de la query pierde fills salvo que se amplíe el período una vez.
 
 ### 8.2 Datos sincronizados diariamente
 
@@ -572,5 +580,5 @@ Part-time: ~2-3 meses. Full-time: ~4-6 semanas.
 1. **Mapeo industrias proveedor → Damodaran**: trabajo manual sostenido. Industrias nuevas en FMP/EOD requieren actualizar el CSV.
 2. **Calidad de fundamentals internacionales**: variable por país. Gaps de cobertura pueden requerir cambiar de proveedor.
 3. **IBKR Client Portal session re-auth**: fricción operativa diaria. Tolerable, migración a TWS posible si molesta.
-4. **DCF garbage-in/garbage-out**: el valor del bot depende críticamente de la calidad de los supuestos. La sensitivity analysis y los narrative flags mitigan, pero no eliminan, el riesgo de confiar en un intrinsic value derivado de un consensus de analistas sesgado.
+4. **DCF garbage-in/garbage-out**: el valor del bot depende críticamente de la calidad de los supuestos. La sensitivity analysis y los narrative flags mitigan, pero no eliminan, el riesgo de confiar en un intrinsic value derivado de un CAGR histórico de ingresos que no representa el futuro de la empresa: proyecta hacia adelante lo que ya pasó.
 5. **No detectar fraudes contables**: ningún screener cuantitativo es robusto a fraude. Los filtros de quality (accruals, cashflow) ayudan, pero la lectura humana sigue siendo necesaria.

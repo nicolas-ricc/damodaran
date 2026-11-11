@@ -60,7 +60,8 @@ damodaran: "1. Damodaran datasets" {
       - wacc.xls: beta, cost of equity, cost of debt, tax rate,
         cost of capital, debt weight D/(D+E).
       - ctryprem.xls, sheet 'ERPs by country': country, region, rating,
-        total equity risk premium, country risk premium.
+        total equity risk premium,
+        country risk premium, PRS (Political Risk Services) score, ERP basis.
         A failure stops the remaining downloads.
       - margin.xls: operating margin, net margin.
       - capex.xls: sales to invested capital.
@@ -82,7 +83,7 @@ damodaran: "1. Damodaran datasets" {
     class: step
     tax: |md A missing tax rate counts as 0. beta_unlevered is empty when D/E is empty. | {class: note}
   }
-  country: "country rows\nsheet 'ERPs by country', parsing stops at the second (unrated) table\ntax rate: sheet 'Country Tax Rates', kept only within [0, 1]\nkept per country: total equity risk premium, country risk premium, rating, region" {  # @symbol bot.ingest.damodaran.parse_country_tax_rates
+  country: "country rows\nsheet 'ERPs by country', two tables: the Moody's-rated countries, then the unrated countries scored by PRS (Political Risk Services), each read with its own columns; erp_basis says which\ntax rate: sheet 'Country Tax Rates', kept only within [0, 1]\nkept per country: total equity risk premium, country risk premium, rating, region, PRS score, ERP basis" {  # @symbol bot.ingest.damodaran.parse_country_tax_rates
     class: step
     risk_free: |md No risk-free rate is imported: it comes per currency from config/currencies.yaml, curated by hand (architecture decision record (ADR) 0005 (Implemented)). | {class: note}  # @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table
   }
@@ -110,7 +111,7 @@ fundamentals: "2. fundamentals" {
   mapping_valid: "every target on the Damodaran industry list,\nno duplicate (provider, label) row?\nno: the load fails and no ticker is imported" {  # @symbol bot.reference.industries
     class: decision
   }
-  skip: "latest filing already stored?\nprovider's newest 10-K, 10-Q or 20-F filing date (amendments too)\nis not after the newest filings_log date of this provider:\nyes: skipped, no import\n--force bypasses the check; a probe error imports anyway" {  # @symbol bot.ingest.universe._should_skip
+  skip: "latest filing already stored?\nprovider's newest 10-K, 10-Q or 20-F filing date (amendments too), a notification of late filing (NT 10-K, NT 10-Q)\nor an 8-K reporting an auditor change (item 4.01)\nis not after the newest filings_log date of this provider:\nyes: skipped, no import\n--force bypasses the check; a probe error imports anyway" {  # @symbol bot.ingest.universe._should_skip @const bot.ingest.sec_edgar.AUDITOR_CHANGE_ITEM
     class: decision
   }
   import: "import one ticker\nfetch company facts and submissions, parse them,\nthen write in one transaction:\ncompanies, financials_annual, financials_quarterly, filings_log" {  # @symbol bot.ingest.universe.refresh_universe @symbol bot.ingest.universe.import_company
@@ -254,7 +255,7 @@ fundamentals.rate_limit -> fundamentals.status: "no: imported or failed; yes: th
 fundamentals.import -> duckdb.companies: "company row with industry_damodaran"
 fundamentals.fiscal -> duckdb.financials_quarterly: "quarterly rows"
 fundamentals.shares -> duckdb.financials_annual: "annual rows, share counts corrected"
-fundamentals.import -> duckdb.filings_log: "one row per form and filing date"
+fundamentals.import -> duckdb.filings_log: "one row per form and filing date; 8-K rows carry their item numbers"
 fundamentals.import -> duckdb.refresh_log: "one row per ticker, source = provider name"
 fundamentals.status -> duckdb.refresh_log: "one summary row, source = provider name + _universe"
 

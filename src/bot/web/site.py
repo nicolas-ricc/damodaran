@@ -11,12 +11,14 @@ from typing import Any
 
 import structlog
 from jinja2 import Environment, PackageLoader, Template
+from markupsafe import Markup
 
 from bot.reporting.analysis_report import fmt_ratio
 from bot.web.index import CompanyEntry, scan
 from bot.web.svg import (
     flag_mark,
     scenario_grid_table,
+    term_html,
     tornado_table,
     value_line_svg,
     verdict_mark,
@@ -89,6 +91,7 @@ def _environment(base_url: str) -> Environment:
         value_line_svg=value_line_svg,
         scenario_grid_table=scenario_grid_table,
         tornado_table=tornado_table,
+        term=lambda label, description: Markup(term_html(label, description)),
         verdict_mark=verdict_mark,
         flag_mark=flag_mark,
         fmt_ratio=fmt_ratio,

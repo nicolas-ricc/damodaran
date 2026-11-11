@@ -7,6 +7,7 @@ from dataclasses import replace
 
 import pytest
 
+from bot.web.glossary import Term
 from bot.web.svg import (
     flag_mark,
     scenario_grid_table,
@@ -33,7 +34,7 @@ def _vl(price: float = 100.0, intrinsic: float = 150.0) -> ValueLine:
     )
 
 
-def _grid(axis_a: str = "cost_of_equity") -> ScenarioGrid:
+def _grid(axis_a: str = "Cost of equity") -> ScenarioGrid:
     v = Verdict
     cells = tuple(
         tuple(None if (r, c) == (0, 0) else (v.UNDERVALUED if c > 2 else v.FAIR) for c in range(5))
@@ -41,8 +42,8 @@ def _grid(axis_a: str = "cost_of_equity") -> ScenarioGrid:
     )
     labels = ("-1.0pp", "-0.5pp", "+0.0pp", "+0.5pp", "+1.0pp")
     return ScenarioGrid(
-        axis_a=axis_a,
-        axis_b="operating_margin (yr 1)",
+        axis_a=Term(axis_a, "Equity leg."),
+        axis_b=Term("Operating margin (yr 1)", "Year one."),
         row_labels=labels,
         col_labels=labels,
         cells=cells,
@@ -192,11 +193,14 @@ def test_scenario_grid_is_a_table_with_headers_and_a_verdict_per_cell() -> None:
     assert 'aria-label="Scenarios 10/24"' in html
     assert html.count('<th scope="row">') == 5
     assert html.count('<th scope="col">') == 5
-    assert '<th scope="col" class="axis">cost_of_equity (pp) ↓</th>' in html
+    assert (
+        '<th scope="col" class="axis"><abbr title="Equity leg.">Cost of equity (pp)</abbr> ↓</th>'
+        in html
+    )
     assert html.count('class="cell cell-undervalued"') == 10
     assert html.count('class="cell cell-fair"') == 14
     assert html.count("cell-none") == 1
-    assert "operating_margin (yr 1)" in html and "cost_of_equity" in html
+    assert "Operating margin (yr 1)" in html and "Cost of equity" in html
 
 
 def test_tornado_keeps_input_order_and_sorts_each_bar() -> None:
@@ -301,14 +305,20 @@ def test_pp_axes_name_their_unit_once() -> None:
     assert "pp</th>" not in html
     assert '<th scope="col">-1.0</th>' in html and '<th scope="col">+0.5</th>' in html
     assert '<th scope="row">+0.0</th>' in html
-    assert 'class="axis">operating_margin (yr 1) (pp) →</th>' in html
-    assert "cost_of_equity (pp) ↓" in html
+    assert 'class="axis"><abbr title="Year one.">Operating margin (yr 1) (pp)</abbr> →</th>' in html
+    assert "Cost of equity (pp)</abbr> ↓" in html
 
 
 def test_a_factor_axis_keeps_its_heads_and_gets_no_unit() -> None:
     labels = ("\u00d70.8", "\u00d70.9", "\u00d71.0", "\u00d71.1", "\u00d71.2")
-    grid = replace(_grid(), axis_a="sales_to_capital", row_labels=labels)
+    grid = replace(_grid("Sales-to-capital"), row_labels=labels)
     html = str(scenario_grid_table(grid))
     assert '<th scope="row">\u00d70.8</th>' in html
-    assert "sales_to_capital ↓" in html and "sales_to_capital (pp)" not in html
-    assert "(pp) →" in html  # the pp column axis still names its unit
+    assert "Sales-to-capital</abbr> ↓" in html and "Sales-to-capital (pp)" not in html
+    assert "(pp)</abbr> →" in html  # the pp column axis still names its unit
+
+
+def test_scenario_axes_carry_their_descriptions_as_tooltips() -> None:
+    html = str(scenario_grid_table(_grid()))
+    assert '<abbr title="Equity leg.">Cost of equity (pp)</abbr> ↓' in html
+    assert '<abbr title="Year one.">Operating margin (yr 1) (pp)</abbr> →' in html

@@ -234,7 +234,7 @@ def _fixture_bundles() -> dict[str, FundamentalsBundle]:
             name=f"{ticker} Inc",
             exchange="NASDAQ",
             exchange_short_name="NASDAQ",
-            country="United States",  # matches damodaran_country.country from the fixtures
+            country="US",  # the ISO code providers store, not the damodaran_country name
             currency="USD",
             sector="Technology",
             industry=spec["industry"],

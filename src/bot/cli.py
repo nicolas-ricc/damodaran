@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import sys
 from contextlib import closing
 from datetime import date
 from pathlib import Path
@@ -15,8 +17,7 @@ from bot.ingest.damodaran import import_damodaran
 from bot.ingest.edgar_stooq import EdgarStooqProvider
 from bot.ingest.edgar_tiingo import EdgarTiingoProvider
 from bot.ingest.fmp import FmpProvider
-from bot.ingest.ibkr import IbkrClient
-from bot.ingest.ibkr_flex import FlexError, import_corporate_actions
+from bot.ingest.ibkr_flex import FlexError, FlexPortfolioClient
 from bot.ingest.ibkr_flex_capture import (
     CASSETTE_PATH,
     REDACTED_XML_PATH,
@@ -25,10 +26,10 @@ from bot.ingest.ibkr_flex_capture import (
     capture,
 )
 from bot.ingest.provider import MarketDataProvider
-from bot.ingest.sec_edgar import import_company_from_sec
 from bot.ingest.universe import (
     UniverseRefreshResult,
     default_universe_path,
+    import_company,
     load_universe,
     refresh_fx,
     refresh_prices,
@@ -36,11 +37,18 @@ from bot.ingest.universe import (
 )
 from bot.notifier import NotificationError, NotifierConfigError, build_notifier, notify_alerts
 from bot.portfolio.command import run_portfolio
+from bot.portfolio.freshness import (
+    MAX_SNAPSHOT_AGE_BUSINESS_DAYS,
+    TOKEN_EXPIRY_WARN_DAYS,
+    business_days_between,
+    latest_snapshot_date,
+)
 from bot.reference.currencies import CurrencyTable, load_currency_table
 from bot.reference.default_spreads import DefaultSpreadTable, load_default_spreads
 from bot.reporting.analysis_json import render_analysis_json
 from bot.reporting.analysis_report import analysis_summary, render_analysis
 from bot.reporting.html import render_analysis_html
+from bot.reporting.report_set import ReportWriteError, write_report_set
 from bot.reporting.screen_report import render_csv, render_markdown
 from bot.reporting.show import format_company_summary
 from bot.screener.config import load_screener_config
@@ -327,7 +335,7 @@ def show(
     fetch_if_missing: bool = typer.Option(
         True,
         "--fetch/--no-fetch",
-        help="If the ticker isn't in the DB, fetch it from SEC EDGAR first.",
+        help="If the ticker isn't in the DB, fetch it from the configured data provider first.",
     ),
 ) -> None:
     """Show a company's basic info and last 5 years of financials."""
@@ -346,10 +354,19 @@ def show(
 
     if row is None:
         if not fetch_if_missing:
-            typer.echo(f"{ticker} not in DB (use --fetch to import from SEC).", err=True)
+            typer.echo(
+                f"{ticker} not in DB (use --fetch to import from the configured data provider).",
+                err=True,
+            )
             raise typer.Exit(code=2)
-        typer.echo(f"{ticker} not in DB — fetching from SEC EDGAR...")
-        result = import_company_from_sec(conn, ticker=ticker, user_agent=settings.sec_user_agent)
+        typer.echo(f"{ticker} not in DB — fetching from the configured data provider...")
+        with closing(_make_provider(settings)) as provider:
+            result = import_company(
+                conn,
+                ticker=ticker,
+                provider=provider,
+                mapping_path=settings.industry_mapping_path,
+            )
         if not result.is_success():
             typer.echo(f"Failed to import {ticker}: {result.error_message}", err=True)
             raise typer.Exit(code=1)
@@ -405,9 +422,9 @@ def analyze(
     HTML with a base64-inlined Matplotlib tornado chart, openable in a browser
     with no external assets.
 
-    A per-ticker failure (unknown ticker, missing data) is printed and does not
-    abort the rest of the batch; the command exits with the worst per-ticker
-    code.
+    A per-ticker failure (unknown ticker, missing data, a report that can't be
+    rendered or written) is printed and does not abort the rest of the batch;
+    the command exits with the worst per-ticker code.
     """
     tickers = tickers or []
     if from_screen and tickers:
@@ -475,8 +492,10 @@ def _analyze_one(
     """Analyze one ticker and write its §7.7 reports. Returns its exit code.
 
     ``0`` on success, ``2`` for an unknown ticker (``LookupError``), ``1`` when
-    the ticker can't be valued (``ValueError``). Errors are printed, not raised,
-    so a batch of tickers keeps going after one fails.
+    the ticker can't be valued or its reports can't be rendered (``ValueError``),
+    or written (``ReportWriteError``; the three files are written all-or-none).
+    Errors are printed, not raised, so a batch of tickers keeps going after one
+    fails.
     """
     ticker = ticker.upper()
 
@@ -500,21 +519,24 @@ def _analyze_one(
         return 1
 
     today = date.today()
-    report_md = render_analysis(analysis, generated_on=today)
-    report_html = render_analysis_html(analysis, generated_on=today)
-    report_json = render_analysis_json(analysis, generated_on=today)
+    try:
+        reports = {
+            f"{ticker}.md": render_analysis(analysis, generated_on=today),
+            f"{ticker}.html": render_analysis_html(analysis, generated_on=today),
+            f"{ticker}.json": render_analysis_json(analysis, generated_on=today),
+        }
+    except ValueError as exc:
+        typer.echo(f"{ticker}: cannot render report — {exc}", err=True)
+        return 1
     out_dir = settings.reports_dir / today.isoformat() / "analysis"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{ticker}.md"
-    html_path = out_dir / f"{ticker}.html"
-    json_path = out_dir / f"{ticker}.json"
-    out_path.write_text(report_md)
-    html_path.write_text(report_html)
-    json_path.write_text(report_json)
+    try:
+        paths = write_report_set(out_dir, reports)
+    except ReportWriteError as exc:
+        typer.echo(f"{ticker}: cannot write report — {exc}", err=True)
+        return 1
 
-    typer.echo(f"Wrote {out_path}")
-    typer.echo(f"Wrote {html_path}")
-    typer.echo(f"Wrote {json_path}")
+    for path in paths:
+        typer.echo(f"Wrote {path}")
     summary = analysis_summary(analysis)
     if summary is not None:
         typer.echo(summary)
@@ -589,18 +611,19 @@ def portfolio(
 ) -> None:
     """Sync the portfolio, diff it against the last snapshot, and write reports.
 
-    Connects to the read-only IBKR client, writes today's snapshot, appends the
-    executions newer than the last stored one to ``trades``, computes the §8.3
-    event stream versus the previous snapshot (persisting it to ``events_log``),
-    then writes two artefacts under
-    ``<reports_dir>/YYYY-MM-DD/``: ``portfolio.md`` (full state — positions, P&L,
-    concentration, suggested reviews; plus a P&L time series with ``--history``
-    and an explicit concentration breakdown with ``--concentration``) and
-    ``alerts.md`` (today's events only, always written, empty when there are none).
+    Downloads the IBKR Flex statement (``BOT_IBKR_FLEX_TOKEN`` and
+    ``BOT_IBKR_FLEX_QUERY_ID``, no TWS), writes the snapshot keyed on the
+    statement date, upserts its corporate actions, appends the executions newer
+    than the last stored one to ``trades``, computes the §8.3 event stream versus
+    the previous snapshot (persisting it to ``events_log``), then writes two
+    artefacts under ``<reports_dir>/YYYY-MM-DD/``: ``portfolio.md`` (full state —
+    positions, P&L, concentration, suggested reviews; plus a P&L time series with
+    ``--history`` and an explicit concentration breakdown with ``--concentration``)
+    and ``alerts.md`` (today's events only, always written, empty when there are
+    none).
 
-    Before computing events it imports corporate actions from the IBKR Flex Web
-    Service when ``BOT_IBKR_FLEX_TOKEN`` and ``BOT_IBKR_FLEX_QUERY_ID`` are set;
-    a failure there is a warning, not an error.
+    Missing credentials exit 2; a Flex failure exits 1. A statement more than
+    5 days old logs a warning.
 
     When ``BOT_NOTIFIER`` is ``email`` or ``telegram``, a non-empty ``alerts.md`` is then
     sent through that channel.
@@ -616,8 +639,15 @@ def portfolio(
         typer.echo(f"Screener config not found: {preset_path}", err=True)
         raise typer.Exit(code=2)
     preset = load_screener_config(preset_path)
+    if not settings.ibkr_flex_token.strip() or not settings.ibkr_flex_query_id.strip():
+        typer.echo(
+            "bot portfolio needs BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID "
+            "(README → Portfolio sync)",
+            err=True,
+        )
+        raise typer.Exit(code=2)
     conn, settings = _open_db()
-    client = IbkrClient.from_settings(settings)
+    client = FlexPortfolioClient.from_settings(settings)
     gates = [*preset.quality_gates.build(), *preset.trap_detection.build()]
     try:
         result = run_portfolio(
@@ -631,16 +661,9 @@ def portfolio(
             assumptions_dir=settings.assumptions_dir,
             currencies=load_currency_table(settings.currencies_path),
             default_spreads=load_default_spreads(settings.default_spreads_path),
-            corporate_actions_fn=lambda c: import_corporate_actions(c, settings),
         )
-    except (ConnectionError, TimeoutError) as exc:
-        # asyncio's TimeoutError carries no message; name the type instead.
-        reason = str(exc) or type(exc).__name__
-        typer.echo(
-            f"Cannot reach TWS / IB Gateway at {settings.ibkr_host}:{settings.ibkr_port}: {reason}. "
-            "Start it with the API enabled, or set BOT_IBKR_HOST / BOT_IBKR_PORT.",
-            err=True,
-        )
+    except FlexError as exc:
+        typer.echo(f"IBKR Flex statement unavailable: {exc}", err=True)
         raise typer.Exit(code=1) from exc
     typer.echo(
         f"Synced snapshot {result.snapshot_date.isoformat()} "
@@ -657,6 +680,38 @@ def portfolio(
         raise typer.Exit(code=1) from exc
     if sent:
         typer.echo(f"Sent alerts via {settings.notifier}")
+
+
+@app.command()
+def notify() -> None:
+    """Send the text on stdin through the configured notifier.
+
+    Exit codes: 0 sent, or no notifier configured (nothing sent); 1 the send
+    failed; 2 the notifier is misconfigured or stdin is empty. Never opens the
+    database.
+    """
+    settings = load_settings()
+    try:
+        notifier = build_notifier(settings)
+    except NotifierConfigError as exc:
+        typer.echo(f"Notifier misconfigured (BOT_NOTIFIER={settings.notifier}): {exc}", err=True)
+        raise typer.Exit(code=2) from exc
+    if notifier is None:
+        typer.echo("No notifier configured (BOT_NOTIFIER=none), nothing sent")
+        return
+    if isinstance(sys.stdin, io.TextIOWrapper):
+        # A log tail cut mid-character must not stop the failure report.
+        sys.stdin.reconfigure(errors="replace")
+    text = sys.stdin.read()
+    if not text.strip():
+        typer.echo("Nothing to send: the message on stdin is empty", err=True)
+        raise typer.Exit(code=2)
+    try:
+        notifier.send(text)
+    except NotificationError as exc:
+        typer.echo(f"Message not sent: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Sent via {settings.notifier}")
 
 
 @app.command(name="flex-capture", hidden=True)
@@ -725,6 +780,35 @@ def doctor() -> None:
                 "scripts/stooq_browser_fetch.mjs first, or unset it."
             )
 
+    token_set = bool(settings.ibkr_flex_token.strip())
+    query_set = bool(settings.ibkr_flex_query_id.strip())
+    flex_configured = token_set and query_set
+    typer.echo(f"Flex token:       {'set' if token_set else 'MISSING'}")
+    typer.echo(f"Flex query id:    {'set' if query_set else 'MISSING'}")
+    expires = settings.ibkr_flex_token_expires
+    if expires is None:
+        typer.echo("Flex token expiry: not set (BOT_IBKR_FLEX_TOKEN_EXPIRES)")
+    else:
+        days_left = (expires - date.today()).days
+        if days_left < 0:
+            issues.append(
+                f"Flex token expired on {expires.isoformat()} (BOT_IBKR_FLEX_TOKEN_EXPIRES) — "
+                "generate a new one in Client Portal → Settings → Reporting → "
+                "Flex Web Service and update .env"
+            )
+        elif days_left <= TOKEN_EXPIRY_WARN_DAYS:
+            typer.echo(
+                f"WARN: Flex token expires in {days_left} day(s) ({expires.isoformat()}) — "
+                "renew it in Client Portal → Settings → Reporting → Flex Web Service"
+            )
+        else:
+            typer.echo(f"Flex token expiry: {expires.isoformat()} ({days_left} days left)")
+    if not flex_configured:
+        typer.echo(
+            "Portfolio sync:   not configured "
+            "(needs BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID)"
+        )
+
     try:
         conn = connect(settings.db_path)
         apply_schema(conn)
@@ -739,6 +823,26 @@ def doctor() -> None:
             )
         else:
             typer.echo(f"DB tables:        {tables} (OK)")
+        if flex_configured:
+            latest = latest_snapshot_date(conn)
+            if latest is None:
+                issues.append(
+                    "Flex is configured but portfolio_snapshots is empty — "
+                    "run bot portfolio, or check .cache/daily.log"
+                )
+            else:
+                age = business_days_between(latest, date.today())
+                if age <= MAX_SNAPSHOT_AGE_BUSINESS_DAYS:
+                    typer.echo(
+                        f"Latest snapshot:  {latest.isoformat()} "
+                        f"({age} business day(s) old, OK)"
+                    )
+                else:
+                    issues.append(
+                        f"Latest portfolio snapshot {latest.isoformat()} is {age} "
+                        f"business days old (limit {MAX_SNAPSHOT_AGE_BUSINESS_DAYS}) — "
+                        "the daily sync has stopped; check .cache/daily.log and the Flex token"
+                    )
         conn.close()
     except Exception as e:
         issues.append(f"DB error — {e}")

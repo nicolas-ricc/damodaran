@@ -3,23 +3,23 @@
 A valuation is only as honest as its inputs, so every one of the six critical
 assumptions from spec §7.3 carries its *provenance* — where the number came
 from — alongside its value. The report (spec §7.7) shows that provenance for
-each assumption so a human can see which figures are analyst-driven, which are
+each assumption so a human can see which figures are history-driven, which are
 sector defaults, and which are pure rules.
 
 Resolution order (highest-priority source wins, spec §7.3/§7.6)::
 
     1. Manual override    — config/assumptions/<TICKER>.yaml, if present
-    2. Analyst consensus  — FMP (M2). There is no consensus feed, so revenue
-                            growth starts at the company's own historical average
-                            (HISTORICAL_AVERAGE) and fades to terminal growth over
-                            ten years.
-    3. Sector default     — medians from damodaran_industry (and the country's
-                            ERP / tax rate from damodaran_country).
-    4. Rule-based         — e.g. terminal_growth = min(rfr_ccy, gdp_ccy), where
+    2. Sector default     — medians from damodaran_industry; the country's tax
+                            rate from damodaran_country is sourced
+                            COUNTRY_DEFAULT_DAMODARAN.
+    3. Rule-based         — e.g. terminal_growth = min(rfr_ccy, gdp_ccy), where
                             both come from the company's valuation currency in
                             ``config/currencies.yaml`` (#109), or a distressed
                             company's probability of bankruptcy from its interest
                             coverage via ``config/default_spreads.yaml`` (#213).
+
+Revenue growth starts at the company's own history (historical revenue CAGR) and fades
+to terminal growth over ten years; analyst consensus is not a source, by decision (#63).
 
 The valuation currency is the currency of the company's latest non-restated
 ``financials_annual`` row. A currency missing from the table (or a NULL one)
@@ -51,6 +51,7 @@ from typing import Any, TypeVar
 import duckdb
 import yaml
 
+from bot.reference.countries import damodaran_country_name
 from bot.reference.currencies import (
     CurrencyRates,
     CurrencyTable,
@@ -79,8 +80,8 @@ T = TypeVar("T")
 # single scalar (sector/rule-based growth or margin), and the span over which
 # revenue growth fades to terminal growth. Ten years gives a fast grower time to
 # converge to the steady state instead of capitalising its growth into the terminal
-# value; a richer year-by-year path comes from the analyst-consensus / story-type
-# layer (M4.3+), which overrides this default.
+# value; a hypergrowth story file supplies its own year-by-year path (§7.6), which
+# overrides this default.
 _HORIZON = 10
 
 # A cyclical company's "cycle average" margin is only meaningful once we hold at
@@ -113,6 +114,9 @@ class AssumptionSource(StrEnum):
     #: the report shows the substitution rather than passing it off as the
     #: company's own region.
     SECTOR_DEFAULT_DAMODARAN_CROSS_REGION = "sector_default_damodaran_cross_region"
+    #: The value is the Damodaran country row's figure for the company's country
+    #: (tax rate only), taken when the sector row carries no tax rate.
+    COUNTRY_DEFAULT_DAMODARAN = "country_default_damodaran"
     RULE_BASED = "rule_based"
     HISTORICAL_AVERAGE = "historical_average"
     #: The value sails from the archetype's projection pattern (spec §7.1): a path
@@ -473,7 +477,12 @@ def bulk_load_assumption_inputs(
             [wanted],
         ).fetchall()
     }
-    countries = sorted({c.country for c in companies.values() if c.country is not None})
+    # companies.country is ISO alpha-2; damodaran_country is keyed by Damodaran name.
+    names = {
+        code: damodaran_country_name(code)
+        for code in {c.country for c in companies.values() if c.country is not None}
+    }
+    countries = sorted({n for n in names.values() if n is not None})
     country_rows = {
         r[0]: _CountryRow(region=r[1], erp=r[2], tax_rate=r[3])
         for r in conn.execute(
@@ -515,7 +524,8 @@ def bulk_load_assumption_inputs(
     result: dict[str, AssumptionInputs] = {}
     uncovered: set[str | None] = set()
     for ticker, company in companies.items():
-        country = country_rows.get(company.country) if company.country is not None else None
+        name = names.get(company.country) if company.country is not None else None
+        country = country_rows.get(name) if name is not None else None
         region = dataset_region(company.country, country.region if country is not None else None)
         industry = company.industry_damodaran
         sector, cross_region = _pick_sector(
@@ -583,12 +593,13 @@ def _load_company(conn: duckdb.DuckDBPyConnection, ticker: str) -> _Company:
 
 
 def _load_country(conn: duckdb.DuckDBPyConnection, country: str | None) -> _CountryRow | None:
-    if country is None:
+    name = damodaran_country_name(country)
+    if name is None:
         return None
     row = conn.execute(
         "SELECT region, erp, tax_rate FROM damodaran_country "
         "WHERE country = ? ORDER BY year DESC LIMIT 1",
-        [country],
+        [name],
     ).fetchone()
     if row is None:
         return None
@@ -723,6 +734,58 @@ _OVERRIDE_KEYS: frozenset[str] = frozenset(
 #: Override keys that take a number or a per-year list of numbers.
 _OVERRIDE_PATH_KEYS: frozenset[str] = frozenset({"revenue_growth", "operating_margin"})
 
+
+@dataclass(frozen=True)
+class _Range:
+    """An interval a numeric override value must lie in; ``None`` leaves a side open."""
+
+    low: float | None = None
+    high: float | None = None
+    low_inclusive: bool = True
+    high_inclusive: bool = True
+
+    def contains(self, x: float) -> bool:
+        if self.low is not None and (x < self.low or (x == self.low and not self.low_inclusive)):
+            return False
+        return not (
+            self.high is not None
+            and (x > self.high or (x == self.high and not self.high_inclusive))
+        )
+
+    def phrase(self) -> str:
+        if (
+            self.low is not None
+            and self.high is not None
+            and self.low_inclusive
+            and self.high_inclusive
+        ):
+            return f"between {self.low:g} and {self.high:g}"
+        parts = []
+        if self.low is not None:
+            parts.append(f"{'at least' if self.low_inclusive else 'greater than'} {self.low:g}")
+        if self.high is not None:
+            parts.append(f"{'at most' if self.high_inclusive else 'less than'} {self.high:g}")
+        return " and ".join(parts)
+
+
+#: The interval each numeric override key must lie in (every element, for the path
+#: keys). Bounds are the ones the model breaks outside of: a rate above 100%, a
+#: growth of -100% or less, a discount rate of 0 or below. ``tax_rate: 25`` (percent
+#: typed as a whole number) is the mistake this catches.
+_OVERRIDE_RANGES: dict[str, _Range] = {
+    "tax_rate": _Range(0, 1),
+    "probability_of_bankruptcy": _Range(0, 1),
+    "equity_weight": _Range(0, 1),
+    "debt_weight": _Range(0, 1),
+    "cost_of_equity": _Range(0, 1, low_inclusive=False, high_inclusive=False),
+    "pretax_cost_of_debt": _Range(0, 1, low_inclusive=False, high_inclusive=False),
+    "terminal_growth": _Range(-1, 1, low_inclusive=False, high_inclusive=False),
+    "sales_to_capital": _Range(low=0, low_inclusive=False),
+    "distress_value_per_share": _Range(low=0),
+    "operating_margin": _Range(high=1, high_inclusive=False),
+    "revenue_growth": _Range(low=-1, low_inclusive=False),
+}
+
 #: Override keys that carry text, not a number.
 _OVERRIDE_TEXT_KEYS: frozenset[str] = frozenset({"story_type", "notes"})
 
@@ -739,7 +802,8 @@ def conventional_override_path(assumptions_dir: Path | None, ticker: str) -> Pat
     """Return ``<assumptions_dir>/<TICKER>.yaml`` when it exists (spec §7.6), else None.
 
     The single place that knows the convention: ``bot analyze`` and the
-    screener's second-pass DCF both resolve overrides through here.
+    screener's second-pass DCF both resolve overrides through here. A non-file at
+    the path (a directory) is passed on as is; ``load_override`` refuses it.
     """
     if assumptions_dir is None:
         return None
@@ -750,16 +814,23 @@ def conventional_override_path(assumptions_dir: Path | None, ticker: str) -> Pat
 def load_override(override_path: Path | None) -> dict[str, Any]:
     """Load and validate ``config/assumptions/<TICKER>.yaml``; return the raw mapping.
 
-    Returns ``{}`` for no path, a missing file or an empty file. Refuses unknown
-    keys, non-numeric values, a bad ``founded_year``, and an inconsistent story
-    file (``story`` / ``scenarios`` / ``story_type: hypergrowth``), all as
-    ``ValueError`` whose message starts with the path. The story section is parsed
-    here only to validate it; the mapping is returned unchanged.
+    Returns ``{}`` for no path, a missing file or an empty file. Refuses a file
+    that exists but cannot be read (permissions, a directory, an I/O error), unknown
+    keys, non-numeric or out-of-range values, a bad ``founded_year``, and an
+    inconsistent story file (``story`` / ``scenarios`` / ``story_type: hypergrowth``),
+    all as ``ValueError`` whose message starts with the path. The story section is
+    parsed here only to validate it; the mapping is returned unchanged.
     """
     if override_path is None or not override_path.exists():
         return {}
     try:
-        loaded = yaml.safe_load(override_path.read_text())
+        text = override_path.read_text()
+    except OSError as exc:
+        raise ValueError(
+            f"override file {override_path} cannot be read: {exc.strerror or exc}"
+        ) from exc
+    try:
+        loaded = yaml.safe_load(text)
     except yaml.YAMLError as exc:
         raise ValueError(f"override file {override_path} is not valid YAML: {exc}") from exc
     if loaded is None:
@@ -808,7 +879,7 @@ def _check_story_file(override_path: Path, loaded: dict[str, Any]) -> None:
 
 
 def _check_override_values(override_path: Path, override: dict[str, Any]) -> None:
-    """Refuse a numeric override value that is not a finite number.
+    """Refuse a numeric override value that is not a finite number or is outside its range.
 
     Raised here as ``ValueError`` so a malformed file fails its own ticker
     instead of surfacing later as a ``TypeError`` or a NaN in the valuation.
@@ -827,6 +898,13 @@ def _check_override_values(override_path: Path, override: dict[str, Any]) -> Non
             expected = "a finite number"
         if not ok:
             raise ValueError(f"{override_path}: {key} must be {expected}, got {value!r}")
+        numbers = value if isinstance(value, list) else [value]
+        bounds = _OVERRIDE_RANGES[key]
+        if not all(bounds.contains(float(x)) for x in numbers):
+            every = " (every element)" if key in _OVERRIDE_PATH_KEYS else ""
+            raise ValueError(
+                f"{override_path}: {key} must be {bounds.phrase()}{every}, got {value!r}"
+            )
 
 
 def _override_scalar(override: dict[str, Any], key: str) -> Sourced[float | None] | None:
@@ -1040,11 +1118,10 @@ def _resolve_revenue_growth(
 ) -> Sourced[tuple[float, ...] | None]:
     """Resolve the revenue-growth path: ``_HORIZON`` (10) years fading to terminal growth.
 
-    Spec §7.3 wants analyst consensus for years 1-5 with convergence to nominal GDP by
-    year 10. Consensus is not implemented (FMP's analyst-estimates endpoint is not
-    wired, so there is no ANALYST_CONSENSUS source). Every path instead starts at the
-    company's own growth and fades linearly to the terminal growth rate, so the last
-    explicit year already grows at the rate the terminal value assumes.
+    Spec §7.3 describes this path. Analyst consensus is not a source, by decision (#63):
+    every path starts at the company's own growth and fades linearly to the terminal
+    growth rate, so the last explicit year already grows at the rate the terminal value
+    assumes.
 
     With history the start is the historical revenue CAGR (the flat path's value; a
     high-growth story is sourced STORY_PATTERN, anything else HISTORICAL_AVERAGE). With
@@ -1219,8 +1296,8 @@ def _resolve_tax_rate(
     The DCF taxes EBIT to NOPAT, so a tax rate is always required. Damodaran
     publishes effective tax rates at both the industry and country level; the
     sector figure is the closer proxy and wins, falling back to the country
-    figure and finally a neutral default so the model never collapses to a
-    zero-NOPAT (100%-tax) degenerate case.
+    figure (sourced COUNTRY_DEFAULT_DAMODARAN) and finally a neutral default so
+    the model never collapses to a zero-NOPAT (100%-tax) degenerate case.
     """
     manual = _override_scalar(override, "tax_rate")
     if manual is not None:
@@ -1228,7 +1305,7 @@ def _resolve_tax_rate(
     if sector.row is not None and sector.row.tax_rate is not None:
         return Sourced(value=sector.row.tax_rate, source=sector.source)
     if country is not None and country.tax_rate is not None:
-        return Sourced(value=country.tax_rate, source=AssumptionSource.SECTOR_DEFAULT_DAMODARAN)
+        return Sourced(value=country.tax_rate, source=AssumptionSource.COUNTRY_DEFAULT_DAMODARAN)
     return Sourced(value=_DEFAULT_TAX_RATE, source=AssumptionSource.RULE_BASED)
 
 

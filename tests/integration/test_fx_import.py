@@ -3,8 +3,8 @@
 Network is replayed from VCR cassettes in
 ``tests/fixtures/cassettes/fmp/``. The FX cassette is SYNTHETIC (hand-authored,
 fabricated-but-realistic FMP historical-forex JSON) so the suite runs
-deterministically offline. Re-record it against the live API with a real
-BOT_FMP_API_KEY via ``uv run pytest -m integration --vcr-record=all``.
+deterministically offline. Re-record it against the live API by exporting a real
+BOT_FMP_API_KEY and running ``uv run pytest -m integration --vcr-record=all``.
 """
 
 from __future__ import annotations
@@ -17,8 +17,6 @@ from bot.ingest.fmp import FmpClient, FmpProvider
 from bot.storage.db import apply_schema, connect
 from bot.utils.fx import get_fx_rate, import_fx_rates, to_usd
 
-API_KEY = "test-fmp-key"
-
 # Reference: EUR/USD daily close on 2023-12-29 was ~1.1039 (synthetic cassette
 # mirrors that real figure). The acceptance criterion is a ±0.1% match.
 EXPECTED_EURUSD_2023_12_29 = 1.1039
@@ -26,10 +24,10 @@ EXPECTED_EURUSD_2023_12_29 = 1.1039
 
 @pytest.mark.integration
 @pytest.mark.vcr
-def test_fetch_historical_fx_returns_rows() -> None:
+def test_fetch_historical_fx_returns_rows(fmp_api_key: str) -> None:
     # Exercises the low-level FmpClient directly (unrelated to the provider-port
     # rename) — start/end bound the fetch window, matching the recorded cassette.
-    with FmpClient(api_key=API_KEY) as client:
+    with FmpClient(api_key=fmp_api_key) as client:
         rows = client.historical_fx("EUR", start=date(2023, 12, 27), end=date(2023, 12, 29))
     by_date = {r["date"]: r["rate_to_usd"] for r in rows}
     assert by_date["2023-12-29"] == pytest.approx(EXPECTED_EURUSD_2023_12_29, rel=1e-3)
@@ -37,11 +35,11 @@ def test_fetch_historical_fx_returns_rows() -> None:
 
 @pytest.mark.integration
 @pytest.mark.vcr
-def test_import_fx_rates_populates_currencies_table() -> None:
+def test_import_fx_rates_populates_currencies_table(fmp_api_key: str) -> None:
     conn = connect(":memory:")
     apply_schema(conn)
     try:
-        with FmpProvider(api_key=API_KEY) as provider:
+        with FmpProvider(api_key=fmp_api_key) as provider:
             result = import_fx_rates(
                 conn,
                 provider=provider,

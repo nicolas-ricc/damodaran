@@ -1,3 +1,4 @@
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -95,3 +96,54 @@ def test_flex_settings_read_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_env_example_documents_flex_settings() -> None:
     text = (Path(__file__).resolve().parents[2] / ".env.example").read_text()
     assert "BOT_IBKR_FLEX_TOKEN" in text and "BOT_IBKR_FLEX_QUERY_ID" in text
+    assert (
+        '# BOT_IBKR_FLEX_TOKEN_EXPIRES=""   # optional ISO date; bot doctor warns 14 days before, fails after'
+        in text.splitlines()
+    )
+
+
+def test_flex_token_expires_defaults_to_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Test test@example.com")
+    monkeypatch.delenv("BOT_IBKR_FLEX_TOKEN_EXPIRES", raising=False)
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.ibkr_flex_token_expires is None
+
+
+@pytest.mark.parametrize("value", ["", "  "])
+def test_blank_flex_token_expires_is_unset(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Test test@example.com")
+    monkeypatch.setenv("BOT_IBKR_FLEX_TOKEN_EXPIRES", value)
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.ibkr_flex_token_expires is None
+
+
+def test_flex_token_expires_parses_iso_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Test test@example.com")
+    monkeypatch.setenv("BOT_IBKR_FLEX_TOKEN_EXPIRES", "2027-03-01")
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.ibkr_flex_token_expires == date(2027, 3, 1)
+
+
+def test_invalid_flex_token_expires_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Test test@example.com")
+    monkeypatch.setenv("BOT_IBKR_FLEX_TOKEN_EXPIRES", "next-year")
+    with pytest.raises(ValidationError, match="ibkr_flex_token_expires"):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_flex_tz_defaults_to_new_york(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Test test@example.com")
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.ibkr_flex_tz == "America/New_York"
+
+
+def test_unknown_flex_tz_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Test test@example.com")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, ibkr_flex_tz="Mars/Base")  # type: ignore[call-arg]
+
+
+def test_flex_tz_directory_name_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BOT_SEC_USER_AGENT", "Test test@example.com")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, ibkr_flex_tz="America")  # type: ignore[call-arg]

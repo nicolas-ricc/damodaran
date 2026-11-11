@@ -4,6 +4,10 @@
 # then publish the analysis sidecars to master so the Pages viewer rebuilds
 # (scripts/publish_site.sh). Each step runs only if the previous one succeeded.
 #
+# Each bot command runs under the shared .cache/bot.lock (#108), waiting up to
+# BOT_DB_LOCK_WAIT seconds (default 900) for it; on timeout it fails with a
+# logged "lock timeout:" line and exit 75. publish_site.sh runs without the lock.
+#
 # Output appends to .cache/weekly.log; the exit code is the first failing step's.
 set -uo pipefail
 
@@ -26,10 +30,25 @@ if [ -z "${BOT_SYNCED:-}" ]; then
   BOT_SYNCED=1 exec "$SCRIPT_DIR/weekly.sh" "$@"
 fi
 
+LOCK="$REPO/.cache/bot.lock"
+LOCK_WAIT="${BOT_DB_LOCK_WAIT:-900}"
+# A non-numeric wait would make flock fail before it even tries.
+[[ "$LOCK_WAIT" =~ ^[0-9]+$ ]] || LOCK_WAIT=900
+LOCK_BUSY=75  # EX_TEMPFAIL; bot itself exits 0, 1 or 2
+
+# Run one bot command holding the shared DB lock (#108), waiting up to
+# LOCK_WAIT seconds for it. Exits LOCK_BUSY, with a log line, on timeout.
+locked() {
+  flock -w "$LOCK_WAIT" -E "$LOCK_BUSY" "$LOCK" "$@"
+  local status=$?
+  ((status != LOCK_BUSY)) || echo "lock timeout: $LOCK still held after ${LOCK_WAIT}s, skipped: $*"
+  return "$status"
+}
+
 {
   echo "=== $(date -Is) run ==="
-  uv run bot refresh --all \
-    && uv run bot screen --preset damodaran_value \
-    && uv run bot analyze --from-screen \
+  locked uv run bot refresh --all \
+    && locked uv run bot screen --preset damodaran_value \
+    && locked uv run bot analyze --from-screen \
     && "$SCRIPT_DIR/publish_site.sh"
 } >> "$LOG" 2>&1

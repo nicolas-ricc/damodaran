@@ -1,16 +1,14 @@
-"""Incremental, de-duped trade-execution sync from the IBKR socket (M5, #27).
+"""Incremental, de-duped trade-execution sync from the IBKR Flex statement (M5, #27).
 
 ``sync_trades`` orchestrates fetch -> write: for every managed account it
 derives a watermark from ``max(executed_at)`` already stored in ``trades`` and
-asks an :class:`IbkrClient` for only the fills newer than that watermark, then
+asks a :class:`TradeSource` for only the fills newer than that watermark, then
 appends them. Inserts are de-duped on the broker ``exec_id`` so an overlapping
-look-back window (the live TWS socket re-returns the current session's fills on
-every call) can never double-insert.
+look-back window (the Flex statement re-reports fills it already returned)
+can never double-insert.
 
-Corporate actions are **deliberately out of scope** here. The live TWS socket
-does not expose dividends/splits/mergers in any reliable form — they come from
-IBKR's Flex Web Service, a separate HTTP integration with its own auth (see the
-#27 addendum), imported by :mod:`bot.ingest.ibkr_flex` (#56).
+Corporate actions are **deliberately out of scope** here: they are upserted
+from the same statement by :mod:`bot.ingest.ibkr_flex` (#56).
 
 Follows the ingest convention: an open connection and a client go in, plain
 data comes out; no global state.
@@ -33,7 +31,7 @@ log = get_logger(__name__)
 
 
 class TradeSource(Protocol):
-    """The read-only slice of :class:`~bot.ingest.ibkr.IbkrClient` we depend on.
+    """The read-only slice of :class:`~bot.ingest.ibkr_flex.FlexPortfolioClient` we depend on.
 
     Declared as a Protocol so tests can inject a lightweight fake while ``mypy``
     still checks the call sites.
@@ -148,7 +146,7 @@ def _insert_dedup(
 def _to_naive_utc(value: datetime) -> datetime:
     """Normalise a fill timestamp to naive UTC for storage.
 
-    ib_async returns timezone-aware timestamps; we convert to UTC and drop the
+    Fills may carry timezone-aware timestamps; we convert to UTC and drop the
     tzinfo so DuckDB stores a plain ``TIMESTAMP`` (no pytz needed at read time).
     Naive inputs are assumed to already be UTC.
     """

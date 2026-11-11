@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Collection
+from dataclasses import dataclass, field
 from datetime import date
 from statistics import median
-from typing import Any
+from typing import Any, NamedTuple
 
 import duckdb
 import httpx
 
-from bot.ingest.base import IngestResult, coerce_date, refresh_run, transaction
+from bot.ingest.base import coerce_date
 from bot.ingest.provider import CompanyInfo, ParsedCompanyData, ProviderRateLimitError
 from bot.utils.logging import get_logger
 
@@ -35,6 +36,12 @@ _MIN_SHARE_COMPARATORS = 3
 _SHARE_SCALE_TOLERANCE = 2.0
 
 _FINANCIAL_FORMS = {"10-K", "10-K/A", "10-Q", "10-Q/A", "20-F", "20-F/A"}
+
+# Governance filings kept in filings_log: an 8-K whose items include 4.01 (change of
+# auditor) and the NT 10-K / NT 10-Q notices of a late periodic report.
+AUDITOR_CHANGE_FORMS: frozenset[str] = frozenset({"8-K", "8-K/A"})
+AUDITOR_CHANGE_ITEM = "4.01"
+LATE_FILING_FORMS: frozenset[str] = frozenset({"NT 10-K", "NT 10-K/A", "NT 10-Q", "NT 10-Q/A"})
 
 
 class EdgarRateLimitError(ProviderRateLimitError):
@@ -162,21 +169,111 @@ def parse_submissions_info(ticker: str, submissions: dict[str, Any]) -> CompanyI
     )
 
 
-def latest_filing_date_from_submissions(submissions: dict[str, Any]) -> date | None:
-    """Newest 10-K/10-Q filing date in ``filings.recent`` (parallel arrays)."""
+def is_auditor_change(form: str | None, items: str | None) -> bool:
+    """True for an 8-K (or 8-K/A) whose comma-separated ``items`` include 4.01."""
+    if form not in AUDITOR_CHANGE_FORMS:
+        return False
+    return AUDITOR_CHANGE_ITEM in _item_tokens(items)
+
+
+def is_late_filing(form: str | None) -> bool:
+    """True for an NT 10-K / NT 10-Q notice (or its amendment)."""
+    return form in LATE_FILING_FORMS
+
+
+def _item_tokens(items: str | None) -> list[str]:
+    return [t for t in (part.strip() for part in (items or "").split(",")) if t]
+
+
+class _RecentEntry(NamedTuple):
+    form: str | None
+    filed_raw: str
+    filed: date
+    accession: str | None
+    items: str | None
+
+
+def _recent_entries(submissions: dict[str, Any]) -> list[_RecentEntry]:
+    """``filings.recent`` as one entry per filing.
+
+    The arrays are parallel and walked by index over ``form``; a missing array or
+    index reads as ``None``. Entries whose ``filingDate`` does not parse are dropped.
+    """
     recent = submissions.get("filings", {}).get("recent", {})
     forms = recent.get("form") or []
     dates = recent.get("filingDate") or []
-    latest: date | None = None
-    for form, filed_raw in zip(forms, dates, strict=False):
-        if form not in _FINANCIAL_FORMS:
-            continue
+    accessions = recent.get("accessionNumber") or []
+    items = recent.get("items") or []
+    entries: list[_RecentEntry] = []
+    for i, form in enumerate(forms):
+        filed_raw = dates[i] if i < len(dates) else None
         filed = coerce_date(filed_raw)
         if filed is None:
             continue
-        if latest is None or filed > latest:
-            latest = filed
-    return latest
+        accession = accessions[i] if i < len(accessions) else None
+        entries.append(
+            _RecentEntry(form, str(filed_raw), filed, accession, items[i] if i < len(items) else None)
+        )
+    return entries
+
+
+def _is_governance(entry: _RecentEntry) -> bool:
+    return is_auditor_change(entry.form, entry.items) or is_late_filing(entry.form)
+
+
+def latest_filing_date_from_submissions(submissions: dict[str, Any]) -> date | None:
+    """Newest 10-K, 10-Q or 20-F (amendments too) or governance filing date in ``filings.recent``.
+
+    Governance filings (auditor-change 8-Ks, NT notices) count so that a new one
+    moves the incremental-skip watermark; ``governance_filings_from_submissions``
+    stores a row for every governance date this reports.
+    """
+    dates = [
+        e.filed
+        for e in _recent_entries(submissions)
+        if e.form in _FINANCIAL_FORMS or _is_governance(e)
+    ]
+    return max(dates, default=None)
+
+
+@dataclass
+class _FilingGroup:
+    filed_raw: str
+    accession: str | None = None
+    governance: bool = False
+    tokens: set[str] = field(default_factory=set)
+
+
+def governance_filings_from_submissions(
+    ticker: str, submissions: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """``filings_log`` rows for auditor-change 8-Ks and NT notices in ``filings.recent``.
+
+    Entries are grouped by form and filing date, the filings_log primary key. A
+    group is stored when any of its entries is a governance filing; its ``items`` is
+    the sorted union of the item tokens of every entry (``None`` when empty) and its
+    accession number is that of the first governance entry. ``filings.recent`` holds
+    at least one year or the newest 1,000 filings; ``filings.files`` is not fetched.
+    """
+    groups: dict[tuple[str | None, date], _FilingGroup] = {}
+    for entry in _recent_entries(submissions):
+        group = groups.setdefault((entry.form, entry.filed), _FilingGroup(entry.filed_raw))
+        group.tokens.update(_item_tokens(entry.items))
+        if not group.governance and _is_governance(entry):
+            group.governance = True
+            group.accession = entry.accession
+    return [
+        {
+            "ticker": ticker.upper(),
+            "filing_type": form,
+            "filing_date": group.filed_raw,
+            "accession_number": group.accession,
+            "source": "sec_edgar",
+            "items": ",".join(sorted(group.tokens)) or None,
+        }
+        for (form, _filed), group in groups.items()
+        if group.governance
+    ]
 
 
 # ---------- Parser ----------
@@ -225,6 +322,12 @@ ANNUAL_CONCEPT_MAP: dict[str, list[str]] = {
     "total_equity": ["StockholdersEquity"],
     "goodwill": ["Goodwill"],
     "capex": ["PaymentsToAcquirePropertyPlantAndEquipment"],
+    # Duration cash-flow facts, already positive as outflows.
+    "acquisitions": [
+        "PaymentsToAcquireBusinessesNetOfCashAcquired",
+        "PaymentsToAcquireBusinessesGross",
+        "PaymentsToAcquireBusinessesAndInterestInAffiliates",
+    ],
     "depreciation": ["DepreciationDepletionAndAmortization", "Depreciation"],
     "operating_cashflow": ["NetCashProvidedByUsedInOperatingActivities"],
     "dividends_paid": ["PaymentsOfDividends"],
@@ -598,17 +701,17 @@ def _collect_filings(ticker: str, us_gaap: dict[str, Any]) -> list[dict[str, Any
     return out
 
 
-# ---------- Importer + Upserts ----------
+# ---------- Upserts ----------
 
 
 def upsert_company(conn: duckdb.DuckDBPyConnection, company: dict[str, Any]) -> None:
     """Merge-replace the company row by ticker. Assumes called within a transaction.
 
     A raw DELETE + INSERT with only the provider's columns would wipe out
-    what that provider doesn't carry: the SEC row doesn't load industry, so
-    a ``bot show --fetch`` would drop a ticker mapped by FMP out of the
-    screener's universe. Columns the new row doesn't carry (or carries as
-    ``None``) keep the value already stored.
+    what that provider doesn't carry: a bare ``parse_company_facts`` row has
+    no industry, so re-importing a ticker another provider had mapped would
+    drop it out of the screener's universe. Columns the new row doesn't carry
+    (or carries as ``None``) keep the value already stored.
     """
     existing_row = conn.execute(
         "SELECT * FROM companies WHERE ticker = ?", [company["ticker"]]
@@ -706,18 +809,21 @@ def upsert_financials_quarterly(conn: duckdb.DuckDBPyConnection, rows: list[dict
 def upsert_filings(conn: duckdb.DuckDBPyConnection, filings: list[dict[str, Any]]) -> int:
     """Upsert filings_log entries on PK match. Returns row count.
 
-    Conflicts update only the accession number: ``fetched_at`` must keep the
+    Conflicts update the accession number and ``items`` (an incoming NULL
+    ``items`` keeps the stored value, so whichever row arrives second, the
+    item numbers survive). ``fetched_at`` is never updated: it must keep the
     first-ingestion time, since new-filing events are keyed off it.
     """
     if not filings:
         return 0
-    cols = ["ticker", "filing_type", "filing_date", "accession_number", "source"]
+    cols = ["ticker", "filing_type", "filing_date", "accession_number", "items", "source"]
     placeholders = ", ".join(["?"] * len(cols))
     for f in filings:
         conn.execute(
             f"INSERT INTO filings_log ({', '.join(cols)}) VALUES ({placeholders}) "
             f"ON CONFLICT (ticker, filing_type, filing_date, source) "
-            f"DO UPDATE SET accession_number = excluded.accession_number",
+            f"DO UPDATE SET accession_number = excluded.accession_number, "
+            f"items = COALESCE(excluded.items, filings_log.items)",
             [f.get(c) for c in cols],
         )
     return len(filings)
@@ -726,53 +832,3 @@ def upsert_filings(conn: duckdb.DuckDBPyConnection, filings: list[dict[str, Any]
 def count_null_revenue(rows: list[dict[str, Any]]) -> int:
     """Number of annual rows whose ``revenue`` is missing (NULL after resolution)."""
     return sum(1 for r in rows if r.get("revenue") is None)
-
-
-def import_company_from_sec(
-    conn: duckdb.DuckDBPyConnection,
-    *,
-    ticker: str,
-    user_agent: str,
-) -> IngestResult:
-    """Fetch + parse + upsert one US ticker from SEC EDGAR. Atomic on the DB side."""
-    with refresh_run(
-        conn,
-        source="sec_edgar",
-        log=log,
-        error_event="sec_edgar.import.failed",
-        log_fail_event="sec_edgar.refresh_log_insert_failed",
-    ) as run:
-        run.details = {"ticker": ticker}
-
-        with SecEdgarClient(user_agent=user_agent) as client:
-            cik = client.lookup_cik(ticker)
-            if cik is None:
-                raise ValueError(f"Ticker {ticker} not found in SEC EDGAR ticker table")
-            facts = client.fetch_company_facts(cik)
-        parsed = parse_company_facts(ticker, facts)
-
-        with transaction(conn):
-            upsert_company(conn, parsed.company)
-            annual = upsert_financials_annual(conn, parsed.annual)
-            quarterly = upsert_financials_quarterly(conn, parsed.quarterly)
-            filings = upsert_filings(conn, parsed.filings)
-
-        run.rows_affected = 1 + annual + quarterly + filings
-        null_revenue = count_null_revenue(parsed.annual)
-        log.info(
-            "ingest.annual_revenue_null",
-            ticker=ticker,
-            source="sec_edgar",
-            annual_revenue_null=null_revenue,
-            annual=annual,
-        )
-        run.details = {
-            "ticker": ticker,
-            "annual": annual,
-            "quarterly": quarterly,
-            "shares_rescaled": parsed.shares_rescaled,
-            "filings": filings,
-            "annual_revenue_null": null_revenue,
-        }
-    assert run.result is not None  # refresh_run always sets it on exit
-    return run.result

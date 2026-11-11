@@ -33,15 +33,15 @@ fmp:{role:"datos",titulo:"Financial Modeling Prep",lead:"Lo que hace que el univ
    "Los precios se guardan append-only por fecha; los fundamentals se refrescan semanalmente."]},
  caveat:"Este adapter importa el de SEC EDGAR para reutilizar cómo se escriben los estados. Es la tensión fmp → sec_edgar de la vista del código."},
 
-ibkr:{role:"vigila",titulo:"Interactive Brokers · TWS",lead:"Tu cartera real, por socket local y solo de lectura.",
- idea:["El monitor de cartera necesita saber qué tenés de verdad, no qué creés que tenés. De ahí salen las posiciones, el efectivo por moneda y las operaciones.",
+ibkr:{role:"vigila",titulo:"Interactive Brokers · Flex Web Service",lead:"Tu cartera real, por HTTPS y solo de lectura.",
+ idea:["El monitor de cartera necesita saber qué tenés de verdad, no qué creés que tenés. De ahí salen las posiciones, el efectivo por moneda, las operaciones y los dividendos y splits.",
   "La decisión de que sea solo lectura no es técnica sino de diseño: el bot sugiere candidatos para que un humano investigue. Un bot que puede operar es otro producto, con otros riesgos."],
- code:{where:[["módulo","bot.ingest.ibkr"],["librería","ib_async"],["puerto","7496 (TWS en vivo)"],["decisión","ADR 0004"]],
-  notes:["Se conecta a Trader Workstation o IB Gateway corriendo en tu máquina. La autenticación es el login de escritorio: no hay OAuth, ni gateway REST, ni contenedor que levantar.",
-   "El cliente nunca manda, modifica ni cancela una orden. Conviene además tildar «Read-Only API» en TWS, para que el escritorio rechace cualquier escritura aunque un cliente lo intentara.",
-   "Dos límites del socket, y conviene conocerlos: el historial de operaciones es solo el de la sesión actual, así que no se puede reconstruir hacia atrás; y los dividendos y splits no llegan por acá. Para eso haría falta el Flex Web Service.",
-   "La CI nunca abre un socket real: el mapeo se prueba contra respuestas simuladas."]},
- caveat:"El spec original (§8.1) elegía la Client Portal API. La ADR 0004 lo revirtió a TWS para no depender de un re-login interactivo cada 24 horas."},
+ code:{where:[["módulo","bot.ingest.ibkr_flex"],["clase","FlexPortfolioClient"],["config","BOT_IBKR_FLEX_TOKEN, BOT_IBKR_FLEX_QUERY_ID, BOT_IBKR_FLEX_TZ"],["decisión","ADR 0010"]],
+  notes:["Una sola Activity Flex Query (Open Positions, Cash Report, Trades, Corporate Actions, Cash Transactions) se descarga una vez por corrida, con un token: no hace falta ningún proceso de IBKR abierto en tu máquina.",
+   "El Flex Web Service no tiene superficie de órdenes: leer es lo único que puede hacer.",
+   "El precio de esto: el snapshot es el cierre del día hábil anterior, no en vivo. bot portfolio fecha el snapshot y el directorio de reportes con la fecha del statement.",
+   "La CI nunca llama a IBKR: el parser se prueba contra un statement sintético y el cliente contra un transporte HTTP simulado."]},
+ caveat:"El spec original (§8.1) elegía la Client Portal API; la ADR 0004 la cambió por el socket de TWS, que fallaba cada día que TWS no estaba abierto. La ADR 0010 deja el Flex Web Service como única fuente."},
 
 // ═══════════════ CAPA A ═══════════════
 adapters:{role:"datos",titulo:"Adapters de ingesta",lead:"Cuatro fuentes distintas, casi la misma forma.",
@@ -172,10 +172,10 @@ zigurat:{role:"selecciona",titulo:"Capa B · el screener mecánico",lead:"Cuatro
  code:{where:[["regla","roic_above_sector_wacc"],["insumo","damodaran_industry.wacc"],["parámetros","ninguno"]],
   notes:["Es la única regla de trap detection sin parámetros configurables: la comparación es contra el sector y no hay umbral que elegir."]}},
 
-"t-dilution":{role:"elimina",titulo:"Dilución",lead:"Las acciones no crecen más de 5% anual.",
+"t-dilution":{role:"elimina",titulo:"Dilución",lead:"Las acciones no crecen más de 5% anual, salvo que una adquisición material lo explique.",
  idea:["Todas las métricas por acción se pueden arruinar sin que el negocio cambie: basta emitir acciones. Si la cantidad crece 6% por año, la empresa tiene que crecer 6% solo para que tu parte no se achique.",
-  "La emisión por una adquisición justificada es otra cosa. La que preocupa es la crónica, sin contrapartida, típica de compensación en acciones sin recompra que la compense."],
- code:{where:[["regla","share_count_not_diluting"],["parámetro","max_annual_growth: 0.05"]],notes:[]}},
+  "La emisión por una adquisición justificada es otra cosa. La que preocupa es la crónica, sin contrapartida, típica de compensación en acciones sin recompra que la compense. La excepción se implementa comparando la caja pagada por adquisiciones en los últimos tres ejercicios con los activos totales."],
+ code:{where:[["regla","share_count_not_diluting"],["parámetro","max_annual_growth: 0.05"],["parámetro","ma_window: 3"],["parámetro","ma_materiality: 0.10"]],notes:[]}},
 
 // ═══════════════ CAPA C ═══════════════
 story:{role:"valua",titulo:"Story type",lead:"Qué clase de historia es esta empresa.",
@@ -231,10 +231,10 @@ assumptions:{role:"valua",titulo:"Los seis supuestos",lead:"Acá vive casi todo 
    "Los overrides van en <code>config/assumptions/&lt;TICKER&gt;.yaml</code> y admiten notas en texto libre; el reporte incluye una sección con todo lo que se cambió a mano."]}},
 
 "a-growth":{role:"valua",titulo:"Crecimiento de ingresos",lead:"El supuesto que más mueve el resultado y el que peor información tiene.",
- idea:["El método de Damodaran pide acá el consenso de analistas para los primeros años, y después hacerlo converger hacia el crecimiento nominal de la economía. La convergencia no es una concesión conservadora: es aritmética. Una empresa que crece por encima de la economía para siempre termina siendo más grande que la economía.",
-  "El programa todavía no hace eso. El feed de estimaciones nunca se conectó, así que el default es el promedio histórico de la propia empresa (la tasa anual compuesta de sus ventas), que baja en línea recta hasta el crecimiento terminal en diez años; y si no hay serie suficiente, una regla sobre el PBI nominal.",
-  "La diferencia importa para leer el resultado: el consenso de analistas tiende a ser optimista, y el promedio histórico tiene el sesgo contrario, el inercial. Proyecta hacia adelante lo que ya pasó, que es exactamente lo que falla en una empresa que está cambiando."],
- code:{where:[["origen real","historical_average"],["respaldo","rule_based sobre PBI nominal"],["lo que pide el spec","analyst_consensus"]],
+ idea:["El crecimiento de los primeros años arranca en el de la propia empresa y después converge al crecimiento terminal. La convergencia no es una concesión conservadora: es aritmética. Una empresa que crece por encima de la economía para siempre termina siendo más grande que la economía.",
+  "Por diseño, el default es el promedio histórico de la propia empresa (la tasa anual compuesta de sus ventas), que baja en línea recta hasta el crecimiento terminal en diez años; y si no hay serie suficiente, una regla sobre el PBI nominal. El consenso de analistas quedó afuera por decisión (#63), no por falta.",
+  "El promedio histórico tiene un sesgo inercial: proyecta hacia adelante lo que ya pasó, que es exactamente lo que falla en una empresa que está cambiando."],
+ code:{where:[["origen real","historical_average"],["respaldo","rule_based sobre PBI nominal"]],
   notes:["Es el override manual más frecuente, justamente porque ningún default automático es bueno acá."]}},
 
 "a-margin":{role:"valua",titulo:"Margen operativo",lead:"El de largo plazo es el del sector, salvo razón estructural.",

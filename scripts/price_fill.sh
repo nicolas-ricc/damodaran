@@ -17,17 +17,22 @@
 # Watch:   tail -f .cache/price_fill.log
 # Remove:  crontab -l | grep -v 'bot-price-fill' | crontab -
 #
+# The DB section (the refresh and the MISSING query) runs under the shared
+# .cache/bot.lock that daily.sh and weekly.sh also take. When another bot run
+# holds it, this run logs "skipped: DB busy" and exits 0: skipped, not failed.
+# The next hourly run catches up (#108).
+#
 # Requires BOT_TIINGO_API_KEY and BOT_SEC_USER_AGENT in the checkout's .env.
 set -uo pipefail
 
 # Repo root = parent of this script's directory (resolve symlinks for cron).
-SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd -P)"
 REPO="$(dirname "$SCRIPT_DIR")"
 cd "$REPO" || exit 1
 
-# cron's PATH is minimal — make sure uv is findable.
-export PATH="$HOME/.local/bin:/usr/local/bin:/usr/bin:$PATH"
-UV="$(command -v uv || echo "$HOME/.local/bin/uv")"
+# cron's PATH is minimal — make sure uv is findable. Appended, so a uv
+# already on PATH wins.
+export PATH="$PATH:$HOME/.local/bin:/usr/local/bin:/usr/bin"
 
 mkdir -p "$REPO/.cache"
 LOG="$REPO/.cache/price_fill.log"
@@ -42,10 +47,18 @@ if [ -z "${BOT_SYNCED:-}" ]; then
 fi
 
 echo "=== $(date -Is) run ===" >> "$LOG"
-"$UV" run bot refresh --prices --only-missing >> "$LOG" 2>&1
+
+LOCK="$REPO/.cache/bot.lock"
+exec 9>>"$LOCK"
+if ! flock -n 9; then
+  echo "skipped: DB busy ($LOCK is held by another bot run); the next hourly run catches up" >> "$LOG"
+  exit 0
+fi
+
+uv run bot refresh --prices --only-missing >> "$LOG" 2>&1
 
 # Fundamentals-covered tickers still lacking any price row.
-MISSING=$("$UV" run python - <<'PY' 2>>"$LOG"
+MISSING=$(uv run python - <<'PY' 2>>"$LOG"
 import duckdb
 from bot.config import load_settings
 

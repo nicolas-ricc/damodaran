@@ -127,19 +127,14 @@ fi
 
 cat <<'EOF'
 
-IBKR portfolio sync (bot portfolio) talks to a running TWS or IB Gateway over
-its local socket. Bootstrap does not connect to it; set it up once in TWS:
-  1. File -> Global Configuration -> API -> Settings: tick
-     "Enable ActiveX and Socket Clients".
-  2. Add 127.0.0.1 to Trusted IPs.
-  3. Recommended: also tick "Read-Only API".
-Connection defaults (override in .env):
-  BOT_IBKR_HOST=127.0.0.1
-  BOT_IBKR_PORT=7496        # live TWS; 7497 paper TWS, 4001/4002 IB Gateway live/paper
-  BOT_IBKR_CLIENT_ID=1
-Smoke test, with TWS running and logged in:
-  uv run python -c "from bot.config import load_settings; from bot.ingest.ibkr import IbkrClient; print(IbkrClient.from_settings(load_settings()).accounts())"
-Until TWS is running and logged in, `bot portfolio` fails.
+IBKR portfolio sync (bot portfolio) reads the IBKR Flex Web Service. Bootstrap
+does not call it; set it up once:
+  1. Account Management: enable the Flex Web Service and copy its token.
+  2. Create one Activity Flex Query with five sections: Open Positions,
+     Cash Report, Trades, Corporate Actions, Cash Transactions.
+  3. In .env set BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID.
+  4. Validate the query: uv run bot flex-capture
+  5. Then run: uv run bot portfolio
 
 EOF
 

@@ -1,5 +1,7 @@
 # #216 Fade every growth path to terminal growth over 10 years — Implementation Plan
 
+> **Superseded (#320):** analyst consensus is not a source, by decision (#63); mentions of it below are historical.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** The explicit forecast runs 10 years, and every non-manual revenue-growth path fades linearly from its start to the resolved terminal growth. Today only high-growth fades, its target is GDP, and the horizon is 5.

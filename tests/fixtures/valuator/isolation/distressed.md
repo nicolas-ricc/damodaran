@@ -32,7 +32,7 @@ _Generated 2026-01-01 · currency USD · country United States_
 | Equity weight | 76.9% | sector_default_damodaran |
 | Debt weight | 23.1% | sector_default_damodaran |
 | Terminal growth | 4.0% | rule_based |
-| Tax rate | 21.0% | sector_default_damodaran |
+| Tax rate | 21.0% | country_default_damodaran |
 | Probability of bankruptcy | 20.0% | manual |
 
 ## 4. DCF detail
@@ -81,11 +81,10 @@ Rate assumptions move ±1 percentage point (every year of a path); `sales_to_cap
 
 | Flag | Colour | Reason |
 |---|---|---|
-| story_margin | green | story type 'distressed' is not 'high-growth' |
-| growth_reinvestment | green | projected reinvestment is comfortably funded by NOPAT every year |
-| beta_business_risk | unknown | not evaluated: sector beta, operating leverage or company leverage unavailable |
-| terminal_value_share | green | terminal value is 59% of enterprise value (<= 80%) |
-| country_exposure | unknown | not evaluated: needs revenue by geography and a revenue-weighted ERP; no ingest path supplies either |
+| growth_reinvestment | green | Every year the reinvestment growth needs fits within after-tax operating profit (NOPAT). |
+| beta_business_risk | unknown | not evaluated: the sector beta, the operating leverage or the company's debt share is missing. |
+| terminal_value_share | green | 59% of enterprise value comes from the terminal value, within the 80% ceiling. |
+| country_exposure | unknown | not evaluated: it needs revenue by geography and a revenue-weighted equity risk premium (ERP), and no data source supplies either. |
 ## 7. Manual overrides
 
 No manual overrides applied — all assumptions are sector defaults, rules, or

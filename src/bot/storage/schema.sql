@@ -32,12 +32,20 @@ CREATE TABLE IF NOT EXISTS damodaran_country (
     tax_rate        DOUBLE,
     rating          VARCHAR,
     region          VARCHAR,
+    prs_score       DOUBLE,
+    erp_basis       VARCHAR,
     PRIMARY KEY (country, year)
 );
 
 -- Drops the pre-#109 column from existing DBs (risk-free now comes per currency
 -- from config/currencies.yaml). Idempotent. Rollback: ADD COLUMN risk_free_rate DOUBLE.
 ALTER TABLE damodaran_country DROP COLUMN IF EXISTS risk_free_rate;
+
+-- Adds the #59 ERP provenance columns to existing DBs: prs_score is the PRS
+-- country score, erp_basis says how the row's erp was derived. Idempotent.
+-- Rollback: DROP COLUMN prs_score, DROP COLUMN erp_basis.
+ALTER TABLE damodaran_country ADD COLUMN IF NOT EXISTS prs_score DOUBLE;
+ALTER TABLE damodaran_country ADD COLUMN IF NOT EXISTS erp_basis VARCHAR;
 
 -- Daily FX rates against USD (M2.5). One row per (currency, date).
 -- `rate_to_usd` is the multiplier that converts 1 unit of `currency` into USD:
@@ -115,12 +123,17 @@ CREATE TABLE IF NOT EXISTS financials_annual (
     operating_cashflow DOUBLE,
     free_cashflow   DOUBLE,
     dividends_paid  DOUBLE,
+    acquisitions    DOUBLE,
     shares_diluted  DOUBLE,
     is_restated     BOOLEAN DEFAULT FALSE,
     source          VARCHAR NOT NULL,
     fetched_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (ticker, fiscal_year, is_restated)
 );
+
+-- Adds the #62 acquisitions column to existing DBs: cash paid for businesses,
+-- net of cash acquired, outflow positive. Idempotent. Rollback: DROP COLUMN acquisitions.
+ALTER TABLE financials_annual ADD COLUMN IF NOT EXISTS acquisitions DOUBLE;
 
 CREATE TABLE IF NOT EXISTS financials_quarterly (
     ticker          VARCHAR NOT NULL,
@@ -147,10 +160,15 @@ CREATE TABLE IF NOT EXISTS filings_log (
     filing_type     VARCHAR NOT NULL,
     filing_date     DATE NOT NULL,
     accession_number VARCHAR,
+    items           VARCHAR,
     source          VARCHAR NOT NULL,
     fetched_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (ticker, filing_type, filing_date, source)
 );
+
+-- Adds the #275 8-K item numbers (e.g. `4.01,9.01`) to existing DBs; NULL for
+-- every other row. Idempotent. Rollback: DROP COLUMN items.
+ALTER TABLE filings_log ADD COLUMN IF NOT EXISTS items VARCHAR;
 
 CREATE TABLE IF NOT EXISTS refresh_log (
     source          VARCHAR NOT NULL,
@@ -204,18 +222,20 @@ CREATE TABLE IF NOT EXISTS cash_balances (
     PRIMARY KEY (snapshot_date, account, currency)
 );
 
--- Trade executions (fills) sourced from the IBKR TWS socket (M5, #27).
+-- Trade executions (fills) from the IBKR Flex Web Service (M5, #27; ADR 0010, #256).
 -- Append-only: one row per broker execution. `sync_trades` is incremental —
 -- it derives a watermark from max(executed_at) already stored and only fetches
 -- fills newer than that, de-duping on the broker `exec_id` so an overlapping
 -- look-back window cannot double-insert. `exec_id` is IBKR's globally-unique
 -- execution id and is the primary key. `executed_at` is the fill timestamp
--- normalised to naive UTC (ib_async returns it timezone-aware; the sync layer
+-- normalised to naive UTC (the source may be timezone-aware; the sync layer
 -- converts to UTC and drops the tzinfo so DuckDB needs no pytz at read time).
--- NOTE: the live TWS socket only
--- returns the current session's fills (today + a short look-back), so this
--- table accumulates history across daily runs; a one-shot historical backfill
--- needs IBKR Flex (out of scope, see #27 addendum).
+-- The Flex query (src/bot/ingest/ibkr_flex.py) covers its period (Last 7
+-- Calendar Days): a gap between runs longer than that loses the fills in
+-- between unless the period is widened once; exec_id dedupe absorbs the
+-- overlap. Flex `dateTime` is in BOT_IBKR_FLEX_TZ and is converted to UTC.
+-- `qty` is Flex's signed `quantity` (a SELL is negative); rows stored before
+-- #256 by the TWS socket hold unsigned shares. `side` gives the direction for both.
 CREATE TABLE IF NOT EXISTS trades (
     exec_id         VARCHAR PRIMARY KEY,
     account         VARCHAR NOT NULL,
@@ -233,10 +253,9 @@ CREATE TABLE IF NOT EXISTS trades (
 );
 
 -- Corporate actions — dividends received, splits, mergers (M5, #27).
--- The live TWS socket does NOT expose corporate actions in any reliable form
--- (see #27 addendum). They come from IBKR's Flex Web Service, imported by
--- src/bot/ingest/ibkr_flex.py (#56) during `bot portfolio` when a Flex token and
--- query id are configured. `action_id` is 'ca:<actionID>' or 'ct:<transactionID>'. `details`
+-- They come from IBKR's Flex Web Service: the CorporateActions and
+-- CashTransactions sections of the same statement `bot portfolio` downloads
+-- (src/bot/ingest/ibkr_flex.py, #56; ADR 0010). `action_id` is 'ca:<actionID>' or 'ct:<transactionID>'. `details`
 -- is a JSON blob holding the fields that vary by action type (split ratio,
 -- IBKR's raw type, amounts, etc.).
 CREATE TABLE IF NOT EXISTS corporate_actions (

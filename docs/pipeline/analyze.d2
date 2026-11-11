@@ -21,7 +21,7 @@ tickers: "which tickers?\ntickers given: those\n--from-screen: passed candidates
   class: decision
 }
 
-override: "which override file?\n--override path (only with exactly one ticker); not a file: exit code 2\nelse config/assumptions/TICKER.yaml when it exists, else none\nread after the company is loaded, before the signals\nany invalid file: cannot value, exit code 1, and the batch goes on\nnot valid YAML, not a mapping, an unknown key,\na numeric value that is not a finite number (or a non-empty list of them for revenue_growth / operating_margin),\na founded_year that is not a whole year from 1600 to this year,\nor an inconsistent story file" {  # @symbol bot.valuator.assumptions.conventional_override_path @symbol bot.valuator.assumptions.load_override @const bot.valuator.assumptions._FOUNDED_YEAR_MIN
+override: "which override file?\n--override path (only with exactly one ticker); not a file: exit code 2\nelse config/assumptions/TICKER.yaml when it exists, else none\nread after the company is loaded, before the signals\nany invalid file: cannot value, exit code 1, and the batch goes on\nnot valid YAML, not a mapping, an unknown key,\na numeric value that is not a finite number (or a non-empty list of them for revenue_growth / operating_margin), a numeric value outside its range,\na founded_year that is not a whole year from 1600 to this year,\nor an inconsistent story file" {  # @symbol bot.valuator.assumptions.conventional_override_path @symbol bot.valuator.assumptions.load_override @const bot.valuator.assumptions._FOUNDED_YEAR_MIN
   class: decision
 }
 
@@ -100,7 +100,7 @@ story_type: "2. story type: first rule that matches wins" {  # @symbol bot.valua
 # Section 3: assumptions
 assumptions: "3. assumptions: the first source that yields a value wins; paths over 10 years, growth fading to terminal growth" {  # @symbol bot.valuator.assumptions.resolve_assumptions @const bot.valuator.assumptions._HORIZON @enum bot.valuator.assumptions.AssumptionSource
   link: "./analyze-assumptions.svg"
-  plano_sources: |md Gap: plano assumptions card lists six sources without story_pattern, and plano a-growth says the default is the historical average; a high-growth company with history gets the story_pattern path. | {class: gap}
+  plano_sources: |md Gap: plano assumptions card lists six sources without story_pattern or country_default_damodaran, and plano a-growth says the default is the historical average; a high-growth company with history gets the story_pattern path. | {class: gap}
   # Step: the story shapes the ten-year paths
   story: "hypergrowth story: the story file shapes the ten-year paths\ngrowth: year 1, then one solved rate up to year 5 so year-10 revenue meets the target, then a fade to terminal growth\nmargin, weighted average cost of capital (WACC), tax: from the story file\neach path covers 10 years; the generic chain runs first for every company\nalso from the story: sales-to-capital, cost of equity = wacc_start (equity weight 1, debt weight 0), bankruptcy odds = failure_probability (0 by default), terminal return on invested capital (ROIC), proceeds share, fixed commitments, extra cash, governance discount; all sourced story\nkept with their own source: terminal growth, the marginal tax rate (manual, sector, country, or 25%), pre-tax cost of debt, distress value per share" {  # @symbol bot.valuator.hypergrowth.apply_story @symbol bot.valuator.hypergrowth.solve_stage_growth @const bot.valuator.hypergrowth.HORIZON @const bot.valuator.hypergrowth._STAGE_END @const bot.valuator.assumptions._DEFAULT_TAX_RATE
     class: step
@@ -111,7 +111,6 @@ assumptions: "3. assumptions: the first source that yields a value wins; paths o
   }
   growth: "revenue growth g_t, a path over 10 years, fading in a straight line to the terminal growth (resolved first)\n1. manual: a list keeps its length, no fade; one value is repeated 10 years → manual\n2. no terminal growth: unresolved\n3. from the historical growth (CAGR) → story_pattern for high-growth, historical_average otherwise\n4. no history: from nominal GDP growth of the valuation currency → rule_based; no GDP either: unresolved\nhistorical growth = revenue CAGR = (last ÷ first)^(1 ÷ (years − 1)) − 1,\nat least two years, first and last > 0" {  # @symbol bot.valuator.assumptions._resolve_revenue_growth @const bot.valuator.assumptions._HORIZON @file config/currencies.yaml
     class: step
-    consensus: |md Gap: spec §7.3 starts revenue growth from analyst consensus converging to nominal GDP by year 10; there is no consensus layer (AssumptionSource has no analyst_consensus). | {class: gap}
   }
   margin: "operating margin, a 10-year path\n1. manual → manual\n2. high-growth with a latest EBIT ÷ revenue: straight line from it\nto the sector op_margin → story_pattern\n3. cyclical with ≥ 4 years: mean of the yearly\nEBIT ÷ revenue → historical_average\n4. mature-decline with a latest EBIT ÷ revenue: that margin each year → historical_average\n5. sector op_margin each year → sector label\nno sector op_margin: unresolved" {  # @symbol bot.valuator.assumptions._resolve_operating_margin @const bot.valuator.assumptions._HORIZON @const bot.valuator.assumptions._MIN_CYCLE_YEARS
     class: step
@@ -130,7 +129,7 @@ assumptions: "3. assumptions: the first source that yields a value wins; paths o
   terminal_growth: "terminal growth g_terminal\n1. manual → manual\n2. valuation currency in config/currencies.yaml:\nmin(risk-free rate, nominal GDP growth) of that currency → rule_based\n3. uncovered currency: unresolved, so the DCF cannot run" {  # @symbol bot.valuator.assumptions._resolve_terminal_growth @file config/currencies.yaml @symbol bot.reference.currencies.load_currency_table
     class: step
   }
-  tax: "tax rate\n1. manual → manual\n2. sector tax_rate → sector label\n3. country tax_rate (newest damodaran_country row)\n→ sector_default_damodaran\n4. else 25% → rule_based" {  # @symbol bot.valuator.assumptions._resolve_tax_rate @const bot.valuator.assumptions._DEFAULT_TAX_RATE
+  tax: "tax rate\n1. manual → manual\n2. sector tax_rate → sector label\n3. country tax_rate (newest damodaran_country row)\n→ country_default_damodaran\n4. else 25% → rule_based" {  # @symbol bot.valuator.assumptions._resolve_tax_rate @const bot.valuator.assumptions._DEFAULT_TAX_RATE
     class: step
   }
   bankruptcy: "probability of bankruptcy p and distress value per share\n1. manual → manual\n2. distressed: interest coverage → synthetic rating → ten-year cumulative default probability,\nboth tables in config/default_spreads.yaml → rule_based\ncoverage unknown, or the file absent or malformed: 0 → rule_based, and the report says why\n3. else 0 → rule_based\ndistress value per share: manual, else 0 → rule_based" {  # @symbol bot.valuator.assumptions._resolve_probability_of_bankruptcy @file config/default_spreads.yaml @symbol bot.reference.default_spreads.load_default_spreads
@@ -143,8 +142,9 @@ assumptions: "3. assumptions: the first source that yields a value wins; paths o
     - story_pattern: a path built for the story type
     - story: the story file of a hypergrowth company
     - historical_average: the company's own history
-    - sector_default_damodaran: the sector or country row of the company's region
+    - sector_default_damodaran: the sector row of the company's region
     - sector_default_damodaran_cross_region: the sector row of another region
+    - country_default_damodaran: the country row of the company's country (tax rate only)
     - rule_based: a fixed rule or default
     - unresolved: no source, so the company cannot be valued
     | {class: note}
@@ -196,9 +196,9 @@ sensitivity: "5. sensitivity" {
 }
 
 # Section 6: narrative flags
-narrative_flags: "6. narrative flags: five checks, three more for hypergrowth; for a human, not in any ranking" {  # @symbol bot.valuator.narrative_flags.narrative_flags @enum bot.valuator.narrative_flags.FlagColor
+narrative_flags: "6. narrative flags: four checks, five for high-growth, three more for hypergrowth; for a human, not in any ranking" {  # @symbol bot.valuator.narrative_flags.narrative_flags @enum bot.valuator.narrative_flags.FlagColor
   link: "./analyze-flags.svg"
-  story_margin: "story margin\nstory type not high-growth: green\ncompany or sector margin missing: unknown\ncompany EBIT ÷ revenue (latest year) > sector op_margin: yellow\nelse green" {  # @symbol bot.valuator.narrative_flags.story_margin_flag
+  story_margin: "story margin: only for a high-growth story type; other story types carry no such flag\ncompany or sector margin missing: unknown\ncompany EBIT ÷ revenue (latest year) > sector op_margin: yellow\nelse green" {  # @symbol bot.valuator.narrative_flags.story_margin_flag
     class: decision
   }
   growth_reinvestment: "growth funded by reinvestment\nany year with FCFF < 0, or reinvestment > 0 with NOPAT ≤ 0: red\nhighest reinvestment ÷ NOPAT over the years with NOPAT > 0\nis > 0.90: yellow\nelse green" {  # @symbol bot.valuator.narrative_flags.growth_reinvestment_flag @const bot.valuator.narrative_flags._STRETCHED_REINVESTMENT_RATE
@@ -219,7 +219,7 @@ narrative_flags: "6. narrative flags: five checks, three more for hypergrowth; f
   hypergrowth: "hypergrowth flags\nhypergrowth_story: red with signals and no story file, yellow with a story file and no signals, green otherwise\nrevenue scale: year-10 revenue > 750B: yellow\nterminal ROIC > 2 × the sector ROIC: yellow\na ROIC missing, or sector ROIC ≤ 0: unknown\nrun only with hypergrowth signals or the hypergrowth story type; revenue scale and terminal ROIC only with the hypergrowth story type" {  # @symbol bot.valuator.narrative_flags.hypergrowth_flags @symbol bot.valuator.narrative_flags.hypergrowth_story_flag @const bot.valuator.narrative_flags._LARGEST_COMPANY_REVENUE @const bot.valuator.narrative_flags._ROIC_SECTOR_MULTIPLE
     class: decision
   }
-  only_red: |md Only growth_reinvestment can be red among the five checks: three stop at yellow and country exposure is always unknown. Among the hypergrowth flags, only hypergrowth_story can be red (signals without a story file). | {class: note}
+  only_red: |md Only growth_reinvestment can be red among the five spec checks: three stop at yellow and country exposure is always unknown. Among the hypergrowth flags, only hypergrowth_story can be red (signals without a story file). | {class: note}
 }
 
 # Section 7: margin of safety and verdict

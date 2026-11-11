@@ -222,8 +222,8 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.portfolio.report.build_report",
         "bot.portfolio.report.render_portfolio",
         "bot.portfolio.report.render_alerts",
-        "bot.ingest.ibkr.IbkrClient",
-        "bot.ingest.ibkr_flex.import_corporate_actions",
+        "bot.ingest.ibkr_flex.FlexPortfolioClient",
+        "bot.ingest.ibkr_flex.upsert_corporate_actions",
         "bot.notifier.build_notifier",
         "bot.notifier.notify_alerts",
         "bot.screener.engine.load_holding_inputs",
@@ -335,7 +335,7 @@ _REQUIRED_SYMBOLS: dict[str, set[str]] = {
         "bot.notifier.build_notifier",
         "bot.portfolio.sync.sync_portfolio",
         "bot.portfolio.sync.value_positions",
-        "bot.ingest.ibkr_flex.import_corporate_actions",
+        "bot.ingest.ibkr_flex.upsert_corporate_actions",
         "bot.portfolio.trades.sync_trades",
     },
     "portfolio-marks": {
@@ -389,6 +389,7 @@ _REQUIRED_TABLES: dict[str, set[str]] = {
         "damodaran_industry",
         "damodaran_country",
         "screener_candidates",
+        "filings_log",
     },
     "analyze": {
         "screener_candidates",
@@ -720,12 +721,12 @@ _REQUIRED: dict[str, dict[str, set[str]]] = {
 # its line with, the expansion. Any all-caps token not listed here or in
 # _ACRONYMS_EXEMPT fails the suite, so a new acronym cannot slip in unexplained.
 _ACRONYMS: dict[str, str] = {
+    "NT": "notification of late filing",
     "SEC": "Securities and Exchange Commission",
     "EDGAR": "Electronic Data Gathering, Analysis, and Retrieval",
     "EOD": "end of day",
     "FX": "foreign exchange",
     "IBKR": "Interactive Brokers",
-    "TWS": "Trader Workstation",
     "DCF": "discounted cash flow",
     "WACC": "weighted average cost of capital",
     "MoS": "margin of safety",
@@ -744,6 +745,7 @@ _ACRONYMS: dict[str, str] = {
     "NOPAT": "net operating profit after tax",
     "FCFF": "free cash flow to the firm",
     "ERP": "equity risk premium",
+    "PRS": "Political Risk Services",
     "GDP": "gross domestic product",
     "P/E": "price to earnings",
     "P/BV": "price to book value",
@@ -945,7 +947,6 @@ _EXTERNALS = {
     "tiingo": "Tiingo",
     "stooq": "Stooq",
     "fmp": "Financial Modeling Prep",
-    "tws": "Trader Workstation",
     "flex": "Flex",
     "pages": "GitHub Pages",
 }
@@ -1126,6 +1127,12 @@ _REFRESH_TEXT: dict[str, list[str]] = {
     "region": ["US", "exit code 2"],
     "damodaran.files_ok": ["wacc.xls", "ctryprem.xls", "partial", "error"],
     "damodaran.merge": ["outer join", "earlier file wins"],
+    "damodaran.country": [
+        "two tables: the Moody's-rated countries, then the unrated countries scored by PRS",
+        "each read with its own columns; erp_basis says which",
+        "rating, region, PRS score, ERP basis",
+    ],
+    "damodaran.download": ["country risk premium, PRS (Political Risk Services) score, ERP basis"],
     "damodaran.derive": [
         "D/E = w ÷ (1 - w)",
         "w = D/(D+E)",
@@ -1286,9 +1293,8 @@ _SCREEN_NODES: list[tuple[str, str]] = (
         ("value_indicators.score", "step"),
         ("value_indicators.at_least_one", "decision"),
         ("trap_detection.growth_rate", "step"),
-        ("trap_detection.share_count_not_diluting.mergers", "gap"),
         ("trap_detection.all_pass", "decision"),
-        ("trap_detection.auditor", "gap"),
+        ("trap_detection.auditor_changes_and_late_filings", "decision"),
         ("ranking.metrics", "step"),
         ("ranking.metrics.spec_scores", "gap"),
         ("ranking.percentiles", "step"),
@@ -1494,10 +1500,6 @@ def test_screen_rule_directions_match_code(
 
 def test_screen_gap_notes() -> None:
     assert "21%" in _screen_block("snapshot.tax.fallback")
-    assert "auditor" in _screen_block("trap_detection.auditor")
-    assert "mergers and acquisitions" in _screen_block(
-        "trap_detection.share_count_not_diluting.mergers"
-    )
     spec_scores = _screen_block("ranking.metrics.spec_scores")
     assert "margin stability" in spec_scores and "free cash flow growth" in spec_scores
 
@@ -1576,7 +1578,6 @@ _ANALYZE_NODES: list[tuple[str, str]] = (
         )
     ]
     + [
-        ("assumptions.growth.consensus", "gap"),
         ("assumptions.sales_to_capital.story", "gap"),
         ("assumptions.weights.company", "gap"),
         ("assumptions.bankruptcy.altman", "gap"),
@@ -1621,6 +1622,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "not valid YAML", "not a mapping", "an unknown key", "a numeric value that is not a finite number",
         "a founded_year that is not a whole year from 1600 to this year",
         "a non-empty list of them for revenue_growth / operating_margin",
+        "a numeric value outside its range",
         "an inconsistent story file", "cannot value, exit code 1",
     ],
     "cli.errors": ["exit code 2", "exit code 1", "worst"],
@@ -1693,7 +1695,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "rule_based",
         "unresolved",
     ],
-    "assumptions.tax": ["sector label", "country tax_rate", "sector_default_damodaran", "25%"],
+    "assumptions.tax": ["sector label", "country tax_rate", "country_default_damodaran", "25%"],
     "assumptions.bankruptcy": [
         "manual",
         "interest coverage",
@@ -1908,7 +1910,7 @@ def _valuation_input(shares: float) -> Any:
         revenue_history=(90.0, 100.0),
         income_history=(7.0, 8.0),
         ebit_history=(9.0, 10.0),
-        sector=analysis._SectorMultiples("US", None, None, None, None, None),
+        sector=analysis._SectorMultiples("US", None, None, None, None),
         latest_close=analysis.LatestClose(10.0, "USD", date(2026, 5, 29)),
         close_rates=None,
         assumption_inputs=resolve.AssumptionInputs(
@@ -1975,7 +1977,6 @@ _ANALYZE_GAPS: dict[str, list[str]] = {
     "story_type.distressed.altman": ["Altman Z", "computed nowhere"],
     "assumptions.bankruptcy.altman": ["Altman Z", "computed nowhere", "interest coverage alone"],
     "narrative_flags.country_exposure.always_unknown": ["always unknown"],
-    "assumptions.growth.consensus": ["analyst consensus", "analyst_consensus"],
     "assumptions.sales_to_capital.story": ["sales-to-capital and terminal growth"],
     "dcf.equity.adjustments": ["minority interests", "cross-holdings", "no input path"],
     "inputs.derived.age": ["ipo_date", "Verified", "parse_submissions_info"],
@@ -1989,6 +1990,12 @@ def test_analyze_gap_notes(key: str) -> None:
     assert "Gap:" in block
     missing = [w for w in _ANALYZE_GAPS[key] if w not in block]
     assert missing == []
+
+
+def test_analyze_growth_has_no_consensus_gap() -> None:
+    # #320: analyst consensus was dropped by decision (#63), it is not a gap.
+    assert _node_class(_analyze(), "assumptions.growth.consensus") is None
+    assert "consensus" not in _analyze_block("assumptions.growth").lower()
 
 
 def test_analyze_ipo_date_gap_is_current() -> None:
@@ -2039,7 +2046,7 @@ _PORTFOLIO_TABLES = sorted(_REQUIRED_TABLES["portfolio"])
 
 _PORTFOLIO_NODES: list[tuple[str, str]] = (
     [("daily", "cron")]
-    + [(e, "external") for e in ("tws", "flex", "channels")]
+    + [(e, "external") for e in ("flex", "channels")]
     + [(f, "file") for f in ("preset", "override_yaml", "portfolio_template", "alerts_template")]
     + [(f"duckdb.{t}", "store") for t in _PORTFOLIO_TABLES]
     + [(o, "output") for o in ("portfolio_md", "alerts_md", "message")]
@@ -2090,12 +2097,10 @@ _PORTFOLIO_TEXT: dict[str, list[str]] = {
         "unpriced",
     ],
     "sync.corporate_actions": [
-        "BOT_IBKR_FLEX_TOKEN",
-        "BOT_IBKR_FLEX_QUERY_ID",
+        "from the same statement",
         "ct:<id>",
         "ca:<id>",
         "de-duplicated on action_id",
-        "warning",
     ],
     "sync.trades": [
         "newest executed_at",
@@ -2244,8 +2249,8 @@ def test_portfolio_run_steps_match_code() -> None:
     from bot.portfolio.command import run_portfolio
 
     source = inspect.getsource(run_portfolio)
-    calls = ["sync_portfolio(", "corporate_actions_fn(conn)", "sync_trades(", "mark_holdings(",
-             "compute_events(", "persist_events(", "build_report("]
+    calls = ["client.as_of()", "sync_portfolio(", "upsert_corporate_actions(", "sync_trades(",
+             "mark_holdings(", "compute_events(", "persist_events(", "build_report("]
     positions = [source.index(c) for c in calls]
     assert positions == sorted(positions)
     for key, number in (("sync.snapshot", "1."), ("sync.corporate_actions", "2."),
@@ -2330,7 +2335,7 @@ def test_portfolio_filing_auto_analyze_gap_is_current() -> None:
     ("src", "dst"),
     [
         ("daily", "cli"),
-        ("tws", "sync.snapshot"),
+        ("flex", "sync.snapshot"),
         ("flex", "sync.corporate_actions"),
         ("sync.value", "duckdb.portfolio_snapshots"),
         ("marks.persist", "duckdb.holding_marks"),
@@ -2347,7 +2352,7 @@ def test_portfolio_flow_edges(src: str, dst: str) -> None:
 
 def test_portfolio_daily_runs_after_prices_and_fx() -> None:
     script = (_ROOT / "scripts" / "daily.sh").read_text(encoding="utf-8")
-    assert script.index('((worst == 0)) || exit "$worst"') < script.index("uv run bot portfolio")
+    assert script.index('((worst == 0)) || return "$worst"') < script.index("uv run bot portfolio")
 
 
 def test_pipeline_links_the_portfolio_board() -> None:
@@ -2575,7 +2580,7 @@ def test_adr_mentions_carry_their_status() -> None:
 
 
 _GOVERNING_ADRS = {
-    "0001": "pipeline", "0004": "portfolio", "0005": "refresh",
+    "0001": "pipeline", "0010": "portfolio", "0005": "refresh",
     "0006": "screen", "0007": "refresh", "0008": "site",
 }
 
@@ -2628,6 +2633,11 @@ def _cited_values(board: str) -> dict[int, list[float]]:
     def flat(v: Any) -> list[float]:
         if isinstance(v, (list, tuple)):
             return [x for y in v for x in flat(y)]
+        if isinstance(v, str):  # a numeric string constant, e.g. an 8-K item number
+            try:
+                return [float(v)]
+            except ValueError:
+                return []
         ok = isinstance(v, (int, float)) and not isinstance(v, bool)
         return [float(v)] if ok else []
 
