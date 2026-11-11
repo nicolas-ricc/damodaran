@@ -26,7 +26,7 @@ The label is padded to column 18, like the other doctor lines (`"Notifier:" + 9 
 |---|---|---|
 | `BOT_NOTIFIER=none` (or blank) | `Notifier:         none (no alerts are pushed)` | none |
 | `email` / `telegram`, `build_notifier` returns | `Notifier:         <channel> (OK)` | none |
-| `email` / `telegram`, `NotifierConfigError(exc)` | `Notifier:         <channel>` | `f"Notifier misconfigured (BOT_NOTIFIER={settings.notifier}): {exc}"` |
+| `email` / `telegram`, `NotifierConfigError(exc)` | `Notifier:         <channel> (MISCONFIGURED)` | `f"Notifier misconfigured (BOT_NOTIFIER={settings.notifier}): {exc}"` |
 
 The issue wording is the same one `bot portfolio` and `bot notify` already print (`cli.py` ~635, ~697), so a user who searches for it finds both.
 

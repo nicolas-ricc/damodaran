@@ -377,7 +377,7 @@ def test_doctor_notifier_none_passes(tmp_path, monkeypatch, channel):
     result = CliRunner().invoke(app, ["doctor"])
 
     assert result.exit_code == 0
-    assert "Notifier:         none" in result.stdout
+    assert "Notifier:         none (no alerts are pushed)" in result.stdout
     assert "Notifier misconfigured" not in result.stdout + result.stderr
 
 
@@ -397,6 +397,7 @@ def test_doctor_email_missing_host_fails(tmp_path, monkeypatch):
     result = CliRunner().invoke(app, ["doctor"])
 
     assert result.exit_code == 1
+    assert "Notifier:         email (MISCONFIGURED)" in result.stdout
     assert "Notifier misconfigured (BOT_NOTIFIER=email)" in result.stderr
     assert "BOT_SMTP_HOST" in result.stderr
     assert NOTIFIER_SECRET not in result.stdout + result.stderr
@@ -440,6 +441,7 @@ def test_doctor_telegram_missing_token_fails(tmp_path, monkeypatch):
     result = CliRunner().invoke(app, ["doctor"])
 
     assert result.exit_code == 1
+    assert "Notifier:         telegram (MISCONFIGURED)" in result.stdout
     assert "Notifier misconfigured (BOT_NOTIFIER=telegram)" in result.stderr
     assert "BOT_TELEGRAM_BOT_TOKEN" in result.stderr
 

@@ -815,7 +815,7 @@ def doctor() -> None:
     try:
         notifier = build_notifier(settings)
     except NotifierConfigError as exc:
-        typer.echo(f"Notifier:         {settings.notifier}")
+        typer.echo(f"Notifier:         {settings.notifier} (MISCONFIGURED)")
         issues.append(f"Notifier misconfigured (BOT_NOTIFIER={settings.notifier}): {exc}")
     else:
         if notifier is None:
