@@ -815,40 +815,39 @@ def doctor() -> None:
         )
 
     try:
-        conn = connect(settings.db_path)
-        apply_schema(conn)
-        row = conn.execute(
-            "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'main'"
-        ).fetchone()
-        tables = row[0] if row is not None else 0
-        expected_tables = schema_table_count()
-        if tables < expected_tables:
-            issues.append(
-                f"DB has {tables} tables, schema defines {expected_tables} — schema incomplete."
-            )
-        else:
-            typer.echo(f"DB tables:        {tables} (OK)")
-        if flex_configured:
-            latest = latest_snapshot_date(conn)
-            if latest is None:
+        with closing(connect(settings.db_path)) as conn:
+            apply_schema(conn)
+            row = conn.execute(
+                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'main'"
+            ).fetchone()
+            tables = row[0] if row is not None else 0
+            expected_tables = schema_table_count()
+            if tables < expected_tables:
                 issues.append(
-                    "Flex is configured but portfolio_snapshots is empty — "
-                    "run bot portfolio, or check .cache/daily.log"
+                    f"DB has {tables} tables, schema defines {expected_tables} — schema incomplete."
                 )
             else:
-                age = business_days_between(latest, date.today())
-                if age <= MAX_SNAPSHOT_AGE_BUSINESS_DAYS:
-                    typer.echo(
-                        f"Latest snapshot:  {latest.isoformat()} "
-                        f"({age} business day(s) old, OK)"
+                typer.echo(f"DB tables:        {tables} (OK)")
+            if flex_configured:
+                latest = latest_snapshot_date(conn)
+                if latest is None:
+                    issues.append(
+                        "Flex is configured but portfolio_snapshots is empty — "
+                        "run bot portfolio, or check .cache/daily.log"
                     )
                 else:
-                    issues.append(
-                        f"Latest portfolio snapshot {latest.isoformat()} is {age} "
-                        f"business days old (limit {MAX_SNAPSHOT_AGE_BUSINESS_DAYS}) — "
-                        "the daily sync has stopped; check .cache/daily.log and the Flex token"
-                    )
-        conn.close()
+                    age = business_days_between(latest, date.today())
+                    if age <= MAX_SNAPSHOT_AGE_BUSINESS_DAYS:
+                        typer.echo(
+                            f"Latest snapshot:  {latest.isoformat()} "
+                            f"({age} business day(s) old, OK)"
+                        )
+                    else:
+                        issues.append(
+                            f"Latest portfolio snapshot {latest.isoformat()} is {age} "
+                            f"business days old (limit {MAX_SNAPSHOT_AGE_BUSINESS_DAYS}) — "
+                            "the daily sync has stopped; check .cache/daily.log and the Flex token"
+                        )
     except Exception as e:
         issues.append(f"DB error — {e}")
 
