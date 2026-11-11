@@ -172,11 +172,14 @@ def load_settings() -> Settings:
 
 
 def settings_error_lines(exc: ValidationError) -> list[str]:
-    """One ``Invalid setting <VAR>: <msg>`` line per error; never echoes the offending value."""
+    """One ``Invalid setting <VAR>: <msg>`` line per error.
+
+    The input value is not echoed; a field validator's own message may quote it.
+    """
     prefix = Settings.model_config.get("env_prefix", "")
     lines = []
     for error in exc.errors():
-        field = error["loc"][0] if error["loc"] else ""
-        name = f"{prefix}{field.upper()}" if field in Settings.model_fields else str(field).upper()
+        field = str(error["loc"][0]) if error["loc"] else ""
+        name = f"{prefix}{field.upper()}" if field in Settings.model_fields else field.upper()
         lines.append(f"Invalid setting {name}: {error['msg']}")
     return lines
