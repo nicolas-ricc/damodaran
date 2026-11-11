@@ -15,10 +15,13 @@
    :func:`~bot.portfolio.marks.mark_holdings`, then computes the §8.3 event
    stream against the previous snapshot via
    :func:`~bot.portfolio.events.compute_events` and persists it
-   (:func:`~bot.portfolio.events.persist_events`);
+   idempotently (:func:`~bot.portfolio.events.persist_events` skips the events
+   already logged for the day, so a same-day re-run adds only new ones);
 5. builds + renders the full-state ``portfolio.md`` and the today-only
    ``alerts.md`` under ``reports/YYYY-MM-DD/`` (the same dated-directory
-   convention as the other commands).
+   convention as the other commands). ``alerts.md`` lists the day's logged
+   events (:func:`~bot.portfolio.events.load_events`), not only those just
+   computed.
 
 ``alerts.md`` is always written, but is empty (zero bytes) when there are no
 events. Sending ``alerts.md`` is the CLI's job (``bot.notifier``, #32).
@@ -33,7 +36,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 
 from bot.ingest.ibkr_flex import CorporateActionRecord, upsert_corporate_actions
-from bot.portfolio.events import compute_events, persist_events
+from bot.portfolio.events import compute_events, load_events, persist_events
 from bot.portfolio.marks import mark_holdings
 from bot.portfolio.report import build_report, render_alerts, render_portfolio
 from bot.portfolio.sync import PortfolioSource, sync_portfolio
@@ -71,7 +74,7 @@ class PortfolioRunResult:
 
     snapshot_date: date
     prev_snapshot_date: date | None
-    events: int
+    events: int  # the day's logged events, as listed in alerts.md
     trades_inserted: int
     portfolio_path: Path
     alerts_path: Path
@@ -162,7 +165,8 @@ def run_portfolio(
         default_spreads=default_spreads,
     )
     events = compute_events(conn, prev_date, snapshot_date)
-    persist_events(conn, events)
+    logged = persist_events(conn, events)
+    day_events = load_events(conn, snapshot_date)
 
     # 5. Build + render reports under the dated directory.
     report = build_report(
@@ -172,7 +176,7 @@ def run_portfolio(
         include_concentration=concentration,
     )
     portfolio_md = render_portfolio(report, generated_on=run_day)
-    alerts_md = render_alerts(events, snapshot_date, generated_on=run_day)
+    alerts_md = render_alerts(day_events, snapshot_date, generated_on=run_day)
 
     out_dir = reports_dir / snapshot_date.isoformat()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -185,7 +189,8 @@ def run_portfolio(
         "portfolio_report_written",
         snapshot_date=snapshot_date.isoformat(),
         prev_snapshot_date=prev_date.isoformat() if prev_date else None,
-        events=len(events),
+        events=len(day_events),
+        events_logged=logged,
         trades_inserted=trades.inserted,
         portfolio=str(portfolio_path),
         alerts=str(alerts_path),
@@ -193,7 +198,7 @@ def run_portfolio(
     return PortfolioRunResult(
         snapshot_date=snapshot_date,
         prev_snapshot_date=prev_date,
-        events=len(events),
+        events=len(day_events),
         trades_inserted=trades.inserted,
         portfolio_path=portfolio_path,
         alerts_path=alerts_path,

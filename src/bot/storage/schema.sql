@@ -277,7 +277,9 @@ CREATE TABLE IF NOT EXISTS corporate_actions (
 -- `curr_snapshot_date` is the snapshot the event was detected on. `details` is a
 -- JSON blob carrying the event-specific payload (the % size change, the crossed
 -- price/intrinsic value, the red flag name, the filing accession, etc.). This is
--- an append-only audit trail; rendering / alerting lives in #29 / #32.
+-- an append-only audit trail with one row per distinct event per snapshot day
+-- (`persist_events` skips events already logged); rendering / alerting lives in
+-- #29 / #32.
 CREATE TABLE IF NOT EXISTS events_log (
     event_type          VARCHAR NOT NULL,
     ticker              VARCHAR NOT NULL,

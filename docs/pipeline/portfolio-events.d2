@@ -57,7 +57,7 @@ split_checked -> filing_found: "a filing of it is in the window [already in the 
 split_checked -> filings_checked: "no filing in the window [none, or no longer held]\nonly a holding is checked"
 filing_found -> filings_checked: "new filing fires"
 filing_found -> filings_checked: "the filing is skipped [already reported]\nnot a new event: nothing"
-filings_checked -> logged: "every event fired is appended to the events log\nevent_type, ticker, previous and current snapshot dates, details"
+filings_checked -> logged: "every event fired is appended to the events log\nonly if not logged yet for the day: event_type, ticker, previous and current snapshot dates, details"
 portfolio_snapshots -> window: "both snapshots\nprevious = newest snapshot_date before today; none on the first run"
 corporate_actions -> currency_checked: "dividends and splits in the window"
 filings_log -> split_checked: "filings of holdings"

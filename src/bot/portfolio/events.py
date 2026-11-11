@@ -27,7 +27,8 @@ unknown mark in between is skipped). :func:`compute_events` is the
 reader-orchestrator: it gathers snapshot/filing/mark inputs off the connection,
 fans them through the detectors, and returns the events. It never writes —
 persisting marks (via ``mark_holdings``) before calling it, and persisting
-events after, is the caller's job.
+events after (:func:`persist_events`, which skips events already logged for the
+day; :func:`load_events` reads a day back), is the caller's job.
 """
 
 from __future__ import annotations
@@ -37,7 +38,7 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from bot.portfolio.marks import HoldingMark, load_marks, load_red_flag_baselines
 
@@ -778,9 +779,68 @@ def compute_events(
     return events
 
 
+_Identity = tuple[str, str, date | None, date, str]
+
+
+def _identity(
+    event_type: str,
+    ticker: str,
+    prev_snapshot_date: date | None,
+    curr_snapshot_date: date,
+    details: object,
+) -> _Identity:
+    """Identity of an event: its fields with ``details`` canonically dumped."""
+    return (
+        event_type,
+        ticker,
+        prev_snapshot_date,
+        curr_snapshot_date,
+        json.dumps(details, sort_keys=True),
+    )
+
+
+def _row_details(row: tuple[Any, ...]) -> dict[str, object]:
+    """The parsed ``details`` of an ``events_log`` row; empty when NULL."""
+    return json.loads(row[4]) if row[4] is not None else {}
+
+
+def _row_identity(row: tuple[Any, ...], details: dict[str, object]) -> _Identity:
+    """Identity of an ``events_log`` row ``(type, ticker, prev, curr, details)``."""
+    return _identity(str(row[0]), str(row[1]), row[2], row[3], details)
+
+
 def persist_events(conn: duckdb.DuckDBPyConnection, events: list[Event]) -> int:
-    """Append ``events`` to ``events_log``. Returns the number of rows written."""
+    """Append to ``events_log`` the ``events`` not already logged for their day.
+
+    An event is skipped when an identical one (same type, ticker, snapshot dates
+    and details, ignoring key order) is already in ``events_log`` for its
+    ``curr_snapshot_date`` or earlier in ``events``, so a same-day rerun adds
+    nothing. Returns the number of rows written.
+    """
     if not events:
+        return 0
+    days = sorted({e.curr_snapshot_date for e in events})
+    placeholders = ", ".join("?" for _ in days)
+    rows = conn.execute(
+        "SELECT event_type, ticker, prev_snapshot_date, curr_snapshot_date, details "
+        f"FROM events_log WHERE curr_snapshot_date IN ({placeholders})",
+        days,
+    ).fetchall()
+    seen = {_row_identity(r, _row_details(r)) for r in rows}
+    kept: list[Event] = []
+    for e in events:
+        key = _identity(
+            str(e.event_type),
+            e.ticker,
+            e.prev_snapshot_date,
+            e.curr_snapshot_date,
+            e.details,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(e)
+    if not kept:
         return 0
     conn.executemany(
         "INSERT INTO events_log "
@@ -794,7 +854,38 @@ def persist_events(conn: duckdb.DuckDBPyConnection, events: list[Event]) -> int:
                 e.curr_snapshot_date,
                 json.dumps(e.details),
             ]
-            for e in events
+            for e in kept
         ],
     )
-    return len(events)
+    return len(kept)
+
+
+def load_events(conn: duckdb.DuckDBPyConnection, snapshot_date: date) -> list[Event]:
+    """Read back the events logged for ``snapshot_date``, in insertion order.
+
+    Identical rows (as an older appending ``persist_events`` could leave) are
+    collapsed to the first.
+    """
+    rows = conn.execute(
+        "SELECT event_type, ticker, prev_snapshot_date, curr_snapshot_date, details "
+        "FROM events_log WHERE curr_snapshot_date = ? ORDER BY rowid",
+        [snapshot_date],
+    ).fetchall()
+    seen: set[_Identity] = set()
+    out: list[Event] = []
+    for r in rows:
+        details = _row_details(r)
+        key = _row_identity(r, details)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            Event(
+                event_type=EventType(r[0]),
+                ticker=str(r[1]),
+                curr_snapshot_date=r[3],
+                prev_snapshot_date=r[2],
+                details=details,
+            )
+        )
+    return out

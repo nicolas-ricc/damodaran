@@ -253,9 +253,12 @@ absorbs the overlap with fills already stored.
 **Gaps.** If more days pass between two runs than the query period covers (7), the fills
 in between are lost. Widen the period once, as above, to recover them.
 
-**Reruns.** `events_log` is append-only, so running `bot portfolio` again on a statement
-whose date was already synced replaces that date's snapshot but repeats its events
-(open issue #83).
+**Reruns.** Running `bot portfolio` again on a statement whose date was already synced
+replaces that date's snapshot and logs only the events not yet in `events_log` for that
+date, so a rerun adds a new filing but never a duplicate. `alerts.md` is rewritten with
+every event logged for the date, and sent again when a notifier is configured. If the
+inputs changed between the runs (a new valuation, say), the changed event is a new one
+and is listed next to the first.
 
 Dividends and payments in lieu become `DIVIDEND` events, forward and reverse
 splits become `SPLIT` events, for tickers held on the day. Other corporate

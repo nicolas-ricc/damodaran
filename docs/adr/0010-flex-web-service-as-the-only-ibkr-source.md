@@ -53,7 +53,8 @@ Negative:
   with no runtime detection. Widen the period once to recover them.
 - `BOT_IBKR_FLEX_TZ` must match the account's reporting time zone, or fills shift.
 - `events_log` is append-only, so rerunning with a statement whose date was already synced
-  repeats its events (open issue #83); a holiday rerun hits it more often.
+  repeats its events (open issue #83); a holiday rerun hits it more often. (Fixed by #83:
+  a rerun now logs only the events not yet logged for that date.)
 - An existing corporate-actions-only query must gain the three new sections.
 
 ## Alternatives rejected
