@@ -11,9 +11,10 @@ from pathlib import Path
 
 import duckdb
 import typer
+from pydantic import ValidationError
 
 from bot import __version__
-from bot.config import Settings, load_settings
+from bot.config import Settings, load_settings, settings_error_lines
 from bot.ingest.damodaran import import_damodaran
 from bot.ingest.edgar_stooq import EdgarStooqProvider
 from bot.ingest.edgar_tiingo import EdgarTiingoProvider
@@ -73,9 +74,19 @@ def _root() -> None:
     """Investment bot — value screener + portfolio monitor."""
 
 
+def _load_settings() -> Settings:
+    """Load settings; on invalid BOT_* values print one line per variable and exit 2."""
+    try:
+        return load_settings()
+    except ValidationError as exc:
+        for line in settings_error_lines(exc):
+            typer.echo(line, err=True)
+        raise typer.Exit(code=2) from None
+
+
 @contextmanager
 def _open_db() -> Iterator[tuple[duckdb.DuckDBPyConnection, Settings]]:
-    settings = load_settings()
+    settings = _load_settings()
     configure_logging(level=settings.log_level, json_output=False)
     conn = connect(settings.db_path)
     try:
@@ -631,7 +642,7 @@ def portfolio(
     When ``BOT_NOTIFIER`` is ``email`` or ``telegram``, a non-empty ``alerts.md`` is then
     sent through that channel.
     """
-    settings = load_settings()
+    settings = _load_settings()
     try:
         notifier = build_notifier(settings)
     except NotifierConfigError as exc:
@@ -693,7 +704,7 @@ def notify() -> None:
     failed; 2 the notifier is misconfigured or stdin is empty. Never opens the
     database.
     """
-    settings = load_settings()
+    settings = _load_settings()
     try:
         notifier = build_notifier(settings)
     except NotifierConfigError as exc:
@@ -724,7 +735,7 @@ def flex_capture() -> None:
     The maintainer's validation step for the Flex importer (#110). Run it from
     the repo root with BOT_IBKR_FLEX_TOKEN and BOT_IBKR_FLEX_QUERY_ID set.
     """
-    settings = load_settings()
+    settings = _load_settings()
     configure_logging(level=settings.log_level, json_output=False)
     try:
         summary = capture(settings, root=Path.cwd())
@@ -744,11 +755,7 @@ def doctor() -> None:
     """Run health checks and report what's broken (if anything)."""
     issues: list[str] = []
 
-    try:
-        settings = load_settings()
-    except Exception as e:
-        typer.echo(f"FAIL: Settings invalid — {e}", err=True)
-        raise typer.Exit(code=1) from e
+    settings = _load_settings()
 
     typer.echo(f"DB path:          {settings.db_path}")
     typer.echo(f"Reports dir:      {settings.reports_dir}")

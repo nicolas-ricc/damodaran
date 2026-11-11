@@ -105,6 +105,9 @@ Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
    python -m http.server -d site
    ```
 
+An invalid `BOT_*` value (a wrong type, or a value outside the allowed list) makes every
+command that loads settings print `Invalid setting BOT_X: ...`, one line per variable, and exit 2.
+
 The paid Financial Modeling Prep adapter is still available for the eventual non-US reopening —
 set `BOT_DATA_PROVIDER=fmp` and `BOT_FMP_API_KEY` (see `.env.example`).
 Its test cassettes under `tests/fixtures/cassettes/{fmp,universe}/` are synthetic (listed in

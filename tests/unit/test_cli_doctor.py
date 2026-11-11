@@ -333,8 +333,8 @@ def test_doctor_flex_token_expiry_garbage_is_settings_invalid(tmp_path, monkeypa
 
     result = CliRunner().invoke(app, ["doctor"])
 
-    assert result.exit_code == 1
-    assert "Settings invalid" in result.stderr
+    assert result.exit_code == 2
+    assert "Invalid setting BOT_IBKR_FLEX_TOKEN_EXPIRES:" in result.stderr
 
 
 def test_doctor_flex_token_expiry_follows_query_id_line(tmp_path, monkeypatch):

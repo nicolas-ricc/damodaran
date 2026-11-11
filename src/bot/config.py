@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import Field, field_validator
+from pydantic import Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -169,3 +169,17 @@ class Settings(BaseSettings):
 def load_settings() -> Settings:
     """Load settings; raises on missing required fields."""
     return Settings()  # type: ignore[call-arg]  # values supplied via env vars
+
+
+def settings_error_lines(exc: ValidationError) -> list[str]:
+    """One ``Invalid setting <VAR>: <msg>`` line per error.
+
+    The input value is not echoed; a field validator's own message may quote it.
+    """
+    prefix = Settings.model_config.get("env_prefix", "")
+    lines = []
+    for error in exc.errors():
+        field = str(error["loc"][0]) if error["loc"] else ""
+        name = f"{prefix}{field.upper()}" if field in Settings.model_fields else field.upper()
+        lines.append(f"Invalid setting {name}: {error['msg']}")
+    return lines
