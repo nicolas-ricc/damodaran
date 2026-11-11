@@ -451,10 +451,6 @@ def test_stale_statement_warns(
     assert (tmp_path / as_of.isoformat() / "portfolio.md").exists()
 
 
-# --------------------------------------------------------------------------- #
-# Same-day reruns are idempotent (#83).                                        #
-# --------------------------------------------------------------------------- #
-
 DAY1, DAY2 = date(2026, 6, 1), date(2026, 6, 2)
 
 
