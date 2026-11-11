@@ -487,5 +487,5 @@ def test_doctor_rejects_unknown_notifier(tmp_path, monkeypatch):
 
     result = CliRunner().invoke(app, ["doctor"])
 
-    assert result.exit_code == 1
-    assert "FAIL: Settings invalid" in result.stderr
+    assert result.exit_code == 2
+    assert "Invalid setting BOT_NOTIFIER:" in result.stderr
