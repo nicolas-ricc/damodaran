@@ -45,7 +45,7 @@
 
 **Files:**
 - Modify: `src/bot/config.py` (new function after `load_settings`)
-- Test: `tests/unit/test_config.py`
+- Test: new `tests/unit/test_config_errors.py` (a separate module, so its import of the new name cannot break `tests/unit/test_config.py` during red)
 
 **Interfaces:**
 - Produces: `settings_error_lines(exc: pydantic.ValidationError) -> list[str]`: one `Invalid setting <VAR>: <msg>` per `exc.errors()` entry, in order.
@@ -59,7 +59,7 @@
   - `test_settings_error_lines_honours_alias`: a throwaway `class _Aliased(Settings)` with `notifier: Literal["none"] = Field(default="none", alias="MY_NOTIFIER")`; `MY_NOTIFIER=slack` gives one line that starts with `Invalid setting MY_NOTIFIER: `.
   - `test_settings_error_lines_do_not_echo_value`: `BOT_SMTP_PORT=s3cr3t-port` gives a line without `s3cr3t-port`.
 
-- [ ] **Step 2:** `uv run pytest tests/unit/test_config.py -q`. Expected: the new tests fail with an ImportError on `settings_error_lines`.
+- [ ] **Step 2:** `uv run pytest tests/unit/test_config_errors.py -q`. Expected: the new tests fail with an ImportError on `settings_error_lines`.
 
 - [ ] **Step 3: Implement `settings_error_lines(exc: ValidationError) -> list[str]` in `src/bot/config.py`.** Resolve each `loc[0]` against `Settings.model_fields` to get the alias or `BOT_` + upper name, as described under Assumptions. Use `error["msg"]` as is.
 
