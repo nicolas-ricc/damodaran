@@ -297,6 +297,8 @@ Failure modes:
 - Send failure: `Alerts not sent`, exit code 1. The reports have already been
   written by then.
 
+`bot doctor` prints the configured channel and fails (exit 1) when these settings are missing or unsafe, without sending anything.
+
 There is no automatic retry. Re-running `bot portfolio` the same day re-renders
 and re-sends that day's alerts.
 
