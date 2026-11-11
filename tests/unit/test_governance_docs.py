@@ -35,7 +35,7 @@ _MOTOR_TRAP = (
     "motor-trap",
     "La rama que elimina por trampa",
     "hecho",
-    "screener/engine.py:782-790",
+    "screener/engine.py:778-786",
     "El test de motor que faltaba existe: run_screen rechaza una empresa sembrada con un "
     "aviso NT 10-K reciente y la deja en rejected con auditor_changes_and_late_filings "
     "entre sus reglas falladas (tests/unit/test_screener_engine.py).",

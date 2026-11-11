@@ -18,6 +18,7 @@ from bot.screener.engine import (
     DEFAULT_TAX_RATE,
     RejectedCompany,
     _CompanyRow,
+    _growth_metric,
     _load_companies,
     _resolve_region,
     _resolve_tax_rate,
@@ -25,7 +26,7 @@ from bot.screener.engine import (
     evaluate_company,
     run_screen,
 )
-from bot.screener.rules import MinMarketCap
+from bot.screener.rules import MinMarketCap, RevenueNotDeclining
 from bot.screener.types import CompanyData, IndustryBenchmarks
 from bot.storage.db import apply_schema
 from tests.counting_conn import CountingConn
@@ -143,7 +144,8 @@ def test_build_company_data_derives_ratios(conn: duckdb.DuckDBPyConnection) -> N
     _seed_one(conn)
     row = _load_companies(conn)[0]
     annual = conn.execute(
-        "SELECT revenue, ebit, ebitda, interest_expense, net_income, total_assets, "
+        "SELECT fiscal_year, revenue, ebit, ebitda, interest_expense, net_income, "
+        "total_assets, "
         "total_debt, cash, total_equity, goodwill, operating_cashflow, free_cashflow, "
         "shares_diluted, acquisitions FROM financials_annual WHERE ticker = ? ORDER BY fiscal_year",
         ["TST"],
@@ -208,7 +210,8 @@ def test_build_company_data_roic_uses_country_tax_rate(
 
     row = next(r for r in _load_companies(conn) if r.ticker == "DEU")
     annual = conn.execute(
-        "SELECT revenue, ebit, ebitda, interest_expense, net_income, total_assets, "
+        "SELECT fiscal_year, revenue, ebit, ebitda, interest_expense, net_income, "
+        "total_assets, "
         "total_debt, cash, total_equity, goodwill, operating_cashflow, free_cashflow, "
         "shares_diluted, acquisitions FROM financials_annual WHERE ticker = ? ORDER BY fiscal_year",
         ["DEU"],
@@ -224,7 +227,8 @@ def _load_tst_annual(conn: duckdb.DuckDBPyConnection) -> list:  # type: ignore[t
     from bot.screener.engine import _AnnualRow
 
     rows = conn.execute(
-        "SELECT revenue, ebit, ebitda, interest_expense, net_income, total_assets, "
+        "SELECT fiscal_year, revenue, ebit, ebitda, interest_expense, net_income, "
+        "total_assets, "
         "total_debt, cash, total_equity, goodwill, operating_cashflow, free_cashflow, "
         "shares_diluted, acquisitions FROM financials_annual WHERE ticker = ? ORDER BY fiscal_year",
         ["TST"],
@@ -320,23 +324,28 @@ def test_load_all_annual_groups_oldest_first_per_ticker(
     assert revs == sorted(revs)
 
 
-def _annual_row_with_acquisitions(acquisitions: float | None):  # type: ignore[no-untyped-def]
+def _annual_row_with_acquisitions(  # type: ignore[no-untyped-def]
+    fiscal_year: int, acquisitions: float | None
+):
     from bot.screener.engine import _AnnualRow
 
     return _AnnualRow(
-        1000.0, 200.0, 300.0, 10.0, 150.0, 2000.0, 0.0, 100.0, 1000.0, 100.0,
+        fiscal_year, 1000.0, 200.0, 300.0, 10.0, 150.0, 2000.0, 0.0, 100.0, 1000.0, 100.0,
         250.0, 200.0, 100.0, acquisitions,
     )
 
 
-def test_build_company_data_acquisitions_history_drops_missing_years(
+def test_build_company_data_acquisitions_history_keeps_the_run_after_a_missing_year(
     conn: duckdb.DuckDBPyConnection,
 ) -> None:
     _seed_one(conn)
     row = _load_companies(conn)[0]
-    annual = [_annual_row_with_acquisitions(v) for v in (100.0, None, 300.0)]
+    annual = [
+        _annual_row_with_acquisitions(y, v)
+        for y, v in ((2020, 100.0), (2021, None), (2022, 300.0))
+    ]
     cd = build_company_data(conn, row, annual, market_cap=1000.0, close=10.0)
-    assert cd.acquisitions_history == (100.0, 300.0)
+    assert cd.acquisitions_history == (300.0,)
 
 
 def test_build_company_data_without_rows_has_empty_acquisitions_history(
@@ -1211,3 +1220,55 @@ def test_run_screen_rejects_a_company_with_a_recent_late_filing(
     assert "TST" in rejected
     assert "auditor_changes_and_late_filings" in rejected["TST"]
     assert "TST" not in {c.ticker for c in result.shortlist}
+
+
+# --------------------------------------------------------------------------- #
+# Gappy histories (#125)                                                       #
+# --------------------------------------------------------------------------- #
+
+
+def _annual_row(fiscal_year: int, revenue: float | None):  # type: ignore[no-untyped-def]
+    from bot.screener.engine import _AnnualRow
+
+    return _AnnualRow(
+        fiscal_year, revenue, 200.0, 300.0, 10.0, 150.0, 2000.0, 0.0, 100.0, 1000.0, 100.0,
+        250.0, 200.0, 100.0, 5.0,
+    )
+
+
+def _gappy_company(conn: duckdb.DuckDBPyConnection) -> CompanyData:
+    _seed_one(conn)
+    row = _load_companies(conn)[0]
+    annual = [_annual_row(2013, 1000.0), _annual_row(2019, 3000.0)]
+    return build_company_data(conn, row, annual, market_cap=1000.0, close=10.0)
+
+
+def test_build_company_data_gappy_revenue_has_no_growth(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    cd = _gappy_company(conn)
+    assert cd.revenue_history == (3000.0,)
+    assert _growth_metric(cd) == 0.0
+
+
+def test_build_company_data_histories_follow_the_contiguous_run(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_one(conn)
+    row = _load_companies(conn)[0]
+    revenues = ((2015, 100.0), (2016, 110.0), (2017, None), (2018, 200.0), (2019, 220.0))
+    annual = [_annual_row(y, r) for y, r in revenues]
+    cd = build_company_data(conn, row, annual, market_cap=1000.0, close=10.0)
+    assert cd.revenue_history == (200.0, 220.0)
+    assert cd.operating_cashflow_history == (250.0,) * 5
+    assert cd.share_count_history == (100.0,) * 5
+    assert cd.acquisitions_history == (5.0,) * 5
+
+
+def test_revenue_not_declining_fails_a_gappy_history(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    cd = _gappy_company(conn)
+    result = RevenueNotDeclining().evaluate(cd, IndustryBenchmarks(industry="Software", region="US", year=2026))
+    assert not result.passed
+    assert result.reason.startswith("insufficient revenue history: 1 years")

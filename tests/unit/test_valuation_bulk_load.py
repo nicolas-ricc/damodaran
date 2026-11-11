@@ -28,6 +28,18 @@ _SIX_YEARS: tuple[_Year, ...] = tuple(
     (2020 + i, 1_000.0 * 1.1**i, 200.0 * 1.1**i, False) for i in range(6)
 )
 
+_GAPPY_YEARS: tuple[_Year, ...] = (
+    (2013, 1_000.0, 200.0, False),
+    (2019, 3_000.0, 600.0, False),
+)
+_HOLED_YEARS: tuple[_Year, ...] = (
+    (2015, 1_000.0, 200.0, False),
+    (2016, 1_100.0, 220.0, False),
+    (2017, None, 240.0, False),
+    (2018, 2_000.0, 260.0, False),
+    (2019, 2_200.0, 280.0, False),
+)
+
 #: Tickers with a companies row and at least one non-restated annual row.
 VALUABLE = (
     "USA",
@@ -43,6 +55,8 @@ VALUABLE = (
     "OOO",
     "NOPRICE",
     "NULLCLOSE",
+    "GAPPY",
+    "HOLED",
 )
 #: Tickers the bulk loaders must leave out: a companies row without financials,
 #: and a ticker that is not in companies at all.
@@ -154,6 +168,11 @@ def _seed(conn: duckdb.DuckDBPyConnection) -> None:
     _company(conn, "OOO")
     _financials(conn, "OOO", list(reversed(_SIX_YEARS)))
     _company(conn, "NOFIN")
+    # #125: years apart, and a NULL revenue in the middle of the run.
+    _company(conn, "GAPPY")
+    _financials(conn, "GAPPY", _GAPPY_YEARS)
+    _company(conn, "HOLED")
+    _financials(conn, "HOLED", _HOLED_YEARS)
 
     for ticker in VALUABLE:
         if ticker not in ("NOPRICE", "NULLCLOSE"):
@@ -329,3 +348,26 @@ def test_bulk_and_per_ticker_match_with_a_price_bound(
     if bound == date(2026, 5, 28):
         assert bulk["USA"].latest_close == LatestClose(9.0, "USD", date(2026, 5, 28))
         assert bulk["EURA"].latest_close is None
+
+
+# --------------------------------------------------------------------------- #
+# Gappy histories (#125)                                                       #
+# --------------------------------------------------------------------------- #
+
+
+def test_valuation_histories_keep_only_the_latest_contiguous_run(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed(conn)
+    assert load_valuation_input(conn, "GAPPY").revenue_history == (3_000.0,)
+    holed = load_valuation_input(conn, "HOLED")
+    assert holed.revenue_history == (2_000.0, 2_200.0)
+    assert holed.ebit_history == (200.0, 220.0, 240.0, 260.0, 280.0)
+
+
+def test_assumption_growth_path_ignores_gaps(conn: duckdb.DuckDBPyConnection) -> None:
+    _seed(conn)
+    assert load_assumption_inputs(conn, "GAPPY").historical_growth_path is None
+    path = load_assumption_inputs(conn, "HOLED").historical_growth_path
+    assert path is not None
+    assert path == pytest.approx((0.1,) * len(path))
