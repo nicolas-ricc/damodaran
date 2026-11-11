@@ -146,7 +146,10 @@ def test_notify_never_opens_the_database(tmp_path: Path, monkeypatch: pytest.Mon
 def test_notify_is_listed_in_help() -> None:
     root_help = CliRunner().invoke(app, ["--help"])
     assert root_help.exit_code == 0
-    assert re.search(r"^\W*notify\s", root_help.stdout, re.MULTILINE)
+    # Rich colours the help on GitHub Actions (GITHUB_ACTIONS forces a terminal),
+    # so strip the escape codes before matching the command list.
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", root_help.stdout)
+    assert re.search(r"^\W*notify\s", plain, re.MULTILINE)
 
     notify_help = CliRunner().invoke(app, ["notify", "--help"])
     assert notify_help.exit_code == 0, notify_help.output
