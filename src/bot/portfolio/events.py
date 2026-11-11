@@ -27,7 +27,8 @@ unknown mark in between is skipped). :func:`compute_events` is the
 reader-orchestrator: it gathers snapshot/filing/mark inputs off the connection,
 fans them through the detectors, and returns the events. It never writes —
 persisting marks (via ``mark_holdings``) before calling it, and persisting
-events after, is the caller's job.
+events after (:func:`persist_events`, which skips events already logged for the
+day; :func:`load_events` reads a day back), is the caller's job.
 """
 
 from __future__ import annotations
@@ -240,9 +241,7 @@ def detect_currency_changes(
     before = _known_currencies(prev)
     after = _known_currencies(curr)
     events: list[Event] = []
-    for (account, ticker), to_ccy in sorted(
-        after.items(), key=lambda kv: (kv[0][1], kv[0][0])
-    ):
+    for (account, ticker), to_ccy in sorted(after.items(), key=lambda kv: (kv[0][1], kv[0][0])):
         from_ccy = before.get((account, ticker))
         if from_ccy is not None and from_ccy != to_ccy:
             events.append(
@@ -524,9 +523,7 @@ def detect_below_quality_gate(
 # --------------------------------------------------------------------------- #
 
 
-def _load_positions(
-    conn: duckdb.DuckDBPyConnection, snapshot_date: date
-) -> list[Position]:
+def _load_positions(conn: duckdb.DuckDBPyConnection, snapshot_date: date) -> list[Position]:
     """Aggregate a snapshot's rows into one :class:`Position` per ticker."""
     rows = conn.execute(
         "SELECT ticker, SUM(qty) AS qty, "
@@ -552,8 +549,7 @@ def _load_account_currencies(
 ) -> list[AccountCurrency]:
     """Read a snapshot's raw ``(account, ticker, currency)`` rows, unaggregated."""
     rows = conn.execute(
-        "SELECT account, ticker, currency FROM portfolio_snapshots "
-        "WHERE snapshot_date = ?",
+        "SELECT account, ticker, currency FROM portfolio_snapshots WHERE snapshot_date = ?",
         [snapshot_date],
     ).fetchall()
     return [
@@ -667,9 +663,7 @@ def compute_events(
     """
     curr_positions = _load_positions(conn, curr_snapshot_date)
     prev_positions = (
-        _load_positions(conn, prev_snapshot_date)
-        if prev_snapshot_date is not None
-        else []
+        _load_positions(conn, prev_snapshot_date) if prev_snapshot_date is not None else []
     )
     held_tickers = {p.ticker for p in curr_positions if p.qty != 0.0}
 
@@ -696,9 +690,7 @@ def compute_events(
         )
     events.extend(
         detect_corporate_action_events(
-            _load_corporate_actions(
-                conn, held_tickers, prev_snapshot_date, curr_snapshot_date
-            ),
+            _load_corporate_actions(conn, held_tickers, prev_snapshot_date, curr_snapshot_date),
             snapshot_date=curr_snapshot_date,
             prev_date=prev_snapshot_date,
         )
@@ -749,9 +741,7 @@ def compute_events(
             detect_new_red_flags(
                 red_baseline.red_flags.keys() if red_baseline is not None else (),
                 curr_mark,
-                baseline_date=(
-                    red_baseline.snapshot_date if red_baseline is not None else None
-                ),
+                baseline_date=(red_baseline.snapshot_date if red_baseline is not None else None),
                 snapshot_date=curr_snapshot_date,
                 prev_date=prev_snapshot_date,
             )
@@ -778,9 +768,67 @@ def compute_events(
     return events
 
 
+def _identity(
+    event_type: str,
+    ticker: str,
+    prev_snapshot_date: date | None,
+    curr_snapshot_date: date,
+    details: object,
+) -> tuple[str, str, date | None, date, str]:
+    """Identity of an event: its fields with ``details`` canonically dumped."""
+    return (
+        event_type,
+        ticker,
+        prev_snapshot_date,
+        curr_snapshot_date,
+        json.dumps(details, sort_keys=True),
+    )
+
+
+def _row_identity(row: Sequence[object]) -> tuple[str, str, date | None, date, str]:
+    """Identity of an ``events_log`` row ``(type, ticker, prev, curr, details)``."""
+    details = json.loads(str(row[4])) if row[4] is not None else {}
+    return _identity(
+        str(row[0]),
+        str(row[1]),
+        row[2],  # type: ignore[arg-type]
+        row[3],  # type: ignore[arg-type]
+        details,
+    )
+
+
 def persist_events(conn: duckdb.DuckDBPyConnection, events: list[Event]) -> int:
-    """Append ``events`` to ``events_log``. Returns the number of rows written."""
+    """Append to ``events_log`` the ``events`` not already logged for their day.
+
+    An event is skipped when an identical one (same type, ticker, snapshot dates
+    and details, ignoring key order) is already in ``events_log`` for its
+    ``curr_snapshot_date`` or earlier in ``events``, so a same-day rerun adds
+    nothing. Returns the number of rows written.
+    """
     if not events:
+        return 0
+    days = sorted({e.curr_snapshot_date for e in events})
+    placeholders = ", ".join("?" for _ in days)
+    rows = conn.execute(
+        "SELECT event_type, ticker, prev_snapshot_date, curr_snapshot_date, details "
+        f"FROM events_log WHERE curr_snapshot_date IN ({placeholders})",
+        days,
+    ).fetchall()
+    seen = {_row_identity(r) for r in rows}
+    kept: list[Event] = []
+    for e in events:
+        key = _identity(
+            str(e.event_type),
+            e.ticker,
+            e.prev_snapshot_date,
+            e.curr_snapshot_date,
+            e.details,
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(e)
+    if not kept:
         return 0
     conn.executemany(
         "INSERT INTO events_log "
@@ -794,7 +842,37 @@ def persist_events(conn: duckdb.DuckDBPyConnection, events: list[Event]) -> int:
                 e.curr_snapshot_date,
                 json.dumps(e.details),
             ]
-            for e in events
+            for e in kept
         ],
     )
-    return len(events)
+    return len(kept)
+
+
+def load_events(conn: duckdb.DuckDBPyConnection, snapshot_date: date) -> list[Event]:
+    """Read back the events logged for ``snapshot_date``, in insertion order.
+
+    Identical rows (as an older appending ``persist_events`` could leave) are
+    collapsed to the first.
+    """
+    rows = conn.execute(
+        "SELECT event_type, ticker, prev_snapshot_date, curr_snapshot_date, details "
+        "FROM events_log WHERE curr_snapshot_date = ? ORDER BY rowid",
+        [snapshot_date],
+    ).fetchall()
+    seen: set[tuple[str, str, date | None, date, str]] = set()
+    out: list[Event] = []
+    for r in rows:
+        key = _row_identity(r)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            Event(
+                event_type=EventType(r[0]),
+                ticker=str(r[1]),
+                curr_snapshot_date=r[3],
+                prev_snapshot_date=r[2],
+                details=json.loads(r[4]) if r[4] is not None else {},
+            )
+        )
+    return out
