@@ -38,7 +38,7 @@ from collections.abc import Collection, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from bot.portfolio.marks import HoldingMark, load_marks, load_red_flag_baselines
 
@@ -779,13 +779,16 @@ def compute_events(
     return events
 
 
+_Identity = tuple[str, str, date | None, date, str]
+
+
 def _identity(
     event_type: str,
     ticker: str,
     prev_snapshot_date: date | None,
     curr_snapshot_date: date,
     details: object,
-) -> tuple[str, str, date | None, date, str]:
+) -> _Identity:
     """Identity of an event: its fields with ``details`` canonically dumped."""
     return (
         event_type,
@@ -796,16 +799,14 @@ def _identity(
     )
 
 
-def _row_identity(row: Sequence[object]) -> tuple[str, str, date | None, date, str]:
+def _row_details(row: tuple[Any, ...]) -> dict[str, object]:
+    """The parsed ``details`` of an ``events_log`` row; empty when NULL."""
+    return json.loads(row[4]) if row[4] is not None else {}
+
+
+def _row_identity(row: tuple[Any, ...], details: dict[str, object]) -> _Identity:
     """Identity of an ``events_log`` row ``(type, ticker, prev, curr, details)``."""
-    details = json.loads(str(row[4])) if row[4] is not None else {}
-    return _identity(
-        str(row[0]),
-        str(row[1]),
-        row[2],  # type: ignore[arg-type]
-        row[3],  # type: ignore[arg-type]
-        details,
-    )
+    return _identity(str(row[0]), str(row[1]), row[2], row[3], details)
 
 
 def persist_events(conn: duckdb.DuckDBPyConnection, events: list[Event]) -> int:
@@ -825,7 +826,7 @@ def persist_events(conn: duckdb.DuckDBPyConnection, events: list[Event]) -> int:
         f"FROM events_log WHERE curr_snapshot_date IN ({placeholders})",
         days,
     ).fetchall()
-    seen = {_row_identity(r) for r in rows}
+    seen = {_row_identity(r, _row_details(r)) for r in rows}
     kept: list[Event] = []
     for e in events:
         key = _identity(
@@ -870,10 +871,11 @@ def load_events(conn: duckdb.DuckDBPyConnection, snapshot_date: date) -> list[Ev
         "FROM events_log WHERE curr_snapshot_date = ? ORDER BY rowid",
         [snapshot_date],
     ).fetchall()
-    seen: set[tuple[str, str, date | None, date, str]] = set()
+    seen: set[_Identity] = set()
     out: list[Event] = []
     for r in rows:
-        key = _row_identity(r)
+        details = _row_details(r)
+        key = _row_identity(r, details)
         if key in seen:
             continue
         seen.add(key)
@@ -883,7 +885,7 @@ def load_events(conn: duckdb.DuckDBPyConnection, snapshot_date: date) -> list[Ev
                 ticker=str(r[1]),
                 curr_snapshot_date=r[3],
                 prev_snapshot_date=r[2],
-                details=json.loads(r[4]) if r[4] is not None else {},
+                details=details,
             )
         )
     return out
