@@ -37,11 +37,6 @@ def test_cagr_reads_only_the_endpoints() -> None:
     assert cagr((100.0, -50.0, 121.0)) == pytest.approx(0.1)
 
 
-# --------------------------------------------------------------------------- #
-# latest_contiguous_run (#125)                                                 #
-# --------------------------------------------------------------------------- #
-
-
 def test_years_apart_yield_only_the_latest_point() -> None:
     run = latest_contiguous_run([(2013, 100.0), (2019, 300.0)])
     assert run == (300.0,)
