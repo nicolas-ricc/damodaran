@@ -448,7 +448,6 @@ def analyze(
         raise typer.Exit(code=2)
 
     with _open_db() as (conn, settings):
-
         if from_screen:
             latest_run = conn.execute(
                 "SELECT run_id FROM screener_candidates ORDER BY created_at DESC LIMIT 1"
@@ -572,7 +571,6 @@ def screen(
     ``<reports_dir>/YYYY-MM-DD/screen/<preset>.{md,csv}``.
     """
     with _open_db() as (conn, settings):
-
         config_path = config if config is not None else settings.presets_dir / f"{preset}.yaml"
         if not config_path.exists():
             typer.echo(f"Screener config not found: {config_path}", err=True)

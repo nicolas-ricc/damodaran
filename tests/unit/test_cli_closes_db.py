@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import duckdb
@@ -12,6 +12,7 @@ from typer.testing import CliRunner
 import bot.cli
 from bot.cli import app
 from bot.ingest.ibkr_flex import FlexError
+from bot.portfolio.command import PortfolioRunResult
 from bot.storage import db
 
 PRESETS_DIR = Path(__file__).resolve().parents[2] / "config" / "presets"
@@ -175,6 +176,28 @@ def flex_env(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def test_portfolio_closes_db(
+    tmp_path: Path,
+    flex_env: None,
+    opened: list[duckdb.DuckDBPyConnection],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def synced(*_: object, **__: object) -> PortfolioRunResult:
+        return PortfolioRunResult(
+            snapshot_date=date(2026, 11, 10),
+            prev_snapshot_date=None,
+            events=0,
+            trades_inserted=0,
+            portfolio_path=tmp_path / "portfolio.md",
+            alerts_path=tmp_path / "alerts.md",
+        )
+
+    monkeypatch.setattr(bot.cli, "run_portfolio", synced)
+    result = CliRunner().invoke(app, ["portfolio"])
+    assert result.exit_code == 0, result.output
+    _assert_all_closed(opened)
+
+
 def test_portfolio_closes_db_on_flex_failure(
     flex_env: None, opened: list[duckdb.DuckDBPyConnection], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -211,6 +234,16 @@ def test_status_closes_db(db_path: Path, opened: list[duckdb.DuckDBPyConnection]
 
 def test_status_closes_db_on_early_return(opened: list[duckdb.DuckDBPyConnection]) -> None:
     result = CliRunner().invoke(app, ["status"])
+    assert result.exit_code == 0, result.output
+    _assert_all_closed(opened)
+
+
+def test_doctor_closes_db(
+    opened: list[duckdb.DuckDBPyConnection], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("BOT_DATA_PROVIDER", raising=False)
+    monkeypatch.delenv("BOT_STOOQ_DIR", raising=False)
+    result = CliRunner().invoke(app, ["doctor"])
     assert result.exit_code == 0, result.output
     _assert_all_closed(opened)
 
