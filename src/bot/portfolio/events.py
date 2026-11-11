@@ -241,7 +241,9 @@ def detect_currency_changes(
     before = _known_currencies(prev)
     after = _known_currencies(curr)
     events: list[Event] = []
-    for (account, ticker), to_ccy in sorted(after.items(), key=lambda kv: (kv[0][1], kv[0][0])):
+    for (account, ticker), to_ccy in sorted(
+        after.items(), key=lambda kv: (kv[0][1], kv[0][0])
+    ):
         from_ccy = before.get((account, ticker))
         if from_ccy is not None and from_ccy != to_ccy:
             events.append(
@@ -523,7 +525,9 @@ def detect_below_quality_gate(
 # --------------------------------------------------------------------------- #
 
 
-def _load_positions(conn: duckdb.DuckDBPyConnection, snapshot_date: date) -> list[Position]:
+def _load_positions(
+    conn: duckdb.DuckDBPyConnection, snapshot_date: date
+) -> list[Position]:
     """Aggregate a snapshot's rows into one :class:`Position` per ticker."""
     rows = conn.execute(
         "SELECT ticker, SUM(qty) AS qty, "
@@ -549,7 +553,8 @@ def _load_account_currencies(
 ) -> list[AccountCurrency]:
     """Read a snapshot's raw ``(account, ticker, currency)`` rows, unaggregated."""
     rows = conn.execute(
-        "SELECT account, ticker, currency FROM portfolio_snapshots WHERE snapshot_date = ?",
+        "SELECT account, ticker, currency FROM portfolio_snapshots "
+        "WHERE snapshot_date = ?",
         [snapshot_date],
     ).fetchall()
     return [
@@ -663,7 +668,9 @@ def compute_events(
     """
     curr_positions = _load_positions(conn, curr_snapshot_date)
     prev_positions = (
-        _load_positions(conn, prev_snapshot_date) if prev_snapshot_date is not None else []
+        _load_positions(conn, prev_snapshot_date)
+        if prev_snapshot_date is not None
+        else []
     )
     held_tickers = {p.ticker for p in curr_positions if p.qty != 0.0}
 
@@ -690,7 +697,9 @@ def compute_events(
         )
     events.extend(
         detect_corporate_action_events(
-            _load_corporate_actions(conn, held_tickers, prev_snapshot_date, curr_snapshot_date),
+            _load_corporate_actions(
+                conn, held_tickers, prev_snapshot_date, curr_snapshot_date
+            ),
             snapshot_date=curr_snapshot_date,
             prev_date=prev_snapshot_date,
         )
@@ -741,7 +750,9 @@ def compute_events(
             detect_new_red_flags(
                 red_baseline.red_flags.keys() if red_baseline is not None else (),
                 curr_mark,
-                baseline_date=(red_baseline.snapshot_date if red_baseline is not None else None),
+                baseline_date=(
+                    red_baseline.snapshot_date if red_baseline is not None else None
+                ),
                 snapshot_date=curr_snapshot_date,
                 prev_date=prev_snapshot_date,
             )
