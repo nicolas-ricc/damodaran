@@ -53,6 +53,32 @@ def test_low_and_high_are_real_text_cells() -> None:
     assert '<th scope="row">tax_rate</th>' in html
 
 
+# --- issue #262: the price head sits over the price line ---
+
+
+def test_drivers_price_head_sits_at_the_price() -> None:
+    html = str(
+        tornado_table(
+            [TornadoBar("cost_of_equity", 227.91, 103.82), TornadoBar("tax_rate", 150.0, 135.0)],
+            price=95.0,
+        )
+    )
+    (px,) = set(_price_x(html))
+    head = re.search(
+        r'<th scope="col" class="track-head"><span class="track-price at-([a-z]+)" '
+        r'style="margin-left:([\d.]+)%">price 95\.00</span></th>',
+        html,
+    )
+    assert head, html
+    assert float(head.group(2)) == round(px, 2)
+    assert head.group(1) == ("start" if px < 30 else "end" if px > 70 else "middle")
+
+
+def test_drivers_head_without_a_price_reads_range() -> None:
+    html = str(tornado_table([TornadoBar("tax_rate", 150.0, 135.0)], price=None))
+    assert '<th scope="col" class="track-head">range</th>' in html
+
+
 def test_row_label_carries_its_description_as_a_tooltip() -> None:
     bar = TornadoBar("Sales-to-capital", 100.0, 120.0, description="Revenue per unit reinvested.")
     html = str(tornado_table([bar], price=None))

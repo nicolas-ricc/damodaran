@@ -2,9 +2,9 @@
 {% block title %}Not found · Analyses{% endblock %}
 {% block body_class %}page-404{% endblock %}
 {% block content %}
-<main class="empty">
+<main class="hero empty"><div class="hero-content"><div>
   <h1>No analysis at this address</h1>
   <p>Either the company has not been analysed or the link has changed. Analyses live under <code>c/&lt;TICKER&gt;.html</code>.</p>
-  <p><a href="{{ base_url }}index.html">Show all companies</a></p>
-</main>
+  <a class="btn btn-primary" href="{{ base_url }}index.html">Show all companies</a>
+</div></div></main>
 {% endblock %}

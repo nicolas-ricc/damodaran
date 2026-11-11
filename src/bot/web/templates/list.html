@@ -1,30 +1,32 @@
 {% extends "base.html" %}
-{% from "_controls.html" import filter_nav, list_head, count, empty_detail, page_title with context %}
+{% from "_controls.html" import filter_nav, search_box, list_head, count, empty_detail, page_title with context %}
 {% block title %}{% if page_class == "page-detail" and detail %}{{ detail.ticker }} · {{ detail.name }} · Analyses{% else %}{{ page_title() }}{% endif %}{% endblock %}
 {% block body_class %}{{ page_class | default("page-list") }}{% endblock %}
+{% block skip %}{% if detail %}<a class="skip btn btn-sm btn-primary" href="#detail">Skip to analysis</a>{% endif %}{% endblock %}
 {% block content %}
 {% if total == 0 %}
-<main class="empty">
+<main class="hero empty"><div class="hero-content"><div>
   <h1>No analyses yet</h1>
   <p>Each company the bot analyses appears here with its verdict. Run one to populate the viewer:</p>
   <p><code>bot analyze --from-screen</code></p>
-</main>
+</div></div></main>
 {% else %}
 <main class="split">
   <div class="list-pane">
     <h1 class="sr">Analyses</h1>
     <div class="list-controls">
       {{ filter_nav(False) }}
+      {{ search_box() }}
       {{ count(False) }}
     </div>
-    <table class="list">
+    <table class="table table-sm table-pin-rows list">
       {{ list_head(False) }}
       {% include "_rows.html" %}
     </table>
   </div>
   <div class="detail-pane">
     {% if detail %}
-    <section id="detail">
+    <section id="detail" tabindex="-1" aria-label="Analysis">
       {% include "detail.html" %}
     </section>
     {% else %}

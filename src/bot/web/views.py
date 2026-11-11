@@ -139,6 +139,11 @@ class FlagView:
         return flag_severity(self.color)
 
     @property
+    def tone(self) -> str:
+        """The DaisyUI badge colour for this flag's severity."""
+        return {"pass": "success", "warning": "warning", "fail": "error"}.get(self.severity, "ghost")
+
+    @property
     def label(self) -> str:
         return flag_term(self.name).label
 

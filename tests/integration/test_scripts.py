@@ -31,6 +31,7 @@ SCRIPTS = [
     "publish_site.sh",
     "sync_master.sh",
     "price_fill.sh",
+    "vendor_daisyui.sh",
 ]
 
 # `uv run <cmd> ...` -> `<test venv>/bin/<cmd> ...`: real `bot`, no new venv.
