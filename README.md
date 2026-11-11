@@ -27,6 +27,7 @@ Requires Python 3.12+ and [uv](https://github.com/astral-sh/uv).
 
    1. `cp .env.example .env` and fill in `BOT_SEC_USER_AGENT` and `BOT_TIINGO_API_KEY`.
    2. `uv run bot doctor` — verify setup.
+      An invalid `BOT_*` value (a wrong type, or a value outside the allowed list) makes every command that loads settings print `Invalid setting BOT_X: ...`, one line per variable, and exit 2.
    3. `uv run bot refresh --damodaran` — US sector benchmarks from Damodaran (once yearly).
 
    </details>

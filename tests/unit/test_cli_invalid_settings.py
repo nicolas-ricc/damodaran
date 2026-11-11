@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import inspect
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -104,4 +105,4 @@ def test_doctor_matches_other_commands(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_only_helper_calls_load_settings() -> None:
-    assert inspect.getsource(bot.cli).count("load_settings()") == 1
+    assert len(re.findall(r"(?<![\w])load_settings\(\)", inspect.getsource(bot.cli))) == 1
