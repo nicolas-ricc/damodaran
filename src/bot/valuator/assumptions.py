@@ -60,7 +60,7 @@ from bot.reference.currencies import (
 )
 from bot.reference.default_spreads import DefaultSpreadTable, load_default_spreads
 from bot.reference.regions import dataset_region
-from bot.utils.finance import cagr
+from bot.utils.finance import cagr, latest_contiguous_run
 from bot.utils.logging import get_logger
 from bot.valuator.dcf import Assumptions as DCFAssumptions
 from bot.valuator.hypergrowth import (
@@ -507,17 +507,17 @@ def bulk_load_assumption_inputs(
         row = _SectorRow(*values)
         exact.setdefault((industry, region), row)
         fallback.setdefault(industry, (row, region))
-    history: dict[str, list[tuple[Any, Any]]] = {}
+    history: dict[str, list[tuple[int, Any, Any]]] = {}
     latest_currency: dict[str, str | None] = {}
     latest_revenue: dict[str, float | None] = {}
     # Oldest first, so the last row seen per ticker is its latest non-restated year.
-    for ticker, revenue, ebit, currency in conn.execute(
-        "SELECT ticker, revenue, ebit, currency FROM financials_annual "
+    for ticker, fiscal_year, revenue, ebit, currency in conn.execute(
+        "SELECT ticker, fiscal_year, revenue, ebit, currency FROM financials_annual "
         "WHERE ticker IN (SELECT unnest(?::VARCHAR[])) AND is_restated = FALSE "
         "ORDER BY ticker, fiscal_year",
         [wanted],
     ).fetchall():
-        history.setdefault(ticker, []).append((revenue, ebit))
+        history.setdefault(ticker, []).append((fiscal_year, revenue, ebit))
         latest_currency[ticker] = currency
         latest_revenue[ticker] = float(revenue) if revenue is not None else None
 
@@ -535,7 +535,7 @@ def bulk_load_assumption_inputs(
             fallback.get(industry) if industry is not None else None,
         )
         rows = history.get(ticker, [])
-        margins = _margins_from_rows((e, r) for r, e in rows)
+        margins = _margins_from_rows((e, r) for _, r, e in rows)
         valuation_currency, rates = _currency_rates(latest_currency.get(ticker), table)
         if rates is None:
             uncovered.add(valuation_currency)
@@ -544,7 +544,7 @@ def bulk_load_assumption_inputs(
             country=country,
             sector=sector,
             historical_growth_path=_growth_path_from_revenues(
-                [float(r) for r, _ in rows if r is not None]
+                latest_contiguous_run((y, r) for y, r, _ in rows)
             ),
             sector_is_cross_region=cross_region,
             company_operating_margin=margins[-1] if margins else None,
@@ -694,12 +694,12 @@ def _historical_growth_path(
     undefined (< 2 years of revenue, or a non-positive first or last revenue).
     """
     rows = conn.execute(
-        "SELECT revenue FROM financials_annual "
-        "WHERE ticker = ? AND revenue IS NOT NULL AND is_restated = FALSE "
+        "SELECT fiscal_year, revenue FROM financials_annual "
+        "WHERE ticker = ? AND is_restated = FALSE "
         "ORDER BY fiscal_year",
         [ticker],
     ).fetchall()
-    return _growth_path_from_revenues([float(r[0]) for r in rows])
+    return _growth_path_from_revenues(latest_contiguous_run(rows))
 
 
 # --------------------------------------------------------------------------- #
