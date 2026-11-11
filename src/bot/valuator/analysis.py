@@ -28,7 +28,7 @@ from bot.reference.currencies import CurrencyTable, normalize_currency
 from bot.reference.default_spreads import DefaultSpreadTable
 from bot.reference.regions import dataset_region
 from bot.reference.sectors import is_cyclical
-from bot.utils.finance import cagr
+from bot.utils.finance import cagr, latest_contiguous_run
 from bot.utils.fx import ConvertedPrice, convert_price, get_fx_rate
 from bot.utils.logging import get_logger
 from bot.valuator.assumptions import (
@@ -259,7 +259,7 @@ def _load_history(
 ) -> tuple[tuple[float, ...], tuple[float, ...], tuple[float, ...]]:
     """Revenue, net-income and EBIT histories, oldest first, in one scan."""
     rows = conn.execute(
-        "SELECT revenue, net_income, ebit FROM financials_annual "
+        "SELECT fiscal_year, revenue, net_income, ebit FROM financials_annual "
         "WHERE ticker = ? AND is_restated = FALSE ORDER BY fiscal_year",
         [ticker],
     ).fetchall()
@@ -267,17 +267,19 @@ def _load_history(
 
 
 def _histories_from_rows(
-    rows: Iterable[tuple[Any, Any, Any]],
+    rows: Iterable[tuple[Any, Any, Any, Any]],
 ) -> tuple[tuple[float, ...], tuple[float, ...], tuple[float, ...]]:
-    """Revenue, net-income and EBIT histories from ``(revenue, net_income, ebit)`` rows.
+    """Revenue, net-income and EBIT histories from ``(fiscal_year, revenue, net_income, ebit)`` rows.
 
-    ``rows`` must be oldest first; NULLs are dropped per series.
+    ``rows`` must be oldest first. Each series keeps only its latest run of
+    consecutive fiscal years with values (see :func:`latest_contiguous_run`).
     """
     materialised = list(rows)
-    revenues = tuple(float(r[0]) for r in materialised if r[0] is not None)
-    incomes = tuple(float(r[1]) for r in materialised if r[1] is not None)
-    ebits = tuple(float(r[2]) for r in materialised if r[2] is not None)
-    return revenues, incomes, ebits
+    return (
+        latest_contiguous_run((r[0], r[1]) for r in materialised),
+        latest_contiguous_run((r[0], r[2]) for r in materialised),
+        latest_contiguous_run((r[0], r[3]) for r in materialised),
+    )
 
 
 @dataclass(frozen=True)
@@ -545,7 +547,7 @@ def bulk_load_valuation_inputs(
     financials: dict[str, list[tuple[Any, ...]]] = {}
     for ticker, *values in conn.execute(
         "SELECT ticker, revenue, ebit, net_income, interest_expense, total_debt, cash, "
-        "shares_diluted, total_equity FROM financials_annual "
+        "shares_diluted, total_equity, fiscal_year FROM financials_annual "
         "WHERE ticker IN (SELECT unnest(?::VARCHAR[])) AND is_restated = FALSE "
         "ORDER BY ticker, fiscal_year",
         [wanted],
@@ -646,12 +648,12 @@ def bulk_load_valuation_inputs(
         name = names.get(company.country) if company.country is not None else None
         geographic_region = country_rows.get(name) if name is not None else None
         revenue_history, income_history, ebit_history = _histories_from_rows(
-            (r[0], r[2], r[1]) for r in financials[t]
+            (r[8], r[0], r[2], r[1]) for r in financials[t]
         )
         result[t] = ValuationInput(
             ticker=t,
             company=company,
-            latest=_latest_from_row(financials[t][-1]),
+            latest=_latest_from_row(financials[t][-1][:8]),
             revenue_history=revenue_history,
             income_history=income_history,
             ebit_history=ebit_history,
