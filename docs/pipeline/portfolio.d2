@@ -136,9 +136,9 @@ events: "4b. diff two snapshots into events" {  # @symbol bot.portfolio.events.c
     link: "./portfolio-mark-events.svg"
   }
   not_events: |md Not events, by design (spec §8.3): price moves and news. | {class: note}
-  persist: "append every event to events_log:\nevent_type, ticker, previous and current snapshot dates, details" {  # @symbol bot.portfolio.events.persist_events
+  persist: "append the events not yet logged for the day to events_log:\nevent_type, ticker, previous and current snapshot dates, details" {  # @symbol bot.portfolio.events.persist_events
     class: step
-    reruns: |md A second run on the same day diffs against the same previous snapshot, so it appends the same events again and sends them again; only new_filing is checked against events_log. | {class: note}
+    reruns: |md A second run on the same day diffs against the same previous snapshot, so it logs only the events not logged yet, and alerts.md lists all the day's logged events; a same-day re-run sends the same alerts again. | {class: note}
   }
 }
 

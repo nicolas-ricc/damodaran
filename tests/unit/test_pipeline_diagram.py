@@ -2133,7 +2133,7 @@ _PORTFOLIO_TEXT: dict[str, list[str]] = {
     "events.sector_recalibrated": ["> 100 bps", "exactly 100 bps: no event"],
     "events.concentration": ["> 15%", "exactly 15%: no event", "fires on every run while above"],
     "events.not_events": ["price moves", "news"],
-    "events.persist.reruns": ["same events again"],
+    "events.persist.reruns": ["not logged yet", "sends the same alerts again"],
     "reports.portfolio": [
         f"P&L = market value - quantity {_TIMES} average cost",
         "suggested review",

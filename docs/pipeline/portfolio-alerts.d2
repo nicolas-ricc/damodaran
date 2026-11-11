@@ -10,7 +10,7 @@ back: |md back to the portfolio board | {
 
 # States
 # @symbol bot.portfolio.events.persist_events
-logged: "its events are in the events log\nthe events log keeps every event, so a same-day re-run appends the same events again" {class: step}
+logged: "its events are in the events log\na same-day re-run logs only events not logged yet" {class: step}
 # @symbol bot.portfolio.report.render_portfolio @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
 portfolio_written: "portfolio.md is written\nprofit and loss (P&L) and concentration are in it\nP&L = market value − quantity × average cost; unpriced: P&L unknown\nconcentration weight = market value ÷ total of positions with a market value > 0; flagged above 15%\n--history: P&L per snapshot; --concentration: the breakdown list\nsuggested review: each flagged position, consider trimming" {class: decision}
 # @symbol bot.portfolio.report.render_alerts
@@ -42,7 +42,7 @@ channels: "email or Telegram" {class: external}
 out: "Comes out:\nreports/YYYY-MM-DD/portfolio.md, reports/YYYY-MM-DD/alerts.md, the alert message when sent, and the exit code" {class: output; link: "./portfolio.svg"}
 
 # Edges
-filings_checked -> logged: "every event fired is appended to the events log\nevent_type, ticker, previous and current snapshot dates, details"
+filings_checked -> logged: "every event fired is appended to the events log\nonly if not logged yet for the day: event_type, ticker, previous and current snapshot dates, details"
 logged -> portfolio_written: "portfolio.md is written with positions, profit and loss (P&L) and concentration"
 portfolio_written -> alerts_written: "alerts.md lists today's events [a holding had an event]\ntoday's events only: type, ticker, details"
 portfolio_written -> alerts_written: "alerts.md is written empty [no holding had an event]"
