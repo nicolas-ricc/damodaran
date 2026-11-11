@@ -449,3 +449,150 @@ def test_stale_statement_warns(
     else:
         assert stale_logs == []
     assert (tmp_path / as_of.isoformat() / "portfolio.md").exists()
+
+
+# --------------------------------------------------------------------------- #
+# Same-day reruns are idempotent (#83).                                        #
+# --------------------------------------------------------------------------- #
+
+DAY1, DAY2 = date(2026, 6, 1), date(2026, 6, 2)
+
+
+def _count(conn: duckdb.DuckDBPyConnection, day: date) -> int:
+    row = conn.execute(
+        "SELECT COUNT(*) FROM events_log WHERE curr_snapshot_date = ?", [day]
+    ).fetchone()
+    assert row is not None
+    return int(row[0])
+
+
+def _insert_filing(
+    conn: duckdb.DuckDBPyConnection,
+    ticker: str,
+    filing_type: str,
+    filing_date: date,
+    fetched_at: date,
+) -> None:
+    conn.execute(
+        "INSERT INTO filings_log "
+        "(ticker, filing_type, filing_date, accession_number, source, fetched_at) "
+        "VALUES (?, ?, ?, ?, 'sec', ?)",
+        [
+            ticker,
+            filing_type,
+            filing_date,
+            f"{ticker}-{filing_type}",
+            datetime.combine(fetched_at, datetime.min.time()),
+        ],
+    )
+
+
+def _dividend(day: date) -> CorporateActionRecord:
+    return CorporateActionRecord(
+        action_id="ct:1",
+        account="DU1",
+        action_type="dividend",
+        ticker="MSFT",
+        effective_date=day,
+        details={"amount": 2.5},
+    )
+
+
+def _run(
+    conn: duckdb.DuckDBPyConnection,
+    tmp_path: Path,
+    day: date,
+    *,
+    iv: float = 90.0,
+    gate: _ToggleGate | None = None,
+    actions: list[CorporateActionRecord] | None = None,
+) -> tuple[int, bytes]:
+    result = run_portfolio(
+        conn,
+        _client(day, actions=actions),
+        reports_dir=tmp_path,
+        today=day,
+        analyze_fn=_valued_at(iv),
+        quality_gates=[gate] if gate is not None else [],
+    )
+    return result.events, result.alerts_path.read_bytes()
+
+
+def test_same_day_rerun_is_idempotent(conn: duckdb.DuckDBPyConnection, tmp_path: Path) -> None:
+    conn.execute("INSERT INTO companies (ticker, name, source) VALUES ('AAPL', 'Apple', 'fmp')")
+    gate = _ToggleGate()
+    _run(conn, tmp_path, DAY1, iv=90.0, gate=gate)
+    gate.fail = True
+    _insert_filing(conn, "AAPL", "10-Q", DAY2, fetched_at=DAY2)
+
+    first_events, first_alerts = _run(
+        conn, tmp_path, DAY2, iv=120.0, gate=gate, actions=[_dividend(DAY2)]
+    )
+    first_count = _count(conn, DAY2)
+    second_events, second_alerts = _run(
+        conn, tmp_path, DAY2, iv=120.0, gate=gate, actions=[_dividend(DAY2)]
+    )
+
+    assert first_count > 0
+    assert _count(conn, DAY2) == first_count
+    assert second_alerts == first_alerts
+    assert second_events == first_events == first_count
+    logged = {t for t, _ in _logged(conn, DAY2)}
+    assert {
+        "intrinsic_value_crossed_price",
+        "below_quality_gate",
+        "dividend",
+        "new_filing",
+    } <= logged
+
+
+def test_rerun_keeps_new_filing_in_alerts(conn: duckdb.DuckDBPyConnection, tmp_path: Path) -> None:
+    _run(conn, tmp_path, DAY1)
+    _insert_filing(conn, "AAPL", "10-Q", DAY2, fetched_at=DAY2)
+
+    _run(conn, tmp_path, DAY2)
+    _, alerts = _run(conn, tmp_path, DAY2)
+
+    assert "| new_filing | AAPL |" in alerts.decode()
+    rows = conn.execute(
+        "SELECT COUNT(*) FROM events_log "
+        "WHERE event_type = 'new_filing' AND curr_snapshot_date = ?",
+        [DAY2],
+    ).fetchone()
+    assert rows == (1,)
+
+
+def test_rerun_logs_and_alerts_a_filing_that_arrived_between_runs(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _run(conn, tmp_path, DAY1)
+    _, first_alerts = _run(conn, tmp_path, DAY2, iv=120.0, actions=[_dividend(DAY2)])
+    before = _count(conn, DAY2)
+    assert before > 0
+    _insert_filing(conn, "MSFT", "8-K", DAY2, fetched_at=DAY2)
+
+    _, second_alerts = _run(conn, tmp_path, DAY2, iv=120.0, actions=[_dividend(DAY2)])
+
+    assert _count(conn, DAY2) == before + 1
+    rows = conn.execute(
+        "SELECT COUNT(*) FROM events_log WHERE event_type = 'new_filing' "
+        "AND ticker = 'MSFT' AND curr_snapshot_date = ?",
+        [DAY2],
+    ).fetchone()
+    assert rows == (1,)
+    text = second_alerts.decode()
+    assert text.count("| new_filing | MSFT |") == 1
+    for line in first_alerts.decode().splitlines():
+        if line.startswith("| ") and not line.startswith("| Type"):
+            assert line in text
+
+
+def test_rerun_leaves_other_days_untouched(conn: duckdb.DuckDBPyConnection, tmp_path: Path) -> None:
+    _, day1_alerts = _run(conn, tmp_path, DAY1)
+    day1_count = _count(conn, DAY1)
+
+    _run(conn, tmp_path, DAY2, iv=120.0, actions=[_dividend(DAY2)])
+    _run(conn, tmp_path, DAY2, iv=120.0, actions=[_dividend(DAY2)])
+
+    assert _count(conn, DAY1) == day1_count
+    assert (tmp_path / DAY1.isoformat() / "alerts.md").read_bytes() == day1_alerts
