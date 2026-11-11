@@ -51,7 +51,7 @@ from bot.screener.ranking import (
 )
 from bot.screener.rules import Rule
 from bot.screener.types import CompanyData, IndustryBenchmarks
-from bot.utils.finance import cagr
+from bot.utils.finance import cagr, latest_contiguous_run
 from bot.utils.fx import to_usd
 from bot.valuator.analysis import analyze, bulk_load_valuation_inputs
 from bot.valuator.assumptions import conventional_override_path
@@ -270,6 +270,7 @@ class _CompanyRow:
 
 @dataclass(frozen=True)
 class _AnnualRow:
+    fiscal_year: int
     revenue: float | None
     ebit: float | None
     ebitda: float | None
@@ -321,7 +322,7 @@ def _load_all_annual(
     loop (histories read most-recent-last, so fiscal_year ascending is kept).
     """
     rows = conn.execute(
-        "SELECT ticker, revenue, ebit, ebitda, interest_expense, net_income, total_assets, "
+        "SELECT ticker, fiscal_year, revenue, ebit, ebitda, interest_expense, net_income, total_assets, "
         "total_debt, cash, total_equity, goodwill, operating_cashflow, free_cashflow, "
         "shares_diluted, acquisitions FROM financials_annual "
         "WHERE is_restated = FALSE ORDER BY ticker, fiscal_year"
@@ -479,11 +480,6 @@ def _resolve_tax_rate(conn: duckdb.DuckDBPyConnection, country: str | None) -> f
 # --------------------------------------------------------------------------- #
 
 
-def _tuple(values: list[float | None]) -> tuple[float, ...]:
-    """Drop ``None`` holes, preserving order (histories must stay contiguous)."""
-    return tuple(float(v) for v in values if v is not None)
-
-
 def _ratio(numerator: float | None, denominator: float | None) -> float | None:
     if numerator is None or denominator is None or denominator == 0.0:
         return None
@@ -546,10 +542,10 @@ def build_company_data(
     region = _resolve_region(conn, company.country)
     latest = annual[-1] if annual else None
 
-    revenue_history = _tuple([r.revenue for r in annual])
-    ocf_history = _tuple([r.operating_cashflow for r in annual])
-    share_history = _tuple([r.shares_diluted for r in annual])
-    acquisitions_history = _tuple([r.acquisitions for r in annual])
+    revenue_history = latest_contiguous_run((r.fiscal_year, r.revenue) for r in annual)
+    ocf_history = latest_contiguous_run((r.fiscal_year, r.operating_cashflow) for r in annual)
+    share_history = latest_contiguous_run((r.fiscal_year, r.shares_diluted) for r in annual)
+    acquisitions_history = latest_contiguous_run((r.fiscal_year, r.acquisitions) for r in annual)
     op_margin_history: tuple[float, ...] = tuple(
         r.ebit / r.revenue
         for r in annual

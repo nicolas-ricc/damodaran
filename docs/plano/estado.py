@@ -85,7 +85,7 @@ INVENTARIO = {
   "Los tres presets cargan y construyen sin error. qarp usa dieciséis reglas: omite EV/EBITDA sin comentarlo."),
  ("motor", "El motor de dos pases", "hecho", "screener/engine.py:731",
   None),
- ("motor-trap", "La rama que elimina por trampa", "hecho", "screener/engine.py:782-790",
+ ("motor-trap", "La rama que elimina por trampa", "hecho", "screener/engine.py:778-786",
   "El test de motor que faltaba existe: run_screen rechaza una empresa sembrada con un aviso NT 10-K reciente y la deja en rejected con auditor_changes_and_late_filings entre sus reglas falladas (tests/unit/test_screener_engine.py)."),
  ("ranking-p", "Percentiles y pesos", "hecho", "screener/ranking.py:139",
   None),
