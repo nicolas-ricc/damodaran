@@ -34,7 +34,7 @@ Only the count word changes. The rest of each line stays byte-for-byte the same.
 
 - **The stale wording in another casing or in a build output.** The scan is case-insensitive (`dieciséis|sixteen|16 reglas`, the issue's grep) and covers only tracked sources. The gitignored outputs are left out, because a stale local `estado.html` would otherwise fail the test. Pinned by `test_plano_sources_only_qarp_says_sixteen`.
 - **The iso label also feeds `estado.html`.** `build_estado.py` imports `iso`, so the status plan picks up `17 reglas` as well. That is intended: the label states the total. Pinned by `test_build_estado_runs` (exit 0).
-- **A future rule added to the registry.** The tests compare with `len(registered_rules())` through a word table, so an 18th rule fails `test_registry_count_matches_plano` loudly. It does not pass silently. This test checks a doc claim in pytest, not in the build, so it stays inside the scope line about build-time checks.
+- **A future rule added to the registry.** `test_registry_count_matches_plano` asserts the literal `len(registered_rules()) == 17`. An 18th rule makes that test fail and points at the plan copy that has to change with it. No word table is built: the issue puts a registry-driven check out of scope, and the literal is enough to pin the claim.
 
 ---
 
@@ -78,3 +78,18 @@ Expected: everything green.
 git add tests/unit/test_plano_rule_count.py docs/plano/build.py docs/plano/part-body.html docs/plano/part-data.js docs/plano/part-meta.js docs/plano/iso.py
 git commit -m "docs(#286): the architecture plan counts seventeen screener rules"
 ```
+
+## Assumptions
+
+- **The build tests write to the working tree.** `build.py` writes `AQUI / 'plano.html'`, where `AQUI` is the script's own directory (`docs/plano/build.py:15,189`). `codemap.py` writes `codemap.json` next to itself. All three outputs are gitignored, and `tests/unit/test_dilution_ma_docs.py:111-114` already runs `build.py` this way, with no `cwd`. The rejected alternative was a temp-dir build, which would need a patched `AQUI` in both `build` and `codemap`.
+- **`git ls-files` is available.** CI runs on a full `actions/checkout` (`.github/workflows/site.yml:14`), and `tests/unit/test_estado_desfasaje.py` already shells out to git. The rejected alternative was a hand-maintained glob list, which goes stale when a new tracked file is added.
+- **No parallel runs.** The suite has no pytest-xdist (`pyproject.toml` addopts), so the build outputs have only one writer at a time.
+- **Fix forward.** If a step fails, the implementer fixes the source copy and does not loosen a test or reset the branch.
+
+## Grilling
+
+- **Rounds:** 1. The plan changed by one corrected Review Focus line plus the Assumptions above, with no task added or removed, so no second round ran.
+- **Griller:** fable. It asked 16 questions.
+- **Sources:** 6 ISSUE, 9 CODE, 1 DOC, and 4 NO SOURCE. The four unsourced questions (Q8, Q11, Q16 and part of Q7) all became technical assumptions.
+- **Plan error corrected (Q5):** the Review Focus claimed a word table that no test builds. That line was rewritten.
+- **Follow-up issues opened:** none. **Spec ambiguities:** none.
