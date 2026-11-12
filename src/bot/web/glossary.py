@@ -151,7 +151,7 @@ SOURCES: dict[str, Term] = {
     ),
     "story": Term(
         "story file",
-        "Written by hand in the story section of the company's assumptions file.",
+        "Set by or derived from the story section of the company's assumptions file.",
     ),
     "unresolved": Term(
         "unresolved",

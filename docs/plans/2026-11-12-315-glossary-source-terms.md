@@ -27,7 +27,7 @@ Labels stay lower case, like the existing source labels. The four existing terms
 | `manual` (replaces `override`) | `manual override` | `Written by hand in the company's assumptions file.` (unchanged text) |
 | `sector_default_damodaran_cross_region` | `sector default (Damodaran, other region)` | `Damodaran's industry average for this company's sector, taken from a different region than the company's own because its own region has no data.` |
 | `story_pattern` | `story pattern` | `A path the company's story type draws from its own history and its sector, such as growth fading to the terminal rate.` |
-| `story` | `story file` | `Written by hand in the story section of the company's assumptions file.` |
+| `story` | `story file` | `Set by or derived from the story section of the company's assumptions file.` |
 | `unresolved` | `unresolved` | `No value was produced: no source had the data, so the model shows a gap instead of a number.` |
 
 `SOURCES` follows the declaration order of `AssumptionSource`.

@@ -76,6 +76,11 @@ def test_cross_region_source_names_another_region() -> None:
     assert "company's own" in description
 
 
+def test_story_source_covers_derived_values() -> None:
+    description = source_term(AssumptionSource.STORY).description
+    assert description.startswith("Set by or derived from the story section"), description
+
+
 def test_unresolved_source_says_no_value() -> None:
     assert source_term(AssumptionSource.UNRESOLVED).description.startswith("No value was produced")
 
