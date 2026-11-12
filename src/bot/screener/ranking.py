@@ -170,9 +170,10 @@ def rank(
     Value/quality/growth sub-scores are percentiles within ``candidates`` (the
     filtered universe), each in ``[0, 1]``; the margin-of-safety component is the
     candidate's raw, absolute and unbounded ``intrinsic_value / price`` ratio
-    (placeholder 0.5 until M4.7). The weighted blend is multiplied by 100: the
-    three percentile terms alone stay within 100, but a margin-of-safety ratio
-    above 1.0 can lift the final score past 100, so there is no strict ceiling.
+    (the neutral :data:`PLACEHOLDER_MARGIN_OF_SAFETY` when no DCF value is
+    available). The weighted blend is multiplied by 100: the three percentile
+    terms alone stay within 100, but a margin-of-safety ratio above 1.0 can lift
+    the final score past 100, so there is no strict ceiling.
 
     Pure and deterministic: no I/O, no mutation of the inputs. Ties on the final
     score are broken by ticker so the order is stable.
