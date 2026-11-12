@@ -15,13 +15,13 @@ import pytest
 from bot.ingest.ibkr import CashBalance, PortfolioPosition
 from bot.ingest.provider import FxRate
 from bot.portfolio import sync as sync_mod
+from bot.portfolio.symbols import resolve_symbols
 from bot.portfolio.sync import (
     SnapshotSummary,
     _PriceQuote,
     sync_portfolio,
     value_positions,
 )
-from bot.portfolio.symbols import resolve_symbols
 from bot.storage.db import apply_schema
 from bot.utils.fx import upsert_fx_rates
 

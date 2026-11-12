@@ -7,6 +7,10 @@ Current version: US-only (S&P 500).
 ## Domain language
 
 - **Universe**: set of companies the screener considers (~50k global once M2 is done).
+- **Universe ticker**: `companies.ticker`, the key of every universe table (`financials_*`, `prices_daily`, `filings_log`) and of `config/assumptions/<TICKER>.yaml`. The universe spells share classes with a hyphen (`BRK-B`).
+  _Avoid_: SEC ticker, IBKR ticker.
+- **Broker symbol**: the IBKR symbol as the Flex ingest stores it, upper-cased, in `portfolio_snapshots.ticker` (and in `corporate_actions.ticker` and `trades.ticker`). Example: `BRK B`. It is stored raw and stays raw.
+  _Avoid_: calling it a ticker, or joining it to universe tables without `bot.portfolio.symbols`.
 - **Story type**: Damodaran's classification of a company's life-cycle / risk profile (`hypergrowth`, `high-growth`, `mature-stable`, `mature-decline`, `cyclical`, `distressed`). See [ADR 0009](docs/adr/0009-hypergrowth-story-driven-gated-on-story-file.md).
 - **Hypergrowth**: the story type of a young company growing explosively while its margin is still on the ramp. The classifier assigns it on four signals: last-year revenue growth of at least 50%, a revenue CAGR of at least 40%, an operating margin below the sector's, and a founded age of at most 15 years, or unknown (no `founded_year`). It is valued as such only from a story file (`story_type: hypergrowth` plus `story`); signals without one fall back to `high-growth` with a red flag. See [ADR 0009](docs/adr/0009-hypergrowth-story-driven-gated-on-story-file.md).
 - **Story file**: the `story_type: hypergrowth` (required with `story`), `story`, `scenarios` and `founded_year` keys of `config/assumptions/<TICKER>.yaml`: the hand-written inputs of a hypergrowth valuation, with money amounts in the raw reporting currency. See [ADR 0009](docs/adr/0009-hypergrowth-story-driven-gated-on-story-file.md).

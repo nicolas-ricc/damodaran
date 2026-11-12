@@ -43,6 +43,7 @@ from bot.portfolio.freshness import (
     business_days_between,
     latest_snapshot_date,
 )
+from bot.reference.broker_symbols import load_broker_symbols
 from bot.reference.currencies import CurrencyTable, load_currency_table
 from bot.reference.default_spreads import DefaultSpreadTable, load_default_spreads
 from bot.reporting.analysis_json import render_analysis_json
@@ -661,6 +662,7 @@ def portfolio(
             assumptions_dir=settings.assumptions_dir,
             currencies=load_currency_table(settings.currencies_path),
             default_spreads=load_default_spreads(settings.default_spreads_path),
+            symbol_overrides=load_broker_symbols(settings.broker_symbols_path),
         )
     except FlexError as exc:
         typer.echo(f"IBKR Flex statement unavailable: {exc}", err=True)

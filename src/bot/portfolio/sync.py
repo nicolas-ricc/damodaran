@@ -21,8 +21,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import date
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Protocol
 
+from bot.portfolio.symbols import SymbolMap, load_symbol_map
 from bot.utils.fx import FxLookup, convert_price, get_fx_rate
 from bot.utils.logging import get_logger
 
@@ -30,6 +32,7 @@ if TYPE_CHECKING:
     import duckdb
 
     from bot.ingest.ibkr import CashBalance, PortfolioPosition
+    from bot.reference.broker_symbols import BrokerSymbolTable
 
 log = get_logger(__name__)
 
@@ -88,23 +91,26 @@ def value_positions(
     positions: list[PortfolioPosition],
     prices: Mapping[str, _PriceQuote],
     fx: FxLookup,
+    symbols: SymbolMap | None = None,
 ) -> list[ValuedPosition]:
     """Value each position at its latest market price (a pure, testable step).
 
-    ``prices`` is keyed by upper-cased ticker. Market value is expressed in the
+    ``prices`` is keyed by upper-cased universe ticker. The price key is
+    ``symbols.ticker(pos.symbol)`` when ``symbols`` is given, else the
+    upper-cased broker symbol. Market value is expressed in the
     *position's* currency (so it lines up with ``avg_cost`` for P&L): if the
     price's listing currency matches (or either side is unknown) the close is
     used directly; otherwise it is cross-converted via USD using ``fx``. Any gap
     — no price, a non-positive close, or a missing/non-positive FX rate on either
     the price or position side — yields ``None``.
     """
-    return [
-        ValuedPosition(
-            position=pos,
-            market_value=_market_value(pos, prices.get(pos.symbol.upper()), fx),
+    out: list[ValuedPosition] = []
+    for pos in positions:
+        key = symbols.ticker(pos.symbol) if symbols is not None else pos.symbol.upper()
+        out.append(
+            ValuedPosition(position=pos, market_value=_market_value(pos, prices.get(key), fx))
         )
-        for pos in positions
-    ]
+    return out
 
 
 def _market_value(
@@ -123,6 +129,7 @@ def sync_portfolio(
     client: PortfolioSource,
     *,
     snapshot_date: date | None = None,
+    symbol_overrides: BrokerSymbolTable = MappingProxyType({}),
 ) -> SnapshotSummary:
     """Fetch positions + cash for every managed account and write a daily snapshot.
 
@@ -130,6 +137,8 @@ def sync_portfolio(
         conn: Open DuckDB connection with the schema applied.
         client: A read-only IBKR client (or any :class:`PortfolioSource`).
         snapshot_date: Calendar day to key the snapshot on; defaults to today.
+        symbol_overrides: Broker symbol -> universe ticker overrides (``None``
+            ignores a symbol); used only for the price lookup.
 
     Returns:
         A :class:`SnapshotSummary` of the rows written.
@@ -156,7 +165,8 @@ def sync_portfolio(
         for account in accounts:
             positions = client.positions(account)
             cash = client.cash_balances(account)
-            valued = value_positions(positions, prices, fx)
+            symbols = load_symbol_map(conn, (p.symbol for p in positions), symbol_overrides)
+            valued = value_positions(positions, prices, fx, symbols)
             _replace_account_day(conn, snap, account)
             _insert_positions(conn, snap, valued)
             _insert_cash(conn, snap, cash)
