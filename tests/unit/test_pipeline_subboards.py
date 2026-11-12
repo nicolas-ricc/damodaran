@@ -412,6 +412,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "founded_year",
         "read and checked",
         "converted into the valuation currency",
+        "the override file cannot be read",
     ],
     "analyze-story": [
         "first match wins",
@@ -455,6 +456,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "fixed commitments",
         "extra cash",
         "before the bridge",
+        "the override file cannot be read",
     ],
     "analyze-sensitivity": [
         "swing = |intrinsic value at the high end \u2212 intrinsic value at the low end|",

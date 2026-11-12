@@ -1624,6 +1624,7 @@ _ANALYZE_TEXT: dict[str, list[str]] = {
         "a non-empty list of them for revenue_growth / operating_margin",
         "a numeric value outside its range",
         "an inconsistent story file", "cannot value, exit code 1",
+        "the file cannot be read",
     ],
     "cli.errors": ["exit code 2", "exit code 1", "worst"],
     "inputs.load": [
@@ -1800,6 +1801,13 @@ def test_analyze_override_names_every_list_key() -> None:
     assert len(found) == 1, "the override decision has no single non-empty list line"
     line = found[0]
     assert set(re.findall(r"[a-z]+_[a-z_]+", line)) == set(_OVERRIDE_PATH_KEYS)
+
+
+@pytest.mark.parametrize("stem", ["analyze", "analyze-dcf", "analyze-inputs"])
+def test_unreadable_override_is_rendered(stem: str) -> None:
+    """The rendered boards show the unreadable override file among the refusals (#309)."""
+    svg = html.unescape((_PIPELINE / f"{stem}.svg").read_text(encoding="utf-8"))
+    assert "cannot be read" in svg
 
 
 def _story(**fields: Any) -> StoryType:
