@@ -13,7 +13,7 @@ from bot.screener.rules import registered_rules
 
 _ROOT = Path(__file__).resolve().parents[2]
 _PLANO = _ROOT / "docs" / "plano"
-_STALE = re.compile(r"dieciséis|sixteen|16 reglas", re.IGNORECASE)
+_STALE = re.compile(r"diecis[eé]is|sixteen|16 reglas", re.IGNORECASE)
 _QARP = "qarp usa dieciséis reglas: omite EV/EBITDA sin comentarlo."
 
 
@@ -24,7 +24,7 @@ def _tracked_sources() -> list[str]:
     return [p for p in out.splitlines() if not p.startswith("docs/plano/fonts/")]
 
 
-def test_registry_count_matches_plano() -> None:
+def test_registry_has_seventeen_rules() -> None:
     assert len(registered_rules()) == 17
 
 

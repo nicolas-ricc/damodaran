@@ -27,14 +27,15 @@
 | `docs/plano/part-data.js:82` | `Cuatro etapas, dieciséis reglas, cero subjetividad.` | `Cuatro etapas, diecisiete reglas, cero subjetividad.` |
 | `docs/plano/part-meta.js:78` | `Las dieciséis reglas del screener` | `Las diecisiete reglas del screener` |
 | `docs/plano/iso.py:159` | `>16 reglas</text>` | `>17 reglas</text>` |
+| `docs/plano/part-meta.js:79` | `sin las otras quince` | `sin las demás` |
 
-Only the count word changes. The rest of each line stays byte-for-byte the same.
+Only the count word changes. The rest of each line stays byte-for-byte the same. The `part-meta.js:79` row was added in the stage 4 task review: "otras quince" assumed sixteen, and "otras dieciséis" would trip the AC1 grep, so the wording drops the number.
 
 ## Review Focus
 
 - **The stale wording in another casing or in a build output.** The scan is case-insensitive (`dieciséis|sixteen|16 reglas`, the issue's grep) and covers only tracked sources. The gitignored outputs are left out, because a stale local `estado.html` would otherwise fail the test. Pinned by `test_plano_sources_only_qarp_says_sixteen`.
 - **The iso label also feeds `estado.html`.** `build_estado.py` imports `iso`, so the status plan picks up `17 reglas` as well. That is intended: the label states the total. Pinned by `test_build_estado_runs` (exit 0).
-- **A future rule added to the registry.** `test_registry_count_matches_plano` asserts the literal `len(registered_rules()) == 17`. An 18th rule makes that test fail and points at the plan copy that has to change with it. No word table is built: the issue puts a registry-driven check out of scope, and the literal is enough to pin the claim.
+- **A future rule added to the registry.** `test_registry_has_seventeen_rules` asserts the literal `len(registered_rules()) == 17`. An 18th rule makes that test fail and points at the plan copy that has to change with it. No word table is built: the issue puts a registry-driven check out of scope, and the literal is enough to pin the claim.
 
 ---
 
@@ -49,7 +50,7 @@ Only the count word changes. The rest of each line stays byte-for-byte the same.
 - Produces: nothing other tasks use.
 
 - [ ] **Step 1: Write the failing tests** in `tests/unit/test_plano_rule_count.py`. Module docstring: `"""The architecture plan counts the screener's seventeen rules (#286)."""`. Use `_ROOT = Path(__file__).resolve().parents[2]` and `_PLANO = _ROOT / "docs" / "plano"`, as the sibling doc tests do.
-  - `test_registry_count_matches_plano`: `assert len(registered_rules()) == 17`.
+  - `test_registry_has_seventeen_rules`: `assert len(registered_rules()) == 17`.
   - `test_plano_sources_only_qarp_says_sixteen`: the tracked files come from `git ls-files docs/plano` (subprocess, `cwd=_ROOT`), minus `fonts/*.b64`. Collect every `(relative path, line)` that matches `re.compile(r"dieciséis|sixteen|16 reglas", re.IGNORECASE)`. Assert that the list equals `[("docs/plano/estado.py", <the estado.py:85 line, stripped>)]`, compared through a substring check on `"qarp usa dieciséis reglas: omite EV/EBITDA sin comentarlo."`.
   - `test_plano_sources_say_seventeen`: parametrized over the five `(file, phrase)` pairs in the "After" column above. Each asserts `phrase in (_PLANO / file).read_text("utf-8")`.
   - `test_build_plano_says_seventeen`: `subprocess.run([sys.executable, str(_PLANO / "build.py")], capture_output=True, text=True, check=False)`. Assert returncode 0. Then read `plano.html` and assert that it contains `diecisiete reglas, cero subjetividad`, `Las diecisiete reglas del screener` and `>17 reglas</text>`, and does not contain `dieciséis reglas, cero subjetividad`.
@@ -58,7 +59,7 @@ Only the count word changes. The rest of each line stays byte-for-byte the same.
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `uv run pytest tests/unit/test_plano_rule_count.py -q`
-Expected: `test_registry_count_matches_plano` passes. The scan, the five phrases, the plano build check and the estado label check FAIL.
+Expected: `test_registry_has_seventeen_rules` passes. The scan, the five phrases, the plano build check and the estado label check FAIL.
 
 - [ ] **Step 3: Apply the five edits in "Exact copy".**
 
