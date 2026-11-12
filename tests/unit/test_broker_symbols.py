@@ -83,8 +83,13 @@ def test_malformed_file_warns_and_is_empty(tmp_path: Path, text: str) -> None:
     assert "broker_symbols.malformed" in [e["event"] for e in logs]
 
 
-def test_quoted_boolean_like_symbol_loads(tmp_path: Path) -> None:
-    assert dict(load_broker_symbols(_write(tmp_path, '"ON": "ON-X"\n'))) == {"ON": "ON-X"}
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [('"ON": "ON-X"\n', {"ON": "ON-X"}), ('"0700": "0700-HK"\n', {"0700": "0700-HK"})],
+    ids=["boolean-like", "numeric"],
+)
+def test_quoted_symbol_loads(tmp_path: Path, text: str, expected: dict[str, str]) -> None:
+    assert dict(load_broker_symbols(_write(tmp_path, text))) == expected
 
 
 def test_unreadable_path_warns_and_is_empty(tmp_path: Path) -> None:

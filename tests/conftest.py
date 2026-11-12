@@ -64,7 +64,7 @@ def _broker_symbols_path(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture(autouse=True)
 def _config_defaults_on_repo_root(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Point the default currency, spread and broker-symbol files at the repo's config, whatever the CWD."""
+    """Point the default currency, spread and broker-symbol files at the repo config."""
     monkeypatch.setattr(
         currencies, "DEFAULT_CURRENCIES_PATH", REPO_ROOT / "config" / "currencies.yaml"
     )

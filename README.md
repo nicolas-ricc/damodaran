@@ -270,7 +270,7 @@ IBKR spells share classes with a space (`BRK B`); the universe uses a hyphen (`B
 Space, `.` and `-` separators are normalised against `companies`, so those match with no
 setup. For a renamed listing, map it in `config/broker_symbols.yaml` (`OLDCO: NEWCO`).
 Map a symbol to `~` to ignore it (an ETF or bond with no universe row). Quote symbols
-YAML reads as booleans (`"ON"`, `"NO"`): an unquoted one is rejected.
+YAML reads as booleans or numbers (`"ON"`, `"NO"`, `"0700"`): an unquoted one is rejected.
 `BOT_BROKER_SYMBOLS_PATH` points at another file. Only the price lookup uses the
 resolver so far; snapshots keep the raw broker symbol.
 

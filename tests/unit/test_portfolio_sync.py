@@ -543,16 +543,20 @@ def test_override_prices_a_renamed_listing() -> None:
 
 
 def test_ignored_symbol_keeps_todays_price_lookup(conn: duckdb.DuckDBPyConnection) -> None:
+    # Without the override BRK B would resolve to BRK-B (400); ignored, it keeps
+    # today's raw-symbol lookup (100).
     day = date(2026, 6, 1)
-    _seed_price(conn, "SPY", 500.0, on=day)
+    _seed_company(conn, "BRK-B")
+    _seed_price(conn, "BRK-B", 400.0, on=day)
+    _seed_price(conn, "BRK B", 100.0, on=day)
     client = FakePortfolioClient(
         accounts=["DU1"],
-        positions={"DU1": [_position("DU1", "SPY", 2.0, 400.0)]},
+        positions={"DU1": [_position("DU1", "BRK B", 2.0, 50.0)]},
         cash={},
     )
-    sync_portfolio(conn, client, snapshot_date=day, symbol_overrides={"SPY": None})
+    sync_portfolio(conn, client, snapshot_date=day, symbol_overrides={"BRK B": None})
 
-    assert _snapshot_rows(conn) == [("SPY", pytest.approx(1000.0))]
+    assert _snapshot_rows(conn) == [("BRK B", pytest.approx(200.0))]
 
 
 def test_value_positions_uses_symbol_map() -> None:
