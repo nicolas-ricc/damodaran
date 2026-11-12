@@ -74,7 +74,7 @@ const steps = {
   ItIsNotHighGrowth: "not high-growth [otherwise]",
   ItIsInDecline: "the classifier says mature-decline [revenue growth at most −1% a year]",
   ItIsMatureStable: "the classifier says mature-stable [every other company]",
-  TheOverrideFileIsInvalid: "the ticker cannot be valued, exit code 1 [the override file is not valid YAML, not a mapping, has an unknown key or a value that is not a finite number, or its story file is inconsistent]",
+  TheOverrideFileIsInvalid: "the ticker cannot be valued, exit code 1 [the override file cannot be read, is not valid YAML, not a mapping, has an unknown key or a value that is not a finite number, or its story file is inconsistent]",
   NoManualStoryType: "the classifier's story type stands [no story type in the override file, and not hypergrowth]",
   TheOverrideSetsTheStoryType: "the override file's story type replaces it [a story type other than hypergrowth in the file; an unknown label drives no branch]",
   HypergrowthWithoutAStoryFallsBack: "the story type falls back to high-growth [the classifier says hypergrowth, the file sets no story type and has no story section]",
