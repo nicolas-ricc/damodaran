@@ -33,6 +33,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Protocol
 
 from bot.ingest.ibkr_flex import CorporateActionRecord, upsert_corporate_actions
@@ -41,6 +42,7 @@ from bot.portfolio.marks import mark_holdings
 from bot.portfolio.report import build_report, render_alerts, render_portfolio
 from bot.portfolio.sync import PortfolioSource, sync_portfolio
 from bot.portfolio.trades import TradeSource, sync_trades
+from bot.reference.broker_symbols import BrokerSymbolTable
 from bot.reference.currencies import CurrencyTable
 from bot.reference.default_spreads import DefaultSpreadTable
 from bot.utils.logging import get_logger
@@ -107,6 +109,7 @@ def run_portfolio(
     assumptions_dir: Path | None = None,
     currencies: CurrencyTable | None = None,
     default_spreads: DefaultSpreadTable | None = None,
+    symbol_overrides: BrokerSymbolTable = MappingProxyType({}),
 ) -> PortfolioRunResult:
     """Run the full sync -> diff -> report cycle and write both report files.
 
@@ -129,6 +132,8 @@ def run_portfolio(
         default_spreads: Default-spread table threaded to ``mark_holdings``; ``None``
             lets the default valuator load it lazily. Ignored with an injected
             ``analyze_fn`` (it owns its own table).
+        symbol_overrides: Broker symbol -> universe ticker overrides forwarded to
+            ``sync_portfolio`` for the price lookup.
 
     Returns:
         A :class:`PortfolioRunResult` with the run summary and the two file paths.
@@ -145,7 +150,9 @@ def run_portfolio(
             today=run_day.isoformat(),
             days=age,
         )
-    sync_portfolio(conn, client, snapshot_date=snapshot_date)
+    sync_portfolio(
+        conn, client, snapshot_date=snapshot_date, symbol_overrides=symbol_overrides
+    )
 
     # 2. Corporate actions carried by the same statement.
     upsert_corporate_actions(conn, client.corporate_actions())

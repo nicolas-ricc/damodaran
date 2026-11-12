@@ -1,0 +1,16 @@
+# Broker symbol overrides: IBKR symbol -> universe ticker (#84, #338).
+#
+# Format: BROKER SYMBOL: UNIVERSE_TICKER. Both sides are upper-cased on load.
+#
+# A space, "." or "-" share-class separator is normalised automatically (BRK B, BRK.B
+#   and BRK-B all find BRK-B), so this file is only for renamed listings and for ignores.
+# A null value (~) marks a holding intentionally outside the universe (an ETF, a bond):
+#   it is ignored and never reported as unresolved.
+# Symbols YAML reads as booleans (ON, NO, YES, OFF) or numbers (700, 0700) must be quoted,
+#   e.g. "ON": "ON-X". An unquoted one makes the file malformed.
+# A duplicate key or a malformed file makes the whole table empty, with a warning.
+# Override the location with BOT_BROKER_SYMBOLS_PATH.
+#
+# Examples:
+# BRK B: BRK-B
+# SPY: ~

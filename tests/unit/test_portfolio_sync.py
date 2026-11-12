@@ -15,6 +15,7 @@ import pytest
 from bot.ingest.ibkr import CashBalance, PortfolioPosition
 from bot.ingest.provider import FxRate
 from bot.portfolio import sync as sync_mod
+from bot.portfolio.symbols import resolve_symbols
 from bot.portfolio.sync import (
     SnapshotSummary,
     _PriceQuote,
@@ -477,3 +478,92 @@ def test_prices_loaded_once_regardless_of_position_count(
     sync_portfolio(conn, client, snapshot_date=day)
     # One windowed scan loads every ticker — no per-position N+1.
     assert calls["n"] == 1
+
+
+def _seed_company(conn: duckdb.DuckDBPyConnection, ticker: str) -> None:
+    conn.execute(
+        "INSERT INTO companies (ticker, name, source) VALUES (?, ?, 'sec_edgar')",
+        [ticker, ticker],
+    )
+
+
+def _snapshot_rows(conn: duckdb.DuckDBPyConnection) -> list[tuple[Any, ...]]:
+    return conn.execute("SELECT ticker, market_value FROM portfolio_snapshots").fetchall()
+
+
+def test_share_class_position_priced_from_universe_ticker(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _seed_company(conn, "BRK-B")
+    _seed_price(conn, "BRK-B", 400.0, on=date(2026, 6, 1))
+    client = FakePortfolioClient(
+        accounts=["DU1"],
+        positions={"DU1": [_position("DU1", "BRK B", 3.0, 300.0)]},
+        cash={},
+    )
+    summary = sync_portfolio(conn, client, snapshot_date=date(2026, 6, 2))
+
+    rows = _snapshot_rows(conn)
+    assert [r[0] for r in rows] == ["BRK B"]
+    assert rows[0][1] == pytest.approx(1200.0)  # 3 * 400
+    assert summary.unpriced == 0
+
+
+def _oldco_client() -> FakePortfolioClient:
+    return FakePortfolioClient(
+        accounts=["DU1"],
+        positions={"DU1": [_position("DU1", "OLDCO", 4.0, 10.0)]},
+        cash={},
+    )
+
+
+def _newco_db() -> duckdb.DuckDBPyConnection:
+    c = duckdb.connect(":memory:")
+    apply_schema(c)
+    _seed_company(c, "NEWCO")
+    _seed_price(c, "NEWCO", 25.0)
+    return c
+
+
+def test_override_prices_a_renamed_listing() -> None:
+    day = date(2026, 6, 1)
+    with_override = _newco_db()
+    summary = sync_portfolio(
+        with_override, _oldco_client(), snapshot_date=day, symbol_overrides={"OLDCO": "NEWCO"}
+    )
+    rows = _snapshot_rows(with_override)
+    assert [r[0] for r in rows] == ["OLDCO"]
+    assert rows[0][1] == pytest.approx(100.0)  # 4 * 25
+    assert summary.unpriced == 0
+
+    without = _newco_db()
+    summary = sync_portfolio(without, _oldco_client(), snapshot_date=day)
+    assert _snapshot_rows(without) == [("OLDCO", None)]
+    assert summary.unpriced == 1
+
+
+def test_ignored_symbol_keeps_todays_price_lookup(conn: duckdb.DuckDBPyConnection) -> None:
+    # Without the override BRK B would resolve to BRK-B (400); ignored, it keeps
+    # today's raw-symbol lookup (100).
+    day = date(2026, 6, 1)
+    _seed_company(conn, "BRK-B")
+    _seed_price(conn, "BRK-B", 400.0, on=day)
+    _seed_price(conn, "BRK B", 100.0, on=day)
+    client = FakePortfolioClient(
+        accounts=["DU1"],
+        positions={"DU1": [_position("DU1", "BRK B", 2.0, 50.0)]},
+        cash={},
+    )
+    sync_portfolio(conn, client, snapshot_date=day, symbol_overrides={"BRK B": None})
+
+    assert _snapshot_rows(conn) == [("BRK B", pytest.approx(200.0))]
+
+
+def test_value_positions_uses_symbol_map() -> None:
+    positions = [_position("A", "BRK B", 2.0, 5.0)]
+    prices = {"BRK-B": _PriceQuote(close=10.0, currency="USD")}
+    fx = lambda c: 1.0  # noqa: E731
+    symbols = resolve_symbols(["BRK B"], {"BRK-B"}, {})
+
+    assert value_positions(positions, prices, fx, symbols)[0].market_value == pytest.approx(20.0)
+    assert value_positions(positions, prices, fx)[0].market_value is None

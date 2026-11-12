@@ -592,3 +592,28 @@ def test_rerun_leaves_other_days_untouched(conn: duckdb.DuckDBPyConnection, tmp_
 
     assert _count(conn, DAY1) == day1_count
     assert (tmp_path / DAY1.isoformat() / "alerts.md").read_bytes() == day1_alerts
+
+
+def test_run_portfolio_forwards_symbol_overrides(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import bot.portfolio.command as command_mod
+
+    seen: dict[str, object] = {}
+    real_sync = command_mod.sync_portfolio
+
+    def _spy(*args: object, **kwargs: object) -> object:
+        seen.update(kwargs)
+        return real_sync(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(command_mod, "sync_portfolio", _spy)
+    run_portfolio(
+        conn,
+        _client(),
+        reports_dir=tmp_path,
+        today=TODAY,
+        analyze_fn=_no_analyze,
+        symbol_overrides={"OLDCO": "NEWCO"},
+    )
+
+    assert seen["symbol_overrides"] == {"OLDCO": "NEWCO"}

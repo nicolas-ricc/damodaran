@@ -88,6 +88,10 @@ class Settings(BaseSettings):
         default=Path("./config/currencies.yaml"),
         description="Curated per-currency risk-free rate and nominal GDP growth table (#109).",
     )
+    broker_symbols_path: Path = Field(
+        default=Path("./config/broker_symbols.yaml"),
+        description="Broker symbol -> universe ticker overrides; ~ ignores a holding (#338).",
+    )
     default_spreads_path: Path = Field(
         default=Path("./config/default_spreads.yaml"),
         description="Curated interest coverage → synthetic rating → cumulative default probability tables for distressed stories (#213).",
