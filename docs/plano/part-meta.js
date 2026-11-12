@@ -75,7 +75,7 @@ Object.assign(F, {
    "<code>get_rule</code> falla con la lista de nombres conocidos, que es lo que querés leer cuando te equivocaste tipeando un preset."]}},
 
 "p-strategy":{role:"selecciona",titulo:"Strategy",lead:"Cada regla es una pieza intercambiable con la misma forma.",
- idea:["Las dieciséis reglas del screener contestan la misma pregunta con criterios distintos: dada una empresa y los benchmarks de su sector, ¿pasa o no pasa, y por qué? Una clase base abstracta fija esa forma y cada regla la implementa a su manera.",
+ idea:["Las diecisiete reglas del screener contestan la misma pregunta con criterios distintos: dada una empresa y los benchmarks de su sector, ¿pasa o no pasa, y por qué? Una clase base abstracta fija esa forma y cada regla la implementa a su manera.",
   "La ganancia concreta es de prueba: una regla se ejercita con datos armados a mano, sin base, sin red y sin las otras quince. Por eso el objetivo de cobertura de <code>rules.py</code> es total.",
   "Las banderas narrativas usan la misma idea en su versión más liviana: en vez de clases, una tupla de funciones con la misma firma que se aplican en orden."],
  code:{where:[["base","Rule"],["método","Rule.evaluate"],["resultado","RuleResult"],["variante","narrative_flags"]],

@@ -79,7 +79,7 @@ duckdb:{role:"datos",titulo:"DuckDB · bot.duckdb",lead:"Un archivo. El backup e
    "El mapeo de industrias no está acá: es un CSV, no una tabla."]}},
 
 // ═══════════════ CAPA B ═══════════════
-zigurat:{role:"selecciona",titulo:"Capa B · el screener mecánico",lead:"Cuatro etapas, dieciséis reglas, cero subjetividad.",
+zigurat:{role:"selecciona",titulo:"Capa B · el screener mecánico",lead:"Cuatro etapas, diecisiete reglas, cero subjetividad.",
  idea:["El orden de las etapas responde a costo: primero lo barato de calcular sobre 50.000 empresas, después lo caro sobre 200.",
   "Pero hay algo más importante que el costo. Las dos etapas del medio son fuerzas opuestas: <em>value indicators</em> busca lo que está barato, <em>trap detection</em> pregunta por qué lo está. Un screener con solo la primera encuentra empresas baratas; casi todas están baratas con razón. Esa oposición es el corazón del método.",
   "Nada de lo que pasa acá es interpretativo: son umbrales en un archivo de configuración y percentiles. Lo subjetivo empieza recién en la Capa C, y esa separación es lo que permite auditar en qué capa falló una shortlist mala."],
