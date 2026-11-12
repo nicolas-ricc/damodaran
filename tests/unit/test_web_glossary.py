@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 
+from bot.valuator.assumptions import AssumptionSource
 from bot.valuator.sensitivity import PATH_AXES, SensitivityAxis
 from bot.web import glossary
 from bot.web.glossary import Term, axis_term, flag_term, input_term, source_term
@@ -54,14 +55,34 @@ def test_every_narrative_flag_has_a_worded_term() -> None:
 
 
 def test_every_source_has_a_worded_term() -> None:
-    for source in (
-        "sector_default_damodaran",
-        "country_default_damodaran",
-        "historical_average",
-        "rule_based",
-        "override",
-    ):
-        _is_worded(source_term(source))
+    for source in AssumptionSource:
+        assert source.value in glossary.SOURCES, source
+        _is_worded(source_term(source.value))
+
+
+def test_sources_are_keyed_by_assumption_source() -> None:
+    assert set(glossary.SOURCES) == {s.value for s in AssumptionSource}
+
+
+def test_manual_source_is_worded_as_an_override() -> None:
+    assert source_term(AssumptionSource.MANUAL) == Term(
+        "manual override", "Written by hand in the company's assumptions file."
+    )
+
+
+def test_cross_region_source_names_another_region() -> None:
+    description = source_term(AssumptionSource.SECTOR_DEFAULT_DAMODARAN_CROSS_REGION).description
+    assert "different region" in description
+    assert "company's own" in description
+
+
+def test_story_source_covers_derived_values() -> None:
+    description = source_term(AssumptionSource.STORY).description
+    assert description.startswith("Set by or derived from the story section"), description
+
+
+def test_unresolved_source_says_no_value() -> None:
+    assert source_term(AssumptionSource.UNRESOLVED).description.startswith("No value was produced")
 
 
 def test_unknown_names_fall_back_to_words_without_a_description() -> None:

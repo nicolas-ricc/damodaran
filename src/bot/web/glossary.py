@@ -119,25 +119,43 @@ FLAGS: dict[str, Term] = {
 
 #: Where an assumption came from, keyed by the ``source`` stored with each assumption.
 SOURCES: dict[str, Term] = {
+    "manual": Term(
+        "manual override",
+        "Written by hand in the company's assumptions file.",
+    ),
     "sector_default_damodaran": Term(
         "sector default (Damodaran)",
         "Damodaran's industry average for this company's sector, not a fact about the company itself.",
+    ),
+    "sector_default_damodaran_cross_region": Term(
+        "sector default (Damodaran, other region)",
+        "Damodaran's industry average for this company's sector, taken from a different region "
+        "than the company's own because its own region has no data.",
     ),
     "country_default_damodaran": Term(
         "country default (Damodaran)",
         "Damodaran's corporate tax rate for this company's country, used when its sector has no tax rate.",
     ),
-    "historical_average": Term(
-        "historical average",
-        "The company's own average over its reported history.",
-    ),
     "rule_based": Term(
         "rule",
         "Set by a rule of the model, such as the terminal growth capped at the risk-free rate.",
     ),
-    "override": Term(
-        "manual override",
-        "Written by hand in the company's assumptions file.",
+    "historical_average": Term(
+        "historical average",
+        "The company's own average over its reported history.",
+    ),
+    "story_pattern": Term(
+        "story pattern",
+        "A path the company's story type draws from its own history and its sector, "
+        "such as growth fading to the terminal rate.",
+    ),
+    "story": Term(
+        "story file",
+        "Set by or derived from the story section of the company's assumptions file.",
+    ),
+    "unresolved": Term(
+        "unresolved",
+        "No value was produced: no source had the data, so the model shows a gap instead of a number.",
     ),
 }
 
