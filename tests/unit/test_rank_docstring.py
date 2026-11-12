@@ -6,7 +6,6 @@ from bot.screener.ranking import rank
 
 
 def _doc() -> str:
-    """``rank.__doc__`` with whitespace collapsed."""
     assert rank.__doc__ is not None
     return " ".join(rank.__doc__.split())
 
