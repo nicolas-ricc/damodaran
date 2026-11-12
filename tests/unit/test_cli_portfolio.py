@@ -7,6 +7,7 @@ report artefacts are written under the dated directory.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
@@ -183,6 +184,30 @@ def test_portfolio_passes_preset_gates_including_trap_detection(
     names = {g.name for g in gates}
     assert "roic_above_sector_wacc" in names
     assert "min_market_cap" in names
+
+
+def test_portfolio_passes_loaded_broker_symbols(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _env(tmp_path, monkeypatch)
+    overrides = tmp_path / "broker_symbols.yaml"
+    overrides.write_text("BRK B: BRK-B\n")
+    monkeypatch.setenv("BOT_BROKER_SYMBOLS_PATH", str(overrides))
+    captured: dict[str, object] = {}
+    real_run_portfolio = bot.cli.run_portfolio
+
+    def _spy(*args: Any, **kwargs: Any) -> Any:
+        captured.update(kwargs)
+        return real_run_portfolio(*args, **kwargs)
+
+    monkeypatch.setattr(bot.cli, "run_portfolio", _spy)
+
+    result = CliRunner().invoke(app, ["portfolio"])
+
+    assert result.exit_code == 0, result.stdout
+    table = captured["symbol_overrides"]
+    assert isinstance(table, Mapping)
+    assert dict(table) == {"BRK B": "BRK-B"}
 
 
 def test_portfolio_fails_when_preset_missing(
