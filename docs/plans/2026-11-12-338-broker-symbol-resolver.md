@@ -91,6 +91,7 @@
   - `test_override_is_not_corrected`: `m = resolve_symbols(["BRK B"], {"BRK-B"}, {"BRK B": "XYZ"})`; `m.unresolved == ("BRK B",)` and `m.ticker("BRK B") == "BRK B"`.
   - `test_null_override_is_ignored_not_unresolved`: `m = resolve_symbols(["SPY"], set(), {"SPY": None})`; `m.ignored == ("SPY",)`, `m.unresolved == ()` and `m.ticker("spy") == "SPY"`.
   - `test_unresolved_falls_through_upper_cased`: `m = resolve_symbols(["zzz q"], {"AAPL"}, {})`; `m.unresolved == ("ZZZ Q",)` and `m.ticker(" zzz q ") == "ZZZ Q"`.
+  - `test_hyphen_wins_when_both_spellings_are_known`: `resolve_symbols(["BRK B"], {"BRK-B", "BRK.B"}, {}).ticker("BRK B") == "BRK-B"`.
   - `test_no_other_spellings`: `resolve_symbols(["BRKB"], {"BRK-B"}, {}).unresolved == ("BRKB",)` and `resolve_symbols(["BRK B"], {"BRKB"}, {}).unresolved == ("BRK B",)`.
   - `test_unresolved_and_ignored_are_sorted_and_deduplicated`: `resolve_symbols(["ZZZ", "aaa", "AAA", "QQQ", "IEF"], set(), {"QQQ": None, "IEF": None})` gives `unresolved == ("AAA", "ZZZ")` and `ignored == ("IEF", "QQQ")`.
   - `test_blank_symbols_are_skipped`: `resolve_symbols(["", "  "], {"AAPL"}, {})` has empty `resolved`, `unresolved` and `ignored`.
@@ -98,7 +99,13 @@
   - `test_load_symbol_map_upper_cases_companies`: the same with the ticker `'brk-b'` resolves to `"BRK-B"`.
   - `test_held_symbols_distinct_upper_sorted_for_the_day`: insert `portfolio_snapshots` rows (`snapshot_date, account, ticker, qty`; read the NOT NULL columns in `schema.sql` first) for `"BRK B"` in two accounts, `"aapl"` and, on another date, `"MSFT"`. Then `held_symbols(conn, day) == ["AAPL", "BRK B"]`.
 - [ ] **Step 2: Run** `uv run pytest tests/unit/test_portfolio_symbols.py -q`. Expected: FAIL (`ModuleNotFoundError`).
-- [ ] **Step 3: Implement `src/bot/portfolio/symbols.py`.** Module docstring: the vocabulary (broker symbol and universe ticker) and the rule that only the universe-joining seams resolve. `resolve_symbols` follows decision 2 of the issue, with candidates de-duplicated in order (e.g. `dict.fromkeys`). Blank symbols after `strip()` are skipped. `resolved` holds a `MappingProxyType`. `unresolved` and `ignored` are `tuple(sorted(set))`. `ticker()` is exactly `self.resolved.get(symbol.strip().upper(), symbol.strip().upper())`. `load_symbol_map` builds `known` from `SELECT UPPER(ticker) FROM companies`. `held_symbols` runs the decision-2 SQL.
+- [ ] **Step 3: Implement `src/bot/portfolio/symbols.py`.** Module docstring: the vocabulary (broker symbol and universe ticker) and the rule that only the universe-joining seams resolve. `resolve_symbols` implements issue decision 2, verbatim:
+  - For each symbol, `s = symbol.strip().upper()`. Blank symbols are skipped.
+  - If `s` is a key of `overrides`, a `None` value marks `s` **ignored**. Any other value is the only candidate, used verbatim without normalisation.
+  - Otherwise the candidates, in order and de-duplicated (e.g. `dict.fromkeys`), are `s`, `re.sub(r"[ .\-]", "-", s)` and `re.sub(r"[ .\-]", ".", s)`.
+  - The first candidate contained in `known` goes in `resolved[s]`, identity entries included. A symbol with no candidate in `known` is **unresolved**.
+
+  `held_symbols` runs `SELECT DISTINCT UPPER(ticker) FROM portfolio_snapshots WHERE snapshot_date = ? ORDER BY 1`. `resolved` holds a `MappingProxyType`. `unresolved` and `ignored` are `tuple(sorted(set))`. `ticker()` is exactly `self.resolved.get(symbol.strip().upper(), symbol.strip().upper())`. `load_symbol_map` builds `known` from `SELECT UPPER(ticker) FROM companies`. `held_symbols` runs the decision-2 SQL.
 - [ ] **Step 4: Run** the step-2 command. Expected: PASS.
 - [ ] **Step 5: Commit** `feat(#338): broker-symbol resolver`.
 
@@ -122,6 +129,7 @@
   - `test_portfolio_sync.py::test_share_class_position_priced_from_universe_ticker`: seed `companies` with `BRK-B` and `prices_daily` with (`BRK-B`, 2026-06-01, 400.0, USD). Use the existing `_seed_price`, which upper-cases. Sync a `_position("DU1", "BRK B", 3.0, 300.0)` on `date(2026, 6, 2)`. Then `SELECT ticker, market_value FROM portfolio_snapshots` gives `[("BRK B", approx 1200.0)]` and `summary.unpriced == 0`.
   - `test_portfolio_sync.py::test_override_prices_a_renamed_listing`: seed `companies` with `NEWCO` and price `NEWCO` only; a position `OLDCO`. With `symbol_overrides={"OLDCO": "NEWCO"}`, `market_value == qty * close` and the stored ticker is `"OLDCO"`. On a fresh connection without the override, `market_value IS NULL` and `unpriced == 1`.
   - `test_portfolio_sync.py::test_value_positions_uses_symbol_map`: pure; `value_positions([pos BRK B], {"BRK-B": _PriceQuote(10.0, "USD")}, fx, resolve_symbols(["BRK B"], {"BRK-B"}, {}))` is priced, and the same call without `symbols` is `None`.
+  - `test_portfolio_sync.py::test_ignored_symbol_keeps_todays_price_lookup`: price `SPY` (no `companies` row); with `symbol_overrides={"SPY": None}` the position is still priced (an ignored symbol falls through `ticker()` unchanged, per issue decision 2).
   - `test_portfolio_command.py::test_run_portfolio_forwards_symbol_overrides`: monkeypatch `bot.portfolio.command.sync_portfolio` with a spy that records kwargs and delegates. Call `run_portfolio(..., symbol_overrides={"OLDCO": "NEWCO"})` and assert that the spy saw `symbol_overrides == {"OLDCO": "NEWCO"}`. Reuse the file's existing client and helpers.
   - `test_cli_portfolio.py::test_portfolio_passes_loaded_broker_symbols`: in `_env`, write `tmp_path/"broker_symbols.yaml"` as `"BRK B: BRK-B\n"` and set `BOT_BROKER_SYMBOLS_PATH` to it. Spy on `bot.cli.run_portfolio` as `test_portfolio_passes_preset_gates_including_trap_detection` does, and assert `dict(captured["symbol_overrides"]) == {"BRK B": "BRK-B"}`.
 - [ ] **Step 2: Run** `uv run pytest tests/unit/test_portfolio_sync.py tests/unit/test_cli_portfolio.py tests/integration/test_portfolio_command.py -q`. Expected: the five new tests FAIL, and the existing ones pass.
@@ -132,6 +140,25 @@
 - [ ] **Step 4: Thread it through.** `run_portfolio` gets the keyword (with a docstring Arg) and forwards it to `sync_portfolio`. The CLI `portfolio` command passes `symbol_overrides=load_broker_symbols(settings.broker_symbols_path)`, next to `currencies=`.
 - [ ] **Step 5: Docs.**
   - README: under "Portfolio sync via Flex Web Service" (after the env block), add a `#### Broker symbols that differ from the universe ticker` subsection of a few lines. It says that space, `.` and `-` share-class separators are normalised against `companies`, and that `config/broker_symbols.yaml` maps renamed listings (`OLDCO: NEWCO`). It also covers `~` to ignore an ETF or bond, quoting boolean-like symbols, and `BOT_BROKER_SYMBOLS_PATH`. Only the price lookup uses the resolver so far.
-  - CONTEXT.md Domain language: add **Broker symbol** and **Universe ticker** with the issue's definitions, each with an `_Avoid_:` line in the file's style.
+  - CONTEXT.md Domain language: add these two entries.
+    - **Broker symbol**: the IBKR symbol as the Flex ingest stores it, upper-cased, in `portfolio_snapshots.ticker` (and in `corporate_actions.ticker` and `trades.ticker`). Example: `BRK B`. It is stored raw and stays raw. Followed by `_Avoid_: calling it a ticker, or joining it to universe tables without bot.portfolio.symbols.`
+    - **Universe ticker**: `companies.ticker`, the key of every universe table (`financials_*`, `prices_daily`, `filings_log`) and of `config/assumptions/<TICKER>.yaml`. The universe spells share classes with a hyphen (`BRK-B`). Followed by `_Avoid_: SEC ticker, IBKR ticker.`
 - [ ] **Step 6: Run** the step-2 command and expect PASS. Then run `uv run pytest -q`, `uv run ruff check .` and `uv run mypy src`; all must pass.
 - [ ] **Step 7: Commit** `feat(#338): snapshot prices broker symbols through the resolver`.
+
+## Assumptions
+
+Technical decisions taken where the issue is silent (also listed in the PR):
+
+- Blank broker symbols are skipped by `resolve_symbols`. The rejected alternative was to report `""` as unresolved. The Flex parser already drops rows without a symbol (`src/bot/ingest/ibkr_flex.py:115`).
+- No log line for a broker symbol that two universe spellings could match: the candidate order picks `-` first and a test pins it. The rejected alternative was a warning; the issue asks for none.
+- Keys equal after upper-casing count as duplicates, so the file is malformed. The rejected alternative was last-wins. This follows the issue's "duplicate keys are malformed".
+- A boolean-typed key or value (unquoted `ON`/`NO`/`YES`/`OFF`) is malformed. The rejected alternative was to coerce it back to text, which cannot recover the original spelling.
+- The `_Avoid_:` wording of the two CONTEXT.md entries.
+
+## Grilling
+
+- Rounds: 1. The plan was only clarified (decision 2 and the SQL written out, two tests added), with no new seam or step, so there was no second round. Griller model: opus (fallback from fable).
+- Questions: 18. Sources: ISSUE 11, CODE 6, NO SOURCE 1 (CONTEXT.md `_Avoid_:` wording → technical assumption). Several answers cite both.
+- Assumptions: the five above.
+- Issues opened: none. Unresolved and ignored symbols are surfaced by #340 (report) and #341 (doctor), which already exist as siblings under #84.
