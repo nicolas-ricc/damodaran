@@ -148,7 +148,7 @@ TheOverrideFileIsRead ==
   /\ storyFile' \in {"present", "absent"}
   /\ UNCHANGED << batch, exitCode, storyTypes, overrideStory, currency, tgSource, unresolved, shares, gVsWacc, valued, flags, margin, verdict, reports, signal, storyType >>
 
-(* src/bot/valuator/assumptions.py: load_override raises ValueError on invalid YAML, a non-mapping, an unknown key, a value that is not finite (_check_override_values) and an inconsistent story file (_check_story_file); src/bot/cli.py: _analyze_one catches ValueError and returns 1 *)
+(* src/bot/valuator/assumptions.py: load_override raises ValueError on an unreadable file (OSError on read), invalid YAML, a non-mapping, an unknown key, a value that is not finite (_check_override_values) and an inconsistent story file (_check_story_file); src/bot/cli.py: _analyze_one catches ValueError and returns 1 *)
 TheOverrideFileIsInvalid ==
   /\ phase = "region_set"
   /\ phase' = "cannot_value"
