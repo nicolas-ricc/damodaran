@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Exact wording on the `override` decision (`analyze.d2`): the reasons line becomes `the file cannot be read (a permission error, or a directory named TICKER.yaml), not valid YAML, not a mapping, an unknown key,`. The rest of the node is unchanged.
+- Exact wording on the `override` decision (`analyze.d2`): the reasons line becomes `the file cannot be read (a permission error, or config/assumptions/TICKER.yaml being a directory), not valid YAML, not a mapping, an unknown key,`. The rest of the node is unchanged.
 - Exact new step label (view.js `TheOverrideFileIsInvalid`, first line of both sub-board edges): `the ticker cannot be valued, exit code 1 [the override file cannot be read, is not valid YAML, not a mapping, has an unknown key or a value that is not a finite number, or its story file is inconsistent]`. The extra lines of the `analyze-inputs.d2` edge are unchanged.
 - No change to `load_override` or its message, or to the TLA+ actions (out of scope in the brief).
 - Render only with `docs/pipeline/build.sh` and d2 v0.9.0 (`d2 version` → `v0.9.0` on this machine). Never edit an SVG or `rendered.sha256` by hand. PNGs stay git-ignored.
