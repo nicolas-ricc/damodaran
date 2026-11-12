@@ -67,7 +67,7 @@ This is the issue body's suggestion, verbatim: "replace the parenthetical with w
 - Produces: nothing other tasks use.
 
 - [ ] **Step 1: Write the failing tests** in `tests/unit/test_rank_docstring.py`. Module docstring: `"""The rank() docstring describes the DCF fallback, not a pending M4.7 (#299)."""`. Add a helper `_doc() -> str` that returns `rank.__doc__` with whitespace collapsed (`" ".join(doc.split())`), after it asserts `rank.__doc__ is not None`.
-  - `test_rank_docstring_does_not_say_m47_is_pending`: `"M4.7" not in doc`, `re.search(r"\buntil\b", doc, re.IGNORECASE) is None`, `"placeholder 0.5" not in doc`.
+  - `test_rank_docstring_does_not_say_m47_is_pending`: `"M4.7" not in doc`, `"placeholder 0.5" not in doc`. (The stage 6 review dropped a `\buntil\b` ban: it barred an ordinary word from the whole docstring, and `"M4.7"` already covers "until M4.7".).
   - `test_rank_docstring_names_the_dcf_fallback`: `"the neutral :data:`PLACEHOLDER_MARGIN_OF_SAFETY` when no DCF value is available" in doc`.
   - `test_rank_docstring_keeps_the_unbounded_ratio`: `"raw, absolute and unbounded ``intrinsic_value / price`` ratio" in doc` and `"there is no strict ceiling" in doc`.
 

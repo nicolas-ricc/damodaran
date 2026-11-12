@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-
 from bot.screener.ranking import rank
 
 
@@ -16,7 +14,6 @@ def _doc() -> str:
 def test_rank_docstring_does_not_say_m47_is_pending() -> None:
     doc = _doc()
     assert "M4.7" not in doc
-    assert re.search(r"\buntil\b", doc, re.IGNORECASE) is None
     assert "placeholder 0.5" not in doc
 
 
