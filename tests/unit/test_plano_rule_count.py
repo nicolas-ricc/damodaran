@@ -71,3 +71,9 @@ def test_build_plano_says_seventeen() -> None:
 
 def test_build_estado_runs() -> None:
     assert ">17 reglas</text>" in _build("build_estado.py", "estado.html")
+
+
+def test_part_meta_counts_no_other_rules() -> None:
+    text = (_PLANO / "part-meta.js").read_text("utf-8")
+    assert "sin las demás. Por eso" in text
+    assert "otras quince" not in text
