@@ -92,7 +92,7 @@ CABEZAS = {
                "fondo: nunca volver a pedir un dato que sigue vigente. Todo lo demás de "
                "esta página depende de que acá no haya basura.",
                "Tocá una etapa para ver cómo funciona."),
-    "capa-b": ("Capa B · el screener mecánico", "dieciséis reglas, cero subjetividad",
+    "capa-b": ("Capa B · el screener mecánico", "diecisiete reglas, cero subjetividad",
                "El embudo abierto. La primera etapa y la tercera eliminan; la segunda y la "
                "cuarta seleccionan. Y las dos del medio son fuerzas opuestas a propósito: "
                "una busca lo que está barato, la otra pregunta por qué lo está.",

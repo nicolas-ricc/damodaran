@@ -156,7 +156,7 @@ def block_labels(i, capa):
                 f'<path class="leader" d="M{px + 6:.1f},{py - 4:.1f} '
                 f'L{tx - 8:.1f},{ty + 4:.1f}"/>'
                 f'<text class="lbl-blk" x="{tx:.1f}" y="{ty:.1f}">4 etapas</text>'
-                f'<text class="lbl-sub" x="{tx:.1f}" y="{ty + 14:.1f}">16 reglas</text>'
+                f'<text class="lbl-sub" x="{tx:.1f}" y="{ty + 14:.1f}">17 reglas</text>'
                 "</g>")
     out = []
     for _bid, bx, by, bw, bh, bz, label, _role, dx, dy in BLOCKS[capa["id"]]:
