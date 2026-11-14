@@ -87,7 +87,7 @@
     - gate: `{"gate": "max_net_debt_to_ebitda"}` → ``- **AAPL**: newly fails quality gate `max_net_debt_to_ebitda` — review whether the thesis survives it.``
     - sector: `{"prev_wacc": 0.08, "wacc": 0.092, "delta": 0.012}` → `- **AAPL**: sector WACC moved +120 bps (8.0% → 9.2%) — re-check the margin of safety under the new discount rate.`
     - filing: `{"filing_type": "10-K", "filing_date": "2026-05-01", "accession_number": "0000320193-26-000001"}` → ``- **AAPL**: new 10-K filed 2026-05-01 — read it and refresh the analysis with `bot analyze AAPL`.``
-    Assert `"\n" + line + "\n"` in `_suggested(out)` and `"No reviews suggested" not in out`.
+    Assert `"## Suggested reviews\n\n" + line + "\n"` in `out` (the bullet sits right under the heading, no stray blank line or fallback when nothing is flagged) and `"No reviews suggested" not in out`.
   - `test_suggested_reviews_ignore_concentration_and_ibkr_events`: one `concentration` + one of each IBKR type → `_suggested(out)` bullets (lines starting `- `) equal exactly `["- No positions exceed the concentration threshold and no event calls for a review. No reviews suggested."]`.
   - `test_suggested_reviews_concentration_not_listed_twice`: report with `ConcentrationRow("AAPL", 15000.0, 0.8, True)` and a `concentration` AAPL event → exactly one bullet in `_suggested(out)` contains `AAPL`, and it contains `consider trimming`.
   - `test_suggested_reviews_concentration_before_events`: flagged AAPL row + `new_filing` MSFT event → bullets are `[<AAPL consider trimming line>, <MSFT new filing line>]`, in that order.
@@ -97,3 +97,21 @@
 - [ ] **Step 3: Implement** in the template: keep `flagged`; emit flagged lines, then `{% for e in r.review_events %}` with an `if/elif` on `e.event_type` (and on `direction` for crosses); `{% if not flagged and not r.review_events %}` fallback. Exact copy from Global Constraints and Review Focus.
 - [ ] **Step 4: Full suite and lint.** `uv run pytest -q && uv run ruff check . && uv run mypy src`. Expected: green.
 - [ ] **Step 5: Commit** `feat(#353): suggested reviews list the day's derived events`.
+
+## Assumptions
+
+- **Unknown cross direction gets a neutral bullet.** The issue requires that "a review event of an unexpected shape (missing detail key) must not crash rendering"; a missing `direction` is such a key. The producer only ever writes `above_price`/`below_price` (`src/bot/portfolio/events.py:381`), so the neutral line (`— review the valuation.`) is a defensive path no real run reaches. Rejected: emitting nothing, which would leave the section without a bullet and without the fallback while `review_events` is non-empty.
+- **Text details default to `—`.** `{{ None }}` renders `None` in Jinja, so text keys use `e.details.get(key, "—")`; numeric keys go through `money`/`pct`/`bps`, which return `—` for `None` (`report.py` `_fmt_money`, `_fmt_pct`). The template knows which key is which because each branch names its own keys. Rejected: a generic `text` filter (one more filter for one defensive case).
+- **Non-numeric numeric details are out of contract.** `_fmt_bps` calls `float(value)` like every existing `_fmt_*` filter. `events_log.details` is only ever written with `json.dumps` of the detectors' float payloads (`events.py:846-855`), so a string `delta` cannot arise from the code. Malformed JSON in that column would already fail in `load_events` (`_row_details`, `events.py:802-804`), before rendering and for `alerts.md` too; not changed here.
+- **Order.** `events` arrives in `load_events` order (`ORDER BY rowid`, `events.py:871`); the issue asks for "that order" with no grouping, so neither ticker nor type is regrouped.
+- **Intermediate commit.** Task 1 registers `bps` and adds `review_events` before the template uses them; neither ruff nor mypy flags a registered filter or an unused property. Both tasks land in one PR squashed into the story branch.
+
+## Grilling
+
+- **Rounds:** 1. One test assertion was tightened (Q14) and this Assumptions section was added; no task or step added or removed, so no second round.
+- **Griller:** fable. 16 questions.
+- **Sources:**
+  - ISSUE: Q1 ("`events: tuple[Event, ...]` (today's logged events, in `load_events` insertion order)"), Q4 (unexpected shape "must not crash rendering"), Q8 ("a concentrated book is never listed twice"; criterion "a flagged concentration row **and** a `concentration` event for the same ticker renders exactly one bullet"), Q13 ("in that order"), Q15 (#86 "Children created": boards in #354; issue "No other docs in this task").
+  - CODE: Q1 `report.py` `PortfolioReport.events` + `tests/unit/test_portfolio_report.py::test_build_report_carries_events`; Q2 `events.py:57-73`, `:381`; Q3 `events.py:337-339, 381-385, 418-420, 488, 516` and `tests/unit/test_portfolio_events.py:399,407,443-444,452,539`; Q5 `events.py:802-804` (NULL → `{}`); Q6 `report.py` `_fmt_money`/`_fmt_pct` return `_DASH` for `None`, registered in `_environment()`; Q7 `test_portfolio_report.py:233,253` are substring matches and the new fallback keeps `No reviews suggested`; Q8 `report.py` `ConcentrationRow(ticker, market_value, weight, flagged)`; Q9 `tests/integration/test_portfolio_command.py:548-561` runs DAY2 twice, and `command.py:185-188` writes `portfolio.md` on every run; Q10 `test_portfolio_report.py:291-304` builds `PortfolioReport` directly and renders through `render_portfolio`, so filters are exercised; Q12 `events.py:338` stores `filing_date.isoformat()`; Q15 `docs/pipeline/check.py:6-8` resolves symbols/tables/files only, not prose.
+  - NO SOURCE: Q4 (copy), Q11, Q12 (text vs numeric), Q14, Q16 → technical assumptions above or a tightened test.
+- **Follow-up issues opened:** none. **Spec ambiguities:** none.
