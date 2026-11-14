@@ -170,9 +170,11 @@ def test_portfolio_writes_both_reports(conn: duckdb.DuckDBPyConnection, tmp_path
         "## Positions",
         "## Profit & loss",
         "## Concentration",
+        "## Detected events",
         "## Suggested reviews",
     ):
         assert heading in body
+    assert "| position_opened | AAPL |" in body
     assert "AAPL" in body
     assert "MSFT" in body
     # AAPL is ~83% of the book: the concentration review must name it.
@@ -211,6 +213,7 @@ def test_alerts_present_but_empty_when_no_events(
     assert alerts_md.exists()
     assert result.alerts_path == alerts_md
     assert alerts_md.read_text() == ""
+    assert "_No events detected today._" in result.portfolio_path.read_text()
 
 
 def test_quiet_day_writes_empty_alerts_after_busy_day(
