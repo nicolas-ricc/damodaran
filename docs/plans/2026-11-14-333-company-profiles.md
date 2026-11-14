@@ -62,7 +62,7 @@ File shapes: `industry_tags.yaml` is a YAML list of `{slug, label, description}`
   - parametrized `test_rejects_bad_profile` with `pytest.raises(ProfileError, match=...)` for: unknown tag `infosec` (match `"unknown tag"`), share `0.09` and `1.01` and `"high"` (match `"share"`), shares 0.6+0.5 (match `"sum"`), source `guess` (match `"source"`), `tags: []` (match `"tags"`), description `"  "` (match `"description"`), accession `0001535527-26-12` (match `"accession"`), same tag twice (match `"duplicate"`), missing `fiscal_year` (match `"fiscal_year"`), entry not a mapping (match the ticker). Each message contains the ticker.
   - parametrized `test_rejects_bad_vocabulary`: slug `Cyber Security` (not kebab), empty label, empty description, duplicate slug, file not a list.
   - `test_missing_file_raises`: `load_industry_tags(tmp_path / "nope.yaml")` raises `ProfileError`.
-  - `test_share_sum_tolerates_float_noise`: 0.7 + 0.2 + 0.1 loads.
+  - `test_share_sum_tolerates_float_noise`: 0.7 + 0.2 + 0.1 loads, and 0.34 + 0.33 + 0.33 (exactly 1.00) loads. The sum is checked on the recorded two-decimal shares.
 - [ ] **Step 2: Run** `uv run pytest tests/unit/test_company_profiles.py -q` — Expected: FAIL (module not found).
 - [ ] **Step 3: Implement** the module above (`yaml.safe_load`; module docstring in the style of `default_spreads.py` naming #333 and the spec).
 - [ ] **Step 4: Run** the tests and `uv run mypy src` — Expected: PASS.
@@ -97,12 +97,12 @@ A fixed vocabulary of roughly 60–100 tags drafted from the universe before any
 - Consumes: `load_profiles`, the vocabulary (Task 2), `src/bot/ingest/universe_default.csv`.
 - Produces: `config/company_profiles.yaml`, read by Task 6.
 
-Not bot code. For each ticker: SEC EDGAR `company_tickers.json` → CIK; `submissions/CIK##########.json` → the latest `10-K` (fall back to `10-K405`/`20-F`/`40-F` only if no 10-K, and say so in the PR) → accession and the period's fiscal year (calendar year of `reportDate`, CONTEXT.md "Fiscal year"); the filing's primary document → Item 1 and the segment / revenue-disaggregation note. Write 2–3 plain sentences (what it sells, to whom; no marketing words, no valuation opinion), pick tags at ≥10% of that year's revenue, record `share` (two decimals), `source`. Batching helpers live in `.scratch/` (git-excluded) and are never committed. Batches of ~50 tickers are written to `.scratch/profiles/batch-NN.yaml` and merged in universe order into the one file, with a header comment. Spot-check by hand AAPL, AMZN, GOOGL, MSFT, BRK-B, GE and CRWD (or another cybersecurity pure play in the universe if CRWD is absent); results go into the PR description.
+Not bot code. For each ticker: SEC EDGAR `company_tickers.json` → CIK; `submissions/CIK##########.json` → the latest `10-K` (fall back to `10-K405`/`20-F`/`40-F` only if no 10-K, and say so in the PR) → accession and the period's fiscal year (calendar year of `reportDate`, CONTEXT.md "Fiscal year"); the filing's primary document → Item 1 and the segment / revenue-disaggregation note. Write 2–3 plain sentences (what it sells, to whom; no marketing words, no valuation opinion), pick tags at ≥10% of that year's revenue, record `share` (two decimals), `source`. Batching helpers live in `.scratch/` (git-excluded) and are never committed. Batches of ~50 tickers are written to `.scratch/profiles/batch-NN.yaml` and merged in universe order into the one file, with a header comment. Fiscal year is the calendar year of the 10-K's period end (`reportDate`), CONTEXT.md "Fiscal year": a retailer whose year ends 2026-01-31 is FY2026. Before merging the batches, a scratch check confirms for every profile that its `accession` appears among the 10-K filings in that ticker's CIK `submissions` JSON and that its `fiscal_year` matches that filing's `reportDate` year (catches a mismapped CIK or an invented accession); the merge refuses a ticker in two batches. Batch files present in `.scratch/profiles/` are the progress record: an interrupted run regenerates only missing batches. Spot-check by hand AAPL, AMZN, GOOGL, MSFT, BRK-B, GE and CRWD (or another cybersecurity pure play in the universe if CRWD is absent); results go into the PR description.
 
 - [ ] **Step 1: Write the failing tests**:
   - `test_committed_profiles_load`: `load_profiles(_ROOT / COMPANY_PROFILES_PATH, _ROOT / INDUSTRY_TAGS_PATH)` returns ≥ 1 profile.
-  - `test_every_universe_ticker_has_a_profile`: tickers read from `universe_default.csv` (skip `#` lines and the `ticker` header) minus `PROFILE_EXCEPTIONS: frozenset[str]` (defined in the test module, each with a comment naming why) `<=` profile keys; and `PROFILE_EXCEPTIONS` ∩ profile keys is empty; and every profile key is in the universe.
-  - `test_cybersecurity_search_finds_pure_plays_not_sidelines`: the `cybersecurity` tag is on at least one profile and on none of `MSFT`, `CSCO` (spec anti-goal).
+  - `test_every_universe_ticker_has_a_profile`: tickers read from `universe_default.csv` (skip `#` lines and the `ticker` header) minus `PROFILE_EXCEPTIONS: frozenset[str]` (defined in the test module; the spec allows an exception only "if a 10-K is unavailable", so each entry carries a comment naming the missing filing, and the PR description lists them) `<=` profile keys; and `PROFILE_EXCEPTIONS` ∩ profile keys is empty; and every profile key is in the universe.
+  - `test_cybersecurity_search_finds_pure_plays_not_sidelines`: the `cybersecurity` tag is on `CRWD`, `PANW` and `FTNT` and on neither `MSFT` nor `CSCO` (spec §5 names Microsoft and Cisco; all five are in the universe and must have profiles).
 - [ ] **Step 2: Run** — Expected: FAIL.
 - [ ] **Step 3: Generate** the profiles in batches as described.
 - [ ] **Step 4: Run** the tests — Expected: PASS.
@@ -132,7 +132,7 @@ Tooltip = tag description, a space, then `f"~{share:.0%} of revenue, {SOURCE_WOR
   - `test_detail_without_profile_has_no_profile_block`: BBB (no profile) page lacks `class="profile"`; `build(..., profiles=None)` works.
   - `test_profile_text_is_escaped`: description `"AT&T <b>"` renders `AT&amp;T &lt;b&gt;`.
 - [ ] **Step 2: Run** — Expected: FAIL.
-- [ ] **Step 3: Implement**: `site.build` passes `profiles.get(ticker)` to `detail_view` (in `_renderable`, `list_page`, `_write_company`); `detail.html` renders, inside `<header class="detail-head">` right after `<h1>`, `<div class="profile"><p class="profile-desc">…</p><ul class="profile-tags" aria-label="Industries">` with `<li class="badge badge-outline">{{ term(t.label, t.tooltip) }}</li>` per tag (only if `detail.profile`). Check the badge classes exist in `daisyui.css`.
+- [ ] **Step 3: Implement**: `site.build` passes `profiles.get(ticker)` to `detail_view` (in `_renderable`, `list_page`, `_write_company`); `detail.html` renders, inside `<header class="detail-head">` right after `<h1>`, `<div class="profile"><p class="profile-desc">…</p><ul class="profile-tags" aria-label="Industries">` with `<li class="badge badge-outline">{{ term(t.label, t.tooltip) }}</li>` per tag (only if `detail.profile`). `badge-outline` is present in the precompiled `daisyui.css`; add a test in `tests/unit/test_web_theme.py` style asserting it, so a theme rebuild that drops it fails.
 - [ ] **Step 4: Run** the web tests — Expected: PASS (existing ones unchanged).
 - [ ] **Step 5: Commit** `feat(#333): detail page shows the company profile`.
 
@@ -149,7 +149,7 @@ Tooltip = tag description, a space, then `f"~{share:.0%} of revenue, {SOURCE_WOR
 - [ ] **Step 1: Write the failing tests**:
   - views: `search_tags(profile)` for cybersecurity → `"cybersecurity cybersecurity"`-style contents containing both slug and lower-cased label; `search_tags(None) == ""`.
   - site: a row with a profile carries `data-tags="…cybersecurity…"` on its `<tr>`; a row without one has no `data-tags`; the tags are not printed in any `<td>`; the search box reads `Search by ticker, name or industry` and placeholder `Ticker, name or industry`. Update `test_search_box_sits_between_filter_and_count`'s label assertion.
-  - js: `test_search_matches_tags` asserts `viewer.js` reads `row.dataset.tags` (or `getAttribute("data-tags")`) inside `applySearch` and that a node-run harness (skip when `node` absent): build a fake row object list and call the matcher — or, if the script keeps `applySearch` DOM-bound, a regex assertion that the hide condition includes the tags test. Keep the existing per-cell tests green.
+  - js: `test_search_matches_tags`, in the style of the existing source-text tests in `test_web_viewer_js.py`: inside the `applySearch` body, `row.getAttribute("data-tags")` is read, lower-case `indexOf(q)` is applied to it, and the hide condition is `!!q && !inTicker && !inName && !inTags`. Keep `test_search_matches_each_cell_separately` green (no concatenation). Behaviour is checked in a browser in stage 4.
 - [ ] **Step 2: Run** — Expected: FAIL.
 - [ ] **Step 3: Implement**: `_rows.html` adds `{% if r.tags %} data-tags="{{ r.tags }}"{% endif %}` to `<tr>`; `applySearch` adds `var inTags = (row.getAttribute("data-tags") || "").indexOf(q) !== -1;` and hides when none of ticker/name/tags match; `_controls.html` label and placeholder; `site.build` passes the profile to `row_view`; DESIGN.md Search line mentions industry tags.
 - [ ] **Step 4: Run** the web tests and `node --check` — Expected: PASS.
@@ -164,10 +164,29 @@ Tooltip = tag description, a space, then `f"~{share:.0%} of revenue, {SOURCE_WOR
 **Interfaces:**
 - Consumes: `load_profiles`, `COMPANY_PROFILES_PATH`, `INDUSTRY_TAGS_PATH`, `ProfileError` (Task 1); `build(..., profiles=...)` (Task 4).
 
-Options `--profiles PATH` (default `config/company_profiles.yaml`) and `--industry-tags PATH` (default `config/industry_tags.yaml`). Both absent → warn on stderr ("no company profiles: … not found") and build without profiles. One present and the other absent, or either invalid → `ERROR: …`, exit 2. No `Settings` load (the bare-env fixture must keep passing).
+Options `--profiles PATH` (default `config/company_profiles.yaml`) and `--industry-tags PATH` (default `config/industry_tags.yaml`). The CLI checks `path.exists()` on both before calling the loader. Both absent → warn on stderr ("no company profiles: … not found") and build without profiles. One present and the other absent, or either invalid → `ERROR: …`, exit 2. No `Settings` load (the bare-env fixture must keep passing).
 
-- [ ] **Step 1: Write the failing tests**: `test_site_shows_profiles_from_config` (tmp yaml files passed via the options → `c/AAA.html` contains the description); `test_site_without_profile_files_still_builds` (both paths missing → exit 0); `test_site_rejects_an_invalid_profile_file` (unknown tag → exit 2, message contains `unknown tag`).
+- [ ] **Step 1: Write the failing tests**: `test_site_shows_profiles_from_config` (tmp yaml files passed via the options → `c/AAA.html` contains the description); `test_site_without_profile_files_still_builds` (both paths missing → exit 0); `test_site_rejects_an_invalid_profile_file` (unknown tag → exit 2, message contains `unknown tag`); `test_site_rejects_a_lone_profile_file` (only `--industry-tags` present → exit 2).
 - [ ] **Step 2: Run** — Expected: FAIL.
 - [ ] **Step 3: Implement** the options; add **Company profile** and **Industry tag** to CONTEXT.md's domain language (≥10% rule, source kinds, display and search only); ADR 0008's "Source of data" bullet mentions the two config files; run `python3 docs/plano/build.py`, `python3 docs/pipeline/check.py`, `python3 docs/leccion/check.py` and fix only what they flag.
 - [ ] **Step 4: Run** the full suite, ruff and mypy — Expected: PASS.
 - [ ] **Step 5: Commit** `feat(#333): bot site reads the company profiles`.
+
+## Assumptions
+
+Decided during plan grilling (no written source; any choice satisfies the issue). Rejected alternative in brackets.
+
+- Words for `disaggregation` in the tooltip: "revenue disaggregation" (spec gives words only for `segment` and `judgment`). [the raw identifier]
+- Shares sum checked on the recorded two-decimal values with a 1e-9 tolerance; exactly 1.00 passes. [checking unrounded shares, which the file does not hold]
+- Synonym tags are prevented by review, not by a test: the spec has the user review the vocabulary in the PR (§6.1). Task 3 may add a tag only for coverage. [a synonym blocklist test]
+- JS search is tested by source-text assertions like the existing viewer tests, plus the stage-4 browser script. [a node DOM harness, which the repo has no precedent or dependency for]
+- `bot site` with only one of the two files present fails (exit 2); with both absent it warns and builds without profiles. [silently ignoring a lone file]
+- Accession/ticker mapping verified by a scratch check against EDGAR `submissions` before commit, plus the seven hand spot-checks. [trusting the generator]
+- ADR 0008 gets a line under "Source of data" rather than a new ADR: the decision (site is a pure function of committed files) does not change; the ADR was amended in place before (its "Visual system" consequence). [a new ADR]
+
+## Grilling
+
+- Rounds: 1 (revisions were clarifications and added tests, not a new seam; no second round).
+- Questions: 18. Sources: ISSUE/spec 7, CODE 7, DOC 2, NO SOURCE → technical assumption 7 (some questions cited and also produced an assumption).
+- Spec ambiguities: none. Follow-up issues opened: none.
+- Griller model: fable.
