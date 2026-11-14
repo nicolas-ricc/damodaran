@@ -6,8 +6,9 @@ directory:
 
 * ``portfolio.md`` — the **full state**: positions, profit & loss, concentration
   breakdown, today's detected events (the same table as ``alerts.md``) and
-  suggested reviews, plus an optional P&L time-series (``--history``)
-  and an explicit concentration breakdown (``--concentration``).
+  suggested reviews (from flagged concentration and the day's derived events),
+  plus an optional P&L time-series (``--history``) and an explicit concentration
+  breakdown (``--concentration``).
 * ``alerts.md`` — **today's events only**, rendered from the §8.3 event stream;
   always written, even when there are zero events (an empty-but-present file).
 
@@ -32,12 +33,24 @@ from jinja2 import Environment, PackageLoader, select_autoescape
 from bot.portfolio.events import (
     DEFAULT_CONCENTRATION_THRESHOLD,
     Event,
+    EventType,
 )
 
 if TYPE_CHECKING:
     import duckdb
 
 _DASH = "—"
+
+# The derived event types that prompt a suggested review in ``portfolio.md``.
+REVIEW_EVENT_TYPES: frozenset[EventType] = frozenset(
+    {
+        EventType.NEW_FILING,
+        EventType.INTRINSIC_VALUE_CROSSED_PRICE,
+        EventType.NEW_RED_FLAG,
+        EventType.BELOW_QUALITY_GATE,
+        EventType.SECTOR_RECALIBRATED,
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -111,6 +124,11 @@ class PortfolioReport:
     @property
     def total_pnl(self) -> float:
         return self.total_market_value - self.total_cost_basis
+
+    @property
+    def review_events(self) -> tuple[Event, ...]:
+        """Today's events that warrant a suggested review, in event order."""
+        return tuple(e for e in self.events if e.event_type in REVIEW_EVENT_TYPES)
 
 
 def _load_position_rows(
@@ -331,6 +349,12 @@ def _fmt_signed_pct(value: Any) -> str:
     return f"{float(value):+.1%}"
 
 
+def _fmt_bps(value: Any) -> str:
+    if value is None:
+        return _DASH
+    return f"{round(float(value) * 10000):+d} bps"
+
+
 def _fmt_num(value: Any) -> str:
     if value is None:
         return _DASH
@@ -351,6 +375,7 @@ def _environment() -> Environment:
     env.filters["pct"] = _fmt_pct
     env.filters["signed_pct"] = _fmt_signed_pct
     env.filters["num"] = _fmt_num
+    env.filters["bps"] = _fmt_bps
     return env
 
 
