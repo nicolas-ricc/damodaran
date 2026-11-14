@@ -5,7 +5,8 @@ sync + diff and then needs two artefacts written under the dated report
 directory:
 
 * ``portfolio.md`` — the **full state**: positions, profit & loss, concentration
-  breakdown and suggested reviews, plus an optional P&L time-series (``--history``)
+  breakdown, today's detected events (the same table as ``alerts.md``) and
+  suggested reviews, plus an optional P&L time-series (``--history``)
   and an explicit concentration breakdown (``--concentration``).
 * ``alerts.md`` — **today's events only**, rendered from the §8.3 event stream;
   always written, even when there are zero events (an empty-but-present file).
@@ -20,6 +21,7 @@ out); writing the strings to disk is the command's job.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from functools import lru_cache
@@ -104,6 +106,7 @@ class PortfolioReport:
     include_history: bool
     include_concentration: bool
     unpriced: tuple[str, ...] = ()
+    events: tuple[Event, ...] = ()
 
     @property
     def total_pnl(self) -> float:
@@ -245,6 +248,7 @@ def build_report(
     include_history: bool = False,
     include_concentration: bool = False,
     concentration_threshold: float = DEFAULT_CONCENTRATION_THRESHOLD,
+    events: Sequence[Event] = (),
 ) -> PortfolioReport:
     """Assemble the full-state report data off the DB (a pure reader).
 
@@ -256,6 +260,8 @@ def build_report(
             requested (``--concentration``); the headline concentration section
             is always rendered.
         concentration_threshold: Weight above which a position is flagged.
+        events: Today's logged events, carried through for the detected-events
+            section.
 
     Returns:
         A :class:`PortfolioReport` of plain data, ready to render.
@@ -282,6 +288,7 @@ def build_report(
         include_history=include_history,
         include_concentration=include_concentration,
         unpriced=unpriced,
+        events=tuple(events),
     )
 
 

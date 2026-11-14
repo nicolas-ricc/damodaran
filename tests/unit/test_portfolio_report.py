@@ -273,3 +273,78 @@ def test_render_alerts_singular_event() -> None:
     events = [Event(EventType.DIVIDEND, "MSFT", D2, D1, {"amount": 0.75})]
     out = render_alerts(events, D2, generated_on=D2)
     assert "1 event detected today." in out
+
+
+_GOLDEN_EVENTS = [
+    Event(EventType.POSITION_OPENED, "NVDA", D2, None, {"qty": 50.0, "avg_cost": 10.0}),
+    Event(EventType.CONCENTRATION, "NVDA", D2, None, {"weight": 0.8}),
+]
+
+_GOLDEN_ALERTS = (
+    "# Alerts — 2026-05-02\n\n_Generated 2026-05-02_\n\n2 events detected today.\n\n"
+    "| Type | Ticker | Details |\n|---|---|---|\n"
+    "| position_opened | NVDA | qty=50.0, avg_cost=10.0 |\n"
+    "| concentration | NVDA | weight=0.8 |\n"
+)
+
+
+def _report(events: tuple[Event, ...] = ()) -> PortfolioReport:
+    return PortfolioReport(
+        snapshot_date=D2,
+        positions=(),
+        concentration=(),
+        history=(),
+        cash=(),
+        total_market_value=0.0,
+        total_cost_basis=0.0,
+        concentration_threshold=0.15,
+        include_history=False,
+        include_concentration=False,
+        events=events,
+    )
+
+
+def test_build_report_carries_events(conn: duckdb.DuckDBPyConnection) -> None:
+    _insert(conn, D2, [("NVDA", 1, 50.0, 10.0, 600.0, "USD")])
+    report = build_report(conn, D2, events=list(_GOLDEN_EVENTS))
+    assert report.events == tuple(_GOLDEN_EVENTS)
+
+
+def test_build_report_events_default_empty(conn: duckdb.DuckDBPyConnection) -> None:
+    _insert(conn, D2, [("NVDA", 1, 50.0, 10.0, 600.0, "USD")])
+    assert build_report(conn, D2).events == ()
+
+
+def test_render_portfolio_detected_events_position() -> None:
+    out = render_portfolio(_report(tuple(_GOLDEN_EVENTS)), generated_on=D2)
+    assert (
+        out.index("## Concentration\n")
+        < out.index("## Detected events")
+        < out.index("## Suggested reviews")
+    )
+
+
+def test_render_portfolio_lists_events() -> None:
+    out = render_portfolio(_report(tuple(_GOLDEN_EVENTS)), generated_on=D2)
+    assert (
+        "## Detected events\n\n2 events detected today.\n\n"
+        "| Type | Ticker | Details |\n|---|---|---|\n"
+        "| position_opened | NVDA | qty=50.0, avg_cost=10.0 |\n"
+        "| concentration | NVDA | weight=0.8 |\n"
+        "\n## Suggested reviews\n"
+    ) in out
+
+
+def test_render_portfolio_singular_event() -> None:
+    out = render_portfolio(_report(tuple(_GOLDEN_EVENTS[:1])), generated_on=D2)
+    assert "1 event detected today." in out
+
+
+def test_render_portfolio_no_events() -> None:
+    out = render_portfolio(_report(), generated_on=D2)
+    assert "## Detected events\n\n_No events detected today._\n\n## Suggested reviews\n" in out
+    assert "| Type | Ticker | Details |" not in out
+
+
+def test_render_alerts_bytes_unchanged() -> None:
+    assert render_alerts(list(_GOLDEN_EVENTS), D2, generated_on=D2) == _GOLDEN_ALERTS
