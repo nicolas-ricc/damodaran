@@ -1817,6 +1817,16 @@ def test_unreadable_override_is_rendered(stem: str, phrase: str) -> None:
     assert phrase in svg
 
 
+@pytest.mark.parametrize("stem", ["portfolio", "portfolio-alerts"])
+@pytest.mark.parametrize(
+    "phrase", ["IBKR-observed events never suggest a review", "the same table as alerts.md"]
+)
+def test_event_derived_reviews_are_rendered(stem: str, phrase: str) -> None:
+    """The rendered boards show detected events and event-derived reviews (#354)."""
+    svg = html.unescape((_PIPELINE / f"{stem}.svg").read_text(encoding="utf-8"))
+    assert phrase in svg
+
+
 def _story(**fields: Any) -> StoryType:
     signals: dict[str, Any] = {"revenue_history": (1.0, 1.0), "earnings_history": (1.0, 1.0)}
     cyclical = fields.pop("cyclical", False)
@@ -2154,6 +2164,14 @@ _PORTFOLIO_TEXT: dict[str, list[str]] = {
         "suggested review",
         "--history",
         "--concentration",
+        "detected events",
+        "the same table as alerts.md",
+        "new filing",
+        "intrinsic value crossed price",
+        "new red flag",
+        "below quality gate",
+        "sector recalibrated",
+        "IBKR-observed events never suggest a review",
     ],
     "reports.alerts": ["always written", "empty"],
     "notify.channel": ["BOT_NOTIFIER", "exit code 2"],
