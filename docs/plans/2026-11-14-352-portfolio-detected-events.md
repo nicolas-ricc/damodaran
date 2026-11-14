@@ -72,7 +72,7 @@ _No events detected today._
 
 - **Whitespace around the include.** `trim_blocks` eats the newline after a block tag, so moving the loop into a partial can drop or add a blank line, either in `alerts.md` or between the table and `## Suggested reviews`. Pinned by `test_render_alerts_bytes_unchanged` and by the exact-substring assertions in `test_render_portfolio_lists_events` / `test_render_portfolio_no_events`.
 - **Event order.** Rows must keep the order they arrive in (insertion order from `load_events`). Nothing may sort them. Pinned by `test_render_portfolio_lists_events` (`position_opened` row index < `concentration` row index).
-- **A `list` passed as `events`.** `run_portfolio` passes a `list`. The frozen dataclass must store a tuple so the report stays hashable and immutable. Pinned by `test_build_report_carries_events` (`isinstance(report.events, tuple)`).
+- **A `list` passed as `events`.** `run_portfolio` passes a `list`. The frozen dataclass must store a tuple so the field is immutable, as the issue's design decision prescribes (`tuple(events)`). `Event.details` is a `dict`, so neither `Event` nor the report is hashable, and nothing relies on that. Pinned by `test_build_report_carries_events` (`isinstance(report.events, tuple)`).
 - **An event with empty `details`.** The row renders as `| split | X |  |`, the same as in alerts. This comes free from the shared partial and needs no test of its own.
 - **The `with` scope.** In `portfolio.md.j2` the name `events` must not leak past `{% endwith %}`. The template has no other `events` name, so this is safe by construction.
 
@@ -123,3 +123,32 @@ _No events detected today._
 - [ ] **Step 4: Full suite and lint.** Run `uv run pytest -q && uv run ruff check . && uv run mypy src`. Expected: everything green.
 
 - [ ] **Step 5: Commit.** `feat(#352): run_portfolio threads the day's events into portfolio.md`
+
+## Assumptions
+
+- **Golden alerts bytes.** The string in Exact copy was produced by running `render_alerts` on the unchanged `feature/86-portfolio-md-events` tip (45dd91b) in stage 1, and it is recorded in this plan's `plan(#352)` commit. The stage-3 eval commit adds `test_render_alerts_bytes_unchanged` *before* any template change, so the test passes on the old code first. The rejected alternative was trusting the three existing tests, but none of them compares full bytes.
+- **Jinja `with`.** Jinja2 3.1.6 is installed (`uv run python -c "import jinja2; print(jinja2.__version__)"`). `{% with %}` has been built in since 2.9, and an `include` sees the variables in its enclosing scope. `test_render_portfolio_lists_events` proves it in this environment.
+- **The intermediate commit.** Task 1 alone renders `_No events detected today._` from `run_portfolio`. Both tasks land in one pull request, which is squash-merged into the story branch `feature/86-portfolio-md-events`, not into `master`. So the intermediate state never ships.
+- **Stale board prose.** `docs/pipeline/portfolio-alerts.d2:15,46` describe `portfolio.md` without the new section. That is #354's scope (#86 plan comment, "Children created"). `docs/pipeline/check.py` checks only that cited files and symbols exist, and every cited file still exists after this change.
+
+## Grilling
+
+- **Rounds:** 1. The plan gained Assumptions and one corrected sentence (the hashability claim). No task or step was added or removed, so no second round ran.
+- **Griller:** fable. It asked 16 questions.
+- **Sources:**
+  - ISSUE: Q8 ("the quiet-day test (second run, same positions)"), Q9 (Design decisions: "The table is shared, not duplicated"), Q14 (the #86 children list puts the boards in #354).
+  - CODE:
+    - Q2: `alerts.md.j2:9-11`. Each row line ends in its own `\n`, and `trim_blocks` eats the newline after `{% endfor %}`. The loop moves into the partial.
+    - Q3: `report.py` `render_alerts` returns `""` before any template is rendered. Covered by `test_render_alerts_empty_when_no_events`.
+    - Q4: `test_portfolio_command.py:184`, "First snapshot -> every position opens", plus the AAPL alerts row.
+    - Q5: `command.py:168` sets `day_events` before the `build_report` call at `:171`.
+    - Q6: `alerts.md.j2:5` is `{{ events | length }} event{{ "s" if events | length != 1 else "" }}`.
+    - Q7: `portfolio.md.j2` renders `## Concentration` unconditionally.
+    - Q8: `_diversified_client` holds 8 positions at about 12.5%, below the 15% threshold, so there is no concentration event.
+    - Q11: `report.py:30-33` already imports `Event` from `bot.portfolio.events`, which imports `marks`, not `report`. No cycle.
+    - Q12: the three tests are `test_render_alerts_with_events`, `_empty_when_no_events` and `_singular_event`. None compares full bytes. The integration tests compare bytes only across re-runs.
+    - Q15: `Event.details` is a `dict`, so `Event` is not hashable. The plan was corrected.
+    - Q16: `events.py:871` reads with `ORDER BY rowid`.
+  - NO SOURCE: Q1, Q10 and Q13. All three became technical assumptions (above).
+- **Plan errors corrected:** one, the "hashable" rationale.
+- **Follow-up issues opened:** none. **Spec ambiguities:** none.
