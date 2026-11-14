@@ -275,10 +275,6 @@ def test_render_alerts_singular_event() -> None:
     assert "1 event detected today." in out
 
 
-# --------------------------------------------------------------------------- #
-# Detected events section (#352)                                               #
-# --------------------------------------------------------------------------- #
-
 _GOLDEN_EVENTS = [
     Event(EventType.POSITION_OPENED, "NVDA", D2, None, {"qty": 50.0, "avg_cost": 10.0}),
     Event(EventType.CONCENTRATION, "NVDA", D2, None, {"weight": 0.8}),
@@ -311,7 +307,6 @@ def _report(events: tuple[Event, ...] = ()) -> PortfolioReport:
 def test_build_report_carries_events(conn: duckdb.DuckDBPyConnection) -> None:
     _insert(conn, D2, [("NVDA", 1, 50.0, 10.0, 600.0, "USD")])
     report = build_report(conn, D2, events=list(_GOLDEN_EVENTS))
-    assert isinstance(report.events, tuple)
     assert report.events == tuple(_GOLDEN_EVENTS)
 
 
