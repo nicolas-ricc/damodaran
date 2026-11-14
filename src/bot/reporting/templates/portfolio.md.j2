@@ -72,20 +72,23 @@ _No events detected today._
 {% endfor %}
 {% for e in r.review_events %}
 {% set d = e.details %}
-{% if e.event_type == "intrinsic_value_crossed_price" and d.get("direction") == "above_price" %}
-- **{{ e.ticker }}**: intrinsic value crossed above price ({{ d.get("intrinsic_value") | money }} vs {{ d.get("price") | money }}, was {{ d.get("prev_intrinsic_value") | money }} vs {{ d.get("prev_price") | money }}) — potentially undervalued again; review whether to add.
-{% elif e.event_type == "intrinsic_value_crossed_price" and d.get("direction") == "below_price" %}
-- **{{ e.ticker }}**: intrinsic value crossed below price ({{ d.get("intrinsic_value") | money }} vs {{ d.get("price") | money }}, was {{ d.get("prev_intrinsic_value") | money }} vs {{ d.get("prev_price") | money }}) — potentially overvalued; review whether to trim.
-{% elif e.event_type == "intrinsic_value_crossed_price" %}
-- **{{ e.ticker }}**: intrinsic value crossed price ({{ d.get("intrinsic_value") | money }} vs {{ d.get("price") | money }}, was {{ d.get("prev_intrinsic_value") | money }} vs {{ d.get("prev_price") | money }}) — review the valuation.
+{% if e.event_type == "intrinsic_value_crossed_price" %}
+{% set values %}{{ d.get("intrinsic_value") | money }} vs {{ d.get("price") | money }}, was {{ d.get("prev_intrinsic_value") | money }} vs {{ d.get("prev_price") | money }}{% endset %}
+{% if d.get("direction") == "above_price" %}
+- **{{ e.ticker }}**: intrinsic value crossed above price ({{ values }}) — potentially undervalued again; review whether to add.
+{% elif d.get("direction") == "below_price" %}
+- **{{ e.ticker }}**: intrinsic value crossed below price ({{ values }}) — potentially overvalued; review whether to trim.
+{% else %}
+- **{{ e.ticker }}**: intrinsic value crossed price ({{ values }}) — review the valuation.
+{% endif %}
 {% elif e.event_type == "new_red_flag" %}
-- **{{ e.ticker }}**: new red narrative flag `{{ d.get("flag", "—") }}` ({{ d.get("reason", "—") }}) — re-read the story before trusting the valuation.
+- **{{ e.ticker }}**: new red narrative flag `{{ d.get("flag") or "—" }}` ({{ d.get("reason") or "—" }}) — re-read the story before trusting the valuation.
 {% elif e.event_type == "below_quality_gate" %}
-- **{{ e.ticker }}**: newly fails quality gate `{{ d.get("gate", "—") }}` — review whether the thesis survives it.
+- **{{ e.ticker }}**: newly fails quality gate `{{ d.get("gate") or "—" }}` — review whether the thesis survives it.
 {% elif e.event_type == "sector_recalibrated" %}
 - **{{ e.ticker }}**: sector WACC moved {{ d.get("delta") | bps }} ({{ d.get("prev_wacc") | pct }} → {{ d.get("wacc") | pct }}) — re-check the margin of safety under the new discount rate.
 {% elif e.event_type == "new_filing" %}
-- **{{ e.ticker }}**: new {{ d.get("filing_type", "—") }} filed {{ d.get("filing_date", "—") }} — read it and refresh the analysis with `bot analyze {{ e.ticker }}`.
+- **{{ e.ticker }}**: new {{ d.get("filing_type") or "—" }} filed {{ d.get("filing_date") or "—" }} — read it and refresh the analysis with `bot analyze {{ e.ticker }}`.
 {% endif %}
 {% endfor %}
 {% if not flagged and not r.review_events %}

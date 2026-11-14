@@ -24,7 +24,7 @@
   - `sector_recalibrated`: `- **T**: sector WACC moved {{ delta | bps }} ({{ prev_wacc | pct }} → {{ wacc | pct }}) — re-check the margin of safety under the new discount rate.`
   - `new_filing`: ``- **T**: new {{ filing_type }} filed {{ filing_date }} — read it and refresh the analysis with `bot analyze T`.``
 - Detail keys: cross → `direction`, `prev_intrinsic_value`, `prev_price`, `intrinsic_value`, `price`; red flag → `flag`, `reason`; gate → `gate`; sector → `prev_wacc`, `wacc`, `delta`; filing → `filing_type`, `filing_date`.
-- A review event with a missing detail key renders, never raises. Numeric values go through their filter (`None` → `—`); text values use `e.details.get(key, "—")` so a missing one renders `—`, not `None`.
+- A review event with a missing detail key renders, never raises. Numeric values go through their filter (`None` → `—`); text values use `e.details.get(key) or "—"` so a missing or null one renders `—`, not `None`.
 - Docs: only the `portfolio.md` bullet of the `report.py` module docstring changes (suggested reviews come from flagged concentration and the day's derived events). Boards, `estado.py`, README are #354.
 - `uv run pytest -q`, `uv run ruff check .`, `uv run mypy src` pass. Commits use the `(#353)` scope.
 

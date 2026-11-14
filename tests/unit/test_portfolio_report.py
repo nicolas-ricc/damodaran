@@ -566,6 +566,19 @@ def test_suggested_review_missing_details_render_dash() -> None:
     assert "None" not in section
 
 
+def test_suggested_review_null_details_render_dash() -> None:
+    events = (
+        _event(EventType.NEW_RED_FLAG, "AAPL", {"flag": "beta_risk", "reason": None}),
+        _event(EventType.BELOW_QUALITY_GATE, "MSFT", {"gate": None}),
+        _event(EventType.NEW_FILING, "NVDA", {"filing_type": None, "filing_date": None}),
+    )
+    section = _suggested(render_portfolio(_report(events), generated_on=D2))
+    assert "**AAPL**: new red narrative flag `beta_risk` (—)" in section
+    assert "**MSFT**: newly fails quality gate `—`" in section
+    assert "**NVDA**: new — filed —" in section
+    assert "None" not in section
+
+
 def test_suggested_review_unknown_direction_still_listed() -> None:
     event = _event(EventType.INTRINSIC_VALUE_CROSSED_PRICE, "AAPL", {})
     out = render_portfolio(_report((event,)), generated_on=D2)
