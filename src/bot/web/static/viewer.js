@@ -70,7 +70,8 @@
       var name = row.querySelector("td.name");
       var inTicker = ticker.textContent.toLowerCase().indexOf(q) !== -1;
       var inName = !!name && name.textContent.toLowerCase().indexOf(q) !== -1;
-      row.hidden = !!q && !inTicker && !inName;
+      var inTags = (row.getAttribute("data-tags") || "").indexOf(q) !== -1;
+      row.hidden = !!q && !inTicker && !inName && !inTags;
       if (!row.hidden) visible++;
     });
     if (count) count.textContent = visible + " of " + count.dataset.total;

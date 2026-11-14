@@ -147,8 +147,11 @@ def profile_view(profile: CompanyProfile | None) -> ProfileView | None:
     return ProfileView(description=profile.description, tags=tags)
 
 
-def search_tags(profile: CompanyProfile | None) -> str:  # Task 5
-    raise NotImplementedError
+def search_tags(profile: CompanyProfile | None) -> str:
+    """Slugs and labels of the industry tags, lower-cased, for the search box."""
+    if profile is None:
+        return ""
+    return " ".join(f"{t.tag.slug} {t.tag.label}".lower() for t in profile.tags)
 
 
 @dataclass(frozen=True)
@@ -215,6 +218,7 @@ class RowView:
     flags: tuple[FlagView, ...]
     date: dt.date
     value_line: ValueLine | None
+    tags: str = ""
 
 
 @dataclass(frozen=True)
@@ -357,7 +361,7 @@ def _flags(analysis: Mapping[str, Any]) -> tuple[FlagView, ...]:
     return tuple(FlagView(f["name"], f["color"], f["reason"]) for f in analysis["narrative_flags"])
 
 
-def row_view(ref: AnalysisRef) -> RowView:
+def row_view(ref: AnalysisRef, profile: CompanyProfile | None = None) -> RowView:
     analysis = ref.data["analysis"]
     return RowView(
         ticker=ref.ticker,
@@ -370,6 +374,7 @@ def row_view(ref: AnalysisRef) -> RowView:
         flags=tuple(f for f in _flags(analysis) if f.color in ("red", "yellow")),
         date=ref.date,
         value_line=value_line(analysis),
+        tags=search_tags(profile),
     )
 
 

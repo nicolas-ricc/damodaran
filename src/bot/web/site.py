@@ -143,7 +143,7 @@ def build(
         if e is not None
     ]
     by_ticker = {e.ticker: e for e in entries}
-    all_rows = [row_view(e.latest) for e in entries]
+    all_rows = [row_view(e.latest, profiles.get(e.ticker)) for e in entries]
     counts: dict[str, int] = {"all": len(all_rows), **dict.fromkeys(FILTERS[1:], 0)}
     counts.update(Counter(r.verdict.value for r in all_rows))
 

@@ -1,6 +1,6 @@
 <tbody id="rows">
 {% for r in rows %}
-  <tr{% if r.ticker == selected %} class="selected bg-base-300"{% endif %}>
+  <tr{% if r.ticker == selected %} class="selected bg-base-300"{% endif %}{% if r.tags %} data-tags="{{ r.tags }}"{% endif %}>
     <td class="ticker"><a href="{{ base_url }}c/{{ r.ticker }}.html" hx-get="{{ base_url }}f/{{ r.ticker }}.html" hx-target="#detail" hx-swap="innerHTML settle:220ms" hx-push-url="{{ base_url }}c/{{ r.ticker }}.html" hx-indicator="#detail"{% if r.ticker == selected %} aria-current="true"{% endif %}>{{ r.ticker }}</a></td>
     <td class="name">{{ r.name }}</td>
     <td>{{ verdict_mark(r.verdict) }}</td>

@@ -185,7 +185,7 @@ A `join` of `btn btn-sm join-item` links, so the row reads as one segmented cont
 `badge badge-neutral`, an `<output>` with `aria-live="polite"` that says how many of the total rows show.
 
 ### Search
-`input input-sm` on a `<label>`, hidden until the script that filters the rows is running, so without JavaScript the control never appears. Its border is `base-content` mixed to about half strength so the box reads as a field on the dark ground, and the placeholder sits on `--ink-soft`.
+`input input-sm` on a `<label>`, hidden until the script that filters the rows is running, so without JavaScript the control never appears. It matches ticker, name and industry tags; the tags stay out of the table (a `data-tags` attribute on the row). Its border is `base-content` mixed to about half strength so the box reads as a field on the dark ground, and the placeholder sits on `--ink-soft`.
 
 ### Table row
 `table table-sm table-pin-rows`: the column heads stay pinned while the rows scroll. The ticker is a link; figures are right-aligned in mono; the verdict and flag glyphs are titled for screen readers, and a decorative mini value axis (hidden from screen readers) follows the MoS. The selected row is `selected bg-base-300`, with a `primary` square before the ticker. Sort links are the column heads themselves, with `aria-sort` on the `<th>` and the current one in `primary`; the arrow is declared with an empty alt text so it is not part of the column's name. Beside the detail (1100px and up) the ledger drops Story and Intrinsic, since the facts strip names both. On a phone the row is one link: the ticker's link stretches over the whole row.
