@@ -151,8 +151,7 @@ def _profile(ticker: str, raw: Any, vocabulary: Mapping[str, IndustryTag]) -> Co
     for slug in sorted(set(slugs)):
         if slugs.count(slug) > 1:
             raise ProfileError(f"{ticker}: duplicate tag {slug!r}")
-    # Shares are recorded to two decimals; sum whole percents so float noise cannot bite.
-    if sum(round(t.share * 100) for t in tags) > 100:
+    if sum(t.share for t in tags) > 1 + _SUM_TOLERANCE:
         raise ProfileError(f"{ticker}: tag shares sum to more than 1")
     ordered = tuple(sorted(tags, key=lambda t: (-t.share, t.tag.slug)))
     return CompanyProfile(ticker, description, year, accession, ordered)

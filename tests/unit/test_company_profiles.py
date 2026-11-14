@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 import yaml
+
 from bot.reference.company_profiles import (
     ProfileError,
     load_company_profiles,
@@ -93,6 +94,10 @@ _TWO = [
     {"tag": "cybersecurity", "share": 0.6, "source": "segment"},
     {"tag": "smartphones", "share": 0.5, "source": "segment"},
 ]
+_THREE_DECIMALS = [
+    {"tag": "cybersecurity", "share": 0.554, "source": "segment"},
+    {"tag": "smartphones", "share": 0.454, "source": "segment"},
+]
 _TWICE = [
     {"tag": "cybersecurity", "share": 0.4, "source": "segment"},
     {"tag": "cybersecurity", "share": 0.3, "source": "segment"},
@@ -108,6 +113,7 @@ _TWICE = [
         (_profile(tags=[{"tag": "cybersecurity", "share": "high", "source": "segment"}]), "share"),
         (_profile(tags=[{"tag": "cybersecurity", "share": True, "source": "segment"}]), "share"),
         (_profile(tags=_TWO), "sum"),
+        (_profile(tags=_THREE_DECIMALS), "sum"),
         (_profile(tags=[{"tag": "cybersecurity", "share": 0.5, "source": "guess"}]), "source"),
         (_profile(tags=[{"tag": "cybersecurity", "share": 0.5}]), "source"),
         (_profile(tags=[]), "tags"),
