@@ -396,7 +396,7 @@ def test_search_box_sits_between_filter_and_count(reports: Path, tmp_path: Path)
     build(reports, out, "/")
     index = (out / "index.html").read_text()
     assert '<label class="input input-sm" id="search" hidden>' in index
-    assert "Search by ticker or name" in index
+    assert "Search by ticker, name or industry" in index
     assert '<input type="search"' in index
     assert 'aria-controls="rows"' in index
     assert index.count('id="search"') == 1
