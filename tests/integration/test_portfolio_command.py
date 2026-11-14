@@ -559,6 +559,8 @@ def test_rerun_keeps_new_filing_in_alerts(conn: duckdb.DuckDBPyConnection, tmp_p
         [DAY2],
     ).fetchone()
     assert rows == (1,)
+    portfolio = (tmp_path / DAY2.isoformat() / "portfolio.md").read_text()
+    assert "read it and refresh the analysis with `bot analyze AAPL`" in portfolio
 
 
 def test_rerun_logs_and_alerts_a_filing_that_arrived_between_runs(
