@@ -76,6 +76,9 @@
 - slug: e-commerce
   label: "E-commerce"
   description: "Sells goods online directly or through an online marketplace."
+- slug: digital-services
+  label: "Digital services"
+  description: "Earns subscription and transaction revenue from app stores, cloud storage, music and other consumer digital services."
 - slug: online-travel
   label: "Online travel"
   description: "Runs websites and apps for booking hotels, flights and rentals."
@@ -90,7 +93,7 @@
   description: "Develops and publishes video games."
 - slug: film-and-tv-content
   label: "Film and TV content"
-  description: "Produces and distributes films and scripted or entertainment television programming."
+  description: "Produces and distributes films and television programming, including cable entertainment networks."
 - slug: news-and-publishing
   label: "News and publishing"
   description: "Publishes newspapers and books and runs news and sports broadcast networks."
@@ -192,7 +195,7 @@
   description: "Develops therapies based on biological research, such as antibodies, gene and mRNA medicines."
 - slug: medical-devices
   label: "Medical devices"
-  description: "Makes durable and implantable devices such as implants, surgical systems, monitors, insulin pumps and aligners."
+  description: "Makes devices such as implants, surgical systems, monitors, glucose sensors, insulin pumps and aligners."
 - slug: medical-supplies
   label: "Medical supplies and consumables"
   description: "Makes disposable and infection-control products such as syringes, IV sets, contact lenses and sterilization consumables."
@@ -251,7 +254,7 @@
   description: "Operates trading and custody platforms for cryptocurrencies."
 
 # Industrials
-- slug: aerospace-and-defense
+- slug: aerospace-defense-and-public-safety
   label: "Aerospace, defense and public safety"
   description: "Builds aircraft, space systems and military equipment, and public-safety technology, for governments and airlines."
 - slug: aerospace-components
@@ -262,10 +265,10 @@
   description: "Makes machinery and tools for construction, farming, factories and repair shops."
 - slug: electrical-equipment
   label: "Electrical equipment"
-  description: "Makes electrical gear, motors, grid and power distribution equipment and backup power systems."
+  description: "Makes electrical gear, motors, grid and power distribution equipment and backup generators and power systems."
 - slug: power-generation-equipment
   label: "Power generation equipment"
-  description: "Makes turbines and other equipment used to generate electricity."
+  description: "Makes utility-scale equipment used in power plants, such as gas, steam and wind turbines; backup generators belong in electrical equipment."
 - slug: diversified-industrials
   label: "Diversified industrials"
   description: "Runs several unrelated industrial and technology businesses under one company."
