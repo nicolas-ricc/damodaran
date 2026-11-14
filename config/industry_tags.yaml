@@ -1,0 +1,408 @@
+# Industry tag vocabulary for the company profiles (issue #333).
+#
+# A tag means the company LIVES ON that business: it is at least ~10% of the
+# company's revenue on its latest 10-K. A sideline does not get the tag
+# (Microsoft and Cisco sell security products but are not `cybersecurity`).
+# Rules, sources and the format of config/company_profiles.yaml:
+# docs/superpowers/specs/2026-11-08-company-profiles-industry-tags-design.md (sections 2, 5, 6).
+#
+# Closed list: slug (kebab-case), label (shown as a badge) and description (one
+# sentence, shown as the tooltip). The count is a target of ~60-100, not a cap:
+# coverage wins, so every S&P 500 company must get at least one tag. Add a tag
+# when a company has no fit; never add a synonym or variant of an existing one.
+
+# Technology: software, security, cloud
+- slug: cybersecurity
+  label: "Cybersecurity"
+  description: "Sells products and services that protect networks, endpoints, identities and data from attackers."
+- slug: enterprise-software
+  label: "Enterprise software"
+  description: "Sells business application and workflow software, mostly by subscription."
+- slug: creative-and-design-software
+  label: "Creative and design software"
+  description: "Sells software used to create content and to design and engineer products."
+- slug: electronic-design-automation
+  label: "Electronic design automation"
+  description: "Sells software and IP used to design semiconductors and electronic systems."
+- slug: financial-technology
+  label: "Financial technology"
+  description: "Sells software and processing services that run bank, lender and insurer operations."
+- slug: cloud-infrastructure
+  label: "Cloud infrastructure"
+  description: "Rents computing, storage and platform services over the internet from its own data centers."
+- slug: data-analytics-ai
+  label: "Data analytics and AI software"
+  description: "Sells software that analyzes data and builds artificial intelligence applications."
+- slug: it-services
+  label: "IT services and consulting"
+  description: "Provides technology consulting, systems integration and outsourced IT work."
+- slug: government-it-services
+  label: "Government technology services"
+  description: "Provides technology, engineering and mission support services mainly to government agencies."
+- slug: internet-infrastructure-services
+  label: "Internet infrastructure services"
+  description: "Provides domains, web hosting, content delivery and other services that keep websites running."
+
+# Technology: hardware, semiconductors
+- slug: semiconductors
+  label: "Semiconductors"
+  description: "Designs and sells chips such as processors, memory, analog and power devices."
+- slug: semiconductor-equipment
+  label: "Semiconductor equipment"
+  description: "Makes the machines and tools that other companies use to manufacture or test chips."
+- slug: networking-equipment
+  label: "Networking equipment"
+  description: "Makes switches, routers and related gear that move data inside and between networks."
+- slug: optical-and-photonic-components
+  label: "Optical and photonic components"
+  description: "Makes lasers, transceivers and optical gear for communications and industrial use."
+- slug: servers-and-storage
+  label: "Servers and data storage"
+  description: "Makes servers, storage systems and drives that hold and process data."
+- slug: personal-computers
+  label: "Personal computers and printers"
+  description: "Makes laptops, desktops, printers and related computing devices."
+- slug: smartphones
+  label: "Smartphones"
+  description: "Makes and sells smartphones."
+- slug: consumer-electronics
+  label: "Consumer electronics"
+  description: "Makes wearables, audio, navigation and other electronic devices for consumers."
+- slug: electronic-components
+  label: "Electronic components"
+  description: "Makes connectors, sensors and other parts that go into electronic products."
+- slug: electronics-manufacturing-services
+  label: "Electronics manufacturing services"
+  description: "Builds electronic products under contract for other brands."
+- slug: test-and-measurement
+  label: "Test and measurement"
+  description: "Makes instruments and sensors used to measure, test and monitor equipment and processes."
+
+# Internet, media, communications
+- slug: online-advertising
+  label: "Online advertising"
+  description: "Earns its revenue from selling advertising on digital platforms and ad technology."
+- slug: social-media
+  label: "Social media"
+  description: "Runs social networking and messaging platforms."
+- slug: e-commerce
+  label: "E-commerce"
+  description: "Sells goods online directly or through an online marketplace."
+- slug: online-travel
+  label: "Online travel"
+  description: "Runs websites and apps for booking hotels, flights and rentals."
+- slug: ride-hailing-and-delivery
+  label: "Ride-hailing and delivery"
+  description: "Runs apps that connect riders, diners and shoppers with drivers and couriers."
+- slug: streaming
+  label: "Video streaming"
+  description: "Sells subscription or ad-supported video streaming services."
+- slug: video-games
+  label: "Video games"
+  description: "Develops and publishes video games."
+- slug: film-and-tv-content
+  label: "Film and TV content"
+  description: "Produces and distributes films, television programs and cable networks."
+- slug: news-and-publishing
+  label: "News and publishing"
+  description: "Publishes news, books and broadcasts content."
+- slug: live-entertainment-and-sports
+  label: "Live entertainment and sports"
+  description: "Runs live events, ticketing and professional sports and entertainment properties."
+- slug: advertising-agencies
+  label: "Advertising and marketing services"
+  description: "Plans, creates and buys advertising and marketing campaigns for clients."
+- slug: telecom-services
+  label: "Telecom services"
+  description: "Sells wireless and fixed-line phone and data services."
+- slug: cable-and-broadband
+  label: "Cable and broadband"
+  description: "Sells cable television and home broadband internet service."
+- slug: theme-parks
+  label: "Theme parks and resorts"
+  description: "Operates theme parks, resorts and related experiences."
+
+# Consumer discretionary
+- slug: automobiles
+  label: "Automobiles"
+  description: "Designs and sells cars and light trucks, including electric vehicles."
+- slug: auto-parts
+  label: "Auto parts"
+  description: "Makes or distributes components and replacement parts for vehicles."
+- slug: auto-retail
+  label: "Auto retail"
+  description: "Sells vehicles or aftermarket auto parts to consumers and shops."
+- slug: home-improvement-retail
+  label: "Home improvement retail"
+  description: "Sells building materials, tools and home goods through big-box stores."
+- slug: general-merchandise-retail
+  label: "General merchandise retail"
+  description: "Sells a wide range of everyday goods through discount stores and warehouse clubs."
+- slug: specialty-retail
+  label: "Specialty retail"
+  description: "Sells a focused range of goods such as electronics, beauty, home or farm supplies."
+- slug: apparel-retail
+  label: "Apparel retail"
+  description: "Sells clothing and home fashions, including through off-price stores."
+- slug: apparel-and-footwear
+  label: "Apparel and footwear brands"
+  description: "Designs and sells branded clothing, shoes and accessories."
+- slug: restaurants
+  label: "Restaurants"
+  description: "Operates or franchises restaurants and coffee shops."
+- slug: hotels-and-lodging
+  label: "Hotels and lodging"
+  description: "Operates and franchises hotels and vacation lodging."
+- slug: casinos-and-gaming
+  label: "Casinos and gaming"
+  description: "Operates casino resorts and gaming businesses."
+- slug: cruise-lines
+  label: "Cruise lines"
+  description: "Operates cruise ships and sells cruise vacations."
+- slug: homebuilding
+  label: "Homebuilding"
+  description: "Builds and sells new houses."
+- slug: building-products
+  label: "Building products"
+  description: "Makes products for buildings such as HVAC, windows, cabinets, roofing and water heaters."
+- slug: toys-and-leisure
+  label: "Toys and leisure products"
+  description: "Makes toys, games and recreational products."
+
+# Consumer staples
+- slug: grocery-and-food-retail
+  label: "Grocery and food retail"
+  description: "Sells groceries and convenience goods through supermarkets and convenience stores."
+- slug: food-distribution
+  label: "Food distribution"
+  description: "Distributes food and supplies to restaurants and institutions."
+- slug: packaged-food
+  label: "Packaged food"
+  description: "Makes and sells branded packaged foods and meat products."
+- slug: nonalcoholic-beverages
+  label: "Non-alcoholic beverages"
+  description: "Makes and sells soft drinks, energy drinks and other non-alcoholic beverages."
+- slug: alcoholic-beverages
+  label: "Alcoholic beverages"
+  description: "Makes and sells beer, wine and spirits."
+- slug: tobacco
+  label: "Tobacco and nicotine"
+  description: "Makes and sells cigarettes and smoke-free nicotine products."
+- slug: household-and-personal-care
+  label: "Household and personal care"
+  description: "Makes cleaning, hygiene, beauty and personal care products."
+- slug: agribusiness
+  label: "Agribusiness and crop science"
+  description: "Processes crops or sells seeds and crop protection to farmers."
+
+# Health care
+- slug: pharmaceuticals
+  label: "Pharmaceuticals"
+  description: "Develops and sells prescription drugs, including generics."
+- slug: biotechnology
+  label: "Biotechnology"
+  description: "Develops therapies based on biological research, such as antibodies, gene and mRNA medicines."
+- slug: medical-devices
+  label: "Medical devices"
+  description: "Makes implants, surgical systems, monitors and other devices used in patient care."
+- slug: medical-supplies
+  label: "Medical supplies and consumables"
+  description: "Makes consumables and equipment such as syringes, lenses, aligners and sterilization products."
+- slug: life-science-tools
+  label: "Life science tools"
+  description: "Sells instruments, reagents and services for research, drug development and lab testing."
+- slug: diagnostic-laboratories
+  label: "Diagnostic laboratories"
+  description: "Runs clinical laboratories that test patient samples for doctors and hospitals."
+- slug: health-insurance
+  label: "Health insurance"
+  description: "Sells health plans and covers medical costs for members."
+- slug: hospitals-and-care-facilities
+  label: "Hospitals and care facilities"
+  description: "Operates hospitals, clinics and other facilities that deliver patient care."
+- slug: pharmacy-and-drug-distribution
+  label: "Pharmacy and drug distribution"
+  description: "Runs pharmacies and pharmacy benefits or wholesales drugs and medical products."
+- slug: animal-health
+  label: "Animal health"
+  description: "Makes medicines and diagnostics for pets and livestock."
+
+# Financials
+- slug: banks
+  label: "Banks"
+  description: "Takes deposits and makes loans, from large universal banks to regional banks."
+- slug: investment-banking-and-brokerage
+  label: "Investment banking and brokerage"
+  description: "Earns fees from advising on deals, trading securities and brokering investor accounts."
+- slug: asset-management
+  label: "Asset management"
+  description: "Manages money for clients, including private equity, credit and mutual funds."
+- slug: exchanges
+  label: "Exchanges and clearing"
+  description: "Runs exchanges and clearing houses for securities, derivatives and other contracts."
+- slug: payments
+  label: "Payments"
+  description: "Operates card networks and payment processing services."
+- slug: consumer-lending
+  label: "Consumer lending and cards"
+  description: "Issues credit cards and makes consumer loans."
+- slug: life-and-health-insurance
+  label: "Life and supplemental insurance"
+  description: "Sells life insurance, annuities and supplemental health coverage."
+- slug: property-casualty-insurance
+  label: "Property and casualty insurance"
+  description: "Sells insurance against damage and liability, including reinsurance."
+- slug: insurance-brokerage
+  label: "Insurance brokerage and consulting"
+  description: "Places insurance for clients and sells risk and benefits consulting."
+- slug: financial-data-and-ratings
+  label: "Financial data and ratings"
+  description: "Sells credit ratings, market data, indexes and risk or credit analytics."
+- slug: crypto-and-digital-assets
+  label: "Crypto and digital assets"
+  description: "Operates trading and custody platforms for cryptocurrencies."
+
+# Industrials
+- slug: aerospace-and-defense
+  label: "Aerospace and defense"
+  description: "Builds aircraft, engines, space systems and military equipment for governments and airlines."
+- slug: aerospace-components
+  label: "Aerospace components"
+  description: "Makes parts and aftermarket services for commercial and military aircraft."
+- slug: industrial-machinery
+  label: "Industrial machinery"
+  description: "Makes machinery for construction, farming, factories and flow control."
+- slug: electrical-equipment
+  label: "Electrical equipment"
+  description: "Makes electrical gear, motors, power distribution and backup power equipment."
+- slug: power-generation-equipment
+  label: "Power generation equipment"
+  description: "Makes turbines and grid equipment used to generate and deliver electricity."
+- slug: diversified-industrials
+  label: "Diversified industrials"
+  description: "Runs several unrelated industrial and technology businesses under one company."
+- slug: engineering-and-construction
+  label: "Engineering and construction"
+  description: "Builds and services infrastructure, power systems and buildings under contract."
+- slug: commercial-vehicles-and-rail-equipment
+  label: "Commercial vehicles and rail equipment"
+  description: "Makes trucks, locomotives and railcar components."
+- slug: railroads
+  label: "Railroads"
+  description: "Operates freight railroads."
+- slug: trucking-and-freight
+  label: "Trucking and freight"
+  description: "Moves freight by truck and arranges its transport."
+- slug: parcel-and-logistics
+  label: "Parcel delivery and logistics"
+  description: "Delivers parcels and runs global freight forwarding and supply chain services."
+- slug: airlines
+  label: "Airlines"
+  description: "Flies passengers and cargo on scheduled routes."
+- slug: waste-management
+  label: "Waste management"
+  description: "Collects, hauls, recycles and disposes of waste."
+- slug: industrial-distribution
+  label: "Industrial distribution and rental"
+  description: "Distributes maintenance and industrial supplies or rents equipment."
+- slug: business-and-hr-services
+  label: "Business and HR services"
+  description: "Provides payroll, uniforms, pest control and other outsourced services to businesses."
+- slug: packaging
+  label: "Packaging"
+  description: "Makes cans, boxes, containers and labels."
+- slug: water-technology
+  label: "Water technology"
+  description: "Makes pumps, filtration and metering products used to move and treat water."
+
+# Materials
+- slug: specialty-chemicals
+  label: "Specialty chemicals"
+  description: "Makes coatings, additives, fragrances, lithium and other performance chemicals."
+- slug: commodity-chemicals
+  label: "Commodity chemicals"
+  description: "Makes plastics, polyethylene and other large-volume chemicals."
+- slug: industrial-gases
+  label: "Industrial gases"
+  description: "Supplies oxygen, nitrogen, hydrogen and other gases and related engineering."
+- slug: fertilizers
+  label: "Fertilizers"
+  description: "Makes nitrogen, phosphate and potash crop nutrients."
+- slug: steel
+  label: "Steel"
+  description: "Makes steel and steel products."
+- slug: metals-and-mining
+  label: "Metals and mining"
+  description: "Mines gold, copper and other metals."
+- slug: construction-materials
+  label: "Construction materials"
+  description: "Makes cement, aggregates and other materials used in construction."
+- slug: forest-products
+  label: "Forest products"
+  description: "Owns timberland and makes wood and paper products."
+
+# Energy
+- slug: oil-and-gas-production
+  label: "Oil and gas production"
+  description: "Finds and produces crude oil, natural gas and natural gas liquids."
+- slug: integrated-oil-and-gas
+  label: "Integrated oil and gas"
+  description: "Produces oil and gas and also refines and sells fuels and chemicals."
+- slug: refining-and-marketing
+  label: "Refining and marketing"
+  description: "Refines crude oil into fuels and sells them."
+- slug: midstream-pipelines
+  label: "Midstream and pipelines"
+  description: "Moves and processes oil and gas through pipelines and terminals."
+- slug: oilfield-services
+  label: "Oilfield services"
+  description: "Provides drilling, completion and equipment services to oil and gas producers."
+- slug: solar-energy
+  label: "Solar energy"
+  description: "Makes solar panels or sells solar power systems."
+
+# Utilities
+- slug: electric-utilities
+  label: "Electric utilities"
+  description: "Generates and delivers electricity to customers under regulation."
+- slug: gas-utilities
+  label: "Gas utilities"
+  description: "Delivers natural gas to homes and businesses under regulation."
+- slug: water-utilities
+  label: "Water utilities"
+  description: "Delivers water and wastewater service under regulation."
+- slug: independent-power-producers
+  label: "Independent power producers"
+  description: "Generates electricity, including nuclear and gas power, and sells it at market prices."
+
+# Real estate
+- slug: data-center-reits
+  label: "Data center REITs"
+  description: "Owns data centers and rents space and interconnection to tenants."
+- slug: cell-tower-reits
+  label: "Cell tower REITs"
+  description: "Owns towers and rents space on them to wireless carriers."
+- slug: industrial-reits
+  label: "Industrial REITs"
+  description: "Owns warehouses and logistics properties."
+- slug: residential-reits
+  label: "Residential REITs"
+  description: "Owns apartments and single-family rental homes."
+- slug: retail-reits
+  label: "Retail REITs"
+  description: "Owns shopping centers, malls and single-tenant retail properties."
+- slug: healthcare-reits
+  label: "Healthcare REITs"
+  description: "Owns senior housing, medical offices and other health care properties."
+- slug: office-and-life-science-reits
+  label: "Office and life science REITs"
+  description: "Owns office buildings and laboratory space."
+- slug: self-storage-reits
+  label: "Self-storage REITs"
+  description: "Owns self-storage facilities."
+- slug: specialty-reits
+  label: "Specialty REITs"
+  description: "Owns hotels, casinos, records storage and other specialized properties."
+- slug: real-estate-services
+  label: "Real estate services"
+  description: "Provides brokerage, property management and data services to real estate owners."
