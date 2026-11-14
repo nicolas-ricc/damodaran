@@ -45,6 +45,12 @@ from bot.portfolio.freshness import (
     business_days_between,
     latest_snapshot_date,
 )
+from bot.reference.company_profiles import (
+    COMPANY_PROFILES_PATH,
+    INDUSTRY_TAGS_PATH,
+    CompanyProfile,
+    load_profiles,
+)
 from bot.reference.currencies import CurrencyTable, load_currency_table
 from bot.reference.default_spreads import DefaultSpreadTable, load_default_spreads
 from bot.reporting.analysis_json import render_analysis_json
@@ -919,10 +925,28 @@ def site(
     base_url: str = typer.Option(
         "/", "--base-url", help="URL prefix the site is served under, e.g. /damodaran/."
     ),
+    profiles_path: Path = typer.Option(  # noqa: B008
+        COMPANY_PROFILES_PATH, "--profiles", help="Company profiles file (display and search only)."
+    ),
+    tags_path: Path = typer.Option(  # noqa: B008
+        INDUSTRY_TAGS_PATH, "--industry-tags", help="Industry tag vocabulary file."
+    ),
 ) -> None:
     """Build the static analysis viewer from the `bot analyze` JSON sidecars."""
+    have = [profiles_path.exists(), tags_path.exists()]
+    profiles: dict[str, CompanyProfile] | None = None
+    if not any(have):
+        typer.echo(
+            f"WARNING: no company profiles: {profiles_path} and {tags_path} not found", err=True
+        )
+    elif not all(have):
+        missing = profiles_path if not have[0] else tags_path
+        typer.echo(f"ERROR: company profiles need both files; {missing} not found", err=True)
+        raise typer.Exit(code=2)
     try:
-        count = build_site(reports_dir, out, base_url)
+        if all(have):
+            profiles = load_profiles(profiles_path, tags_path)
+        count = build_site(reports_dir, out, base_url, profiles)
     except ValueError as e:
         typer.echo(f"ERROR: {e}", err=True)
         raise typer.Exit(code=2) from e

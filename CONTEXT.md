@@ -15,6 +15,9 @@ Current version: US-only (S&P 500).
   _Avoid_: governance haircut in the WACC.
 - **Margin of safety (MoS)**: `intrinsic_value_after_governance / current_price`, which equals `intrinsic_value / current_price` when there is no governance discount. `current_price` is the newest close converted into the valuation currency (a missing exchange rate means no price, hence no margin). > 1 = potentially undervalued. A holding mark uses the newest close on or before the snapshot date.
 - **Verdict**: the one-word reading of the MoS: `>=1.3` potentially undervalued, `>=1.0` around fair value, `<1.0` potentially overvalued, `n/a` without a price. `margin_verdict` in `bot.reporting.analysis_report` is the single source.
+- **Company profile**: the `config/company_profiles.yaml` entry for one ticker: `description`, `fiscal_year`, `accession` and `tags`. Written once from the 10-K by an agent session, then edited by hand. Display and search only in `bot site`; never feeds the screener or the valuation.
+- **Industry tag**: a slug of the closed vocabulary `config/industry_tags.yaml`. Given to a company only when that business is at least ~10% of revenue on the latest 10-K. Each tag records its share source: `segment`, `disaggregation` or `judgment`.
+  _Avoid_: free-text tags, synonyms.
 - **Quality gates**: eliminatory filters in the screener (Capa B) that disqualify a company outright.
 - **Value indicators**: filters checking cheapness relative to sector medians (Damodaran datasets).
 - **Trap detection**: filters that flag companies that *look* cheap but are cheap for a reason.

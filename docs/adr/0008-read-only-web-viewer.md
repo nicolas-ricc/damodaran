@@ -23,7 +23,8 @@ excludes an operating dashboard).
   HTML reports. The `.gitignore` lets only those files through. The DuckDB file is local,
   large and not committed; a CI runner cannot rebuild it, and the site should not depend
   on it. The sidecar carries everything the pages show, so the site is a pure function of
-  committed files.
+  committed files. The viewer also reads `config/company_profiles.yaml` and
+  `config/industry_tags.yaml` (#333); still committed files only.
 - **CI does not run `analyze`.** The runner has no DuckDB, no EDGAR/Tiingo access and no
   keys. Analysis runs locally; its output is committed. CI only runs ruff, mypy, pytest,
   then `bot site`, then deploys.
