@@ -21,7 +21,8 @@
    ``alerts.md`` under ``reports/YYYY-MM-DD/`` (the same dated-directory
    convention as the other commands). ``alerts.md`` lists the day's logged
    events (:func:`~bot.portfolio.events.load_events`), not only those just
-   computed.
+   computed. ``portfolio.md`` carries a detected-events section listing the
+   same day's logged events as ``alerts.md``.
 
 ``alerts.md`` is always written, but is empty (zero bytes) when there are no
 events. Sending ``alerts.md`` is the CLI's job (``bot.notifier``, #32).
@@ -174,6 +175,7 @@ def run_portfolio(
         snapshot_date,
         include_history=history,
         include_concentration=concentration,
+        events=day_events,
     )
     portfolio_md = render_portfolio(report, generated_on=run_day)
     alerts_md = render_alerts(day_events, snapshot_date, generated_on=run_day)

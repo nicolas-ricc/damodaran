@@ -591,6 +591,14 @@ _PORTFOLIO_TEXT: dict[str, list[str]] = {
         "email or Telegram",
         "reports/YYYY-MM-DD/portfolio.md",
         "reports/YYYY-MM-DD/alerts.md",
+        "detected events",
+        "the same table as alerts.md",
+        "new filing",
+        "intrinsic value crossed price",
+        "new red flag",
+        "below quality gate",
+        "sector recalibrated",
+        "IBKR-observed events never suggest a review",
     ],
 }
 # The events each board decides: the five mark diffs, then the seven snapshot diffs.
@@ -638,6 +646,14 @@ def test_no_board_says_any_one_accounts_currency() -> None:
     # #223: currency_changed is compared per (account, ticker), never on one account's pick.
     stale = [b.name for b in sorted(_PIPELINE.glob("*.d2")) if "any one account's currency" in b.read_text()]
     assert stale == []
+
+
+def test_portfolio_alerts_cites_the_events_table_partial() -> None:
+    """Both reports share the events table partial (#352); the sub-board shows it feeding both."""
+    text = _text("portfolio-alerts")
+    assert "@file src/bot/reporting/templates/events_table.md.j2" in text
+    layout = {(src, dst) for _, src, dst, label in edges(text) if label == "layout"}
+    assert {("events_table", "portfolio_written"), ("events_table", "alerts_written")} <= layout
 
 
 def test_portfolio_events_cover_every_event_type() -> None:

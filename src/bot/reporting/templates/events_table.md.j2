@@ -1,0 +1,5 @@
+| Type | Ticker | Details |
+|---|---|---|
+{% for e in events %}
+| {{ e.event_type.value }} | {{ e.ticker }} | {% for k, v in e.details.items() %}{{ k }}={{ v }}{% if not loop.last %}, {% endif %}{% endfor %} |
+{% endfor %}
