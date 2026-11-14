@@ -52,6 +52,18 @@ Single-position concentration threshold: {{ r.concentration_threshold | pct }}.
 _No valued positions to weight._
 {% endif %}
 
+## Detected events
+
+{% if r.events %}
+{{ r.events | length }} event{{ "s" if r.events | length != 1 else "" }} detected today.
+
+{% with events = r.events %}
+{% include "events_table.md.j2" %}
+{% endwith %}
+{% else %}
+_No events detected today._
+{% endif %}
+
 ## Suggested reviews
 
 {% set flagged = r.concentration | selectattr("flagged") | list %}
