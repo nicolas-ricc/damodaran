@@ -1,6 +1,15 @@
 {% set latest = detail.history | max %}
 <header class="detail-head">
   <h1 tabindex="-1"><span class="big-ticker">{{ detail.ticker }}</span> <span class="co-name">{{ detail.name }}</span></h1>
+  {% if detail.profile %}
+  <div class="profile">
+    <p class="profile-desc">{{ detail.profile.description }}</p>
+    <ul class="profile-tags" aria-label="Industries">
+      {% for t in detail.profile.tags %}<li class="badge badge-outline">{{ term(t.label, t.tooltip) }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
   {% if detail.history | length > 1 %}
   <nav class="history join" aria-label="Analysis date">
     {% for d in detail.history %}

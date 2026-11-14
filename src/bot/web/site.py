@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import shutil
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from importlib import resources
 from pathlib import Path
 from typing import Any
@@ -13,6 +13,7 @@ import structlog
 from jinja2 import Environment, PackageLoader, Template
 from markupsafe import Markup
 
+from bot.reference.company_profiles import CompanyProfile
 from bot.reporting.analysis_report import fmt_ratio
 from bot.web.index import CompanyEntry, scan
 from bot.web.svg import (
@@ -101,7 +102,9 @@ def _environment(base_url: str) -> Environment:
     return env
 
 
-def _renderable(entry: CompanyEntry) -> CompanyEntry | None:
+def _renderable(
+    entry: CompanyEntry, profile: CompanyProfile | None = None
+) -> CompanyEntry | None:
     """``entry`` without the analyses whose sidecar lacks a field the views read.
 
     ``index.scan`` only checks the envelope; a sidecar missing an ``analysis``
@@ -111,7 +114,7 @@ def _renderable(entry: CompanyEntry) -> CompanyEntry | None:
     for ref in entry.history:
         try:
             row_view(ref)
-            detail_view(CompanyEntry(ticker=entry.ticker, history=(ref,)), ref)
+            detail_view(CompanyEntry(ticker=entry.ticker, history=(ref,)), ref, profile)
         except (KeyError, TypeError, ValueError, IndexError) as exc:
             log.warning(
                 "web.sidecar_skipped",
@@ -124,11 +127,21 @@ def _renderable(entry: CompanyEntry) -> CompanyEntry | None:
     return CompanyEntry(ticker=entry.ticker, history=tuple(kept)) if kept else None
 
 
-def build(reports_dir: Path, out_dir: Path, base_url: str) -> int:
+def build(
+    reports_dir: Path,
+    out_dir: Path,
+    base_url: str,
+    profiles: Mapping[str, CompanyProfile] | None = None,
+) -> int:
     """Write the whole site into ``out_dir``; return the number of companies."""
+    profiles = profiles or {}
     base_url = normalize_base_url(base_url)
     out = _prepare_out_dir(out_dir, reports_dir)
-    entries = [e for e in map(_renderable, scan(reports_dir)) if e is not None]
+    entries = [
+        e
+        for e in (_renderable(c, profiles.get(c.ticker)) for c in scan(reports_dir))
+        if e is not None
+    ]
     by_ticker = {e.ticker: e for e in entries}
     all_rows = [row_view(e.latest) for e in entries]
     counts: dict[str, int] = {"all": len(all_rows), **dict.fromkeys(FILTERS[1:], 0)}
@@ -162,7 +175,7 @@ def build(reports_dir: Path, out_dir: Path, base_url: str) -> int:
         if not rows:
             return list_tpl.render(**context(rows, active))
         entry = by_ticker[rows[0].ticker]
-        detail = detail_view(entry, entry.latest)
+        detail = detail_view(entry, entry.latest, profiles.get(entry.ticker))
         return list_tpl.render(**context(rows, active, detail, entry.ticker))
 
     default_rows = filter_sort(all_rows, *_DEFAULT)
@@ -182,7 +195,9 @@ def build(reports_dir: Path, out_dir: Path, base_url: str) -> int:
                 _write(out / "l" / name, list_page(rows, (f, s, d)))
 
     for entry in entries:
-        _write_company(out, entry, default_rows, context, list_tpl, detail_tpl)
+        _write_company(
+            out, entry, profiles.get(entry.ticker), default_rows, context, list_tpl, detail_tpl
+        )
 
     _copy_static(out)
     return len(entries)
@@ -191,6 +206,7 @@ def build(reports_dir: Path, out_dir: Path, base_url: str) -> int:
 def _write_company(
     out: Path,
     entry: CompanyEntry,
+    profile: CompanyProfile | None,
     default_rows: list[RowView],
     context: Callable[..., dict[str, Any]],
     list_tpl: Template,
@@ -198,7 +214,7 @@ def _write_company(
 ) -> None:
     latest = entry.latest
     for ref in entry.history:
-        view = detail_view(entry, ref)
+        view = detail_view(entry, ref, profile)
         ctx = context(default_rows, _DEFAULT, view, entry.ticker, "page-detail")
         targets = [f"{entry.ticker}/{ref.date.isoformat()}.html"]
         if ref is latest:

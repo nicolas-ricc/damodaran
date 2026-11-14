@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
+from bot.reference.company_profiles import CompanyProfile
 from bot.reporting.analysis_report import (
     MOS_FAIR,
     MOS_UNDERVALUED,
@@ -107,6 +108,47 @@ def display_name(name: str) -> str:
         else:
             words.append(word.capitalize())
     return " ".join(words)
+
+
+#: Where a tag's revenue share came from, as the tooltip words it.
+SOURCE_WORDS: dict[str, str] = {
+    "segment": "reported segment",
+    "disaggregation": "revenue disaggregation",
+    "judgment": "estimated from the 10-K",
+}
+
+
+@dataclass(frozen=True)
+class TagView:
+    label: str
+    tooltip: str
+
+
+@dataclass(frozen=True)
+class ProfileView:
+    description: str
+    tags: tuple[TagView, ...]
+
+
+def profile_view(profile: CompanyProfile | None) -> ProfileView | None:
+    """A company profile as the description and one badge per industry tag."""
+    if profile is None:
+        return None
+    tags = tuple(
+        TagView(
+            label=t.tag.label,
+            tooltip=(
+                f"{t.tag.description} ~{t.share:.0%} of revenue, "
+                f"{SOURCE_WORDS[t.source]}, FY{profile.fiscal_year}."
+            ),
+        )
+        for t in profile.tags
+    )
+    return ProfileView(description=profile.description, tags=tags)
+
+
+def search_tags(profile: CompanyProfile | None) -> str:  # Task 5
+    raise NotImplementedError
 
 
 @dataclass(frozen=True)
@@ -233,6 +275,7 @@ class DetailView:
     #: Haircut the margin of safety is measured after (#197); 0 in older sidecars.
     governance_discount: float = 0.0
     intrinsic_after_governance: float | None = None
+    profile: ProfileView | None = None
 
     @property
     def mos_note(self) -> str:
@@ -409,7 +452,9 @@ def _dcf_totals(dcf: Mapping[str, Any], financials: Mapping[str, Any]) -> tuple[
     )
 
 
-def detail_view(entry: CompanyEntry, ref: AnalysisRef) -> DetailView:
+def detail_view(
+    entry: CompanyEntry, ref: AnalysisRef, profile: CompanyProfile | None = None
+) -> DetailView:
     analysis = ref.data["analysis"]
     dcf = analysis["dcf_result"]
     verdict = verdict_from_text(ref.data["verdict"])
@@ -455,6 +500,7 @@ def detail_view(entry: CompanyEntry, ref: AnalysisRef) -> DetailView:
         ),
         dcf_totals=_dcf_totals(dcf, analysis["financials"]),
         history=tuple(r.date for r in entry.history),
+        profile=profile_view(profile),
         governance_discount=float(analysis.get("governance_discount", 0.0)),
         intrinsic_after_governance=analysis.get("intrinsic_value_after_governance"),
     )
