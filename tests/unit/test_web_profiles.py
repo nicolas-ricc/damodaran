@@ -9,10 +9,10 @@ from pathlib import Path
 
 import pytest
 import yaml
-from bot.reference.company_profiles import CompanyProfile, IndustryTag, ProfileTag
 from typer.testing import CliRunner
 
 from bot.cli import app
+from bot.reference.company_profiles import CompanyProfile, IndustryTag, ProfileTag
 from bot.web.index import AnalysisRef
 from bot.web.site import build
 from bot.web.views import profile_view, row_view, search_tags
@@ -234,6 +234,7 @@ def test_site_without_profile_files_still_builds(
     args = _site(reports, out, tmp_path / "none.yaml", tmp_path / "none-tags.yaml")
     result = CliRunner().invoke(app, args)
     assert result.exit_code == 0, result.output
+    assert "WARNING: no company profiles" in result.output
     assert 'class="profile"' not in (out / "c" / "AAA.html").read_text()
 
 
@@ -251,3 +252,4 @@ def test_site_rejects_a_lone_profile_file(reports: Path, tmp_path: Path, bare_en
     args = _site(reports, tmp_path / "site", tmp_path / "none.yaml", tags)
     result = CliRunner().invoke(app, args)
     assert result.exit_code == 2
+    assert "need both files" in result.output

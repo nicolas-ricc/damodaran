@@ -25,7 +25,10 @@ def bare_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("bot.cli._open_db", boom)
 
 
-def test_site_builds_without_settings(tmp_path: Path, bare_env: None) -> None:
+def test_site_builds_without_settings(
+    tmp_path: Path, bare_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)  # default profile paths resolve to nothing: warn path
     reports = tmp_path / "reports"
     for ticker in ("AAA", "BBB", "CCC"):
         write_sidecar(reports, "2026-10-01", make_sidecar(ticker))
@@ -36,11 +39,15 @@ def test_site_builds_without_settings(tmp_path: Path, bare_env: None) -> None:
     )
 
     assert result.exit_code == 0, result.output
+    assert "WARNING: no company profiles" in result.output
     assert "Built 3 companies" in result.output
     assert (out / "index.html").is_file()
 
 
-def test_site_refuses_a_foreign_out_dir(tmp_path: Path, bare_env: None) -> None:
+def test_site_refuses_a_foreign_out_dir(
+    tmp_path: Path, bare_env: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
     out = tmp_path / "precious"
     out.mkdir()
     (out / "keep.txt").write_text("x")

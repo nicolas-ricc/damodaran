@@ -933,18 +933,19 @@ def site(
     ),
 ) -> None:
     """Build the static analysis viewer from the `bot analyze` JSON sidecars."""
-    have = [profiles_path.exists(), tags_path.exists()]
+    has_profiles = profiles_path.exists()
+    has_tags = tags_path.exists()
     profiles: dict[str, CompanyProfile] | None = None
-    if not any(have):
+    if not (has_profiles or has_tags):
         typer.echo(
             f"WARNING: no company profiles: {profiles_path} and {tags_path} not found", err=True
         )
-    elif not all(have):
-        missing = profiles_path if not have[0] else tags_path
+    elif not (has_profiles and has_tags):
+        missing = tags_path if has_profiles else profiles_path
         typer.echo(f"ERROR: company profiles need both files; {missing} not found", err=True)
         raise typer.Exit(code=2)
     try:
-        if all(have):
+        if has_profiles and has_tags:
             profiles = load_profiles(profiles_path, tags_path)
         count = build_site(reports_dir, out, base_url, profiles)
     except ValueError as e:
