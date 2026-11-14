@@ -26,19 +26,13 @@
   description: "Sells software and IP used to design semiconductors and electronic systems."
 - slug: financial-technology
   label: "Financial technology"
-  description: "Sells software and processing services that run bank, lender and insurer operations."
+  description: "Sells core software that runs bank, lender and insurer operations; payment processing belongs in payments."
 - slug: cloud-infrastructure
   label: "Cloud infrastructure"
   description: "Rents computing, storage and platform services over the internet from its own data centers."
-- slug: data-analytics-ai
-  label: "Data analytics and AI software"
-  description: "Sells software that analyzes data and builds artificial intelligence applications."
 - slug: it-services
   label: "IT services and consulting"
-  description: "Provides technology consulting, systems integration and outsourced IT work."
-- slug: government-it-services
-  label: "Government technology services"
-  description: "Provides technology, engineering and mission support services mainly to government agencies."
+  description: "Provides technology consulting, systems integration and outsourced IT work to companies and government agencies."
 - slug: internet-infrastructure-services
   label: "Internet infrastructure services"
   description: "Provides domains, web hosting, content delivery and other services that keep websites running."
@@ -62,12 +56,9 @@
 - slug: personal-computers
   label: "Personal computers and printers"
   description: "Makes laptops, desktops, printers and related computing devices."
-- slug: smartphones
-  label: "Smartphones"
-  description: "Makes and sells smartphones."
 - slug: consumer-electronics
   label: "Consumer electronics"
-  description: "Makes wearables, audio, navigation and other electronic devices for consumers."
+  description: "Makes smartphones, wearables, audio, navigation and other electronic devices for consumers."
 - slug: electronic-components
   label: "Electronic components"
   description: "Makes connectors, sensors and other parts that go into electronic products."
@@ -81,10 +72,7 @@
 # Internet, media, communications
 - slug: online-advertising
   label: "Online advertising"
-  description: "Earns its revenue from selling advertising on digital platforms and ad technology."
-- slug: social-media
-  label: "Social media"
-  description: "Runs social networking and messaging platforms."
+  description: "Earns its revenue from advertising on digital platforms, including search and social networks, and from ad technology."
 - slug: e-commerce
   label: "E-commerce"
   description: "Sells goods online directly or through an online marketplace."
@@ -102,10 +90,10 @@
   description: "Develops and publishes video games."
 - slug: film-and-tv-content
   label: "Film and TV content"
-  description: "Produces and distributes films, television programs and cable networks."
+  description: "Produces and distributes films and scripted or entertainment television programming."
 - slug: news-and-publishing
   label: "News and publishing"
-  description: "Publishes news, books and broadcasts content."
+  description: "Publishes newspapers and books and runs news and sports broadcast networks."
 - slug: live-entertainment-and-sports
   label: "Live entertainment and sports"
   description: "Runs live events, ticketing and professional sports and entertainment properties."
@@ -114,10 +102,10 @@
   description: "Plans, creates and buys advertising and marketing campaigns for clients."
 - slug: telecom-services
   label: "Telecom services"
-  description: "Sells wireless and fixed-line phone and data services."
+  description: "Sells wireless and fiber or fixed-line phone and data services."
 - slug: cable-and-broadband
   label: "Cable and broadband"
-  description: "Sells cable television and home broadband internet service."
+  description: "Sells cable television and broadband internet over cable networks."
 - slug: theme-parks
   label: "Theme parks and resorts"
   description: "Operates theme parks, resorts and related experiences."
@@ -128,10 +116,10 @@
   description: "Designs and sells cars and light trucks, including electric vehicles."
 - slug: auto-parts
   label: "Auto parts"
-  description: "Makes or distributes components and replacement parts for vehicles."
+  description: "Manufactures components and systems for vehicles; sellers of aftermarket parts belong in auto retail."
 - slug: auto-retail
   label: "Auto retail"
-  description: "Sells vehicles or aftermarket auto parts to consumers and shops."
+  description: "Sells vehicles or distributes and retails aftermarket auto parts to consumers and repair shops."
 - slug: home-improvement-retail
   label: "Home improvement retail"
   description: "Sells building materials, tools and home goods through big-box stores."
@@ -204,16 +192,16 @@
   description: "Develops therapies based on biological research, such as antibodies, gene and mRNA medicines."
 - slug: medical-devices
   label: "Medical devices"
-  description: "Makes implants, surgical systems, monitors and other devices used in patient care."
+  description: "Makes durable and implantable devices such as implants, surgical systems, monitors, insulin pumps and aligners."
 - slug: medical-supplies
   label: "Medical supplies and consumables"
-  description: "Makes consumables and equipment such as syringes, lenses, aligners and sterilization products."
+  description: "Makes disposable and infection-control products such as syringes, IV sets, contact lenses and sterilization consumables."
 - slug: life-science-tools
   label: "Life science tools"
-  description: "Sells instruments, reagents and services for research, drug development and lab testing."
+  description: "Sells instruments, reagents and services for research and drug development."
 - slug: diagnostic-laboratories
   label: "Diagnostic laboratories"
-  description: "Runs clinical laboratories that test patient samples for doctors and hospitals."
+  description: "Runs clinical laboratories that test patient samples for doctors and hospitals; lab tool makers belong in life science tools."
 - slug: health-insurance
   label: "Health insurance"
   description: "Sells health plans and covers medical costs for members."
@@ -230,7 +218,7 @@
 # Financials
 - slug: banks
   label: "Banks"
-  description: "Takes deposits and makes loans, from large universal banks to regional banks."
+  description: "Takes deposits, makes loans or provides custody and trust services, from universal banks to regional and custody banks."
 - slug: investment-banking-and-brokerage
   label: "Investment banking and brokerage"
   description: "Earns fees from advising on deals, trading securities and brokering investor accounts."
@@ -242,13 +230,13 @@
   description: "Runs exchanges and clearing houses for securities, derivatives and other contracts."
 - slug: payments
   label: "Payments"
-  description: "Operates card networks and payment processing services."
+  description: "Operates card networks and provides payment processing, merchant acquiring and payment services."
 - slug: consumer-lending
   label: "Consumer lending and cards"
   description: "Issues credit cards and makes consumer loans."
-- slug: life-and-health-insurance
-  label: "Life and supplemental insurance"
-  description: "Sells life insurance, annuities and supplemental health coverage."
+- slug: life-insurance
+  label: "Life insurance"
+  description: "Sells life insurance and annuities, including supplemental policies sold alongside them."
 - slug: property-casualty-insurance
   label: "Property and casualty insurance"
   description: "Sells insurance against damage and liability, including reinsurance."
@@ -264,20 +252,20 @@
 
 # Industrials
 - slug: aerospace-and-defense
-  label: "Aerospace and defense"
-  description: "Builds aircraft, engines, space systems and military equipment for governments and airlines."
+  label: "Aerospace, defense and public safety"
+  description: "Builds aircraft, space systems and military equipment, and public-safety technology, for governments and airlines."
 - slug: aerospace-components
   label: "Aerospace components"
-  description: "Makes parts and aftermarket services for commercial and military aircraft."
+  description: "Makes engines, parts and aftermarket services for commercial and military aircraft."
 - slug: industrial-machinery
   label: "Industrial machinery"
-  description: "Makes machinery for construction, farming, factories and flow control."
+  description: "Makes machinery and tools for construction, farming, factories and repair shops."
 - slug: electrical-equipment
   label: "Electrical equipment"
-  description: "Makes electrical gear, motors, power distribution and backup power equipment."
+  description: "Makes electrical gear, motors, grid and power distribution equipment and backup power systems."
 - slug: power-generation-equipment
   label: "Power generation equipment"
-  description: "Makes turbines and grid equipment used to generate and deliver electricity."
+  description: "Makes turbines and other equipment used to generate electricity."
 - slug: diversified-industrials
   label: "Diversified industrials"
   description: "Runs several unrelated industrial and technology businesses under one company."
@@ -313,7 +301,7 @@
   description: "Makes cans, boxes, containers and labels."
 - slug: water-technology
   label: "Water technology"
-  description: "Makes pumps, filtration and metering products used to move and treat water."
+  description: "Makes pumps, filtration and metering products used to move and treat water; water utilities are separate."
 
 # Materials
 - slug: specialty-chemicals
@@ -365,12 +353,9 @@
 - slug: electric-utilities
   label: "Electric utilities"
   description: "Generates and delivers electricity to customers under regulation."
-- slug: gas-utilities
-  label: "Gas utilities"
-  description: "Delivers natural gas to homes and businesses under regulation."
-- slug: water-utilities
-  label: "Water utilities"
-  description: "Delivers water and wastewater service under regulation."
+- slug: gas-and-water-utilities
+  label: "Gas and water utilities"
+  description: "Delivers natural gas, water or wastewater service under regulation."
 - slug: independent-power-producers
   label: "Independent power producers"
   description: "Generates electricity, including nuclear and gas power, and sells it at market prices."
