@@ -29,18 +29,24 @@ fans them through the detectors, and returns the events. It never writes —
 persisting marks (via ``mark_holdings``) before calling it, and persisting
 events after (:func:`persist_events`, which skips events already logged for the
 day; :func:`load_events` reads a day back), is the caller's job.
+
+Events are keyed by the broker symbol. Only the ``filings_log`` join is resolved
+to the universe ticker (``BRK B`` -> ``BRK-B``) and fanned back out to every
+held broker symbol that maps to it; corporate actions, ``events_log`` and marks
+stay broker-to-broker.
 """
 
 from __future__ import annotations
 
 import json
 from collections.abc import Collection, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any
 
 from bot.portfolio.marks import HoldingMark, load_marks, load_red_flag_baselines
+from bot.portfolio.symbols import SymbolMap, load_symbol_map
 
 if TYPE_CHECKING:
     import duckdb
@@ -569,19 +575,19 @@ def _load_account_currencies(
 
 def _load_filings(
     conn: duckdb.DuckDBPyConnection,
-    held_tickers: set[str],
+    tickers: set[str],
     window_end: date,
 ) -> list[Filing]:
-    """Held filings up to ``window_end``; the detector applies the lower bound."""
-    if not held_tickers:
+    """Filings of ``tickers`` up to ``window_end``; the detector applies the lower bound."""
+    if not tickers:
         return []
-    placeholders = ", ".join("?" for _ in held_tickers)
+    placeholders = ", ".join("?" for _ in tickers)
     rows = conn.execute(
         f"SELECT ticker, filing_type, filing_date, accession_number, "
         f"COALESCE(CAST(fetched_at AS DATE), filing_date) "
         f"FROM filings_log WHERE UPPER(ticker) IN ({placeholders}) "
         f"AND filing_date <= ?",
-        [*sorted(held_tickers), window_end],
+        [*sorted(tickers), window_end],
     ).fetchall()
     return [
         Filing(
@@ -592,6 +598,23 @@ def _load_filings(
             fetched_on=r[4],
         )
         for r in rows
+    ]
+
+
+def _filings_for_held(
+    conn: duckdb.DuckDBPyConnection,
+    held_tickers: set[str],
+    symbols: SymbolMap,
+    window_end: date,
+) -> list[Filing]:
+    """Universe-ticker filings re-keyed to each held broker symbol mapping to them."""
+    by_ticker: dict[str, list[str]] = {}
+    for sym in sorted(held_tickers):
+        by_ticker.setdefault(symbols.ticker(sym), []).append(sym)
+    return [
+        replace(filing, ticker=sym)
+        for filing in _load_filings(conn, set(by_ticker), window_end)
+        for sym in by_ticker.get(filing.ticker.upper(), [])
     ]
 
 
@@ -649,6 +672,7 @@ def compute_events(
     *,
     size_change_threshold: float = DEFAULT_SIZE_CHANGE_THRESHOLD,
     concentration_threshold: float = DEFAULT_CONCENTRATION_THRESHOLD,
+    symbols: SymbolMap | None = None,
 ) -> list[Event]:
     """Diff two portfolio snapshots into the §8.3 event stream.
 
@@ -660,7 +684,9 @@ def compute_events(
     current mark still produces its broker events. ``prev_snapshot_date`` of
     ``None`` treats ``curr`` as the first snapshot: every current position is
     "opened". Red flags compare with the holding's last known mark
-    (``load_red_flag_baselines``), all new when there is none.
+    (``load_red_flag_baselines``), all new when there is none. ``symbols`` maps
+    the held broker symbols to universe tickers for the ``filings_log`` join;
+    ``None`` resolves them against ``companies`` with no overrides.
 
     This function is a pure reader: it never writes to ``events_log`` — the
     caller persists the returned events (and may run auto-analyze on
@@ -673,6 +699,9 @@ def compute_events(
         else []
     )
     held_tickers = {p.ticker for p in curr_positions if p.qty != 0.0}
+
+    if symbols is None:
+        symbols = load_symbol_map(conn, held_tickers, {})
 
     events: list[Event] = []
 
@@ -718,7 +747,7 @@ def compute_events(
     # --- New filings for held tickers --------------------------------------
     events.extend(
         detect_new_filings(
-            _load_filings(conn, held_tickers, curr_snapshot_date),
+            _filings_for_held(conn, held_tickers, symbols, curr_snapshot_date),
             held_tickers=held_tickers,
             reported=_load_reported_filings(conn, held_tickers),
             window_start=prev_snapshot_date,
