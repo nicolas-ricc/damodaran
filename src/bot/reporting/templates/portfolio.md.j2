@@ -24,6 +24,10 @@ _No open positions in this snapshot._
 
 > ⚠ No market price for: {% for t in r.unpriced %}{{ t }}{% if not loop.last %}, {% endif %}{% endfor %} — valued at cost basis in totals; per-position P&L shown as “—”.
 {% endif %}
+{% if r.unresolved %}
+
+> ⚠ Not in the universe: {% for t in r.unresolved %}{{ t }}{% if not loop.last %}, {% endif %}{% endfor %} — no valuation, quality gates or filing events for these holdings. Map each one to its universe ticker in config/broker_symbols.yaml, or set it to ~ to mark it as intentionally outside the universe.
+{% endif %}
 
 ## Profit & loss
 
