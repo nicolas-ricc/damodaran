@@ -24,6 +24,9 @@
 1. **Filing fan-out covers every held symbol, not only `symbols.resolved`.** The reverse map is `{symbols.ticker(s): [s, ...] for s in held_tickers}`. For a resolved symbol this is exactly the issue's "reverse mapping from `symbols.resolved`"; for an unresolved one `ticker(s) == s`, so a holding absent from `companies` keeps today's `new_filing` events (`tests/integration/test_portfolio_events.py::test_new_filing_reported_once` seeds a filing for `T00` with no `companies` row and must keep passing: AC6).
 2. One `analyze_fn` call per broker symbol, even when two broker symbols resolve to the same ticker (no caching: the issue says "for each held broker symbol").
 3. The `filings_log` query keeps `UPPER(ticker) IN (...)`, so a lower-case filing ticker still matches.
+4. `run_portfolio` builds the map from `held_symbols` exactly as the issue's Scope 3 says. That reader has no quantity filter, so a zero-quantity unresolved row on the snapshot date is reported in `portfolio_symbols_unresolved` even though it is not marked. Rejected alternative: filtering on `qty <> 0` in `run_portfolio`, which would diverge from the issue text.
+5. Each intermediate commit is green on its own: before Task 3, `run_portfolio` calls `mark_holdings`/`compute_events` without `symbols`, so they get the default map (normalisation only). Each task's Step 4 runs the full suite.
+6. Lower-case `companies.ticker` stays a pre-existing limit. `load_symbol_map` upper-cases `known`, while `load_holding_inputs` matches `companies.ticker` exactly (`src/bot/screener/engine.py`). Nothing changes there.
 
 ## Review Focus
 
@@ -119,3 +122,9 @@
   Expected: all PASS, including `tests/unit/test_pipeline_diagram.py`.
 
 - [ ] **Step 5: Commit** `feat(#339): run_portfolio resolves held symbols once for marks and events`
+
+## Grilling
+
+- Rounds: 1 (no step added or removed; assumptions 4–6 recorded).
+- Questions: 16. Sources: CODE 12, ISSUE 7, DOC 1 (some answers cite more than one). NO SOURCE: 4, all technical assumptions (Assumptions 1, 4, 5, 6).
+- Spec ambiguities: none. Follow-up issues opened: none.
