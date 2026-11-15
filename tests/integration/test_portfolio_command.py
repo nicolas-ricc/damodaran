@@ -718,3 +718,52 @@ def test_ignored_symbol_is_not_reported_unresolved(
         )
 
     assert _unresolved_logs(logs) == []
+
+
+# --------------------------------------------------------------------------- #
+# portfolio.md names the unresolved holdings (#340)                             #
+# --------------------------------------------------------------------------- #
+
+
+def test_unresolved_holding_named_in_portfolio_md(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _company(conn, "MSFT")
+
+    result = run_portfolio(
+        conn, _book("ZZZ Q", "MSFT"), reports_dir=tmp_path, today=TODAY, analyze_fn=_no_analyze
+    )
+
+    md = result.portfolio_path.read_text()
+    assert "Not in the universe: ZZZ Q" in md
+    assert "| ZZZ Q |" in md
+
+
+def test_resolved_holding_writes_no_callout(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _company(conn, "ZZZ-Q")
+    _company(conn, "MSFT")
+
+    result = run_portfolio(
+        conn, _book("ZZZ Q", "MSFT"), reports_dir=tmp_path, today=TODAY, analyze_fn=_no_analyze
+    )
+
+    assert "Not in the universe" not in result.portfolio_path.read_text()
+
+
+def test_ignored_override_writes_no_callout(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _company(conn, "MSFT")
+
+    result = run_portfolio(
+        conn,
+        _book("ZZZ Q", "MSFT"),
+        reports_dir=tmp_path,
+        today=TODAY,
+        analyze_fn=_no_analyze,
+        symbol_overrides={"ZZZ Q": None},
+    )
+
+    assert "Not in the universe" not in result.portfolio_path.read_text()
