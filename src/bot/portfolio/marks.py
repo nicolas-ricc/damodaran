@@ -11,6 +11,11 @@ unknown *current* value never fires an event. An unknown prior red-flag set is
 skipped, so ``new_red_flag`` compares with the last known mark
 (``load_red_flag_baselines``); an unknown prior gate set or WACC still yields
 no event.
+
+Holdings are keyed by broker symbol (``BRK B``). Valuation, the quality gates
+and the ``<TICKER>.yaml`` override use the universe ticker from
+``bot.portfolio.symbols`` (``BRK-B``); an unresolved or ignored symbol is used
+as is.
 """
 
 from __future__ import annotations
@@ -25,6 +30,7 @@ from typing import TYPE_CHECKING, Protocol
 import duckdb
 
 from bot.ingest.base import transaction
+from bot.portfolio.symbols import SymbolMap, load_symbol_map
 from bot.reference.currencies import CurrencyTable, load_currency_table
 from bot.reference.default_spreads import DefaultSpreadTable
 from bot.screener.engine import load_holding_inputs
@@ -153,6 +159,7 @@ def mark_holdings(
     assumptions_dir: Path | None = None,
     currencies: CurrencyTable | None = None,
     default_spreads: DefaultSpreadTable | None = None,
+    symbols: SymbolMap | None = None,
 ) -> list[HoldingMark]:
     """Value and gate every ticker held on ``snapshot_date``, and persist the marks.
 
@@ -165,6 +172,8 @@ def mark_holdings(
     ``default_spreads`` is the default-spread table the default valuator uses for a
     distressed company's bankruptcy chain; ``None`` lets ``analyze`` load it lazily.
     An injected ``analyze_fn`` owns its own table.
+    ``symbols`` maps the held broker symbols to universe tickers; ``None`` resolves
+    them against ``companies`` with no overrides. Marks stay keyed by broker symbol.
     Persisting opens its own transaction: do not call this inside another one.
     """
     if analyze_fn is None:
@@ -191,17 +200,20 @@ def mark_holdings(
 
         analyze_fn = analyze_fn_default
 
-    tickers = _held_tickers(conn, snapshot_date)
-    inputs = load_holding_inputs(conn, tickers)
+    held = _held_tickers(conn, snapshot_date)
+    if symbols is None:
+        symbols = load_symbol_map(conn, held, {})
+    inputs = load_holding_inputs(conn, {symbols.ticker(s) for s in held})
     marks: list[HoldingMark] = []
-    for ticker in tickers:
+    for sym in held:
+        ticker = symbols.ticker(sym)
         intrinsic_value: float | None = None
         price: float | None = None
         red_flags: dict[str, str] | None = None
         try:
             analysis = analyze_fn(ticker, conn, price_as_of=snapshot_date)
         except (LookupError, ValueError) as exc:
-            log.debug("marks.analyze_skipped", ticker=ticker, error=str(exc))
+            log.debug("marks.analyze_skipped", symbol=sym, ticker=ticker, error=str(exc))
         else:
             intrinsic_value = analysis.dcf_result.intrinsic_value
             price = analysis.current_price
@@ -222,7 +234,7 @@ def mark_holdings(
             )
         marks.append(
             HoldingMark(
-                ticker=ticker,
+                ticker=sym,
                 intrinsic_value=intrinsic_value,
                 price=price,
                 red_flags=red_flags,
