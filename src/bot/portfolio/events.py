@@ -575,19 +575,19 @@ def _load_account_currencies(
 
 def _load_filings(
     conn: duckdb.DuckDBPyConnection,
-    held_tickers: set[str],
+    tickers: set[str],
     window_end: date,
 ) -> list[Filing]:
-    """Held filings up to ``window_end``; the detector applies the lower bound."""
-    if not held_tickers:
+    """Filings of ``tickers`` up to ``window_end``; the detector applies the lower bound."""
+    if not tickers:
         return []
-    placeholders = ", ".join("?" for _ in held_tickers)
+    placeholders = ", ".join("?" for _ in tickers)
     rows = conn.execute(
         f"SELECT ticker, filing_type, filing_date, accession_number, "
         f"COALESCE(CAST(fetched_at AS DATE), filing_date) "
         f"FROM filings_log WHERE UPPER(ticker) IN ({placeholders}) "
         f"AND filing_date <= ?",
-        [*sorted(held_tickers), window_end],
+        [*sorted(tickers), window_end],
     ).fetchall()
     return [
         Filing(

@@ -169,7 +169,11 @@ def run_portfolio(
     prev_date = _previous_snapshot_date(conn, snapshot_date)
     symbols = load_symbol_map(conn, held_symbols(conn, snapshot_date), symbol_overrides)
     if symbols.unresolved:
-        log.warning("portfolio_symbols_unresolved", symbols=list(symbols.unresolved))
+        log.warning(
+            "portfolio_symbols_unresolved",
+            snapshot_date=snapshot_date.isoformat(),
+            symbols=list(symbols.unresolved),
+        )
     mark_holdings(
         conn,
         snapshot_date,

@@ -567,3 +567,24 @@ def test_mark_holdings_symbol_absent_from_the_map_falls_through(
 
     assert calls == ["ZZZ"]
     assert mark == HoldingMark(ticker="ZZZ")
+
+
+def test_mark_holdings_two_broker_symbols_for_one_ticker_each_get_a_mark(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _hold(conn, "BRK B")
+    _hold(conn, "BRK.B")
+    _seed_company(conn, "BRK-B")
+    calls: list[str] = []
+    analyze_fn = _recording(
+        {"BRK-B": _Analysis("BRK-B", _DCF(120.0), current_price=100.0)}, calls
+    )
+
+    marks = mark_holdings(conn, DAY, analyze_fn=analyze_fn)
+
+    assert calls == ["BRK-B", "BRK-B"]
+    assert [m.ticker for m in marks] == ["BRK B", "BRK.B"]
+    assert {t: m.intrinsic_value for t, m in load_marks(conn, DAY).items()} == {
+        "BRK B": 120.0,
+        "BRK.B": 120.0,
+    }
