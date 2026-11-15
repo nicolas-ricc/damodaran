@@ -720,11 +720,6 @@ def test_ignored_symbol_is_not_reported_unresolved(
     assert _unresolved_logs(logs) == []
 
 
-# --------------------------------------------------------------------------- #
-# portfolio.md names the unresolved holdings (#340)                             #
-# --------------------------------------------------------------------------- #
-
-
 def test_unresolved_holding_named_in_portfolio_md(
     conn: duckdb.DuckDBPyConnection, tmp_path: Path
 ) -> None:

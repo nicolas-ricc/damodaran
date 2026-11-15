@@ -286,11 +286,6 @@ def test_render_alerts_singular_event() -> None:
     assert "1 event detected today." in out
 
 
-# --------------------------------------------------------------------------- #
-# Held broker symbols that do not resolve to the universe (#340)                #
-# --------------------------------------------------------------------------- #
-
-
 def _company(conn: duckdb.DuckDBPyConnection, ticker: str) -> None:
     conn.execute(
         "INSERT INTO companies (ticker, name, source) VALUES (?, ?, 'sec_edgar')",
