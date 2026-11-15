@@ -16,6 +16,9 @@ strings. It mirrors the other reporting modules: the rendering functions are
 templates so the prose is editable without touching code. Reading the data off
 the DB lives in :func:`build_report` (a pure reader: a connection in, a dataclass
 out); writing the strings to disk is the command's job.
+
+``portfolio.md`` also names the held broker symbols that do not resolve to a
+universe ticker in a "Not in the universe" callout.
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ from bot.portfolio.events import (
     DEFAULT_CONCENTRATION_THRESHOLD,
     Event,
 )
+from bot.portfolio.symbols import SymbolMap, held_symbols, load_symbol_map
 
 if TYPE_CHECKING:
     import duckdb
@@ -104,6 +108,7 @@ class PortfolioReport:
     include_history: bool
     include_concentration: bool
     unpriced: tuple[str, ...] = ()
+    unresolved: tuple[str, ...] = ()
 
     @property
     def total_pnl(self) -> float:
@@ -245,6 +250,7 @@ def build_report(
     include_history: bool = False,
     include_concentration: bool = False,
     concentration_threshold: float = DEFAULT_CONCENTRATION_THRESHOLD,
+    symbols: SymbolMap | None = None,
 ) -> PortfolioReport:
     """Assemble the full-state report data off the DB (a pure reader).
 
@@ -256,6 +262,8 @@ def build_report(
             requested (``--concentration``); the headline concentration section
             is always rendered.
         concentration_threshold: Weight above which a position is flagged.
+        symbols: Broker-symbol resolution to report unresolved holdings from;
+            when ``None``, resolved against ``companies`` with no overrides.
 
     Returns:
         A :class:`PortfolioReport` of plain data, ready to render.
@@ -268,6 +276,10 @@ def build_report(
     # weights, by contrast, use only priced positions.
     total_mv, total_cost = _snapshot_totals(conn, snapshot_date)
     unpriced = tuple(p.ticker for p in positions if p.market_value is None)
+    if symbols is None:
+        symbols = load_symbol_map(conn, held_symbols(conn, snapshot_date), {})
+    held = {p.ticker.strip() for p in positions if p.qty != 0.0}
+    unresolved = tuple(s for s in symbols.unresolved if s in held)
     history = _load_history(conn) if include_history else []
     cash = _load_cash(conn, snapshot_date)
     return PortfolioReport(
@@ -282,6 +294,7 @@ def build_report(
         include_history=include_history,
         include_concentration=include_concentration,
         unpriced=unpriced,
+        unresolved=unresolved,
     )
 
 

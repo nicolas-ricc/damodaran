@@ -18,6 +18,7 @@ from bot.portfolio.report import (
     render_alerts,
     render_portfolio,
 )
+from bot.portfolio.symbols import load_symbol_map
 from bot.storage.db import apply_schema
 
 D1 = date(2026, 5, 1)
@@ -134,20 +135,30 @@ def test_build_report_mixed_legs_same_ticker_unpriced(
     assert "AAPL" in report.unpriced
 
 
-def test_render_portfolio_shows_unpriced_notice() -> None:
-    report = PortfolioReport(
+def _one_position_report(
+    position: PositionRow,
+    *,
+    unpriced: tuple[str, ...] = (),
+    unresolved: tuple[str, ...] = (),
+) -> PortfolioReport:
+    return PortfolioReport(
         snapshot_date=D2,
-        positions=(PositionRow("ZZZ", 5.0, 40.0, None, "USD"),),
+        positions=(position,),
         concentration=(),
         history=(),
         cash=(),
-        total_market_value=200.0,
-        total_cost_basis=200.0,
+        total_market_value=position.market_value or position.cost_basis,
+        total_cost_basis=position.cost_basis,
         concentration_threshold=0.15,
         include_history=False,
         include_concentration=False,
-        unpriced=("ZZZ",),
+        unpriced=unpriced,
+        unresolved=unresolved,
     )
+
+
+def test_render_portfolio_shows_unpriced_notice() -> None:
+    report = _one_position_report(PositionRow("ZZZ", 5.0, 40.0, None, "USD"), unpriced=("ZZZ",))
     out = render_portfolio(report, generated_on=D2)
     assert "No market price for" in out
     assert "ZZZ" in out
@@ -273,3 +284,108 @@ def test_render_alerts_singular_event() -> None:
     events = [Event(EventType.DIVIDEND, "MSFT", D2, D1, {"amount": 0.75})]
     out = render_alerts(events, D2, generated_on=D2)
     assert "1 event detected today." in out
+
+
+def _company(conn: duckdb.DuckDBPyConnection, ticker: str) -> None:
+    conn.execute(
+        "INSERT INTO companies (ticker, name, source) VALUES (?, ?, 'sec_edgar')",
+        [ticker, f"{ticker} Corp"],
+    )
+
+
+def _brk_and_aapl(conn: duckdb.DuckDBPyConnection) -> None:
+    _insert(
+        conn,
+        D2,
+        [
+            ("BRK B", 1, 10.0, 300.0, 3500.0, "USD"),
+            ("AAPL", 2, 10.0, 100.0, 1300.0, "USD"),
+        ],
+    )
+
+
+def _unresolved_report(unresolved: tuple[str, ...]) -> PortfolioReport:
+    return _one_position_report(
+        PositionRow("BRK B", 10.0, 300.0, 3500.0, "USD"), unresolved=unresolved
+    )
+
+
+def test_build_report_share_class_resolves(conn: duckdb.DuckDBPyConnection) -> None:
+    _brk_and_aapl(conn)
+    _company(conn, "BRK-B")
+    _company(conn, "AAPL")
+    assert build_report(conn, D2).unresolved == ()
+
+
+def test_build_report_lists_unresolved(conn: duckdb.DuckDBPyConnection) -> None:
+    _brk_and_aapl(conn)
+    _company(conn, "AAPL")
+    assert build_report(conn, D2).unresolved == ("BRK B",)
+
+
+def test_build_report_ignored_symbol_not_unresolved(conn: duckdb.DuckDBPyConnection) -> None:
+    _brk_and_aapl(conn)
+    _company(conn, "AAPL")
+    symbols = load_symbol_map(conn, ["BRK B", "AAPL"], {"BRK B": None})
+    assert build_report(conn, D2, symbols=symbols).unresolved == ()
+
+
+def test_build_report_unresolved_sorted(conn: duckdb.DuckDBPyConnection) -> None:
+    _insert(
+        conn,
+        D2,
+        [
+            ("FOO", 1, 10.0, 10.0, 100.0, "USD"),
+            ("BRK B", 2, 10.0, 300.0, 3500.0, "USD"),
+            ("AAPL", 3, 10.0, 100.0, 1300.0, "USD"),
+        ],
+    )
+    _company(conn, "AAPL")
+    assert build_report(conn, D2).unresolved == ("BRK B", "FOO")
+
+
+def test_build_report_zero_qty_not_unresolved(conn: duckdb.DuckDBPyConnection) -> None:
+    _insert(
+        conn,
+        D2,
+        [
+            ("ZZZ", 1, 0.0, 10.0, 0.0, "USD"),
+            ("AAPL", 2, 10.0, 100.0, 1300.0, "USD"),
+        ],
+    )
+    _company(conn, "AAPL")
+    assert build_report(conn, D2).unresolved == ()
+
+
+def test_build_report_unresolved_keeps_positions_and_totals(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _brk_and_aapl(conn)
+    _company(conn, "AAPL")
+    report = build_report(conn, D2)
+    assert report.unresolved == ("BRK B",)
+    assert [p.ticker for p in report.positions] == ["AAPL", "BRK B"]
+    assert report.total_market_value == pytest.approx(4800.0)
+    assert report.total_cost_basis == pytest.approx(4000.0)
+    assert {c.ticker for c in report.concentration} == {"AAPL", "BRK B"}
+
+
+def test_render_portfolio_shows_unresolved_callout() -> None:
+    out = render_portfolio(_unresolved_report(("BRK B",)), generated_on=D2)
+    assert "Not in the universe: BRK B" in out
+    assert "config/broker_symbols.yaml" in out
+
+
+def test_render_portfolio_no_unresolved_callout() -> None:
+    out = render_portfolio(_unresolved_report(()), generated_on=D2)
+    assert "Not in the universe" not in out
+
+
+def test_render_portfolio_exact_unresolved_callout() -> None:
+    out = render_portfolio(_unresolved_report(("BRK B", "FOO")), generated_on=D2)
+    assert (
+        "> ⚠ Not in the universe: BRK B, FOO — no valuation, quality gates or filing "
+        "events for these holdings. Map each one to its universe ticker in "
+        "config/broker_symbols.yaml, or set it to ~ to mark it as intentionally "
+        "outside the universe."
+    ) in out
