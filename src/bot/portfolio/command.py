@@ -22,9 +22,9 @@
 5. builds + renders the full-state ``portfolio.md`` and the today-only
    ``alerts.md`` under ``reports/YYYY-MM-DD/`` (the same dated-directory
    convention as the other commands). ``portfolio.md`` names the unresolved
-   holdings (it gets the step-4 symbol map). ``alerts.md`` lists the day's logged
-   events (:func:`~bot.portfolio.events.load_events`), not only those just
-   computed.
+   holdings (it gets the step-4 symbol map). ``alerts.md`` lists the day's
+   logged events (:func:`~bot.portfolio.events.load_events`), not only those
+   just computed.
 
 ``alerts.md`` is always written, but is empty (zero bytes) when there are no
 events. Sending ``alerts.md`` is the CLI's job (``bot.notifier``, #32).
@@ -138,8 +138,9 @@ def run_portfolio(
             ``analyze_fn`` (it owns its own table).
         symbol_overrides: Broker symbol -> universe ticker overrides forwarded to
             ``sync_portfolio`` for the price lookup, and used to resolve held
-            symbols for ``mark_holdings`` (valuation, gates) and
-            ``compute_events`` (the filings join).
+            symbols for ``mark_holdings`` (valuation, gates),
+            ``compute_events`` (the filings join) and ``build_report`` (the
+            "Not in the universe" callout).
 
     Returns:
         A :class:`PortfolioRunResult` with the run summary and the two file paths.
