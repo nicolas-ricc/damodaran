@@ -11,7 +11,9 @@
    (:func:`~bot.ingest.ibkr_flex.upsert_corporate_actions`);
 3. appends the executions newer than the stored watermark via
    :func:`~bot.portfolio.trades.sync_trades` (de-duped on ``exec_id``);
-4. marks each holding (valuation + quality gates) via
+4. resolves the held broker symbols to universe tickers once
+   (:func:`~bot.portfolio.symbols.load_symbol_map`; unresolved ones log a
+   WARNING), marks each holding (valuation + quality gates) via
    :func:`~bot.portfolio.marks.mark_holdings`, then computes the §8.3 event
    stream against the previous snapshot via
    :func:`~bot.portfolio.events.compute_events` and persists it
@@ -40,6 +42,7 @@ from bot.ingest.ibkr_flex import CorporateActionRecord, upsert_corporate_actions
 from bot.portfolio.events import compute_events, load_events, persist_events
 from bot.portfolio.marks import mark_holdings
 from bot.portfolio.report import build_report, render_alerts, render_portfolio
+from bot.portfolio.symbols import held_symbols, load_symbol_map
 from bot.portfolio.sync import PortfolioSource, sync_portfolio
 from bot.portfolio.trades import TradeSource, sync_trades
 from bot.reference.broker_symbols import BrokerSymbolTable
@@ -133,7 +136,9 @@ def run_portfolio(
             lets the default valuator load it lazily. Ignored with an injected
             ``analyze_fn`` (it owns its own table).
         symbol_overrides: Broker symbol -> universe ticker overrides forwarded to
-            ``sync_portfolio`` for the price lookup.
+            ``sync_portfolio`` for the price lookup, and used to resolve held
+            symbols for ``mark_holdings`` (valuation, gates) and
+            ``compute_events`` (the filings join).
 
     Returns:
         A :class:`PortfolioRunResult` with the run summary and the two file paths.
@@ -162,16 +167,20 @@ def run_portfolio(
 
     # 4. Mark holdings, then diff against the previous snapshot and persist events.
     prev_date = _previous_snapshot_date(conn, snapshot_date)
+    symbols = load_symbol_map(conn, held_symbols(conn, snapshot_date), symbol_overrides)
+    if symbols.unresolved:
+        log.warning("portfolio_symbols_unresolved", symbols=list(symbols.unresolved))
     mark_holdings(
         conn,
         snapshot_date,
+        symbols=symbols,
         analyze_fn=analyze_fn,
         quality_gates=quality_gates,
         assumptions_dir=assumptions_dir,
         currencies=currencies,
         default_spreads=default_spreads,
     )
-    events = compute_events(conn, prev_date, snapshot_date)
+    events = compute_events(conn, prev_date, snapshot_date, symbols=symbols)
     logged = persist_events(conn, events)
     day_events = load_events(conn, snapshot_date)
 
