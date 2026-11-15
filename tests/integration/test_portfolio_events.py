@@ -20,6 +20,7 @@ from bot.portfolio.events import (
     persist_events,
 )
 from bot.portfolio.marks import HoldingMark, load_red_flag_baselines, persist_marks
+from bot.portfolio.symbols import load_symbol_map
 from bot.storage.db import apply_schema
 
 PREV = date(2026, 5, 1)
@@ -440,3 +441,68 @@ def test_baseline_date_survives_persist(conn: duckdb.DuckDBPyConnection) -> None
         "FROM events_log WHERE event_type = 'new_red_flag'"
     ).fetchone()
     assert row == ("2026-05-01",)
+
+
+# --------------------------------------------------------------------------- #
+# filings_log joined on the universe ticker (#339)                              #
+# --------------------------------------------------------------------------- #
+
+_FILLER = [f"T{i:02d}" for i in range(2, 10)]
+
+
+def _company(conn: duckdb.DuckDBPyConnection, ticker: str) -> None:
+    conn.execute(
+        "INSERT INTO companies (ticker, name, source) VALUES (?, ?, 'fmp')",
+        [ticker, f"{ticker} Corp"],
+    )
+
+
+def _hold_both_days(conn: duckdb.DuckDBPyConnection, symbols: list[str]) -> None:
+    for day in (PREV, CURR):
+        _insert_snapshot(conn, day, [(t, 100.0, 1000.0, "USD") for t in symbols + _FILLER])
+
+
+def _filings(events: list[Event]) -> list[str]:
+    return sorted(e.ticker for e in events if e.event_type is EventType.NEW_FILING)
+
+
+def test_share_class_holding_gets_the_universe_filing_once(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _hold_both_days(conn, ["BRK B", "T01"])
+    _company(conn, "BRK-B")
+    _insert_filing(conn, "BRK-B", "10-K", CURR, "k", fetched_on=CURR)
+    persist_marks(conn, CURR, [HoldingMark("BRK B")])
+
+    first = compute_events(conn, PREV, CURR)
+    assert [(e.event_type, e.ticker) for e in first] == [(EventType.NEW_FILING, "BRK B")]
+    persist_events(conn, first)
+
+    assert compute_events(conn, PREV, CURR) == []
+
+
+def test_two_broker_symbols_for_one_ticker_each_get_the_filing(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _hold_both_days(conn, ["BRK B", "BRK.B"])
+    _company(conn, "BRK-B")
+    _insert_filing(conn, "BRK-B", "10-K", CURR, "k", fetched_on=CURR)
+    symbols = load_symbol_map(conn, ["BRK B", "BRK.B"], {})
+
+    first = compute_events(conn, PREV, CURR, symbols=symbols)
+    assert _filings(first) == ["BRK B", "BRK.B"]
+    persist_events(conn, first)
+
+    assert _filings(compute_events(conn, PREV, CURR, symbols=symbols)) == []
+
+
+def test_override_maps_the_filing_back_to_the_broker_symbol(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _hold_both_days(conn, ["APPLE", "T01"])
+    _company(conn, "AAPL")
+    _insert_filing(conn, "AAPL", "10-Q", CURR, "q", fetched_on=CURR)
+    symbols = load_symbol_map(conn, ["APPLE"], {"APPLE": "AAPL"})
+
+    assert _filings(compute_events(conn, PREV, CURR, symbols=symbols)) == ["APPLE"]
+    assert _filings(compute_events(conn, PREV, CURR)) == []

@@ -20,6 +20,7 @@ from bot.portfolio.marks import (
     mark_holdings,
     persist_marks,
 )
+from bot.portfolio.symbols import resolve_symbols
 from bot.screener.engine import load_holding_inputs
 from bot.screener.rules import MinMarketCap, ROICAboveSectorWACC
 from bot.storage.db import apply_schema
@@ -474,3 +475,95 @@ def test_mark_holdings_unreadable_override_leaves_the_holding_unvalued(
     (mark,) = mark_holdings(conn, DAY, assumptions_dir=tmp_path)
 
     assert mark.intrinsic_value is None
+
+
+# --------------------------------------------------------------------------- #
+# Broker symbol -> universe ticker (#339)                                      #
+# --------------------------------------------------------------------------- #
+
+
+def _recording(results: dict[str, _Analysis], calls: list[str]) -> AnalyzeFn:
+    inner = _analyze_with(results)
+
+    def fn(
+        ticker: str, conn: duckdb.DuckDBPyConnection, *, price_as_of: date | None = None
+    ) -> _Analysis:
+        calls.append(ticker)
+        return cast(_Analysis, inner(ticker, conn, price_as_of=price_as_of))
+
+    return cast(AnalyzeFn, fn)
+
+
+def test_mark_holdings_values_a_share_class_on_the_universe_ticker(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _hold(conn, "BRK B")
+    _seed_company(conn, "BRK-B")
+    calls: list[str] = []
+    analyze_fn = _recording(
+        {"BRK-B": _Analysis("BRK-B", _DCF(120.0), current_price=100.0)}, calls
+    )
+
+    mark_holdings(
+        conn, DAY, analyze_fn=analyze_fn, quality_gates=[MinMarketCap(minimum_usd=1e12)]
+    )
+
+    assert calls == ["BRK-B"]
+    rows = conn.execute(
+        "SELECT ticker, intrinsic_value, red_flags, failed_gates FROM holding_marks"
+    ).fetchall()
+    assert len(rows) == 1
+    ticker, intrinsic_value, red_flags, failed_gates = rows[0]
+    assert ticker == "BRK B"
+    assert intrinsic_value == 120.0
+    assert red_flags is not None
+    assert failed_gates is not None
+
+
+def test_mark_holdings_override_routes_the_valuator_and_assumptions_file(
+    conn: duckdb.DuckDBPyConnection,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    override = tmp_path / "AAPL.yaml"
+    override.write_text("story_type: mature-stable\n")
+    seen: dict[str, Path | None] = {}
+
+    def fake_analyze(
+        ticker: str,
+        _conn: duckdb.DuckDBPyConnection,
+        override_path: Path | None = None,
+        **_kwargs: object,
+    ) -> _Analysis:
+        seen[ticker] = override_path
+        return _Analysis(ticker, _DCF(1.0), current_price=1.0)
+
+    monkeypatch.setattr("bot.valuator.analysis.analyze", fake_analyze)
+    _hold(conn, "APPLE")
+    _seed_company(conn, "AAPL")
+    symbols = resolve_symbols(["APPLE"], {"AAPL"}, {"APPLE": "AAPL"})
+
+    mark_holdings(conn, DAY, assumptions_dir=tmp_path, symbols=symbols)
+
+    assert seen == {"AAPL": override}
+    assert set(load_marks(conn, DAY)) == {"APPLE"}
+    assert conn.execute("SELECT DISTINCT ticker FROM portfolio_snapshots").fetchall() == [
+        ("APPLE",)
+    ]
+
+
+def test_mark_holdings_symbol_absent_from_the_map_falls_through(
+    conn: duckdb.DuckDBPyConnection,
+) -> None:
+    _hold(conn, "ZZZ")
+    calls: list[str] = []
+
+    (mark,) = mark_holdings(
+        conn,
+        DAY,
+        analyze_fn=_recording({}, calls),
+        symbols=resolve_symbols([], set(), {}),
+    )
+
+    assert calls == ["ZZZ"]
+    assert mark == HoldingMark(ticker="ZZZ")

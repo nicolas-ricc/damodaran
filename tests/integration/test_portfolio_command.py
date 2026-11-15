@@ -617,3 +617,104 @@ def test_run_portfolio_forwards_symbol_overrides(
     )
 
     assert seen["symbol_overrides"] == {"OLDCO": "NEWCO"}
+
+
+# --------------------------------------------------------------------------- #
+# Broker symbols resolved to universe tickers (#339)                            #
+# --------------------------------------------------------------------------- #
+
+
+def _book(*symbols: str) -> _FakeFlexClient:
+    return _FakeFlexClient(
+        positions=[_position(s, i, 10.0, 300.0) for i, s in enumerate(symbols, 1)],
+        cash=[CashBalance(account="DU1", currency="USD", amount=5000.0)],
+    )
+
+
+def _company(conn: duckdb.DuckDBPyConnection, ticker: str) -> None:
+    conn.execute(
+        "INSERT INTO companies (ticker, name, source) VALUES (?, ?, 'fmp')",
+        [ticker, f"{ticker} Corp"],
+    )
+
+
+def _valued_only(known: set[str], iv: float) -> AnalyzeFn:
+    def fn(
+        ticker: str, _conn: duckdb.DuckDBPyConnection, *, price_as_of: date | None = None
+    ) -> _Analysis:
+        if ticker not in known:
+            raise LookupError(ticker)
+        return _Analysis(ticker, _DCF(iv), current_price=100.0)
+
+    return cast(AnalyzeFn, fn)
+
+
+def _unresolved_logs(logs: list[dict[str, object]]) -> list[dict[str, object]]:
+    return [e for e in logs if e["event"] == "portfolio_symbols_unresolved"]
+
+
+def test_share_class_holding_is_valued_and_gets_its_filing(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _company(conn, "BRK-B")
+    _company(conn, "MSFT")
+    _insert_filing(conn, "BRK-B", "10-K", TODAY, fetched_at=TODAY)
+
+    result = run_portfolio(
+        conn,
+        _book("BRK B", "MSFT"),
+        reports_dir=tmp_path,
+        today=TODAY,
+        analyze_fn=_valued_only({"BRK-B", "MSFT"}, 150.0),
+    )
+
+    row = conn.execute(
+        "SELECT intrinsic_value FROM holding_marks WHERE ticker = 'BRK B'"
+    ).fetchone()
+    assert row == (150.0,)
+    assert "| new_filing | BRK B |" in result.alerts_path.read_text()
+
+
+def test_unresolved_symbol_is_logged(conn: duckdb.DuckDBPyConnection, tmp_path: Path) -> None:
+    _company(conn, "MSFT")
+
+    with capture_logs() as logs:
+        run_portfolio(
+            conn, _book("ZZZQ", "MSFT"), reports_dir=tmp_path, today=TODAY, analyze_fn=_no_analyze
+        )
+
+    (entry,) = _unresolved_logs(logs)
+    assert entry["log_level"] == "warning"
+    assert entry["symbols"] == ["ZZZQ"]
+
+
+def test_fully_resolved_run_logs_no_unresolved(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _company(conn, "ZZZQ")
+    _company(conn, "MSFT")
+
+    with capture_logs() as logs:
+        run_portfolio(
+            conn, _book("ZZZQ", "MSFT"), reports_dir=tmp_path, today=TODAY, analyze_fn=_no_analyze
+        )
+
+    assert _unresolved_logs(logs) == []
+
+
+def test_ignored_symbol_is_not_reported_unresolved(
+    conn: duckdb.DuckDBPyConnection, tmp_path: Path
+) -> None:
+    _company(conn, "MSFT")
+
+    with capture_logs() as logs:
+        run_portfolio(
+            conn,
+            _book("ZZZQ", "MSFT"),
+            reports_dir=tmp_path,
+            today=TODAY,
+            analyze_fn=_no_analyze,
+            symbol_overrides={"ZZZQ": None},
+        )
+
+    assert _unresolved_logs(logs) == []
