@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12, DuckDB, Jinja2, pytest, mypy --strict, ruff.
 
-**Spec:** GitHub issue #340 (parent story #84; shared decisions quoted in #340's body). Vocabulary in `CONTEXT.md` and in #340 (Broker symbol, Universe ticker).
+**Spec:** GitHub issue #340 (parent story #84; shared decisions quoted in #340's body). Vocabulary (Broker symbol, Universe ticker) is defined in #340's body, not in `CONTEXT.md`.
 
 ## Global Constraints
 
@@ -28,6 +28,8 @@
 2. Membership is checked on the upper-cased, stripped position ticker against `symbols.unresolved` (which `resolve_symbols` stores stripped and upper-cased); the listed spelling is the one in `symbols.unresolved`.
 3. An explicit `symbols` map is trusted as given: a held symbol absent from it is not listed (it is neither in `unresolved` nor computed again). `run_portfolio` always builds its map from `held_symbols` of the same snapshot, so in practice every held symbol is in it.
 4. Docs boards (`docs/pipeline/*.d2`, `docs/plano/`) are not updated, as the #84 plan states; nothing they cite is renamed.
+5. Task 1 lands before Task 2 in the same PR. Between the two commits, `run_portfolio` would list `~`-ignored symbols (the default map has no overrides); that state never reaches the base branch alone. Rejected alternative: one combined commit, which loses the separate test cycle.
+6. No rerun assertion on `portfolio.md` is added: the issue does not ask for one, and the file is rewritten from the DB on each run.
 
 ## Review Focus
 
@@ -35,7 +37,7 @@
 2. A zero-quantity unresolved row on the snapshot is not listed. Pinned by `test_build_report_zero_qty_not_unresolved` (Task 1).
 3. Several unresolved symbols come out sorted and comma-separated in the callout. Pinned by `test_render_portfolio_lists_unresolved_sorted` (Task 1).
 4. The positions table keeps the broker symbol for an unresolved holding. Pinned by `test_build_report_unresolved_keeps_positions_and_totals` (Task 1).
-5. A same-day re-run writes the callout again (report rebuilt from the DB, not from in-memory state). Covered by construction: `build_report` reads the snapshot each run.
+5. A same-day re-run writes the callout again. Not pinned by a test: `build_report` re-reads the snapshot and `run_portfolio` rebuilds the map on every run (`src/bot/portfolio/command.py:170`), and no existing #83 rerun test reads `portfolio.md`; see Assumption 6.
 
 ---
 
@@ -102,3 +104,18 @@
   Expected: all pass.
 
 - [ ] **Step 5: Commit** `feat(#340): run_portfolio passes its symbol map to the report`
+
+## Grilling
+
+- Rounds: 1 (revisions were wording and assumptions only, no step added or removed, so no second round).
+- Questions: 15. Sources: ISSUE 4, CODE 11, DOC 0, NO SOURCE 2 (both technical assumptions: 5 and 6 above).
+- Answers worth keeping:
+  - Upper-casing: Flex ingest stores `symbol.upper()` (`src/bot/ingest/ibkr_flex.py:142`); `_load_position_rows` builds `ticker=str(ticker).upper()` (`src/bot/portfolio/report.py`); `resolve_symbols` stores `strip().upper()` (`src/bot/portfolio/symbols.py`).
+  - Sort: `unresolved=tuple(sorted(unresolved))` (`src/bot/portfolio/symbols.py`), typed `tuple[str, ...]`.
+  - `held_symbols` has no quantity filter (`SELECT DISTINCT UPPER(ticker) ... WHERE snapshot_date = ?`), hence the `qty != 0` filter on positions and `test_build_report_zero_qty_not_unresolved`.
+  - `load_symbol_map` only queries `companies`; it reads no file and does not log, so `build_report` stays a pure reader.
+  - Same snapshot: `run_portfolio` builds the map with `held_symbols(conn, snapshot_date)` and calls `build_report(conn, snapshot_date, ...)` with the same variable (`src/bot/portfolio/command.py:170-196`).
+  - Empty snapshot: `held_symbols` returns `[]`, `resolve_symbols([])` an empty map; `test_build_report_empty_snapshot` runs that default path.
+  - `test_portfolio_run_steps_match_code` only compares `source.index(...)` positions (`tests/unit/test_pipeline_diagram.py:2248-2262`).
+  - Callout copy, glyph, path and `~`: ISSUE Scope 3 verbatim; the unpriced callout uses the same `> ⚠` form (`portfolio.md.j2`).
+- Follow-up issues opened: none.
