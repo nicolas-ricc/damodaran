@@ -12,7 +12,7 @@ back: |md back to the portfolio board | {
 # @symbol bot.portfolio.events.persist_events
 logged: "its events are in the events log\na same-day re-run logs only events not logged yet" {class: step}
 # @symbol bot.portfolio.report.render_portfolio @const bot.portfolio.events.DEFAULT_CONCENTRATION_THRESHOLD
-portfolio_written: "portfolio.md is written\nprofit and loss (P&L) and concentration are in it\nP&L = market value − quantity × average cost; unpriced: P&L unknown\nconcentration weight = market value ÷ total of positions with a market value > 0; flagged above 15%\n--history: P&L per snapshot; --concentration: the breakdown list\nsuggested review: each flagged position, consider trimming" {class: decision}
+portfolio_written: "portfolio.md is written\nprofit and loss (P&L) and concentration are in it\nP&L = market value − quantity × average cost; unpriced: P&L unknown\nconcentration weight = market value ÷ total of positions with a market value > 0; flagged above 15%\n--history: P&L per snapshot; --concentration: the breakdown list\ndetected events: all of today's events, those observed at Interactive Brokers (IBKR) included, the same table as alerts.md\nsuggested review: each flagged position, consider trimming,\nthen one per derived event except concentration, with its action: new filing, read it and run bot analyze;\nintrinsic value crossed price, review whether to add or trim; new red flag, re-read the story;\nbelow quality gate, review the thesis; sector recalibrated, re-check the margin of safety\nIBKR-observed events never suggest a review" {class: decision}
 # @symbol bot.portfolio.report.render_alerts
 alerts_written: "alerts.md is written\nalways written; an empty file when there are no events" {class: decision}
 # @symbol bot.notifier.notify_alerts
@@ -34,6 +34,7 @@ cash_balances: {class: store}  # @table cash_balances
 # Files
 portfolio_template: "src/bot/reporting/templates/portfolio.md.j2" {class: file}  # @file src/bot/reporting/templates/portfolio.md.j2
 alerts_template: "src/bot/reporting/templates/alerts.md.j2" {class: file}  # @file src/bot/reporting/templates/alerts.md.j2
+events_table: "src/bot/reporting/templates/events_table.md.j2" {class: file}  # @file src/bot/reporting/templates/events_table.md.j2
 
 # Outputs
 portfolio_md: "reports/YYYY-MM-DD/portfolio.md" {class: output}
@@ -55,6 +56,8 @@ portfolio_snapshots -> portfolio_written: "positions and history"
 cash_balances -> portfolio_written: "cash"
 portfolio_template -> portfolio_written: "layout"
 alerts_template -> alerts_written: "layout"
+events_table -> portfolio_written: "layout"
+events_table -> alerts_written: "layout"
 portfolio_written -> portfolio_md: "markdown file [always]"
 alerts_written -> alerts_md: "markdown file [always]"
 sent -> channels: "the text of alerts.md, when not blank"
